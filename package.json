@@ -1,0 +1,46 @@
+{
+  "name": "company-service",
+  "version": "1.0.0",
+  "description": "A microservice to handle company information and media assets.",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "migrate": "dotenv -- node-pg-migrate",
+    "migrate:create": "npm run migrate -- create --",
+    "migrate:up:local": "npm run migrate -- up",
+    "migrate:up:prod": "npm run migrate -- up --database-url-var=DATABASE_URL_PRODUCTION",
+    "analyze:existing": "ts-node src/scripts/analyze-existing-media-assets.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.13.1",
+  "dependencies": {
+    "@google/generative-ai": "^0.14.1",
+    "@supabase/supabase-js": "^2.57.4",
+    "axios": "^1.12.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "googleapis": "^161.0.0",
+    "heic-convert": "^2.1.0",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "sharp": "^0.34.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.23",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.15.5",
+    "dotenv-cli": "^10.0.0",
+    "node-pg-migrate": "^8.0.3",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}

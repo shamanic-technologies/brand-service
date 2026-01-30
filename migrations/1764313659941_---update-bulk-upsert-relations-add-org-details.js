@@ -1,0 +1,241 @@
+/* eslint-disable camelcase */
+
+exports.shorthands = undefined;
+
+exports.up = (pgm) => {
+  pgm.sql(`
+    DROP FUNCTION IF EXISTS bulk_upsert_organization_relations(text, jsonb);
+
+    CREATE OR REPLACE FUNCTION bulk_upsert_organization_relations(
+      p_source_external_organization_id text,
+      p_relations_data jsonb
+    )
+    RETURNS SETOF organization_relations
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      v_source_org_id UUID;
+      v_relation_record JSONB;
+      v_target_org_id UUID;
+      v_target_domain TEXT;
+    BEGIN
+      -- 1. Find source organization by external_organization_id
+      SELECT id INTO v_source_org_id
+      FROM organizations
+      WHERE external_organization_id = p_source_external_organization_id;
+
+      IF v_source_org_id IS NULL THEN
+        RAISE EXCEPTION 'Source organization not found with external_organization_id: %', p_source_external_organization_id;
+      END IF;
+
+      -- 2. Validate input is array
+      IF jsonb_typeof(p_relations_data) != 'array' THEN
+        RAISE EXCEPTION 'p_relations_data must be a JSON array';
+      END IF;
+
+      -- 3. Loop through each relation record
+      FOR v_relation_record IN SELECT * FROM jsonb_array_elements(p_relations_data)
+      LOOP
+        -- Extract domain from target URL
+        v_target_domain := extract_domain_from_url(v_relation_record->>'target_organization_url');
+
+        -- Upsert target organization with ALL details
+        INSERT INTO organizations (
+          name,
+          url,
+          organization_linkedin_url,
+          domain,
+          external_organization_id,
+          location,
+          bio,
+          elevator_pitch,
+          mission,
+          story,
+          offerings,
+          problem_solution,
+          goals,
+          categories,
+          founded_date,
+          contact_name,
+          contact_email,
+          contact_phone,
+          social_media,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          v_relation_record->>'target_organization_name',
+          v_relation_record->>'target_organization_url',
+          v_relation_record->>'target_organization_linkedin_url',
+          v_target_domain,
+          gen_random_uuid()::text,
+          v_relation_record->>'location',
+          v_relation_record->>'bio',
+          v_relation_record->>'elevator_pitch',
+          v_relation_record->>'mission',
+          v_relation_record->>'story',
+          v_relation_record->>'offerings',
+          v_relation_record->>'problem_solution',
+          v_relation_record->>'goals',
+          v_relation_record->>'categories',
+          CASE 
+            WHEN v_relation_record->>'founded_date' IS NOT NULL AND v_relation_record->>'founded_date' != '' 
+            THEN (v_relation_record->>'founded_date')::date
+            ELSE NULL
+          END,
+          v_relation_record->>'contact_name',
+          v_relation_record->>'contact_email',
+          v_relation_record->>'contact_phone',
+          CASE 
+            WHEN v_relation_record->'social_media' IS NOT NULL 
+            THEN v_relation_record->'social_media'
+            ELSE NULL
+          END,
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (domain) WHERE domain IS NOT NULL
+        DO UPDATE SET
+          name = COALESCE(EXCLUDED.name, organizations.name),
+          url = COALESCE(EXCLUDED.url, organizations.url),
+          organization_linkedin_url = COALESCE(EXCLUDED.organization_linkedin_url, organizations.organization_linkedin_url),
+          location = COALESCE(EXCLUDED.location, organizations.location),
+          bio = COALESCE(EXCLUDED.bio, organizations.bio),
+          elevator_pitch = COALESCE(EXCLUDED.elevator_pitch, organizations.elevator_pitch),
+          mission = COALESCE(EXCLUDED.mission, organizations.mission),
+          story = COALESCE(EXCLUDED.story, organizations.story),
+          offerings = COALESCE(EXCLUDED.offerings, organizations.offerings),
+          problem_solution = COALESCE(EXCLUDED.problem_solution, organizations.problem_solution),
+          goals = COALESCE(EXCLUDED.goals, organizations.goals),
+          categories = COALESCE(EXCLUDED.categories, organizations.categories),
+          founded_date = COALESCE(EXCLUDED.founded_date, organizations.founded_date),
+          contact_name = COALESCE(EXCLUDED.contact_name, organizations.contact_name),
+          contact_email = COALESCE(EXCLUDED.contact_email, organizations.contact_email),
+          contact_phone = COALESCE(EXCLUDED.contact_phone, organizations.contact_phone),
+          social_media = COALESCE(EXCLUDED.social_media, organizations.social_media),
+          updated_at = NOW()
+        RETURNING id INTO v_target_org_id;
+
+        -- Upsert relation between source and target
+        RETURN QUERY
+        INSERT INTO organization_relations (
+          source_organization_id,
+          target_organization_id,
+          relation_type,
+          relation_confidence_level,
+          relation_confidence_rationale,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          v_source_org_id,
+          v_target_org_id,
+          (v_relation_record->>'relation_type')::organization_relation_type,
+          v_relation_record->>'relation_confidence_level',
+          v_relation_record->>'relation_confidence_rationale',
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (source_organization_id, target_organization_id)
+        DO UPDATE SET
+          relation_type = COALESCE(EXCLUDED.relation_type, organization_relations.relation_type),
+          relation_confidence_level = COALESCE(EXCLUDED.relation_confidence_level, organization_relations.relation_confidence_level),
+          relation_confidence_rationale = COALESCE(EXCLUDED.relation_confidence_rationale, organization_relations.relation_confidence_rationale),
+          updated_at = NOW()
+        RETURNING *;
+      END LOOP;
+    END;
+    $$;
+  `);
+};
+
+exports.down = (pgm) => {
+  pgm.sql(`
+    DROP FUNCTION IF EXISTS bulk_upsert_organization_relations(text, jsonb);
+
+    CREATE OR REPLACE FUNCTION bulk_upsert_organization_relations(
+      p_source_external_organization_id text,
+      p_relations_data jsonb
+    )
+    RETURNS SETOF organization_relations
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      v_source_org_id UUID;
+      v_relation_record JSONB;
+      v_target_org_id UUID;
+      v_target_domain TEXT;
+    BEGIN
+      SELECT id INTO v_source_org_id
+      FROM organizations
+      WHERE external_organization_id = p_source_external_organization_id;
+
+      IF v_source_org_id IS NULL THEN
+        RAISE EXCEPTION 'Source organization not found with external_organization_id: %', p_source_external_organization_id;
+      END IF;
+
+      IF jsonb_typeof(p_relations_data) != 'array' THEN
+        RAISE EXCEPTION 'p_relations_data must be a JSON array';
+      END IF;
+
+      FOR v_relation_record IN SELECT * FROM jsonb_array_elements(p_relations_data)
+      LOOP
+        v_target_domain := extract_domain_from_url(v_relation_record->>'target_organization_url');
+
+        INSERT INTO organizations (
+          name,
+          url,
+          organization_linkedin_url,
+          domain,
+          external_organization_id,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          v_relation_record->>'target_organization_name',
+          v_relation_record->>'target_organization_url',
+          v_relation_record->>'target_organization_linkedin_url',
+          v_target_domain,
+          gen_random_uuid()::text,
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (domain) WHERE domain IS NOT NULL
+        DO UPDATE SET
+          name = COALESCE(EXCLUDED.name, organizations.name),
+          url = COALESCE(EXCLUDED.url, organizations.url),
+          organization_linkedin_url = COALESCE(EXCLUDED.organization_linkedin_url, organizations.organization_linkedin_url),
+          updated_at = NOW()
+        RETURNING id INTO v_target_org_id;
+
+        RETURN QUERY
+        INSERT INTO organization_relations (
+          source_organization_id,
+          target_organization_id,
+          relation_type,
+          relation_confidence_level,
+          relation_confidence_rationale,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          v_source_org_id,
+          v_target_org_id,
+          (v_relation_record->>'relation_type')::organization_relation_type,
+          v_relation_record->>'relation_confidence_level',
+          v_relation_record->>'relation_confidence_rationale',
+          NOW(),
+          NOW()
+        )
+        ON CONFLICT (source_organization_id, target_organization_id)
+        DO UPDATE SET
+          relation_type = COALESCE(EXCLUDED.relation_type, organization_relations.relation_type),
+          relation_confidence_level = COALESCE(EXCLUDED.relation_confidence_level, organization_relations.relation_confidence_level),
+          relation_confidence_rationale = COALESCE(EXCLUDED.relation_confidence_rationale, organization_relations.relation_confidence_rationale),
+          updated_at = NOW()
+        RETURNING *;
+      END LOOP;
+    END;
+    $$;
+  `);
+};

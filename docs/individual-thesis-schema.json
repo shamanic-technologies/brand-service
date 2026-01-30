@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "required": [
+    "theses"
+  ],
+  "properties": {
+    "theses": {
+      "type": "array",
+      "description": "Array of thesis statements generated for individuals in the organization",
+      "items": {
+        "type": "object",
+        "required": [
+          "individual_id",
+          "contrarian_level",
+          "thesis_html",
+          "thesis_supporting_evidence_html"
+        ],
+        "properties": {
+          "individual_id": {
+            "type": "string",
+            "description": "The UUID of the individual from the individuals table. This will be used to associate the thesis with the correct person in the database."
+          },
+          "contrarian_level": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The contrarian level (1-10) this thesis belongs to. 1 = mainstream industry view, 10 = radically contrarian, boundary-pushing perspective."
+          },
+          "thesis_html": {
+            "type": "string",
+            "description": "The actual thesis statement attributed to this individual, formatted as HTML. MUST use ONLY valid HTML tags, NEVER use Markdown syntax. Should be 1 short sentence that captures their unique perspective on the contrarian idea. Must sound natural and authentic to how this person would speak based on their background and content."
+          },
+          "thesis_supporting_evidence_html": {
+            "type": "string",
+            "description": "One sentence explaining the evidence or credibility behind this thesis. MUST use ONLY valid HTML tags (e.g., <strong>, <em>). NEVER use Markdown syntax. Reference specific content, data, experience, or work from this individual that supports the thesis. Always in English."
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "required": [
+    "theses"
+  ],
+  "properties": {
+    "theses": {
+      "type": "array",
+      "description": "Array of thesis statements generated for the organization",
+      "items": {
+        "type": "object",
+        "required": [
+          "contrarian_level",
+          "thesis_html",
+          "thesis_supporting_evidence_html"
+        ],
+        "properties": {
+          "contrarian_level": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "The contrarian level (1-10) this thesis belongs to. 1 = mainstream industry view, 10 = radically contrarian, boundary-pushing perspective."
+          },
+          "thesis_html": {
+            "type": "string",
+            "description": "The actual thesis statement or headline, formatted as HTML. MUST use ONLY valid HTML tags (e.g., <strong>, <em>). NEVER use Markdown syntax. It should be a short, punchy sentence or headline that captures the unique perspective."
+          },
+          "thesis_supporting_evidence_html": {
+            "type": "string",
+            "description": "One sentence explaining the evidence or credibility behind this thesis and why this organization/leader is the best to speak on it. MUST use ONLY valid HTML tags. NEVER use Markdown syntax. Reference specific content, data, or experience."
+          }
+        }
+      }
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
