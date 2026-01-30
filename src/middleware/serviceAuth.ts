@@ -3,6 +3,8 @@ import { Request, Response, NextFunction } from 'express';
 /**
  * Middleware for service-to-service authentication
  * Used by other microservices (mcpfactory, etc.) to call this service
+ * 
+ * Uses COMPANY_SERVICE_API_KEY env var
  */
 export function serviceAuth(req: Request, res: Response, next: NextFunction) {
   // Skip auth for health check
@@ -11,10 +13,10 @@ export function serviceAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   const serviceSecret = req.headers['x-service-secret'];
-  const validSecret = process.env.SERVICE_SECRET_KEY;
+  const validSecret = process.env.COMPANY_SERVICE_API_KEY;
 
   if (!validSecret) {
-    console.error('SERVICE_SECRET_KEY not configured in environment variables');
+    console.error('COMPANY_SERVICE_API_KEY not configured in environment variables');
     return res.status(500).json({ 
       error: 'Server configuration error' 
     });
@@ -39,6 +41,10 @@ export function serviceAuth(req: Request, res: Response, next: NextFunction) {
 /**
  * Combined auth middleware that accepts either API key or service secret
  * This allows both ai-pr (API key) and mcpfactory (service secret) to call this service
+ * 
+ * Uses:
+ * - COMPANY_SERVICE_API_KEY for service-to-service auth (X-Service-Secret header)
+ * - API_KEY for legacy ai-pr auth (X-API-Key header) - deprecated
  */
 export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   // Skip auth for health check
@@ -49,10 +55,10 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   const apiKey = req.headers['x-api-key'];
   const serviceSecret = req.headers['x-service-secret'];
   
-  const validApiKey = process.env.API_KEY;
-  const validServiceSecret = process.env.SERVICE_SECRET_KEY;
+  const validApiKey = process.env.API_KEY; // Legacy, for ai-pr backward compat
+  const validServiceSecret = process.env.COMPANY_SERVICE_API_KEY;
 
-  // Check API key first (ai-pr)
+  // Check API key first (ai-pr legacy)
   if (apiKey && validApiKey && apiKey === validApiKey) {
     return next();
   }
