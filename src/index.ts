@@ -16,29 +16,10 @@ import usersRoutes from './routes/users.routes';
 const app = express();
 const port = process.env.PORT || 3005;
 
-// CORS configuration
-const allowedOrigins = [
-  'http://localhost:3001',  
-  'http://localhost:3002',
-  'http://localhost:3003',
-  'https://app.pressbeat.io',
-  'https://admin.pressbeat.io',
-  'https://dashboard.mcpfactory.org',
-  'https://mcpfactory.org',
-  process.env.ALLOWED_ORIGIN, // Allow custom origin from env
-].filter(Boolean);
-
+// CORS configuration - service-to-service calls don't need CORS
+// API key auth is sufficient protection
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, or service-to-service calls)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true, // Allow all origins - auth is via COMPANY_SERVICE_API_KEY
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Service-Secret', 'X-External-Organization-Id'],

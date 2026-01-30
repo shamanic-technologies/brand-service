@@ -1,7 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 
 /**
- * Middleware to validate API key for all requests
+ * Legacy middleware to validate API key for all requests
+ * Uses COMPANY_SERVICE_API_KEY (or legacy API_KEY for backward compat)
+ * 
+ * @deprecated Use combinedAuth from serviceAuth.ts instead
  */
 export function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
   // Skip auth for health check
@@ -10,10 +13,10 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   const apiKey = req.headers['x-api-key'];
-  const validApiKey = process.env.API_KEY;
+  const validApiKey = process.env.COMPANY_SERVICE_API_KEY || process.env.API_KEY;
 
   if (!validApiKey) {
-    console.error('API_KEY not configured in environment variables');
+    console.error('COMPANY_SERVICE_API_KEY not configured in environment variables');
     return res.status(500).json({ 
       error: 'Server configuration error' 
     });
