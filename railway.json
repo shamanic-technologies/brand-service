@@ -1,16 +1,11 @@
 {
-  "$schema": "https://railway.com/railway.schema.json",
+  "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "./apps/company-service/Dockerfile",
-    "watchPatterns": [
-      "/apps/company-service/**",
-      "/pnpm-lock.yaml"
-    ]
+    "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "releaseCommand": "pnpm migrate:up",
-    "healthcheckPath": "/health",
-    "healthcheckTimeout": 10
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
   }
 }
