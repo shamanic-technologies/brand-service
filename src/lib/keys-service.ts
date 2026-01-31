@@ -27,10 +27,10 @@ export async function getKeyForOrg(
   // BYOK - fetch from keys-service
   try {
     const response = await axios.get(
-      `${KEYS_SERVICE_URL}/internal/keys/${provider}`,
+      `${KEYS_SERVICE_URL}/internal/keys/${provider}/decrypt`,
       {
+        params: { clerkOrgId },
         headers: {
-          'X-Clerk-Org-Id': clerkOrgId,
           'Content-Type': 'application/json',
         },
         timeout: 10000,
