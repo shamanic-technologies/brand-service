@@ -1,10 +1,11 @@
 import axios from 'axios';
 
-const KEYS_SERVICE_URL = process.env.KEYS_SERVICE_URL || 'http://localhost:3001';
+const API_SERVICE_URL = process.env.API_SERVICE_URL || 'http://localhost:3000';
+const API_SERVICE_API_KEY = process.env.API_SERVICE_API_KEY;
 const PLATFORM_ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
 /**
- * Get API key for an organization from keys-service
+ * Get API key for an organization via api-service
  * 
  * @param clerkOrgId - The Clerk organization ID
  * @param provider - The provider (e.g., "anthropic", "openai")
@@ -24,14 +25,15 @@ export async function getKeyForOrg(
     return null;
   }
 
-  // BYOK - fetch from keys-service
+  // BYOK - fetch via api-service
   try {
     const response = await axios.get(
-      `${KEYS_SERVICE_URL}/internal/keys/${provider}/decrypt`,
+      `${API_SERVICE_URL}/internal/keys/${provider}/decrypt`,
       {
         params: { clerkOrgId },
         headers: {
           'Content-Type': 'application/json',
+          'X-API-Key': API_SERVICE_API_KEY,
         },
         timeout: 10000,
       }
@@ -43,7 +45,7 @@ export async function getKeyForOrg(
       console.log(`No BYOK key found for org ${clerkOrgId}, provider ${provider}`);
       return null;
     }
-    console.error(`Error fetching key from keys-service:`, error.message);
+    console.error(`Error fetching key from api-service:`, error.message);
     return null;
   }
 }
