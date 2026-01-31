@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const KEYS_SERVICE_URL = process.env.KEYS_SERVICE_URL || 'http://localhost:3001';
-const PLATFORM_ANTHROPIC_KEY = process.env.PLATFORM_ANTHROPIC_API_KEY;
+const PLATFORM_ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
 /**
  * Get API key for an organization from keys-service
