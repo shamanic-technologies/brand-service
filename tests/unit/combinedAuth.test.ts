@@ -57,17 +57,6 @@ describe("combinedAuth middleware", () => {
   });
 
   describe("reject with invalid credentials", () => {
-    it("should reject with 403 when X-Service-Secret is invalid", () => {
-      mockReq.headers = { "x-service-secret": "wrong-key" };
-
-      combinedAuth(mockReq as Request, mockRes as Response, mockNext);
-
-      expect(mockRes.status).toHaveBeenCalledWith(403);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: "Invalid credentials" })
-      );
-    });
-
     it("should reject with 403 when X-API-Key is invalid", () => {
       mockReq.headers = { "x-api-key": "wrong-key" };
 
@@ -81,8 +70,8 @@ describe("combinedAuth middleware", () => {
   });
 
   describe("accept valid credentials", () => {
-    it("should accept valid X-Service-Secret", () => {
-      mockReq.headers = { "x-service-secret": "test-valid-key" };
+    it("should accept valid X-API-Key with COMPANY_SERVICE_API_KEY", () => {
+      mockReq.headers = { "x-api-key": "test-valid-key" };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
@@ -90,7 +79,7 @@ describe("combinedAuth middleware", () => {
       expect(mockRes.status).not.toHaveBeenCalled();
     });
 
-    it("should accept valid X-API-Key (legacy)", () => {
+    it("should accept valid X-API-Key with legacy API_KEY", () => {
       // Set legacy API_KEY env var
       process.env.API_KEY = "legacy-api-key";
       mockReq.headers = { "x-api-key": "legacy-api-key" };
