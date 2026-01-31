@@ -271,6 +271,64 @@ export async function getOrganization(organizationId: string): Promise<Organizat
 }
 
 /**
+ * Get or create organization by clerkOrgId
+ */
+export async function getOrCreateOrganizationByClerkId(
+  clerkOrgId: string,
+  url: string
+): Promise<Organization> {
+  // Try to find existing
+  const findQuery = `SELECT id, url, name FROM organizations WHERE clerk_organization_id = $1`;
+  const existing = await pool.query(findQuery, [clerkOrgId]);
+  
+  if (existing.rows.length > 0) {
+    const org = existing.rows[0];
+    // Update URL if not set
+    if (!org.url && url) {
+      await pool.query(
+        `UPDATE organizations SET url = $1, updated_at = NOW() WHERE id = $2`,
+        [url, org.id]
+      );
+      org.url = url;
+    }
+    return org;
+  }
+  
+  // Create new organization
+  const insertQuery = `
+    INSERT INTO organizations (clerk_organization_id, url, created_at, updated_at)
+    VALUES ($1, $2, NOW(), NOW())
+    RETURNING id, url, name
+  `;
+  const result = await pool.query(insertQuery, [clerkOrgId, url]);
+  console.log(`[sales-profile] Created organization for ${clerkOrgId} with URL ${url}`);
+  return result.rows[0];
+}
+
+/**
+ * Get sales profile by clerkOrgId
+ */
+export async function getSalesProfileByClerkOrgId(
+  clerkOrgId: string
+): Promise<SalesProfile | null> {
+  const query = `
+    SELECT sp.* 
+    FROM organization_sales_profiles sp
+    JOIN organizations o ON sp.organization_id = o.id
+    WHERE o.clerk_organization_id = $1
+    AND (sp.expires_at IS NULL OR sp.expires_at > NOW())
+  `;
+  
+  const result = await pool.query(query, [clerkOrgId]);
+  
+  if (result.rows.length === 0) {
+    return null;
+  }
+  
+  return formatProfileFromDb(result.rows[0]);
+}
+
+/**
  * Save or update sales profile
  */
 async function upsertSalesProfile(

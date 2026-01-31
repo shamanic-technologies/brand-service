@@ -3,9 +3,93 @@ import {
   extractOrganizationSalesProfile,
   getExistingSalesProfile,
   getOrganization,
+  getOrCreateOrganizationByClerkId,
+  getSalesProfileByClerkOrgId,
 } from '../services/salesProfileExtractionService';
 
 const router = Router();
+
+/**
+ * POST /sales-profile
+ * Get or create sales profile for an organization by clerkOrgId
+ * 
+ * Body: { clerkOrgId, url, anthropicApiKey }
+ * - clerkOrgId: required
+ * - url: required on first call (to create org), optional after
+ * - anthropicApiKey: required for extraction (BYOK)
+ * 
+ * Returns existing profile if available, otherwise extracts new one
+ */
+router.post('/sales-profile', async (req: Request, res: Response) => {
+  try {
+    const { clerkOrgId, url, anthropicApiKey, skipCache } = req.body;
+
+    if (!clerkOrgId) {
+      return res.status(400).json({ error: 'clerkOrgId is required' });
+    }
+
+    // Check if we already have a sales profile for this clerkOrgId
+    const existingProfile = await getSalesProfileByClerkOrgId(clerkOrgId);
+    if (existingProfile && !skipCache) {
+      return res.json({ cached: true, profile: existingProfile });
+    }
+
+    // Need to extract - require URL and API key
+    if (!url) {
+      return res.status(400).json({ 
+        error: 'url is required for first extraction',
+        hint: 'Provide the company website URL to extract sales profile'
+      });
+    }
+
+    if (!anthropicApiKey) {
+      return res.status(400).json({ 
+        error: 'anthropicApiKey is required for extraction (BYOK)',
+        hint: 'Provide your Anthropic API key'
+      });
+    }
+
+    // Get or create organization by clerkOrgId
+    const org = await getOrCreateOrganizationByClerkId(clerkOrgId, url);
+
+    // Extract sales profile
+    const result = await extractOrganizationSalesProfile(
+      org.id,
+      anthropicApiKey,
+      { skipCache: true }
+    );
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('Sales profile error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get/extract sales profile' });
+  }
+});
+
+/**
+ * GET /sales-profile/:clerkOrgId
+ * Get existing sales profile by clerkOrgId (no extraction)
+ */
+router.get('/sales-profile/:clerkOrgId', async (req: Request, res: Response) => {
+  try {
+    const { clerkOrgId } = req.params;
+
+    if (!clerkOrgId) {
+      return res.status(400).json({ error: 'clerkOrgId is required' });
+    }
+
+    const profile = await getSalesProfileByClerkOrgId(clerkOrgId);
+
+    if (!profile) {
+      return res.status(404).json({ error: 'Sales profile not found for this organization' });
+    }
+
+    res.json({ profile });
+  } catch (error: any) {
+    console.error('Get sales profile by clerkOrgId error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get sales profile' });
+  }
+});
 
 /**
  * POST /organizations/:organizationId/extract-sales-profile
