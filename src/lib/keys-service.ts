@@ -28,7 +28,7 @@ export async function getKeyForOrg(
   // BYOK - fetch via api-service
   try {
     const response = await axios.get(
-      `${API_SERVICE_URL}/internal/keys/${provider}/decrypt`,
+      `${API_SERVICE_URL}/v1/internal/keys/${provider}/decrypt`,
       {
         params: { clerkOrgId },
         headers: {
