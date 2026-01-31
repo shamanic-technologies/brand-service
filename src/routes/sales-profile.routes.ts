@@ -5,6 +5,7 @@ import {
   getOrganization,
   getOrCreateOrganizationByClerkId,
   getSalesProfileByClerkOrgId,
+  getAllSalesProfilesByClerkOrgId,
 } from '../services/salesProfileExtractionService';
 import { getKeyForOrg } from '../lib/keys-service';
 
@@ -81,6 +82,30 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Sales profile error:', error);
     res.status(500).json({ error: error.message || 'Failed to get/extract sales profile' });
+  }
+});
+
+/**
+ * GET /sales-profiles
+ * List all sales profiles for an organization
+ */
+router.get('/sales-profiles', async (req: Request, res: Response) => {
+  try {
+    const clerkOrgId = req.query.clerkOrgId as string;
+
+    if (!clerkOrgId) {
+      return res.status(400).json({ error: 'clerkOrgId query param is required' });
+    }
+
+    const profiles = await getAllSalesProfilesByClerkOrgId(clerkOrgId);
+    
+    // Sanitize before returning
+    const sanitizedProfiles = profiles.map(sanitizeProfileForExternal);
+
+    res.json({ profiles: sanitizedProfiles });
+  } catch (error: any) {
+    console.error('List sales profiles error:', error);
+    res.status(500).json({ error: error.message || 'Failed to list sales profiles' });
   }
 });
 

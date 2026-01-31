@@ -329,6 +329,28 @@ export async function getSalesProfileByClerkOrgId(
 }
 
 /**
+ * Get all sales profiles for a clerkOrgId (includes URL from organization)
+ */
+export async function getAllSalesProfilesByClerkOrgId(
+  clerkOrgId: string
+): Promise<(SalesProfile & { url: string })[]> {
+  const query = `
+    SELECT sp.*, o.url 
+    FROM organization_sales_profiles sp
+    JOIN organizations o ON sp.organization_id = o.id
+    WHERE o.clerk_organization_id = $1
+    ORDER BY sp.extracted_at DESC
+  `;
+  
+  const result = await pool.query(query, [clerkOrgId]);
+  
+  return result.rows.map((row: any) => ({
+    ...formatProfileFromDb(row),
+    url: row.url,
+  }));
+}
+
+/**
  * Save or update sales profile
  */
 async function upsertSalesProfile(
