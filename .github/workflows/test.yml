@@ -26,6 +26,11 @@ jobs:
 
       - name: Run unit tests
         run: pnpm run test:unit
+        env:
+          COMPANY_SERVICE_API_KEY: test-secret-key
+          GEMINI_API_KEY: test-gemini-key
+          SCRAPING_SERVICE_URL: http://localhost:3010
+          SCRAPING_SERVICE_API_KEY: test-scraping-key
 
       - name: Run integration tests
         run: pnpm run test:integration
@@ -33,6 +38,8 @@ jobs:
           COMPANY_SERVICE_DATABASE_URL: ${{ secrets.COMPANY_SERVICE_DATABASE_URL }}
           COMPANY_SERVICE_API_KEY: test-secret-key
           GEMINI_API_KEY: test-gemini-key
+          SCRAPING_SERVICE_URL: http://localhost:3010
+          SCRAPING_SERVICE_API_KEY: test-scraping-key
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
