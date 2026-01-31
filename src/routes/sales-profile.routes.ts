@@ -6,23 +6,33 @@ import {
   getOrCreateOrganizationByClerkId,
   getSalesProfileByClerkOrgId,
 } from '../services/salesProfileExtractionService';
+import { getKeyForOrg } from '../lib/keys-service';
 
 const router = Router();
+
+/**
+ * Remove internal IDs before sending to external services
+ */
+function sanitizeProfileForExternal(profile: any) {
+  if (!profile) return null;
+  const { id, organizationId, ...safeProfile } = profile;
+  return safeProfile;
+}
 
 /**
  * POST /sales-profile
  * Get or create sales profile for an organization by clerkOrgId
  * 
- * Body: { clerkOrgId, url, anthropicApiKey }
+ * Body: { clerkOrgId, url, keyType }
  * - clerkOrgId: required
  * - url: required on first call (to create org), optional after
- * - anthropicApiKey: required for extraction (BYOK)
+ * - keyType: "byok" (user's key) or "platform" (our key) - default "byok"
  * 
  * Returns existing profile if available, otherwise extracts new one
  */
 router.post('/sales-profile', async (req: Request, res: Response) => {
   try {
-    const { clerkOrgId, url, anthropicApiKey, skipCache } = req.body;
+    const { clerkOrgId, url, keyType = "byok", skipCache } = req.body;
 
     if (!clerkOrgId) {
       return res.status(400).json({ error: 'clerkOrgId is required' });
@@ -31,10 +41,10 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     // Check if we already have a sales profile for this clerkOrgId
     const existingProfile = await getSalesProfileByClerkOrgId(clerkOrgId);
     if (existingProfile && !skipCache) {
-      return res.json({ cached: true, profile: existingProfile });
+      return res.json({ cached: true, profile: sanitizeProfileForExternal(existingProfile) });
     }
 
-    // Need to extract - require URL and API key
+    // Need to extract - require URL
     if (!url) {
       return res.status(400).json({ 
         error: 'url is required for first extraction',
@@ -42,10 +52,14 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
       });
     }
 
+    // Get API key from keys-service
+    const anthropicApiKey = await getKeyForOrg(clerkOrgId, "anthropic", keyType);
     if (!anthropicApiKey) {
       return res.status(400).json({ 
-        error: 'anthropicApiKey is required for extraction (BYOK)',
-        hint: 'Provide your Anthropic API key'
+        error: `No Anthropic API key found (keyType: ${keyType})`,
+        hint: keyType === "byok" 
+          ? 'User needs to configure their Anthropic API key' 
+          : 'Platform Anthropic key not configured'
       });
     }
 
@@ -59,7 +73,11 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
       { skipCache: true }
     );
 
-    res.json(result);
+    // Sanitize before returning
+    res.json({
+      ...result,
+      profile: sanitizeProfileForExternal(result.profile),
+    });
   } catch (error: any) {
     console.error('Sales profile error:', error);
     res.status(500).json({ error: error.message || 'Failed to get/extract sales profile' });
