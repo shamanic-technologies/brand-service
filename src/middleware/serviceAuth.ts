@@ -39,12 +39,8 @@ export function serviceAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 /**
- * Combined auth middleware that accepts either API key or service secret
- * This allows both ai-pr (API key) and mcpfactory (service secret) to call this service
- * 
- * Uses:
- * - COMPANY_SERVICE_API_KEY for service-to-service auth (X-Service-Secret header)
- * - API_KEY for legacy ai-pr auth (X-API-Key header) - deprecated
+ * Combined auth middleware that accepts X-API-Key header
+ * Validates against COMPANY_SERVICE_API_KEY (primary) or API_KEY (legacy for ai-pr)
  */
 export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   // Skip auth for health check
@@ -53,27 +49,25 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   const apiKey = req.headers['x-api-key'];
-  const serviceSecret = req.headers['x-service-secret'];
   
-  const validApiKey = process.env.API_KEY; // Legacy, for ai-pr backward compat
-  const validServiceSecret = process.env.COMPANY_SERVICE_API_KEY;
+  const validApiKey = process.env.COMPANY_SERVICE_API_KEY;
+  const legacyApiKey = process.env.API_KEY; // Legacy, for ai-pr backward compat
 
-  // Check API key first (ai-pr legacy)
-  if (apiKey && validApiKey && apiKey === validApiKey) {
-    return next();
-  }
-
-  // Check service secret (mcpfactory and other services)
-  if (serviceSecret && validServiceSecret && serviceSecret === validServiceSecret) {
-    return next();
-  }
-
-  // Neither valid
-  if (!apiKey && !serviceSecret) {
+  if (!apiKey) {
     return res.status(401).json({ 
       error: 'Missing authentication',
-      message: 'Please provide X-API-Key or X-Service-Secret header' 
+      message: 'Please provide X-API-Key header' 
     });
+  }
+
+  // Check against COMPANY_SERVICE_API_KEY (primary)
+  if (validApiKey && apiKey === validApiKey) {
+    return next();
+  }
+
+  // Check against API_KEY (legacy for ai-pr)
+  if (legacyApiKey && apiKey === legacyApiKey) {
+    return next();
   }
 
   return res.status(403).json({ 
