@@ -13,6 +13,7 @@ import thesisRoutes from './routes/thesis.routes';
 import publicInformationRoutes from './routes/public-information.routes';
 import usersRoutes from './routes/users.routes';
 import salesProfileRoutes from './routes/sales-profile.routes';
+import brandsRoutes from './routes/brands.routes';
 
 const app = express();
 const port = process.env.PORT || 3005;
@@ -51,6 +52,7 @@ app.use('/', thesisRoutes);
 app.use('/', publicInformationRoutes);
 app.use('/users', usersRoutes);
 app.use('/', salesProfileRoutes);
+app.use('/', brandsRoutes);
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
