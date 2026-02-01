@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
 import {
-  extractOrganizationSalesProfile,
+  extractBrandSalesProfile,
   getExistingSalesProfile,
-  getOrganization,
-  getOrCreateOrganizationByClerkId,
+  getBrand,
+  getOrCreateBrand,
   getSalesProfileByClerkOrgId,
   getAllSalesProfilesByClerkOrgId,
 } from '../services/salesProfileExtractionService';
@@ -16,17 +16,17 @@ const router = Router();
  */
 function sanitizeProfileForExternal(profile: any) {
   if (!profile) return null;
-  const { id, organizationId, ...safeProfile } = profile;
+  const { id, brandId, ...safeProfile } = profile;
   return safeProfile;
 }
 
 /**
  * POST /sales-profile
- * Get or create sales profile for an organization by clerkOrgId
+ * Get or create sales profile for a brand by clerkOrgId + URL
  * 
  * Body: { clerkOrgId, url, keyType }
  * - clerkOrgId: required
- * - url: required on first call (to create org), optional after
+ * - url: required (brand website URL)
  * - keyType: "byok" (user's key) or "platform" (our key) - default "byok"
  * 
  * Returns existing profile if available, otherwise extracts new one
@@ -39,18 +39,20 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'clerkOrgId is required' });
     }
 
-    // Check if we already have a sales profile for this clerkOrgId
-    const existingProfile = await getSalesProfileByClerkOrgId(clerkOrgId);
-    if (existingProfile && !skipCache) {
-      return res.json({ cached: true, profile: sanitizeProfileForExternal(existingProfile) });
-    }
-
-    // Need to extract - require URL
     if (!url) {
       return res.status(400).json({ 
-        error: 'url is required for first extraction',
-        hint: 'Provide the company website URL to extract sales profile'
+        error: 'url is required',
+        hint: 'Provide the brand website URL to get/extract sales profile'
       });
+    }
+
+    // Get or create brand by clerkOrgId + URL (domain is the unique key per org)
+    const brand = await getOrCreateBrand(clerkOrgId, url);
+
+    // Check if we already have a sales profile for this brand
+    const existingProfile = await getExistingSalesProfile(brand.id);
+    if (existingProfile && !skipCache) {
+      return res.json({ cached: true, profile: sanitizeProfileForExternal(existingProfile) });
     }
 
     // Get API key from keys-service
@@ -64,12 +66,9 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
       });
     }
 
-    // Get or create organization by clerkOrgId
-    const org = await getOrCreateOrganizationByClerkId(clerkOrgId, url);
-
     // Extract sales profile
-    const result = await extractOrganizationSalesProfile(
-      org.id,
+    const result = await extractBrandSalesProfile(
+      brand.id,
       anthropicApiKey,
       { skipCache: true }
     );
@@ -87,7 +86,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
 
 /**
  * GET /sales-profiles
- * List all sales profiles for an organization
+ * List all sales profiles (brands) for an organization
  */
 router.get('/sales-profiles', async (req: Request, res: Response) => {
   try {
@@ -111,7 +110,7 @@ router.get('/sales-profiles', async (req: Request, res: Response) => {
 
 /**
  * GET /sales-profile/:clerkOrgId
- * Get existing sales profile by clerkOrgId (no extraction)
+ * Get most recent sales profile by clerkOrgId (no extraction)
  */
 router.get('/sales-profile/:clerkOrgId', async (req: Request, res: Response) => {
   try {
@@ -127,7 +126,7 @@ router.get('/sales-profile/:clerkOrgId', async (req: Request, res: Response) => 
       return res.status(404).json({ error: 'Sales profile not found for this organization' });
     }
 
-    res.json({ profile });
+    res.json({ profile: sanitizeProfileForExternal(profile) });
   } catch (error: any) {
     console.error('Get sales profile by clerkOrgId error:', error);
     res.status(500).json({ error: error.message || 'Failed to get sales profile' });
@@ -135,33 +134,33 @@ router.get('/sales-profile/:clerkOrgId', async (req: Request, res: Response) => 
 });
 
 /**
- * POST /organizations/:organizationId/extract-sales-profile
- * Extract sales profile from organization's website using AI
+ * POST /brands/:brandId/extract-sales-profile
+ * Extract sales profile from brand's website using AI
  */
 router.post(
-  '/organizations/:organizationId/extract-sales-profile',
+  '/brands/:brandId/extract-sales-profile',
   async (req: Request, res: Response) => {
     try {
-      const { organizationId } = req.params;
+      const { brandId } = req.params;
       const { anthropicApiKey, skipCache, forceRescrape } = req.body;
 
       if (!anthropicApiKey) {
         return res.status(400).json({ error: 'anthropicApiKey is required (BYOK)' });
       }
 
-      if (!organizationId) {
-        return res.status(400).json({ error: 'organizationId is required' });
+      if (!brandId) {
+        return res.status(400).json({ error: 'brandId is required' });
       }
 
-      // Verify organization exists
-      const org = await getOrganization(organizationId);
-      if (!org) {
-        return res.status(404).json({ error: 'Organization not found' });
+      // Verify brand exists
+      const brand = await getBrand(brandId);
+      if (!brand) {
+        return res.status(404).json({ error: 'Brand not found' });
       }
 
       // Extract sales profile
-      const result = await extractOrganizationSalesProfile(
-        organizationId,
+      const result = await extractBrandSalesProfile(
+        brandId,
         anthropicApiKey,
         { skipCache, forceRescrape }
       );
@@ -175,26 +174,26 @@ router.post(
 );
 
 /**
- * GET /organizations/:organizationId/sales-profile
- * Get existing sales profile for an organization
+ * GET /brands/:brandId/sales-profile
+ * Get existing sales profile for a brand
  */
 router.get(
-  '/organizations/:organizationId/sales-profile',
+  '/brands/:brandId/sales-profile',
   async (req: Request, res: Response) => {
     try {
-      const { organizationId } = req.params;
+      const { brandId } = req.params;
 
-      if (!organizationId) {
-        return res.status(400).json({ error: 'organizationId is required' });
+      if (!brandId) {
+        return res.status(400).json({ error: 'brandId is required' });
       }
 
-      const profile = await getExistingSalesProfile(organizationId);
+      const profile = await getExistingSalesProfile(brandId);
 
       if (!profile) {
         return res.status(404).json({ error: 'Sales profile not found' });
       }
 
-      res.json({ profile });
+      res.json({ profile: sanitizeProfileForExternal(profile) });
     } catch (error: any) {
       console.error('Get sales profile error:', error);
       res.status(500).json({ error: error.message || 'Failed to get sales profile' });

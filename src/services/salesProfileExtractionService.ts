@@ -10,7 +10,7 @@ const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface SalesProfile {
   id: string;
-  organizationId: string;
+  brandId: string;
   companyName: string | null;
   valueProposition: string | null;
   customerPainPoints: string[];
@@ -32,10 +32,12 @@ export interface SalesProfile {
   expiresAt: string | null;
 }
 
-interface Organization {
+interface Brand {
   id: string;
   url: string;
   name: string | null;
+  domain: string | null;
+  clerkOrgId: string | null;
 }
 
 /**
@@ -76,11 +78,11 @@ async function mapSiteUrls(url: string): Promise<string[]> {
 /**
  * Call scraping service to scrape a URL
  */
-async function scrapeUrl(url: string, sourceOrgId: string): Promise<string | null> {
+async function scrapeUrl(url: string, brandId: string): Promise<string | null> {
   try {
     const response = await axios.post(
       `${SCRAPING_SERVICE_URL}/scrape`,
-      { url, sourceService: 'company-service', sourceOrgId },
+      { url, sourceService: 'brand-service', sourceOrgId: brandId },
       {
         headers: {
           'X-API-Key': SCRAPING_SERVICE_API_KEY,
@@ -243,15 +245,15 @@ function calculateCost(inputTokens: number, outputTokens: number): number {
  * Get existing sales profile from database
  */
 export async function getExistingSalesProfile(
-  organizationId: string
+  brandId: string
 ): Promise<SalesProfile | null> {
   const query = `
-    SELECT * FROM organization_sales_profiles
-    WHERE organization_id = $1
+    SELECT * FROM brand_sales_profiles
+    WHERE brand_id = $1
     AND (expires_at IS NULL OR expires_at > NOW())
   `;
 
-  const result = await pool.query(query, [organizationId]);
+  const result = await pool.query(query, [brandId]);
   
   if (result.rows.length === 0) {
     return null;
@@ -262,61 +264,82 @@ export async function getExistingSalesProfile(
 }
 
 /**
- * Get organization by ID
+ * Get brand by ID
  */
-export async function getOrganization(organizationId: string): Promise<Organization | null> {
-  const query = `SELECT id, url, name FROM organizations WHERE id = $1`;
-  const result = await pool.query(query, [organizationId]);
+export async function getBrand(brandId: string): Promise<Brand | null> {
+  const query = `SELECT id, url, name, domain, clerk_org_id as "clerkOrgId" FROM brands WHERE id = $1`;
+  const result = await pool.query(query, [brandId]);
   return result.rows[0] || null;
 }
 
 /**
- * Get or create organization by clerkOrgId
+ * Extract domain from URL
  */
-export async function getOrCreateOrganizationByClerkId(
+function extractDomainFromUrl(url: string): string {
+  try {
+    const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return urlObj.hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return url.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+  }
+}
+
+/**
+ * Get or create brand by clerkOrgId and URL
+ * Key insight: One clerkOrgId can have multiple brands (different domains)
+ */
+export async function getOrCreateBrand(
   clerkOrgId: string,
   url: string
-): Promise<Organization> {
-  // Try to find existing
-  const findQuery = `SELECT id, url, name FROM organizations WHERE clerk_organization_id = $1`;
-  const existing = await pool.query(findQuery, [clerkOrgId]);
+): Promise<Brand> {
+  const domain = extractDomainFromUrl(url);
+  
+  // Try to find existing brand by domain + clerkOrgId
+  const findQuery = `
+    SELECT id, url, name, domain, clerk_org_id as "clerkOrgId" 
+    FROM brands 
+    WHERE clerk_org_id = $1 AND domain = $2
+  `;
+  const existing = await pool.query(findQuery, [clerkOrgId, domain]);
   
   if (existing.rows.length > 0) {
-    const org = existing.rows[0];
-    // Update URL if not set
-    if (!org.url && url) {
+    const brand = existing.rows[0];
+    // Update URL if changed
+    if (brand.url !== url) {
       await pool.query(
-        `UPDATE organizations SET url = $1, updated_at = NOW() WHERE id = $2`,
-        [url, org.id]
+        `UPDATE brands SET url = $1, updated_at = NOW() WHERE id = $2`,
+        [url, brand.id]
       );
-      org.url = url;
+      brand.url = url;
     }
-    return org;
+    return brand;
   }
   
-  // Create new organization
+  // Create new brand
   const insertQuery = `
-    INSERT INTO organizations (clerk_organization_id, url, created_at, updated_at)
-    VALUES ($1, $2, NOW(), NOW())
-    RETURNING id, url, name
+    INSERT INTO brands (clerk_org_id, url, domain, created_at, updated_at)
+    VALUES ($1, $2, $3, NOW(), NOW())
+    RETURNING id, url, name, domain, clerk_org_id as "clerkOrgId"
   `;
-  const result = await pool.query(insertQuery, [clerkOrgId, url]);
-  console.log(`[sales-profile] Created organization for ${clerkOrgId} with URL ${url}`);
+  const result = await pool.query(insertQuery, [clerkOrgId, url, domain]);
+  console.log(`[sales-profile] Created brand for ${clerkOrgId} with domain ${domain}`);
   return result.rows[0];
 }
 
 /**
- * Get sales profile by clerkOrgId
+ * Get sales profile by clerkOrgId (returns first/most recent brand profile)
  */
 export async function getSalesProfileByClerkOrgId(
   clerkOrgId: string
 ): Promise<SalesProfile | null> {
   const query = `
     SELECT sp.* 
-    FROM organization_sales_profiles sp
-    JOIN organizations o ON sp.organization_id = o.id
-    WHERE o.clerk_organization_id = $1
+    FROM brand_sales_profiles sp
+    JOIN brands b ON sp.brand_id = b.id
+    WHERE b.clerk_org_id = $1
     AND (sp.expires_at IS NULL OR sp.expires_at > NOW())
+    ORDER BY sp.extracted_at DESC
+    LIMIT 1
   `;
   
   const result = await pool.query(query, [clerkOrgId]);
@@ -329,16 +352,16 @@ export async function getSalesProfileByClerkOrgId(
 }
 
 /**
- * Get all sales profiles for a clerkOrgId (includes URL from organization)
+ * Get all sales profiles for a clerkOrgId (includes URL and domain from brand)
  */
 export async function getAllSalesProfilesByClerkOrgId(
   clerkOrgId: string
-): Promise<(SalesProfile & { url: string })[]> {
+): Promise<(SalesProfile & { url: string; domain: string })[]> {
   const query = `
-    SELECT sp.*, o.url 
-    FROM organization_sales_profiles sp
-    JOIN organizations o ON sp.organization_id = o.id
-    WHERE o.clerk_organization_id = $1
+    SELECT sp.*, b.url, b.domain 
+    FROM brand_sales_profiles sp
+    JOIN brands b ON sp.brand_id = b.id
+    WHERE b.clerk_org_id = $1
     ORDER BY sp.extracted_at DESC
   `;
   
@@ -347,6 +370,7 @@ export async function getAllSalesProfilesByClerkOrgId(
   return result.rows.map((row: any) => ({
     ...formatProfileFromDb(row),
     url: row.url,
+    domain: row.domain,
   }));
 }
 
@@ -354,8 +378,8 @@ export async function getAllSalesProfilesByClerkOrgId(
  * Save or update sales profile
  */
 async function upsertSalesProfile(
-  organizationId: string,
-  profile: Omit<SalesProfile, 'id' | 'organizationId' | 'extractedAt' | 'expiresAt'>,
+  brandId: string,
+  profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt'>,
   inputTokens: number,
   outputTokens: number,
   scrapeIds: string[]
@@ -363,14 +387,14 @@ async function upsertSalesProfile(
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS);
 
   const query = `
-    INSERT INTO organization_sales_profiles (
-      organization_id, company_name, value_proposition, customer_pain_points,
+    INSERT INTO brand_sales_profiles (
+      brand_id, company_name, value_proposition, customer_pain_points,
       call_to_action, social_proof, company_overview, additional_context,
       competitors, product_differentiators, target_audience, key_features,
       extraction_model, extraction_input_tokens, extraction_output_tokens,
       extraction_cost_usd, source_scrape_ids, extracted_at, expires_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), $18)
-    ON CONFLICT (organization_id) DO UPDATE SET
+    ON CONFLICT (brand_id) DO UPDATE SET
       company_name = EXCLUDED.company_name,
       value_proposition = EXCLUDED.value_proposition,
       customer_pain_points = EXCLUDED.customer_pain_points,
@@ -394,7 +418,7 @@ async function upsertSalesProfile(
   `;
 
   const result = await pool.query(query, [
-    organizationId,
+    brandId,
     profile.companyName,
     profile.valueProposition,
     JSON.stringify(profile.customerPainPoints),
@@ -423,7 +447,7 @@ async function upsertSalesProfile(
 function formatProfileFromDb(row: any): SalesProfile {
   return {
     id: row.id,
-    organizationId: row.organization_id,
+    brandId: row.brand_id,
     companyName: row.company_name,
     valueProposition: row.value_proposition,
     customerPainPoints: row.customer_pain_points || [],
@@ -445,56 +469,56 @@ function formatProfileFromDb(row: any): SalesProfile {
 /**
  * Main extraction function
  */
-export async function extractOrganizationSalesProfile(
-  organizationId: string,
+export async function extractBrandSalesProfile(
+  brandId: string,
   anthropicApiKey: string,
   options: { skipCache?: boolean; forceRescrape?: boolean } = {}
 ): Promise<{ cached: boolean; profile: SalesProfile }> {
   // Check cache first
   if (!options.skipCache) {
-    const existing = await getExistingSalesProfile(organizationId);
+    const existing = await getExistingSalesProfile(brandId);
     if (existing) {
       return { cached: true, profile: existing };
     }
   }
 
-  // Get organization
-  const org = await getOrganization(organizationId);
-  if (!org) {
-    throw new Error('Organization not found');
+  // Get brand
+  const brand = await getBrand(brandId);
+  if (!brand) {
+    throw new Error('Brand not found');
   }
 
-  if (!org.url) {
-    throw new Error('Organization has no URL');
+  if (!brand.url) {
+    throw new Error('Brand has no URL');
   }
 
   const anthropicClient = getAnthropicClient(anthropicApiKey);
 
   // Step 1: Map site URLs
-  console.log(`[${organizationId}] Mapping site URLs for: ${org.url}`);
-  const allUrls = await mapSiteUrls(org.url);
-  console.log(`[${organizationId}] Found ${allUrls.length} URLs`);
+  console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
+  const allUrls = await mapSiteUrls(brand.url);
+  console.log(`[${brandId}] Found ${allUrls.length} URLs`);
 
   // Step 2: Select top 10 relevant URLs
-  console.log(`[${organizationId}] Selecting relevant URLs...`);
+  console.log(`[${brandId}] Selecting relevant URLs...`);
   const selectedUrls = await selectRelevantUrls(allUrls, anthropicClient);
-  console.log(`[${organizationId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
+  console.log(`[${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
   // Step 3: Scrape selected URLs in parallel
-  console.log(`[${organizationId}] Scraping ${selectedUrls.length} pages...`);
+  console.log(`[${brandId}] Scraping ${selectedUrls.length} pages...`);
   const scrapePromises = selectedUrls.map(url => 
-    scrapeUrl(url, organizationId).then(content => ({ url, content: content || '' }))
+    scrapeUrl(url, brandId).then(content => ({ url, content: content || '' }))
   );
   const pageContents = await Promise.all(scrapePromises);
   const successfulScrapes = pageContents.filter(p => p.content);
-  console.log(`[${organizationId}] Successfully scraped ${successfulScrapes.length} pages`);
+  console.log(`[${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
 
   if (successfulScrapes.length === 0) {
     throw new Error('Failed to scrape any pages');
   }
 
   // Step 4: Extract sales profile with AI
-  console.log(`[${organizationId}] Extracting sales profile with AI...`);
+  console.log(`[${brandId}] Extracting sales profile with AI...`);
   const { profile, inputTokens, outputTokens } = await extractSalesProfile(
     successfulScrapes,
     anthropicClient
@@ -502,14 +526,14 @@ export async function extractOrganizationSalesProfile(
 
   // Step 5: Save to database
   const savedProfile = await upsertSalesProfile(
-    organizationId,
+    brandId,
     profile,
     inputTokens,
     outputTokens,
     [] // scrape IDs not tracked for now
   );
 
-  console.log(`[${organizationId}] Sales profile extracted and saved`);
+  console.log(`[${brandId}] Sales profile extracted and saved`);
 
   return { cached: false, profile: savedProfile };
 }
