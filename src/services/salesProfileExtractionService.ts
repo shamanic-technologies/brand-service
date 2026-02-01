@@ -129,7 +129,7 @@ Skip: blog posts, news, careers, legal, privacy, terms pages.`;
 
   try {
     const response = await anthropicClient.messages.create({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-opus-4-5-20251101',
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -196,7 +196,7 @@ Be specific and extract actual content from the pages. If information is not fou
 Return ONLY valid JSON.`;
 
   const response = await anthropicClient.messages.create({
-    model: 'claude-3-haiku-20240307',
+    model: 'claude-opus-4-5-20251101',
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -223,7 +223,7 @@ Return ONLY valid JSON.`;
       productDifferentiators: parsed.productDifferentiators || [],
       targetAudience: parsed.targetAudience || null,
       keyFeatures: parsed.keyFeatures || [],
-      extractionModel: 'claude-3-haiku-20240307',
+      extractionModel: 'claude-opus-4-5-20251101',
       extractionCostUsd: calculateCost(response.usage.input_tokens, response.usage.output_tokens),
     },
     inputTokens: response.usage.input_tokens,
@@ -232,11 +232,11 @@ Return ONLY valid JSON.`;
 }
 
 /**
- * Calculate cost for Claude 3 Haiku
+ * Calculate cost for Claude Opus 4.5
  */
 function calculateCost(inputTokens: number, outputTokens: number): number {
-  // Haiku pricing: $0.25/1M input, $1.25/1M output
-  return (inputTokens * 0.25 + outputTokens * 1.25) / 1000000;
+  // Opus 4.5 pricing: $5/1M input, $25/1M output
+  return (inputTokens * 5 + outputTokens * 25) / 1000000;
 }
 
 /**
