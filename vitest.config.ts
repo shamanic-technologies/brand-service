@@ -1,19 +1,21 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
     globals: true,
-    environment: "node",
-    setupFiles: ["./tests/setup.ts"],
-    include: ["tests/**/*.test.ts"],
-    exclude: ["node_modules", "dist"],
+    environment: 'node',
+    setupFiles: ['./tests/setup.ts'],
+    include: ['tests/**/*.test.ts'],
+    exclude: ['node_modules', 'dist'],
     coverage: {
-      provider: "v8",
-      reporter: ["text", "json", "html"],
-      exclude: ["node_modules", "dist", "tests", "*.config.ts"],
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      exclude: ['node_modules', 'dist', 'tests', '*.config.ts'],
     },
     // Run all tests sequentially for integration tests that share DB
     fileParallelism: false,
     maxWorkers: 1,
+    // Increase timeout for integration tests that connect to DB
+    testTimeout: 10000,
   },
 });

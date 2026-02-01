@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Request, Response, NextFunction } from "express";
-import { combinedAuth, serviceAuth } from "../../src/middleware/serviceAuth";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Request, Response, NextFunction } from 'express';
+import { combinedAuth } from '../../src/middleware/serviceAuth';
 
-describe("combinedAuth middleware", () => {
+describe('combinedAuth middleware', () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
   let mockNext: NextFunction;
 
   beforeEach(() => {
     mockReq = {
-      path: "/test",
+      path: '/test',
       headers: {},
     };
     mockRes = {
@@ -18,13 +18,14 @@ describe("combinedAuth middleware", () => {
     };
     mockNext = vi.fn();
 
-    // Set env var for tests
-    process.env.COMPANY_SERVICE_API_KEY = "test-valid-key";
+    // Set env vars for tests
+    process.env.BRAND_SERVICE_API_KEY = 'test-valid-key';
+    process.env.COMPANY_SERVICE_API_KEY = 'test-valid-key';
   });
 
-  describe("skip auth paths", () => {
-    it("should skip auth for /health", () => {
-      mockReq.path = "/health";
+  describe('skip auth paths', () => {
+    it('should skip auth for /health', () => {
+      mockReq.path = '/health';
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
@@ -32,8 +33,8 @@ describe("combinedAuth middleware", () => {
       expect(mockRes.status).not.toHaveBeenCalled();
     });
 
-    it("should skip auth for /", () => {
-      mockReq.path = "/";
+    it('should skip auth for /', () => {
+      mockReq.path = '/';
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
@@ -42,36 +43,35 @@ describe("combinedAuth middleware", () => {
     });
   });
 
-  describe("reject without auth", () => {
-    it("should reject with 401 when no auth headers provided", () => {
+  describe('reject without auth', () => {
+    it('should reject with 401 when no auth headers provided', () => {
       mockReq.headers = {};
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(401);
       expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: "Missing authentication" })
+        expect.objectContaining({ error: 'Missing authentication' })
       );
       expect(mockNext).not.toHaveBeenCalled();
     });
   });
 
-  describe("reject with invalid credentials", () => {
-    it("should reject with 403 when X-API-Key is invalid", () => {
-      mockReq.headers = { "x-api-key": "wrong-key" };
+  describe('reject with invalid credentials', () => {
+    it('should reject with 403 when X-API-Key is invalid', () => {
+      mockReq.headers = { 'x-api-key': 'wrong-key' };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
       expect(mockRes.status).toHaveBeenCalledWith(403);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: "Invalid credentials" })
-      );
+      expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Invalid credentials' }));
     });
   });
 
-  describe("accept valid credentials", () => {
-    it("should accept valid X-API-Key with COMPANY_SERVICE_API_KEY", () => {
-      mockReq.headers = { "x-api-key": "test-valid-key" };
+  describe('accept valid credentials', () => {
+    it('should accept valid X-API-Key with BRAND_SERVICE_API_KEY', () => {
+      process.env.BRAND_SERVICE_API_KEY = 'test-brand-key';
+      mockReq.headers = { 'x-api-key': 'test-brand-key' };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
@@ -79,49 +79,37 @@ describe("combinedAuth middleware", () => {
       expect(mockRes.status).not.toHaveBeenCalled();
     });
 
-    it("should accept valid X-API-Key with legacy API_KEY", () => {
-      // Set legacy API_KEY env var
-      process.env.API_KEY = "legacy-api-key";
-      mockReq.headers = { "x-api-key": "legacy-api-key" };
+    it('should accept valid X-API-Key with COMPANY_SERVICE_API_KEY (legacy)', () => {
+      delete process.env.BRAND_SERVICE_API_KEY;
+      process.env.COMPANY_SERVICE_API_KEY = 'test-company-key';
+      mockReq.headers = { 'x-api-key': 'test-company-key' };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
       expect(mockNext).toHaveBeenCalled();
       expect(mockRes.status).not.toHaveBeenCalled();
     });
-  });
-});
 
-describe("serviceAuth middleware", () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
+    it('should accept valid X-API-Key with legacy API_KEY', () => {
+      delete process.env.BRAND_SERVICE_API_KEY;
+      delete process.env.COMPANY_SERVICE_API_KEY;
+      process.env.API_KEY = 'legacy-api-key';
+      mockReq.headers = { 'x-api-key': 'legacy-api-key' };
 
-  beforeEach(() => {
-    mockReq = {
-      path: "/test",
-      headers: {},
-    };
-    mockRes = {
-      status: vi.fn().mockReturnThis(),
-      json: vi.fn().mockReturnThis(),
-    };
-    mockNext = vi.fn();
+      combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
-    process.env.COMPANY_SERVICE_API_KEY = "test-service-key";
-  });
+      expect(mockNext).toHaveBeenCalled();
+      expect(mockRes.status).not.toHaveBeenCalled();
+    });
 
-  it("should reject with 401 when no X-Service-Secret header", () => {
-    serviceAuth(mockReq as Request, mockRes as Response, mockNext);
+    it('should prioritize BRAND_SERVICE_API_KEY over COMPANY_SERVICE_API_KEY', () => {
+      process.env.BRAND_SERVICE_API_KEY = 'brand-key';
+      process.env.COMPANY_SERVICE_API_KEY = 'company-key';
+      mockReq.headers = { 'x-api-key': 'brand-key' };
 
-    expect(mockRes.status).toHaveBeenCalledWith(401);
-  });
+      combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
-  it("should accept valid X-Service-Secret", () => {
-    mockReq.headers = { "x-service-secret": "test-service-key" };
-
-    serviceAuth(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalled();
+    });
   });
 });

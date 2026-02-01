@@ -1,4 +1,5 @@
-import pool from "../../src/db";
+import { db, brands, mediaAssets, supabaseStorage, intakeForms } from '../../src/db';
+import { eq, like, or, sql } from 'drizzle-orm';
 
 /**
  * Clean test data from database
@@ -6,64 +7,98 @@ import pool from "../../src/db";
  */
 export async function cleanTestData() {
   try {
-    const client = await pool.connect();
-    try {
-      // Clean organizations with test prefix
-      await client.query(`
-        DELETE FROM organizations 
-        WHERE clerk_organization_id LIKE 'test-%'
-           OR external_organization_id LIKE 'test-%'
-      `);
-    } catch (error) {
-      // Table might not exist in test env, ignore
-      console.log("cleanTestData: ignoring query error (table may not exist)");
-    } finally {
-      client.release();
-    }
+    // Clean media assets for test brands first (foreign key constraint)
+    await db.delete(mediaAssets).where(
+      like(mediaAssets.brandId, 'test-%')
+    );
+
+    // Clean intake forms for test brands
+    await db.delete(intakeForms).where(
+      like(intakeForms.brandId, 'test-%')
+    );
+
+    // Clean brands with test prefix
+    await db.delete(brands).where(
+      or(
+        like(brands.clerkOrgId, 'test-%'),
+        like(brands.externalOrganizationId, 'test-%')
+      )
+    );
   } catch (error) {
-    // Connection might fail in test env without proper DB, ignore
-    console.log("cleanTestData: ignoring connection error (DB may not be available)");
+    // Table might not exist or connection issue, ignore in tests
+    console.log('cleanTestData: ignoring error (table may not exist or DB unavailable)');
   }
 }
 
 /**
- * Insert a test organization
+ * Insert a test brand
  */
-export async function insertTestOrganization(data: {
-  clerkOrganizationId?: string;
+export async function insertTestBrand(data: {
+  clerkOrgId?: string;
   externalOrganizationId?: string;
   name?: string;
   url?: string;
+  domain?: string;
 }) {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `INSERT INTO organizations (clerk_organization_id, external_organization_id, name, url)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [
-        data.clerkOrganizationId || `test-clerk-${Date.now()}`,
-        data.externalOrganizationId || `test-ext-${Date.now()}`,
-        data.name || "Test Organization",
-        data.url || "https://test.example.com",
-      ]
-    );
-    return result.rows[0];
-  } finally {
-    client.release();
-  }
+  const id = randomTestId();
+  const result = await db
+    .insert(brands)
+    .values({
+      id,
+      clerkOrgId: data.clerkOrgId || `test-clerk-${Date.now()}`,
+      externalOrganizationId: data.externalOrganizationId || `test-ext-${Date.now()}`,
+      name: data.name || 'Test Brand',
+      url: data.url || 'https://test.example.com',
+      domain: data.domain || 'test.example.com',
+    })
+    .returning();
+
+  return result[0];
 }
 
 /**
- * Close database connection pool
+ * Insert a test media asset
+ */
+export async function insertTestMediaAsset(brandId: string, data?: {
+  assetUrl?: string;
+  assetType?: string;
+  caption?: string;
+}) {
+  const id = randomTestId();
+  const result = await db
+    .insert(mediaAssets)
+    .values({
+      id,
+      brandId,
+      assetUrl: data?.assetUrl || `https://storage.test.com/${id}.jpg`,
+      assetType: data?.assetType || 'uploaded_file',
+      caption: data?.caption || null,
+      isShareable: true,
+    })
+    .returning();
+
+  return result[0];
+}
+
+/**
+ * Get a brand by ID
+ */
+export async function getBrandById(id: string) {
+  const result = await db
+    .select()
+    .from(brands)
+    .where(eq(brands.id, id))
+    .limit(1);
+
+  return result[0] || null;
+}
+
+/**
+ * Close database connection
  */
 export async function closeDb() {
-  try {
-    await pool.end();
-  } catch (error) {
-    // Ignore close errors in test env
-    console.log("closeDb: ignoring error");
-  }
+  // Drizzle/postgres.js manages connections automatically
+  // This is a no-op for compatibility
 }
 
 /**

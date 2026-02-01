@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,7 +16,28 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build TypeScript
+        run: pnpm run build
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Install pnpm
         run: npm install -g pnpm
@@ -27,6 +48,7 @@ jobs:
       - name: Run unit tests
         run: pnpm run test:unit
         env:
+          BRAND_SERVICE_API_KEY: test-secret-key
           COMPANY_SERVICE_API_KEY: test-secret-key
           GEMINI_API_KEY: test-gemini-key
           SCRAPING_SERVICE_URL: http://localhost:3010
@@ -35,7 +57,9 @@ jobs:
       - name: Run integration tests
         run: pnpm run test:integration
         env:
+          BRAND_SERVICE_DATABASE_URL: ${{ secrets.BRAND_SERVICE_DATABASE_URL }}
           COMPANY_SERVICE_DATABASE_URL: ${{ secrets.COMPANY_SERVICE_DATABASE_URL }}
+          BRAND_SERVICE_API_KEY: test-secret-key
           COMPANY_SERVICE_API_KEY: test-secret-key
           GEMINI_API_KEY: test-gemini-key
           SCRAPING_SERVICE_URL: http://localhost:3010
