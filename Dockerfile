@@ -14,8 +14,8 @@ RUN pnpm install --frozen-lockfile || pnpm install
 # Copy source code
 COPY . .
 
-# Build TypeScript
-RUN pnpm build
+# Clean any stale build artifacts and rebuild
+RUN rm -rf dist && pnpm build
 
 # Expose port
 EXPOSE 3008
