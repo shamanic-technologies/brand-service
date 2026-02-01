@@ -157,7 +157,7 @@ async function extractSalesProfile(
   pageContents: { url: string; content: string }[],
   anthropicClient: Anthropic
 ): Promise<{
-  profile: Omit<SalesProfile, 'id' | 'organizationId' | 'extractedAt' | 'expiresAt'>;
+  profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt'>;
   inputTokens: number;
   outputTokens: number;
 }> {
