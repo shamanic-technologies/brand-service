@@ -20,10 +20,10 @@ const port = process.env.PORT || 3005;
 // CORS configuration - service-to-service calls don't need CORS
 // API key auth is sufficient protection
 app.use(cors({
-  origin: true, // Allow all origins - auth is via COMPANY_SERVICE_API_KEY
+  origin: true, // Allow all origins - auth is via BRAND_SERVICE_API_KEY
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Service-Secret', 'X-External-Organization-Id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-External-Organization-Id'],
 }));
 
 app.use(express.json());
