@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getOrganizationRelationsByUrl } from '../services/organizationService';
 import { getOrganizationIdByClerkId } from '../services/organizationUpsertService';
-import pool from '../db-legacy';
+import { pool } from '../db/utils';
 
 const router = Router();
 

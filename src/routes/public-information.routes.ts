@@ -1,18 +1,12 @@
 import { Router, Request, Response } from 'express';
-import pool from '../db-legacy';
+import { eq, sql } from 'drizzle-orm';
+import { db, brands, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
 
 const router = Router();
 
 /**
  * GET /public-information-map
- * 
- * Light version of public information that only returns URLs and short descriptions
- * for all content sources. Used by LLM to select relevant URLs before fetching full content.
- * 
- * Query params:
- * - clerkOrgId: clerk_organization_id (required, starts with org_)
- * 
- * Returns ~5% of tokens compared to full public information.
+ * Light version of public information that only returns URLs and short descriptions.
  */
 router.get('/public-information-map', async (req: Request, res: Response) => {
   const clerkOrgId = req.query.clerkOrgId as string;
@@ -22,46 +16,46 @@ router.get('/public-information-map', async (req: Request, res: Response) => {
   }
 
   try {
-    // Get main organization basic info
-    const mainOrgQuery = `
-      SELECT id, name, url
-      FROM organizations
-      WHERE clerk_organization_id = $1
-    `;
-    const mainOrgResult = await pool.query(mainOrgQuery, [clerkOrgId]);
-    
-    if (mainOrgResult.rows.length === 0) {
+    // Get main brand basic info
+    const mainBrandResult = await db
+      .select({ id: brands.id, name: brands.name, url: brands.url })
+      .from(brands)
+      .where(eq(brands.clerkOrgId, clerkOrgId))
+      .limit(1);
+
+    if (mainBrandResult.length === 0) {
       return res.status(404).json({ error: 'Organization not found' });
     }
 
-    const mainOrg = mainOrgResult.rows[0];
+    const mainBrand = mainBrandResult[0];
 
-    // Get related organizations with their content maps
-    const relatedOrgsQuery = `
-      SELECT 
-        rel.relation_type,
-        target_org.id,
-        target_org.name,
-        target_org.url,
-        target_org.domain
-      FROM organizations AS source_org
-      INNER JOIN organization_relations AS rel ON source_org.id = rel.source_organization_id
-      INNER JOIN organizations AS target_org ON rel.target_organization_id = target_org.id
-      WHERE source_org.clerk_organization_id = $1
-    `;
-    const relatedOrgsResult = await pool.query(relatedOrgsQuery, [clerkOrgId]);
+    // Get related brands
+    const relatedBrandsResult = await db
+      .select({
+        relationType: brandRelations.relationType,
+        id: brands.id,
+        name: brands.name,
+        url: brands.url,
+        domain: brands.domain,
+      })
+      .from(brands)
+      .innerJoin(brandRelations, eq(brands.id, brandRelations.targetBrandId))
+      .innerJoin(
+        db.select({ id: brands.id }).from(brands).where(eq(brands.clerkOrgId, clerkOrgId)).as('source'),
+        eq(brandRelations.sourceBrandId, sql`source.id`)
+      );
 
-    // For each related organization, get their content maps
+    // For each related brand, get their content maps
     const relatedOrganizations = await Promise.all(
-      relatedOrgsResult.rows.map(async (relOrg) => {
-        const orgMap = await getOrganizationCompleteMap(relOrg.id);
+      relatedBrandsResult.map(async (relBrand) => {
+        const orgMap = await getOrganizationCompleteMap(relBrand.id);
         return {
-          relation_type: relOrg.relation_type,
+          relation_type: relBrand.relationType,
           organization: {
-            id: relOrg.id,
-            name: relOrg.name,
-            url: relOrg.url,
-            domain: relOrg.domain,
+            id: relBrand.id,
+            name: relBrand.name,
+            url: relBrand.url,
+            domain: relBrand.domain,
             ...orgMap,
           },
         };
@@ -69,125 +63,107 @@ router.get('/public-information-map', async (req: Request, res: Response) => {
     );
 
     res.json({
-      main_organization: mainOrg,
+      main_organization: mainBrand,
       related_organizations: relatedOrganizations,
     });
   } catch (error: any) {
     console.error('Error fetching public information map:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'An error occurred while fetching public information map',
-      details: error.message 
+      details: error.message,
     });
   }
 });
 
-/**
- * Helper: Get complete content map for one organization
- */
-async function getOrganizationCompleteMap(organizationId: string) {
-  const [scrapedPages, linkedinPosts, linkedinArticles, individuals] = await Promise.all([
-    getOrganizationScrapedPagesMap(organizationId),
-    getOrganizationLinkedinPostsMap(organizationId),
-    getOrganizationLinkedinArticlesMap(organizationId),
-    getOrganizationIndividualsMap(organizationId),
+async function getOrganizationCompleteMap(brandId: string) {
+  const [scrapedPages, linkedinPosts, linkedinArticles, individualsData] = await Promise.all([
+    getOrganizationScrapedPagesMap(brandId),
+    getOrganizationLinkedinPostsMap(brandId),
+    getOrganizationLinkedinArticlesMap(brandId),
+    getOrganizationIndividualsMap(brandId),
   ]);
 
   return {
     scraped_pages_map: scrapedPages,
     linkedin_posts_map: linkedinPosts,
     linkedin_articles_map: linkedinArticles,
-    individuals,
+    individuals: individualsData,
   };
 }
 
-/**
- * Helper: Get scraped pages map for an organization (by domain)
- */
-async function getOrganizationScrapedPagesMap(organizationId: string) {
-  const query = `
-    SELECT 
-      s.url,
-      s.title,
-      COALESCE(s.description, s.og_description) as description
-    FROM organizations o
-    INNER JOIN scraped_url_firecrawl s ON o.domain = s.domain
-    WHERE o.id = $1
-      AND o.domain IS NOT NULL
-      AND s.raw_response IS NOT NULL
-    ORDER BY s.scraped_at DESC NULLS LAST
-  `;
-  const result = await pool.query(query, [organizationId]);
-  return result.rows;
+async function getOrganizationScrapedPagesMap(brandId: string) {
+  const brand = await db.select({ domain: brands.domain }).from(brands).where(eq(brands.id, brandId)).limit(1);
+  if (!brand[0]?.domain) return [];
+
+  const result = await db
+    .select({
+      url: scrapedUrlFirecrawl.url,
+      title: scrapedUrlFirecrawl.title,
+      description: sql<string>`COALESCE(${scrapedUrlFirecrawl.description}, ${scrapedUrlFirecrawl.ogDescription})`,
+    })
+    .from(scrapedUrlFirecrawl)
+    .where(eq(scrapedUrlFirecrawl.domain, brand[0].domain))
+    .orderBy(sql`${scrapedUrlFirecrawl.scrapedAt} DESC NULLS LAST`);
+
+  return result;
 }
 
-/**
- * Helper: Get LinkedIn posts map for an organization (non-articles)
- */
-async function getOrganizationLinkedinPostsMap(organizationId: string) {
-  const query = `
-    SELECT 
-      linkedin_url as url,
-      LEFT(content, 150) as snippet
-    FROM organizations_linkedin_posts
-    WHERE organization_id = $1 
-      AND has_article = false
-    ORDER BY posted_at DESC NULLS LAST, created_at DESC
-  `;
-  const result = await pool.query(query, [organizationId]);
-  return result.rows;
+async function getOrganizationLinkedinPostsMap(brandId: string) {
+  const result = await db
+    .select({
+      url: brandLinkedinPosts.linkedinUrl,
+      snippet: sql<string>`LEFT(${brandLinkedinPosts.content}, 150)`,
+    })
+    .from(brandLinkedinPosts)
+    .where(sql`${brandLinkedinPosts.brandId} = ${brandId} AND ${brandLinkedinPosts.hasArticle} = false`)
+    .orderBy(sql`${brandLinkedinPosts.postedAt} DESC NULLS LAST`);
+
+  return result;
 }
 
-/**
- * Helper: Get LinkedIn articles map for an organization
- */
-async function getOrganizationLinkedinArticlesMap(organizationId: string) {
-  const query = `
-    SELECT 
-      article_link as url,
-      article_title as title,
-      article_description as description
-    FROM organizations_linkedin_posts
-    WHERE organization_id = $1 
-      AND has_article = true
-      AND article_link IS NOT NULL
-    ORDER BY posted_at DESC NULLS LAST, created_at DESC
-  `;
-  const result = await pool.query(query, [organizationId]);
-  return result.rows;
+async function getOrganizationLinkedinArticlesMap(brandId: string) {
+  const result = await db
+    .select({
+      url: brandLinkedinPosts.articleLink,
+      title: brandLinkedinPosts.articleTitle,
+      description: brandLinkedinPosts.articleDescription,
+    })
+    .from(brandLinkedinPosts)
+    .where(
+      sql`${brandLinkedinPosts.brandId} = ${brandId} AND ${brandLinkedinPosts.hasArticle} = true AND ${brandLinkedinPosts.articleLink} IS NOT NULL`
+    )
+    .orderBy(sql`${brandLinkedinPosts.postedAt} DESC NULLS LAST`);
+
+  return result;
 }
 
-/**
- * Helper: Get individuals map for an organization (with their content maps)
- */
-async function getOrganizationIndividualsMap(organizationId: string) {
-  const query = `
-    SELECT 
-      ind.id,
-      TRIM(CONCAT(ind.first_name, ' ', ind.last_name)) as full_name,
-      ind.linkedin_url,
-      ind.personal_website_url,
-      oi.organization_role
-    FROM organization_individuals oi
-    INNER JOIN individuals ind ON oi.individual_id = ind.id
-    WHERE oi.organization_id = $1
-  `;
-  const result = await pool.query(query, [organizationId]);
+async function getOrganizationIndividualsMap(brandId: string) {
+  const result = await db
+    .select({
+      id: individuals.id,
+      fullName: sql<string>`TRIM(CONCAT(${individuals.firstName}, ' ', ${individuals.lastName}))`,
+      linkedinUrl: individuals.linkedinUrl,
+      personalWebsiteUrl: individuals.personalWebsiteUrl,
+      organizationRole: brandIndividuals.organizationRole,
+    })
+    .from(brandIndividuals)
+    .innerJoin(individuals, eq(brandIndividuals.individualId, individuals.id))
+    .where(eq(brandIndividuals.brandId, brandId));
 
-  // For each individual, get their content maps
-  const individuals = await Promise.all(
-    result.rows.map(async (ind) => {
+  const individualsData = await Promise.all(
+    result.map(async (ind) => {
       const [scrapedPages, linkedinPosts, linkedinArticles] = await Promise.all([
-        getIndividualScrapedPagesMap(ind.id, ind.personal_website_url),
+        getIndividualScrapedPagesMap(ind.personalWebsiteUrl),
         getIndividualLinkedinPostsMap(ind.id),
         getIndividualLinkedinArticlesMap(ind.id),
       ]);
 
       return {
         id: ind.id,
-        full_name: ind.full_name,
-        linkedin_url: ind.linkedin_url,
-        personal_website_url: ind.personal_website_url,
-        organization_role: ind.organization_role,
+        full_name: ind.fullName,
+        linkedin_url: ind.linkedinUrl,
+        personal_website_url: ind.personalWebsiteUrl,
+        organization_role: ind.organizationRole,
         scraped_pages_map: scrapedPages,
         linkedin_posts_map: linkedinPosts,
         linkedin_articles_map: linkedinArticles,
@@ -195,84 +171,61 @@ async function getOrganizationIndividualsMap(organizationId: string) {
     })
   );
 
-  return individuals;
+  return individualsData;
 }
 
-/**
- * Helper: Get scraped pages map for an individual (by personal website domain)
- */
-async function getIndividualScrapedPagesMap(individualId: string, personalWebsiteUrl: string | null) {
+async function getIndividualScrapedPagesMap(personalWebsiteUrl: string | null) {
   if (!personalWebsiteUrl) return [];
 
-  // Extract domain from URL
   const domainMatch = personalWebsiteUrl.match(/^https?:\/\/(?:www\.)?([^\/]+)/);
   if (!domainMatch) return [];
   const domain = domainMatch[1];
 
-  const query = `
-    SELECT 
-      url,
-      title,
-      COALESCE(description, og_description) as description
-    FROM scraped_url_firecrawl
-    WHERE domain = $1
-      AND raw_response IS NOT NULL
-    ORDER BY scraped_at DESC NULLS LAST
-  `;
-  const result = await pool.query(query, [domain]);
-  return result.rows;
+  const result = await db
+    .select({
+      url: scrapedUrlFirecrawl.url,
+      title: scrapedUrlFirecrawl.title,
+      description: sql<string>`COALESCE(${scrapedUrlFirecrawl.description}, ${scrapedUrlFirecrawl.ogDescription})`,
+    })
+    .from(scrapedUrlFirecrawl)
+    .where(eq(scrapedUrlFirecrawl.domain, domain))
+    .orderBy(sql`${scrapedUrlFirecrawl.scrapedAt} DESC NULLS LAST`);
+
+  return result;
 }
 
-/**
- * Helper: Get LinkedIn posts map for an individual (non-articles)
- */
 async function getIndividualLinkedinPostsMap(individualId: string) {
-  const query = `
-    SELECT 
-      linkedin_url as url,
-      LEFT(content, 150) as snippet
-    FROM individuals_linkedin_posts
-    WHERE individual_id = $1 
-      AND has_article = false
-    ORDER BY posted_at DESC NULLS LAST, created_at DESC
-  `;
-  const result = await pool.query(query, [individualId]);
-  return result.rows;
+  const result = await db
+    .select({
+      url: individualsLinkedinPosts.linkedinUrl,
+      snippet: sql<string>`LEFT(${individualsLinkedinPosts.content}, 150)`,
+    })
+    .from(individualsLinkedinPosts)
+    .where(sql`${individualsLinkedinPosts.individualId} = ${individualId} AND ${individualsLinkedinPosts.hasArticle} = false`)
+    .orderBy(sql`${individualsLinkedinPosts.postedAt} DESC NULLS LAST`);
+
+  return result;
 }
 
-/**
- * Helper: Get LinkedIn articles map for an individual
- */
 async function getIndividualLinkedinArticlesMap(individualId: string) {
-  const query = `
-    SELECT 
-      article_link as url,
-      article_title as title,
-      article_description as description
-    FROM individuals_linkedin_posts
-    WHERE individual_id = $1 
-      AND has_article = true
-      AND article_link IS NOT NULL
-    ORDER BY posted_at DESC NULLS LAST, created_at DESC
-  `;
-  const result = await pool.query(query, [individualId]);
-  return result.rows;
+  const result = await db
+    .select({
+      url: individualsLinkedinPosts.articleLink,
+      title: individualsLinkedinPosts.articleTitle,
+      description: individualsLinkedinPosts.articleDescription,
+    })
+    .from(individualsLinkedinPosts)
+    .where(
+      sql`${individualsLinkedinPosts.individualId} = ${individualId} AND ${individualsLinkedinPosts.hasArticle} = true AND ${individualsLinkedinPosts.articleLink} IS NOT NULL`
+    )
+    .orderBy(sql`${individualsLinkedinPosts.postedAt} DESC NULLS LAST`);
+
+  return result;
 }
 
 /**
  * POST /public-information-content
- * 
- * Fetch full content for selected URLs from the public information map.
- * Used after LLM selects relevant URLs.
- * 
- * Body:
- * {
- *   "selected_urls": [
- *     { "url": "https://...", "source_type": "scraped_page" | "linkedin_post" | "linkedin_article" }
- *   ]
- * }
- * 
- * Returns array of content objects with markdown/content for each URL.
+ * Fetch full content for selected URLs.
  */
 router.post('/public-information-content', async (req: Request, res: Response) => {
   const { selected_urls } = req.body;
@@ -285,10 +238,10 @@ router.post('/public-information-content', async (req: Request, res: Response) =
     const results = await Promise.all(
       selected_urls.map(async (item: { url: string; source_type: string }) => {
         const { url, source_type } = item;
-        
+
         try {
           let content = null;
-          
+
           switch (source_type) {
             case 'scraped_page':
               content = await getScrapedPageContent(url);
@@ -302,7 +255,7 @@ router.post('/public-information-content', async (req: Request, res: Response) =
             default:
               return { url, source_type, error: `Unknown source_type: ${source_type}`, content: null };
           }
-          
+
           return { url, source_type, content };
         } catch (err: any) {
           return { url, source_type, error: err.message, content: null };
@@ -313,152 +266,138 @@ router.post('/public-information-content', async (req: Request, res: Response) =
     res.json({ contents: results });
   } catch (error: any) {
     console.error('Error fetching content for URLs:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'An error occurred while fetching content',
-      details: error.message 
+      details: error.message,
     });
   }
 });
 
-/**
- * Helper: Get scraped page content - prefers markdown (cleaner), falls back to content
- */
 async function getScrapedPageContent(url: string) {
-  const query = `
-    SELECT 
-      url,
-      title,
-      description,
-      COALESCE(markdown, content) as content,
-      CASE 
-        WHEN markdown IS NOT NULL AND markdown != '' THEN 'markdown'
-        ELSE 'content'
-      END as content_source
-    FROM scraped_url_firecrawl
-    WHERE url = $1
-    LIMIT 1
-  `;
-  const result = await pool.query(query, [url]);
-  
-  if (result.rows.length === 0) {
-    return null;
-  }
-  
-  return result.rows[0];
+  const result = await db
+    .select({
+      url: scrapedUrlFirecrawl.url,
+      title: scrapedUrlFirecrawl.title,
+      description: scrapedUrlFirecrawl.description,
+      content: sql<string>`COALESCE(${scrapedUrlFirecrawl.markdown}, ${scrapedUrlFirecrawl.content})`,
+      contentSource: sql<string>`CASE WHEN ${scrapedUrlFirecrawl.markdown} IS NOT NULL AND ${scrapedUrlFirecrawl.markdown} != '' THEN 'markdown' ELSE 'content' END`,
+    })
+    .from(scrapedUrlFirecrawl)
+    .where(eq(scrapedUrlFirecrawl.url, url))
+    .limit(1);
+
+  return result[0] || null;
 }
 
-/**
- * Helper: Get LinkedIn post content (full post text)
- */
 async function getLinkedinPostContent(url: string) {
-  // Try organizations_linkedin_posts first
-  const orgQuery = `
-    SELECT 
-      linkedin_url as url,
-      content,
-      author_name,
-      posted_at,
-      likes_count,
-      comments_count
-    FROM organizations_linkedin_posts
-    WHERE linkedin_url = $1
-    LIMIT 1
-  `;
-  let result = await pool.query(orgQuery, [url]);
-  
-  if (result.rows.length > 0) {
-    return { ...result.rows[0], source: 'organization' };
+  // Try brand posts first
+  let result = await db
+    .select({
+      url: brandLinkedinPosts.linkedinUrl,
+      content: brandLinkedinPosts.content,
+      authorName: brandLinkedinPosts.authorName,
+      postedAt: brandLinkedinPosts.postedAt,
+      likesCount: brandLinkedinPosts.likesCount,
+      commentsCount: brandLinkedinPosts.commentsCount,
+    })
+    .from(brandLinkedinPosts)
+    .where(eq(brandLinkedinPosts.linkedinUrl, url))
+    .limit(1);
+
+  if (result.length > 0) {
+    return { ...result[0], source: 'organization' };
   }
-  
-  // Try individuals_linkedin_posts
-  const indQuery = `
-    SELECT 
-      linkedin_url as url,
-      content,
-      author_name,
-      posted_at,
-      likes_count,
-      comments_count
-    FROM individuals_linkedin_posts
-    WHERE linkedin_url = $1
-    LIMIT 1
-  `;
-  result = await pool.query(indQuery, [url]);
-  
-  if (result.rows.length > 0) {
-    return { ...result.rows[0], source: 'individual' };
+
+  // Try individuals posts
+  result = await db
+    .select({
+      url: individualsLinkedinPosts.linkedinUrl,
+      content: individualsLinkedinPosts.content,
+      authorName: individualsLinkedinPosts.authorName,
+      postedAt: individualsLinkedinPosts.postedAt,
+      likesCount: individualsLinkedinPosts.likesCount,
+      commentsCount: individualsLinkedinPosts.commentsCount,
+    })
+    .from(individualsLinkedinPosts)
+    .where(eq(individualsLinkedinPosts.linkedinUrl, url))
+    .limit(1);
+
+  if (result.length > 0) {
+    return { ...result[0], source: 'individual' };
   }
-  
+
   return null;
 }
 
-/**
- * Helper: Get LinkedIn article content (article metadata + scraped content if available)
- * Prefers markdown (cleaner), falls back to content
- */
 async function getLinkedinArticleContent(url: string) {
-  // Try organizations_linkedin_posts with article
-  const orgQuery = `
-    SELECT 
-      lp.article_link as url,
-      lp.article_title as title,
-      lp.article_description as description,
-      lp.content as post_content,
-      lp.author_name,
-      lp.posted_at,
-      COALESCE(s.markdown, s.content) as scraped_content
-    FROM organizations_linkedin_posts lp
-    LEFT JOIN scraped_url_firecrawl s ON s.source_url = lp.article_link OR s.url = lp.article_link
-    WHERE lp.article_link = $1
-    LIMIT 1
-  `;
-  let result = await pool.query(orgQuery, [url]);
-  
-  if (result.rows.length > 0) {
-    const row = result.rows[0];
+  // Try brand posts with article
+  let result = await db
+    .select({
+      url: brandLinkedinPosts.articleLink,
+      title: brandLinkedinPosts.articleTitle,
+      description: brandLinkedinPosts.articleDescription,
+      postContent: brandLinkedinPosts.content,
+      authorName: brandLinkedinPosts.authorName,
+      postedAt: brandLinkedinPosts.postedAt,
+    })
+    .from(brandLinkedinPosts)
+    .where(eq(brandLinkedinPosts.articleLink, url))
+    .limit(1);
+
+  if (result.length > 0) {
+    const row = result[0];
+    // Try to get scraped content
+    const scraped = await db
+      .select({ content: sql<string>`COALESCE(${scrapedUrlFirecrawl.markdown}, ${scrapedUrlFirecrawl.content})` })
+      .from(scrapedUrlFirecrawl)
+      .where(sql`${scrapedUrlFirecrawl.sourceUrl} = ${url} OR ${scrapedUrlFirecrawl.url} = ${url}`)
+      .limit(1);
+
     return {
       url: row.url,
       title: row.title,
       description: row.description,
-      content: row.scraped_content || row.post_content,
-      author_name: row.author_name,
-      posted_at: row.posted_at,
+      content: scraped[0]?.content || row.postContent,
+      author_name: row.authorName,
+      posted_at: row.postedAt,
       source: 'organization',
     };
   }
-  
-  // Try individuals_linkedin_posts with article
-  const indQuery = `
-    SELECT 
-      lp.article_link as url,
-      lp.article_title as title,
-      lp.article_description as description,
-      lp.content as post_content,
-      lp.author_name,
-      lp.posted_at,
-      COALESCE(s.markdown, s.content) as scraped_content
-    FROM individuals_linkedin_posts lp
-    LEFT JOIN scraped_url_firecrawl s ON s.source_url = lp.article_link OR s.url = lp.article_link
-    WHERE lp.article_link = $1
-    LIMIT 1
-  `;
-  result = await pool.query(indQuery, [url]);
-  
-  if (result.rows.length > 0) {
-    const row = result.rows[0];
+
+  // Try individuals posts with article
+  result = await db
+    .select({
+      url: individualsLinkedinPosts.articleLink,
+      title: individualsLinkedinPosts.articleTitle,
+      description: individualsLinkedinPosts.articleDescription,
+      postContent: individualsLinkedinPosts.content,
+      authorName: individualsLinkedinPosts.authorName,
+      postedAt: individualsLinkedinPosts.postedAt,
+    })
+    .from(individualsLinkedinPosts)
+    .where(eq(individualsLinkedinPosts.articleLink, url))
+    .limit(1);
+
+  if (result.length > 0) {
+    const row = result[0];
+    const scraped = await db
+      .select({ content: sql<string>`COALESCE(${scrapedUrlFirecrawl.markdown}, ${scrapedUrlFirecrawl.content})` })
+      .from(scrapedUrlFirecrawl)
+      .where(sql`${scrapedUrlFirecrawl.sourceUrl} = ${url} OR ${scrapedUrlFirecrawl.url} = ${url}`)
+      .limit(1);
+
     return {
       url: row.url,
       title: row.title,
       description: row.description,
-      content: row.scraped_content || row.post_content,
-      author_name: row.author_name,
-      posted_at: row.posted_at,
+      content: scraped[0]?.content || row.postContent,
+      author_name: row.authorName,
+      posted_at: row.postedAt,
       source: 'individual',
     };
   }
-  
+
   return null;
 }
 
 export default router;
-

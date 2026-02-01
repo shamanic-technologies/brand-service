@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import pool from '../db-legacy';
+import { eq, sql } from 'drizzle-orm';
+import { db, brands, intakeForms } from '../db';
 import { intakeFormService } from '../services/intakeFormService';
 
 const router = Router();
@@ -17,42 +18,47 @@ router.post('/trigger-intake-form-generation', async (req: Request, res: Respons
   }
 
   try {
-    const client = await pool.connect();
+    // Get brand using clerk_organization_id
+    const brandResult = await db
+      .select({ id: brands.id, externalOrganizationId: brands.externalOrganizationId })
+      .from(brands)
+      .where(eq(brands.clerkOrgId, clerk_organization_id))
+      .limit(1);
 
-    // Get organization ID using clerk_organization_id
-    const orgQuery = `
-      SELECT id, external_organization_id FROM organizations
-      WHERE clerk_organization_id = $1
-    `;
-    
-    const { rows: orgRows } = await client.query(orgQuery, [clerk_organization_id]);
-    
-    if (orgRows.length === 0) {
-      client.release();
+    if (brandResult.length === 0) {
       return res.status(404).json({ error: 'Organization not found' });
     }
 
-    const organizationId = orgRows[0].id;
-    const externalOrganizationId = orgRows[0].external_organization_id;
+    const brandId = brandResult[0].id;
+    const externalOrganizationId = brandResult[0].externalOrganizationId;
 
     // Update or insert intake_forms with 'generating' status
-    const upsertQuery = `
-      INSERT INTO intake_forms (organization_id, status, generating_started_at)
-      VALUES ($1, 'generating', NOW())
-      ON CONFLICT (organization_id)
-      DO UPDATE SET 
-        status = 'generating',
-        generating_started_at = NOW(),
-        updated_at = NOW()
-      RETURNING id, organization_id, status, generating_started_at
-    `;
-    
-    const { rows } = await client.query(upsertQuery, [organizationId]);
-
-    client.release();
+    const upsertResult = await db
+      .insert(intakeForms)
+      .values({
+        brandId,
+        status: 'generating',
+        generatingStartedAt: sql`NOW()`,
+      })
+      .onConflictDoUpdate({
+        target: intakeForms.brandId,
+        set: {
+          status: 'generating',
+          generatingStartedAt: sql`NOW()`,
+          updatedAt: sql`NOW()`,
+        },
+      })
+      .returning({
+        id: intakeForms.id,
+        brandId: intakeForms.brandId,
+        status: intakeForms.status,
+        generatingStartedAt: intakeForms.generatingStartedAt,
+      });
 
     // Trigger the n8n webhook (still uses external_organization_id for n8n compatibility)
-    const webhookUrl = process.env.N8N_CREATE_INTAKE_FORM_WEBHOOK_URL || 'https://pressbeat.app.n8n.cloud/webhook/8417db6e-32e4-44ee-bf07-e15e15a8b3c7';
+    const webhookUrl =
+      process.env.N8N_CREATE_INTAKE_FORM_WEBHOOK_URL ||
+      'https://pressbeat.app.n8n.cloud/webhook/8417db6e-32e4-44ee-bf07-e15e15a8b3c7';
     const webhookSecret = process.env.N8N_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
@@ -60,28 +66,31 @@ router.post('/trigger-intake-form-generation', async (req: Request, res: Respons
       return res.status(500).json({ error: 'Webhook configuration error' });
     }
 
-    const payload = [{
-      signature: webhookSecret,
-      external_organization_id: externalOrganizationId,
-    }];
+    const payload = [
+      {
+        signature: webhookSecret,
+        external_organization_id: externalOrganizationId,
+      },
+    ];
 
-    console.log(`[${new Date().toISOString()}] Triggering intake form generation workflow for organization ${clerk_organization_id}`);
+    console.log(
+      `[${new Date().toISOString()}] Triggering intake form generation workflow for organization ${clerk_organization_id}`
+    );
 
     fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    }).catch(error => {
+    }).catch((error) => {
       console.error('Webhook call failed in background:', error);
     });
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       message: 'Intake form generation workflow initiated successfully.',
       clerk_organization_id: clerk_organization_id,
       status: 'generating',
-      generating_started_at: rows[0].generating_started_at
+      generating_started_at: upsertResult[0].generatingStartedAt,
     });
-
   } catch (error) {
     console.error('Error triggering intake form generation:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -101,19 +110,18 @@ router.post('/intake-forms', async (req: Request, res: Response) => {
     }
 
     const intakeForm = await intakeFormService.upsertIntakeFormByClerkId(data);
-    
+
     return res.status(200).json({
       success: true,
       data: intakeForm,
     });
   } catch (error: any) {
     console.error('Error upserting intake form:', error);
-    
-    // Handle organization not found
-    if (error.message?.includes('Organization not found')) {
+
+    if (error.message?.includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
-    
+
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -131,7 +139,7 @@ router.get('/intake-forms/organization/:clerkOrganizationId', async (req: Reques
     }
 
     const intakeForm = await intakeFormService.getByClerkOrganizationId(clerkOrganizationId);
-    
+
     if (!intakeForm) {
       return res.status(404).json({ error: 'Intake form not found' });
     }
@@ -142,12 +150,11 @@ router.get('/intake-forms/organization/:clerkOrganizationId', async (req: Reques
     });
   } catch (error: any) {
     console.error('Error fetching intake form:', error);
-    
-    // Handle organization not found
-    if (error.message?.includes('Organization not found')) {
+
+    if (error.message?.includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
-    
+
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

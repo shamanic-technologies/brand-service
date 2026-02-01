@@ -1,28 +1,27 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
+import { eq, and, isNull, like } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
-import pool from '../db-legacy';
+import { db, brands, mediaAssets, supabaseStorage } from '../db';
 
 const router = Router();
 
 /**
- * Helper to get organization ID from clerk_organization_id
+ * Helper to get brand ID from clerk_organization_id
  */
-async function getOrganizationIdFromClerkId(clerkOrganizationId: string): Promise<{ id: string; externalId: string }> {
-  const query = `
-    SELECT id, external_organization_id FROM organizations
-    WHERE clerk_organization_id = $1
-  `;
-  const result = await pool.query(query, [clerkOrganizationId]);
-  
-  if (result.rows.length === 0) {
+async function getBrandFromClerkId(clerkOrganizationId: string): Promise<{ id: string; externalId: string | null }> {
+  const result = await db
+    .select({ id: brands.id, externalId: brands.externalOrganizationId })
+    .from(brands)
+    .where(eq(brands.clerkOrgId, clerkOrganizationId))
+    .limit(1);
+
+  if (result.length === 0) {
     throw new Error('Organization not found');
   }
-  
-  return {
-    id: result.rows[0].id,
-    externalId: result.rows[0].external_organization_id
-  };
+
+  return { id: result[0].id, externalId: result[0].externalId };
 }
 
 // POST analyze single media asset
@@ -39,63 +38,63 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
 
   try {
     console.log(`🔎 [ENDPOINT] Looking up asset in database...`);
-    
-    // Get internal organization ID
-    const { id: organizationId, externalId: externalOrganizationId } = await getOrganizationIdFromClerkId(clerk_organization_id);
-    
-    // Get media asset details
-    const assetQuery = `
-      SELECT ma.*, ss.supabase_url, ss.mime_type
-      FROM media_assets ma
-      LEFT JOIN supabase_storage ss ON ma.supabase_storage_id = ss.id
-      WHERE ma.id = $1 AND ma.organization_id = $2;
-    `;
-    
-    const assetResult = await pool.query(assetQuery, [id, organizationId]);
-    
-    if (assetResult.rows.length === 0) {
+
+    const { id: brandId, externalId: externalOrganizationId } = await getBrandFromClerkId(clerk_organization_id);
+
+    // Get media asset details with join
+    const assetResult = await db
+      .select({
+        id: mediaAssets.id,
+        caption: mediaAssets.caption,
+        supabaseUrl: supabaseStorage.supabaseUrl,
+        mimeType: supabaseStorage.mimeType,
+      })
+      .from(mediaAssets)
+      .leftJoin(supabaseStorage, eq(mediaAssets.supabaseStorageId, supabaseStorage.id))
+      .where(and(eq(mediaAssets.id, id), eq(mediaAssets.brandId, brandId)))
+      .limit(1);
+
+    if (assetResult.length === 0) {
       console.error(`❌ [ENDPOINT] Asset not found or unauthorized`);
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Media asset not found or unauthorized' 
+        error: 'Media asset not found or unauthorized',
       });
     }
-    
-    const asset = assetResult.rows[0];
-    console.log(`✓ [ENDPOINT] Found asset: ${asset.title || id}`);
-    
-    if (!asset.supabase_url) {
+
+    const asset = assetResult[0];
+    console.log(`✓ [ENDPOINT] Found asset: ${asset.caption || id}`);
+
+    if (!asset.supabaseUrl) {
       console.error(`❌ [ENDPOINT] No Supabase URL for asset`);
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'Media asset has no associated file to analyze' 
+        error: 'Media asset has no associated file to analyze',
       });
     }
-    
-    if (!asset.mime_type || !asset.mime_type.startsWith('image/')) {
-      console.error(`❌ [ENDPOINT] Not an image: ${asset.mime_type}`);
-      return res.status(400).json({ 
+
+    if (!asset.mimeType || !asset.mimeType.startsWith('image/')) {
+      console.error(`❌ [ENDPOINT] Not an image: ${asset.mimeType}`);
+      return res.status(400).json({
         success: false,
-        error: 'Only images can be analyzed (videos/audio not supported yet)' 
+        error: 'Only images can be analyzed (videos/audio not supported yet)',
       });
     }
 
     console.log(`⬇️ [ENDPOINT] Downloading image from Supabase...`);
-    // Download image from Supabase
-    const imageResponse = await axios.get(asset.supabase_url, { responseType: 'arraybuffer' });
+    const imageResponse = await axios.get(asset.supabaseUrl, { responseType: 'arraybuffer' });
     const imageBuffer = Buffer.from(imageResponse.data);
     console.log(`✓ [ENDPOINT] Downloaded ${imageBuffer.length} bytes`);
-    
+
     console.log(`🤖 [ENDPOINT] Starting Gemini analysis...`);
-    // Analyze (this will update the database)
     await analyzeMediaAssetAsync(
       id,
       imageBuffer,
-      asset.mime_type,
-      asset.title || 'unknown',
-      externalOrganizationId // Still pass external_organization_id for internal compatibility
+      asset.mimeType,
+      asset.caption || 'unknown',
+      externalOrganizationId || ''
     );
-    
+
     console.log(`✅ [ENDPOINT] Analysis complete, sending response\n`);
     res.json({
       success: true,
@@ -104,10 +103,10 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error(`❌ [ENDPOINT] Error:`, error.message);
     console.error(`   Stack:`, error.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'An error occurred while analyzing media asset.',
-      details: error.message 
+      details: error.message,
     });
   }
 });
@@ -124,29 +123,27 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
   }
 
   try {
-    // Get internal organization ID
-    const { id: organizationId, externalId: externalOrganizationId } = await getOrganizationIdFromClerkId(clerk_organization_id);
-    
-    // Get all images without caption for this organization
-    const query = `
-      SELECT 
-        ma.id,
-        ma.caption,
-        ss.supabase_url,
-        ss.mime_type,
-        ss.file_name
-      FROM media_assets ma
-      LEFT JOIN supabase_storage ss ON ma.supabase_storage_id = ss.id
-      WHERE 
-        ma.organization_id = $1
-        AND ss.mime_type LIKE 'image/%'
-        AND ma.caption IS NULL
-        AND ss.supabase_url IS NOT NULL
-      ORDER BY ma.created_at ASC;
-    `;
+    const { id: brandId, externalId: externalOrganizationId } = await getBrandFromClerkId(clerk_organization_id);
 
-    const result = await pool.query(query, [organizationId]);
-    const assets = result.rows;
+    // Get all images without caption for this brand
+    const assets = await db
+      .select({
+        id: mediaAssets.id,
+        caption: mediaAssets.caption,
+        supabaseUrl: supabaseStorage.supabaseUrl,
+        mimeType: supabaseStorage.mimeType,
+        fileName: supabaseStorage.fileName,
+      })
+      .from(mediaAssets)
+      .leftJoin(supabaseStorage, eq(mediaAssets.supabaseStorageId, supabaseStorage.id))
+      .where(
+        and(
+          eq(mediaAssets.brandId, brandId),
+          like(supabaseStorage.mimeType, 'image/%'),
+          isNull(mediaAssets.caption)
+        )
+      )
+      .orderBy(mediaAssets.createdAt);
 
     console.log(`📊 [BATCH ANALYZE] Found ${assets.length} images to analyze`);
 
@@ -164,36 +161,35 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
     let failed = 0;
     const errors: string[] = [];
 
-    // Analyze each image
     for (const asset of assets) {
       try {
-        console.log(`🔍 [${analyzed + 1}/${assets.length}] Analyzing: ${asset.file_name}`);
-        
-        // Download image
-        const imageResponse = await axios.get(asset.supabase_url, { responseType: 'arraybuffer' });
+        if (!asset.supabaseUrl || !asset.mimeType) continue;
+
+        console.log(`🔍 [${analyzed + 1}/${assets.length}] Analyzing: ${asset.fileName}`);
+
+        const imageResponse = await axios.get(asset.supabaseUrl, { responseType: 'arraybuffer' });
         const imageBuffer = Buffer.from(imageResponse.data);
-        
-        // Analyze
+
         await analyzeMediaAssetAsync(
           asset.id,
           imageBuffer,
-          asset.mime_type,
-          asset.file_name,
-          externalOrganizationId // Still pass external_organization_id for internal compatibility
+          asset.mimeType,
+          asset.fileName || 'unknown',
+          externalOrganizationId || ''
         );
-        
+
         analyzed++;
         console.log(`✅ [${analyzed}/${assets.length}] Success`);
       } catch (error: any) {
         failed++;
-        const errorMsg = `${asset.file_name}: ${error.message}`;
+        const errorMsg = `${asset.fileName}: ${error.message}`;
         errors.push(errorMsg);
         console.error(`❌ [${analyzed + failed}/${assets.length}] Failed: ${errorMsg}`);
       }
     }
 
     console.log(`✅ [BATCH ANALYZE] Complete: ${analyzed} analyzed, ${failed} failed\n`);
-    
+
     res.json({
       success: true,
       message: `Batch analysis completed`,
@@ -204,10 +200,10 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error(`❌ [BATCH ANALYZE] Error:`, error.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'An error occurred during batch analysis.',
-      details: error.message 
+      details: error.message,
     });
   }
 });

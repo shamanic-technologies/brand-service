@@ -21,5 +21,5 @@ export const db = drizzle(client, { schema });
 // Re-export schema for convenience
 export * from './schema';
 
-// Re-export legacy pool for backward compatibility with code not yet migrated
-export { default as pool } from '../db-legacy';
+// Re-export pool utility for raw SQL queries
+export { pool, query } from './utils';

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import pool from '../db-legacy';
+import { pool } from '../db/utils';
 import axios from 'axios';
 import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
 

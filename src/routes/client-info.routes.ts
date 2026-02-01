@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import pool from '../db-legacy';
+import { eq } from 'drizzle-orm';
+import { db, brands } from '../db';
 import { getOrganizationIdByClerkId } from '../services/organizationUpsertService';
 
 const router = Router();
@@ -18,24 +19,21 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
   }
 
   try {
-    const client = await pool.connect();
+    // Get or create the brand (upsert pattern)
+    const brandId = await getOrganizationIdByClerkId(clerk_organization_id);
 
-    // Get or create the organization (upsert pattern)
-    const organizationId = await getOrganizationIdByClerkId(clerk_organization_id);
+    // Get brand details
+    const brandResult = await db
+      .select({
+        id: brands.id,
+        clerkOrgId: brands.clerkOrgId,
+        externalOrganizationId: brands.externalOrganizationId,
+      })
+      .from(brands)
+      .where(eq(brands.id, brandId))
+      .limit(1);
 
-    // DEPRECATED: No longer updating organizations.status - status is now tracked in billed_task_runs (press-funnel)
-    // Just get the external_organization_id for n8n
-    const getOrgQuery = `
-      SELECT id, clerk_organization_id, external_organization_id
-      FROM organizations
-      WHERE id = $1
-    `;
-    
-    const { rows } = await client.query(getOrgQuery, [organizationId]);
-    
-    const externalOrganizationId = rows[0]?.external_organization_id;
-
-    client.release();
+    const externalOrganizationId = brandResult[0]?.externalOrganizationId;
 
     // Trigger the n8n webhook (still uses external_organization_id for n8n compatibility)
     const webhookUrl = process.env.N8N_CREATE_CLIENT_INFORMATION_WEBHOOK_URL || 'https://pressbeat.app.n8n.cloud/webhook/49564dce-bc15-41c3-bb88-a6b075f42737';
@@ -46,11 +44,13 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
       return res.status(500).json({ error: 'Webhook configuration error' });
     }
 
-    const payload = [{
-      signature: webhookSecret,
-      clerk_organization_id: clerk_organization_id,
-      external_organization_id: externalOrganizationId, // May be null for new orgs
-    }];
+    const payload = [
+      {
+        signature: webhookSecret,
+        clerk_organization_id: clerk_organization_id,
+        external_organization_id: externalOrganizationId,
+      },
+    ];
 
     console.log(`[${new Date().toISOString()}] Triggering n8n workflow for organization ${clerk_organization_id}`);
 
@@ -58,18 +58,16 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    }).catch(error => {
+    }).catch((error) => {
       console.error('Webhook call failed in background:', error);
     });
 
-    // Return immediate feedback - actual status will be tracked in billed_task_runs
-    return res.status(200).json({ 
+    return res.status(200).json({
       message: 'Client information workflow initiated successfully.',
       clerk_organization_id: clerk_organization_id,
       status: 'generating',
       generating_started_at: new Date().toISOString(),
     });
-
   } catch (error) {
     console.error('Error triggering client info workflow:', error);
     res.status(500).json({ error: 'Internal server error' });

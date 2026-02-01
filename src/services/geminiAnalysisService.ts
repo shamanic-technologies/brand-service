@@ -1,15 +1,13 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import pool from '../db-legacy';
 import axios from 'axios';
+import { eq, sql } from 'drizzle-orm';
+import { db, mediaAssets } from '../db';
 
-// Initialize Gemini AI
 const getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
-  
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY not configured');
   }
-
   return new GoogleGenerativeAI(apiKey);
 };
 
@@ -25,22 +23,19 @@ interface OrganizationContext {
   private_information: string;
 }
 
-// Fetch organization context from press-funnel service
 const getOrganizationContext = async (externalOrganizationId: string): Promise<OrganizationContext | null> => {
   try {
     const pressFunnelUrl = process.env.PRESS_FUNNEL_SERVICE_URL || 'http://localhost:3003';
     const response = await axios.get(`${pressFunnelUrl}/organizations/${externalOrganizationId}/context`, {
       timeout: 5000,
     });
-    
     return response.data;
   } catch (error: any) {
     console.error('Failed to fetch organization context:', error.message);
-    return null; // Continue without context if fetch fails
+    return null;
   }
 };
 
-// Analyze image with Gemini 2.5 Flash-Lite
 export const analyzeImageWithGemini = async (
   imageBuffer: Buffer,
   mimeType: string,
@@ -51,13 +46,9 @@ export const analyzeImageWithGemini = async (
     const genAI = getGeminiClient();
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-    // Fetch organization context
     const orgContext = await getOrganizationContext(externalOrganizationId);
-
-    // Convert buffer to base64
     const base64Image = imageBuffer.toString('base64');
 
-    // Build context section
     let contextSection = '';
     if (orgContext) {
       contextSection = `
@@ -115,10 +106,9 @@ Return ONLY valid JSON with this exact structure:
 
     const response = result.response;
     const text = response.text();
-    
+
     console.log('Gemini raw response:', text);
 
-    // Parse JSON response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('Failed to parse Gemini response as JSON');
@@ -136,35 +126,27 @@ Return ONLY valid JSON with this exact structure:
   }
 };
 
-// Update media asset with AI analysis results (only if fields are empty)
 export const updateMediaAssetWithAnalysis = async (
   mediaAssetId: string,
   analysis: GeminiAnalysisResult
 ): Promise<void> => {
-  const query = `
-    UPDATE media_assets
-    SET 
-      caption = $1,
-      alt_text = COALESCE(NULLIF(alt_text, ''), $2),
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = $3;
-  `;
-
   try {
-    await pool.query(query, [
-      analysis.caption,
-      analysis.altText,
-      mediaAssetId,
-    ]);
+    await db
+      .update(mediaAssets)
+      .set({
+        caption: analysis.caption,
+        altText: sql`COALESCE(NULLIF(${mediaAssets.altText}, ''), ${analysis.altText})`,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(mediaAssets.id, mediaAssetId));
 
-    console.log(`✓ Updated media asset ${mediaAssetId} with AI analysis (caption always from AI, alt_text preserved if exists)`);
+    console.log(`✓ Updated media asset ${mediaAssetId} with AI analysis`);
   } catch (error: any) {
     console.error('Error updating media asset with analysis:', error);
     throw error;
   }
 };
 
-// Analyze media asset (to be called asynchronously after upload)
 export const analyzeMediaAssetAsync = async (
   mediaAssetId: string,
   imageBuffer: Buffer,
@@ -177,20 +159,18 @@ export const analyzeMediaAssetAsync = async (
     console.log(`   - External Org ID: ${externalOrganizationId}`);
     console.log(`   - File size: ${imageBuffer.length} bytes`);
     console.log(`   - MIME type: ${mimeType}`);
-    
+
     const analysis = await analyzeImageWithGemini(imageBuffer, mimeType, originalFileName, externalOrganizationId);
-    
+
     console.log(`📊 [${mediaAssetId}] Analysis results:`);
     console.log(`   - Caption: ${analysis.caption}`);
     console.log(`   - Alt Text: ${analysis.altText}`);
-    
+
     await updateMediaAssetWithAnalysis(mediaAssetId, analysis);
-    
+
     console.log(`✅ [${mediaAssetId}] AI analysis completed and saved\n`);
   } catch (error: any) {
     console.error(`❌ [${mediaAssetId}] Failed AI analysis:`, error.message);
     console.error(`   Stack: ${error.stack}`);
-    // Don't throw - we don't want to fail the upload if AI analysis fails
   }
 };
-
