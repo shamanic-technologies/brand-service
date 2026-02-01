@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
-import { apiKeyAuth } from '../middleware/apiKeyAuth';
 import pool from '../db';
 
 const router = Router();
@@ -27,7 +26,7 @@ async function getOrganizationIdFromClerkId(clerkOrganizationId: string): Promis
 }
 
 // POST analyze single media asset
-router.post('/:id/analyze', apiKeyAuth, async (req: Request, res: Response) => {
+router.post('/:id/analyze', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { clerk_organization_id } = req.body;
 
@@ -114,7 +113,7 @@ router.post('/:id/analyze', apiKeyAuth, async (req: Request, res: Response) => {
 });
 
 // POST batch analyze media assets
-router.post('/analyze-batch', apiKeyAuth, async (req: Request, res: Response) => {
+router.post('/analyze-batch', async (req: Request, res: Response) => {
   const { clerk_organization_id } = req.body;
 
   console.log(`\n📥 [BATCH ANALYZE] Received batch analysis request for clerk org ${clerk_organization_id}`);
