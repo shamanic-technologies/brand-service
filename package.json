@@ -1,7 +1,7 @@
 {
-  "name": "company-service",
+  "name": "brand-service",
   "version": "1.0.0",
-  "description": "A microservice to handle company information and media assets.",
+  "description": "A microservice to handle brand information and sales profiles.",
   "main": "dist/index.js",
   "scripts": {
     "dev": "nodemon src/index.ts",
