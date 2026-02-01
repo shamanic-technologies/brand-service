@@ -129,7 +129,7 @@ Skip: blog posts, news, careers, legal, privacy, terms pages.`;
 
   try {
     const response = await anthropicClient.messages.create({
-      model: 'claude-opus-4-5-20251101',
+      model: 'claude-opus-4-5',
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -196,7 +196,7 @@ Be specific and extract actual content from the pages. If information is not fou
 Return ONLY valid JSON.`;
 
   const response = await anthropicClient.messages.create({
-    model: 'claude-opus-4-5-20251101',
+    model: 'claude-opus-4-5',
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -223,7 +223,7 @@ Return ONLY valid JSON.`;
       productDifferentiators: parsed.productDifferentiators || [],
       targetAudience: parsed.targetAudience || null,
       keyFeatures: parsed.keyFeatures || [],
-      extractionModel: 'claude-opus-4-5-20251101',
+      extractionModel: 'claude-opus-4-5',
       extractionCostUsd: calculateCost(response.usage.input_tokens, response.usage.output_tokens),
     },
     inputTokens: response.usage.input_tokens,
