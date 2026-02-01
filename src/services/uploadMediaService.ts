@@ -1,4 +1,4 @@
-import pool from '../db';
+import pool from '../db-legacy';
 import { createClient } from '@supabase/supabase-js';
 import { Readable } from 'stream';
 import crypto from 'crypto';

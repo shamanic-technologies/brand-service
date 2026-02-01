@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { getMediaAssetsByOrganizationId, updateMediaAssetShareable, updateMediaAsset, updateMediaAssetByUrl } from '../services/mediaAssetService';
 import { getOrganizationIdByExternalId } from '../services/organizationUpsertService';
-import pool from '../db';
+import pool from '../db-legacy';
 
 const router = Router();
 

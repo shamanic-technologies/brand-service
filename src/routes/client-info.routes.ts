@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import pool from '../db';
+import pool from '../db-legacy';
 import { getOrganizationIdByClerkId } from '../services/organizationUpsertService';
 
 const router = Router();

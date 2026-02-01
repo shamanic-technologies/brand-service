@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import pool from '../db';
+import pool from '../db-legacy';
 import axios from 'axios';
 
 // Initialize Gemini AI

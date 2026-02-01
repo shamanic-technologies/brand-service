@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
-import pool from '../db';
+import pool from '../db-legacy';
 
 const router = Router();
 

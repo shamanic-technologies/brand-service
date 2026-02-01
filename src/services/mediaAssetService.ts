@@ -1,199 +1,125 @@
-import pool from '../db';
+import { eq, and, or, sql } from 'drizzle-orm';
+import { db, mediaAssets, supabaseStorage } from '../db';
 
 /**
- * Retrieves all media assets for a given organization ID.
+ * Retrieves all media assets for a given brand ID.
  * Joins with supabase_storage to include full file details when available.
- *
- * @param organizationId The organization internal UUID.
- * @returns A promise that resolves to an array of media assets with all associated fields.
  */
-export const getMediaAssetsByOrganizationId = async (organizationId: string) => {
-  const query = `
-    SELECT
-      ma.id,
-      ma.organization_id,
-      ma.asset_type,
-      ma.asset_url,
-      ma.optimized_url,
-      ma.caption,
-      ma.alt_text,
-      ma.is_shareable,
-      ma.metadata AS asset_metadata,
-      ma.created_at,
-      ma.updated_at,
-      -- Supabase storage fields (when available)
-      ss.id AS storage_id,
-      ss.supabase_url,
-      ss.storage_bucket,
-      ss.storage_path,
-      ss.file_name,
-      ss.file_size,
-      ss.mime_type,
-      ss.file_extension,
-      ss.width,
-      ss.height,
-      ss.duration,
-      ss.metadata AS storage_metadata
-    FROM
-      media_assets AS ma
-    LEFT JOIN
-      supabase_storage AS ss
-    ON
-      ma.supabase_storage_id = ss.id
-    WHERE
-      ma.organization_id = $1
-    ORDER BY
-      ma.created_at ASC;
-  `;
+export const getMediaAssetsByOrganizationId = async (brandId: string) => {
+  const results = await db
+    .select({
+      id: mediaAssets.id,
+      brand_id: mediaAssets.brandId,
+      asset_type: mediaAssets.assetType,
+      asset_url: mediaAssets.assetUrl,
+      optimized_url: mediaAssets.optimizedUrl,
+      caption: mediaAssets.caption,
+      alt_text: mediaAssets.altText,
+      is_shareable: mediaAssets.isShareable,
+      asset_metadata: mediaAssets.metadata,
+      created_at: mediaAssets.createdAt,
+      updated_at: mediaAssets.updatedAt,
+      storage_id: supabaseStorage.id,
+      supabase_url: supabaseStorage.supabaseUrl,
+      storage_bucket: supabaseStorage.storageBucket,
+      storage_path: supabaseStorage.storagePath,
+      file_name: supabaseStorage.fileName,
+      file_size: supabaseStorage.fileSize,
+      mime_type: supabaseStorage.mimeType,
+      file_extension: supabaseStorage.fileExtension,
+      width: supabaseStorage.width,
+      height: supabaseStorage.height,
+      duration: supabaseStorage.duration,
+      storage_metadata: supabaseStorage.metadata,
+    })
+    .from(mediaAssets)
+    .leftJoin(supabaseStorage, eq(mediaAssets.supabaseStorageId, supabaseStorage.id))
+    .where(eq(mediaAssets.brandId, brandId))
+    .orderBy(mediaAssets.createdAt);
 
-  try {
-    const { rows } = await pool.query(query, [organizationId]);
-    return rows;
-  } catch (error) {
-    console.error('Error fetching media assets:', error);
-    throw error;
-  }
+  return results;
 };
 
 /**
  * Updates the is_shareable field of a media asset.
- *
- * @param assetId The media asset ID.
- * @param organizationId The organization internal UUID (for security check).
- * @param isShareable The new value for is_shareable.
- * @returns A promise that resolves to the updated media asset.
  */
 export const updateMediaAssetShareable = async (
   assetId: string,
-  organizationId: string,
+  brandId: string,
   isShareable: boolean
 ) => {
-  const query = `
-    UPDATE media_assets
-    SET 
-      is_shareable = $1,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE 
-      id = $2 
-      AND organization_id = $3
-    RETURNING *;
-  `;
+  const result = await db
+    .update(mediaAssets)
+    .set({ isShareable, updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(and(eq(mediaAssets.id, assetId), eq(mediaAssets.brandId, brandId)))
+    .returning();
 
-  try {
-    const { rows } = await pool.query(query, [isShareable, assetId, organizationId]);
-    
-    if (rows.length === 0) {
-      throw new Error('Media asset not found or unauthorized');
-    }
-    
-    return rows[0];
-  } catch (error) {
-    console.error('Error updating media asset shareable status:', error);
-    throw error;
+  if (result.length === 0) {
+    throw new Error('Media asset not found or unauthorized');
   }
+
+  return result[0];
 };
 
 /**
  * Updates the caption of a media asset.
- *
- * @param assetId The media asset ID.
- * @param organizationId The organization internal UUID (for security check).
- * @param caption The new caption.
- * @returns A promise that resolves to the updated media asset.
  */
 export const updateMediaAsset = async (
   assetId: string,
-  organizationId: string,
+  brandId: string,
   caption?: string
 ) => {
   if (caption === undefined) {
     throw new Error('Caption is required to update');
   }
 
-  const query = `
-    UPDATE media_assets
-    SET 
-      caption = $1,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE 
-      id = $2
-      AND organization_id = $3
-    RETURNING *;
-  `;
+  const result = await db
+    .update(mediaAssets)
+    .set({ caption, updatedAt: sql`CURRENT_TIMESTAMP` })
+    .where(and(eq(mediaAssets.id, assetId), eq(mediaAssets.brandId, brandId)))
+    .returning();
 
-  try {
-    const { rows } = await pool.query(query, [caption, assetId, organizationId]);
-    
-    if (rows.length === 0) {
-      throw new Error('Media asset not found or unauthorized');
-    }
-    
-    return rows[0];
-  } catch (error) {
-    console.error('Error updating media asset:', error);
-    throw error;
+  if (result.length === 0) {
+    throw new Error('Media asset not found or unauthorized');
   }
+
+  return result[0];
 };
 
 /**
  * Updates a media asset by URL (finds it by asset_url or optimized_url).
- *
- * @param url The URL to find the media asset.
- * @param organizationId The organization internal UUID (for security check).
- * @param caption Optional new caption.
- * @param altText Optional new alt text.
- * @returns A promise that resolves to the updated media asset.
  */
 export const updateMediaAssetByUrl = async (
   url: string,
-  organizationId: string,
+  brandId: string,
   caption?: string,
   altText?: string
 ) => {
-  // Build the update fields dynamically
-  const updates: string[] = [];
-  const values: any[] = [];
-  let paramIndex = 1;
-
-  if (caption !== undefined) {
-    updates.push(`caption = $${paramIndex++}`);
-    values.push(caption);
-  }
-
-  if (altText !== undefined) {
-    updates.push(`alt_text = $${paramIndex++}`);
-    values.push(altText);
-  }
-
-  if (updates.length === 0) {
+  if (caption === undefined && altText === undefined) {
     throw new Error('At least one field (caption or alt_text) is required to update');
   }
 
-  updates.push('updated_at = CURRENT_TIMESTAMP');
+  const updateData: { caption?: string; altText?: string; updatedAt: any } = {
+    updatedAt: sql`CURRENT_TIMESTAMP`,
+  };
 
-  // Add URL and organization ID to values
-  values.push(url, organizationId);
+  if (caption !== undefined) updateData.caption = caption;
+  if (altText !== undefined) updateData.altText = altText;
 
-  const query = `
-    UPDATE media_assets
-    SET ${updates.join(', ')}
-    WHERE 
-      (asset_url = $${paramIndex} OR optimized_url = $${paramIndex})
-      AND organization_id = $${paramIndex + 1}
-    RETURNING *;
-  `;
+  const result = await db
+    .update(mediaAssets)
+    .set(updateData)
+    .where(
+      and(
+        or(eq(mediaAssets.assetUrl, url), eq(mediaAssets.optimizedUrl, url)),
+        eq(mediaAssets.brandId, brandId)
+      )
+    )
+    .returning();
 
-  try {
-    const { rows } = await pool.query(query, values);
-    
-    if (rows.length === 0) {
-      throw new Error('Media asset not found or unauthorized');
-    }
-    
-    return rows[0];
-  } catch (error) {
-    console.error('Error updating media asset by URL:', error);
-    throw error;
+  if (result.length === 0) {
+    throw new Error('Media asset not found or unauthorized');
   }
-};
 
+  return result[0];
+};

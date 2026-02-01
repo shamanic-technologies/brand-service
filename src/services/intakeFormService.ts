@@ -1,8 +1,8 @@
-import { Pool } from 'pg';
-import pool from '../db';
+import { eq, sql } from 'drizzle-orm';
+import { db, brands, intakeForms } from '../db';
 
 export interface IntakeFormData {
-  clerk_organization_id: string;  // Input: Clerk org ID (preferred)
+  clerk_organization_id: string;
   liveblocks_room_id?: string | null;
   name_and_title?: string | null;
   phone_and_email?: string | null;
@@ -37,304 +37,184 @@ export interface IntakeFormData {
 
 export interface IntakeForm extends IntakeFormData {
   id: string;
-  last_synced_at: Date | null;
-  created_at: Date;
-  updated_at: Date;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+async function getBrandIdFromClerkId(clerkOrgId: string): Promise<string> {
+  const result = await db
+    .select({ id: brands.id })
+    .from(brands)
+    .where(eq(brands.clerkOrgId, clerkOrgId))
+    .limit(1);
+
+  if (result.length === 0) {
+    throw new Error(`Brand not found for clerk_organization_id: ${clerkOrgId}`);
+  }
+
+  return result[0].id;
+}
+
+function formatIntakeForm(row: typeof intakeForms.$inferSelect): IntakeForm {
+  return {
+    id: row.id,
+    clerk_organization_id: '', // Not stored in intake_forms, caller should know it
+    liveblocks_room_id: row.liveblocksRoomId,
+    name_and_title: row.nameAndTitle,
+    phone_and_email: row.phoneAndEmail,
+    website_and_socials: row.websiteAndSocials,
+    images_link: row.imagesLink,
+    start_date: row.startDate,
+    bio: row.bio,
+    elevator_pitch: row.elevatorPitch,
+    guest_pieces: row.guestPieces,
+    interview_questions: row.interviewQuestions,
+    quotes: row.quotes,
+    talking_points: row.talkingPoints,
+    collateral: row.collateral,
+    how_started: row.howStarted,
+    why_started: row.whyStarted,
+    mission: row.mission,
+    story: row.story,
+    previous_jobs: row.previousJobs,
+    offerings: row.offerings,
+    current_promotion: row.currentPromotion,
+    problem_solution: row.problemSolution,
+    future_offerings: row.futureOfferings,
+    location: row.location,
+    goals: row.goals,
+    help_people: row.helpPeople,
+    categories: row.categories,
+    press_targeting: row.pressTargeting,
+    press_type: row.pressType,
+    specific_outlets: row.specificOutlets,
+    status: row.status as 'generating' | null,
+    last_synced_at: row.lastSyncedAt,
+    created_at: row.createdAt,
+    updated_at: row.updatedAt,
+  };
 }
 
 export class IntakeFormService {
-  private pool: Pool;
-
-  constructor(dbPool: Pool) {
-    this.pool = dbPool;
-  }
-
-  /**
-   * Get internal organization_id from clerk_organization_id
-   */
-  private async getOrganizationIdFromClerkId(clerkOrgId: string): Promise<string> {
-    const query = `
-      SELECT id FROM organizations
-      WHERE clerk_organization_id = $1;
-    `;
-    const result = await this.pool.query<{ id: string }>(query, [clerkOrgId]);
-    
-    if (result.rows.length === 0) {
-      throw new Error(`Organization not found for clerk_organization_id: ${clerkOrgId}`);
-    }
-    
-    return result.rows[0].id;
-  }
-
-  /**
-   * @deprecated Use getOrganizationIdFromClerkId instead.
-   * Get internal organization_id from external_organization_id
-   * @private
-   */
-  private async getOrganizationId(externalOrgId: string): Promise<string> {
-    const query = `
-      SELECT id FROM organizations
-      WHERE external_organization_id = $1;
-    `;
-    const result = await this.pool.query<{ id: string }>(query, [externalOrgId]);
-    
-    if (result.rows.length === 0) {
-      throw new Error(`Organization not found for external_organization_id: ${externalOrgId}`);
-    }
-    
-    return result.rows[0].id;
-  }
-
-  /**
-   * Upsert intake form data for an organization using Clerk organization ID
-   */
   async upsertIntakeFormByClerkId(data: IntakeFormData): Promise<IntakeForm> {
-    // First, get the internal organization_id from clerk_organization_id
-    const organization_id = await this.getOrganizationIdFromClerkId(data.clerk_organization_id);
-    
-    return this.upsertIntakeFormInternal(organization_id, data);
+    const brandId = await getBrandIdFromClerkId(data.clerk_organization_id);
+
+    const result = await db
+      .insert(intakeForms)
+      .values({
+        brandId,
+        liveblocksRoomId: data.liveblocks_room_id,
+        nameAndTitle: data.name_and_title,
+        phoneAndEmail: data.phone_and_email,
+        websiteAndSocials: data.website_and_socials,
+        imagesLink: data.images_link,
+        startDate: data.start_date,
+        bio: data.bio,
+        elevatorPitch: data.elevator_pitch,
+        guestPieces: data.guest_pieces,
+        interviewQuestions: data.interview_questions,
+        quotes: data.quotes,
+        talkingPoints: data.talking_points,
+        collateral: data.collateral,
+        howStarted: data.how_started,
+        whyStarted: data.why_started,
+        mission: data.mission,
+        story: data.story,
+        previousJobs: data.previous_jobs,
+        offerings: data.offerings,
+        currentPromotion: data.current_promotion,
+        problemSolution: data.problem_solution,
+        futureOfferings: data.future_offerings,
+        location: data.location,
+        goals: data.goals,
+        helpPeople: data.help_people,
+        categories: data.categories,
+        pressTargeting: data.press_targeting,
+        pressType: data.press_type,
+        specificOutlets: data.specific_outlets,
+        status: data.status,
+        lastSyncedAt: sql`NOW()`,
+      })
+      .onConflictDoUpdate({
+        target: intakeForms.brandId,
+        set: {
+          liveblocksRoomId: sql`COALESCE(EXCLUDED.liveblocks_room_id, ${intakeForms.liveblocksRoomId})`,
+          nameAndTitle: sql`COALESCE(EXCLUDED.name_and_title, ${intakeForms.nameAndTitle})`,
+          phoneAndEmail: sql`COALESCE(EXCLUDED.phone_and_email, ${intakeForms.phoneAndEmail})`,
+          websiteAndSocials: sql`COALESCE(EXCLUDED.website_and_socials, ${intakeForms.websiteAndSocials})`,
+          imagesLink: sql`COALESCE(EXCLUDED.images_link, ${intakeForms.imagesLink})`,
+          startDate: sql`COALESCE(EXCLUDED.start_date, ${intakeForms.startDate})`,
+          bio: sql`COALESCE(EXCLUDED.bio, ${intakeForms.bio})`,
+          elevatorPitch: sql`COALESCE(EXCLUDED.elevator_pitch, ${intakeForms.elevatorPitch})`,
+          guestPieces: sql`COALESCE(EXCLUDED.guest_pieces, ${intakeForms.guestPieces})`,
+          interviewQuestions: sql`COALESCE(EXCLUDED.interview_questions, ${intakeForms.interviewQuestions})`,
+          quotes: sql`COALESCE(EXCLUDED.quotes, ${intakeForms.quotes})`,
+          talkingPoints: sql`COALESCE(EXCLUDED.talking_points, ${intakeForms.talkingPoints})`,
+          collateral: sql`COALESCE(EXCLUDED.collateral, ${intakeForms.collateral})`,
+          howStarted: sql`COALESCE(EXCLUDED.how_started, ${intakeForms.howStarted})`,
+          whyStarted: sql`COALESCE(EXCLUDED.why_started, ${intakeForms.whyStarted})`,
+          mission: sql`COALESCE(EXCLUDED.mission, ${intakeForms.mission})`,
+          story: sql`COALESCE(EXCLUDED.story, ${intakeForms.story})`,
+          previousJobs: sql`COALESCE(EXCLUDED.previous_jobs, ${intakeForms.previousJobs})`,
+          offerings: sql`COALESCE(EXCLUDED.offerings, ${intakeForms.offerings})`,
+          currentPromotion: sql`COALESCE(EXCLUDED.current_promotion, ${intakeForms.currentPromotion})`,
+          problemSolution: sql`COALESCE(EXCLUDED.problem_solution, ${intakeForms.problemSolution})`,
+          futureOfferings: sql`COALESCE(EXCLUDED.future_offerings, ${intakeForms.futureOfferings})`,
+          location: sql`COALESCE(EXCLUDED.location, ${intakeForms.location})`,
+          goals: sql`COALESCE(EXCLUDED.goals, ${intakeForms.goals})`,
+          helpPeople: sql`COALESCE(EXCLUDED.help_people, ${intakeForms.helpPeople})`,
+          categories: sql`COALESCE(EXCLUDED.categories, ${intakeForms.categories})`,
+          pressTargeting: sql`COALESCE(EXCLUDED.press_targeting, ${intakeForms.pressTargeting})`,
+          pressType: sql`COALESCE(EXCLUDED.press_type, ${intakeForms.pressType})`,
+          specificOutlets: sql`COALESCE(EXCLUDED.specific_outlets, ${intakeForms.specificOutlets})`,
+          status: sql`COALESCE(EXCLUDED.status, ${intakeForms.status})`,
+          lastSyncedAt: sql`NOW()`,
+        },
+      })
+      .returning();
+
+    const form = formatIntakeForm(result[0]);
+    form.clerk_organization_id = data.clerk_organization_id;
+    return form;
   }
 
-  /**
-   * Internal upsert that takes an internal organization_id
-   */
-  private async upsertIntakeFormInternal(organization_id: string, data: IntakeFormData): Promise<IntakeForm> {
-    const {
-      liveblocks_room_id,
-      name_and_title,
-      phone_and_email,
-      website_and_socials,
-      images_link,
-      start_date,
-      bio,
-      elevator_pitch,
-      guest_pieces,
-      interview_questions,
-      quotes,
-      talking_points,
-      collateral,
-      how_started,
-      why_started,
-      mission,
-      story,
-      previous_jobs,
-      offerings,
-      current_promotion,
-      problem_solution,
-      future_offerings,
-      location,
-      goals,
-      help_people,
-      categories,
-      press_targeting,
-      press_type,
-      specific_outlets,
-      status,
-    } = data;
-
-    const query = `
-      INSERT INTO intake_forms (
-        organization_id,
-        liveblocks_room_id,
-        name_and_title,
-        phone_and_email,
-        website_and_socials,
-        images_link,
-        start_date,
-        bio,
-        elevator_pitch,
-        guest_pieces,
-        interview_questions,
-        quotes,
-        talking_points,
-        collateral,
-        how_started,
-        why_started,
-        mission,
-        story,
-        previous_jobs,
-        offerings,
-        current_promotion,
-        problem_solution,
-        future_offerings,
-        location,
-        goals,
-        help_people,
-        categories,
-        press_targeting,
-        press_type,
-        specific_outlets,
-        status,
-        last_synced_at
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-        $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-        $31, NOW()
-      )
-      ON CONFLICT (organization_id) 
-      DO UPDATE SET
-        liveblocks_room_id = COALESCE(EXCLUDED.liveblocks_room_id, intake_forms.liveblocks_room_id),
-        name_and_title = COALESCE(EXCLUDED.name_and_title, intake_forms.name_and_title),
-        phone_and_email = COALESCE(EXCLUDED.phone_and_email, intake_forms.phone_and_email),
-        website_and_socials = COALESCE(EXCLUDED.website_and_socials, intake_forms.website_and_socials),
-        images_link = COALESCE(EXCLUDED.images_link, intake_forms.images_link),
-        start_date = COALESCE(EXCLUDED.start_date, intake_forms.start_date),
-        bio = COALESCE(EXCLUDED.bio, intake_forms.bio),
-        elevator_pitch = COALESCE(EXCLUDED.elevator_pitch, intake_forms.elevator_pitch),
-        guest_pieces = COALESCE(EXCLUDED.guest_pieces, intake_forms.guest_pieces),
-        interview_questions = COALESCE(EXCLUDED.interview_questions, intake_forms.interview_questions),
-        quotes = COALESCE(EXCLUDED.quotes, intake_forms.quotes),
-        talking_points = COALESCE(EXCLUDED.talking_points, intake_forms.talking_points),
-        collateral = COALESCE(EXCLUDED.collateral, intake_forms.collateral),
-        how_started = COALESCE(EXCLUDED.how_started, intake_forms.how_started),
-        why_started = COALESCE(EXCLUDED.why_started, intake_forms.why_started),
-        mission = COALESCE(EXCLUDED.mission, intake_forms.mission),
-        story = COALESCE(EXCLUDED.story, intake_forms.story),
-        previous_jobs = COALESCE(EXCLUDED.previous_jobs, intake_forms.previous_jobs),
-        offerings = COALESCE(EXCLUDED.offerings, intake_forms.offerings),
-        current_promotion = COALESCE(EXCLUDED.current_promotion, intake_forms.current_promotion),
-        problem_solution = COALESCE(EXCLUDED.problem_solution, intake_forms.problem_solution),
-        future_offerings = COALESCE(EXCLUDED.future_offerings, intake_forms.future_offerings),
-        location = COALESCE(EXCLUDED.location, intake_forms.location),
-        goals = COALESCE(EXCLUDED.goals, intake_forms.goals),
-        help_people = COALESCE(EXCLUDED.help_people, intake_forms.help_people),
-        categories = COALESCE(EXCLUDED.categories, intake_forms.categories),
-        press_targeting = COALESCE(EXCLUDED.press_targeting, intake_forms.press_targeting),
-        press_type = COALESCE(EXCLUDED.press_type, intake_forms.press_type),
-        specific_outlets = COALESCE(EXCLUDED.specific_outlets, intake_forms.specific_outlets),
-        status = COALESCE(EXCLUDED.status, intake_forms.status),
-        last_synced_at = NOW()
-      RETURNING *;
-    `;
-
-    const values = [
-      organization_id,
-      liveblocks_room_id,
-      name_and_title,
-      phone_and_email,
-      website_and_socials,
-      images_link,
-      start_date,
-      bio,
-      elevator_pitch,
-      guest_pieces,
-      interview_questions,
-      quotes,
-      talking_points,
-      collateral,
-      how_started,
-      why_started,
-      mission,
-      story,
-      previous_jobs,
-      offerings,
-      current_promotion,
-      problem_solution,
-      future_offerings,
-      location,
-      goals,
-      help_people,
-      categories,
-      press_targeting,
-      press_type,
-      specific_outlets,
-      status,
-    ];
-
-    const result = await this.pool.query<IntakeForm>(query, values);
-    return result.rows[0];
-  }
-
-  /**
-   * Get intake form by Clerk organization ID
-   */
   async getByClerkOrganizationId(clerkOrgId: string): Promise<IntakeForm | null> {
-    // First, get the internal organization_id
-    const organization_id = await this.getOrganizationIdFromClerkId(clerkOrgId);
-    
-    const query = `
-      SELECT * FROM intake_forms
-      WHERE organization_id = $1;
-    `;
-    const result = await this.pool.query<IntakeForm>(query, [organization_id]);
-    return result.rows[0] || null;
+    const brandId = await getBrandIdFromClerkId(clerkOrgId);
+
+    const result = await db
+      .select()
+      .from(intakeForms)
+      .where(eq(intakeForms.brandId, brandId))
+      .limit(1);
+
+    if (result.length === 0) return null;
+
+    const form = formatIntakeForm(result[0]);
+    form.clerk_organization_id = clerkOrgId;
+    return form;
   }
 
-  /**
-   * @deprecated Use getByClerkOrganizationId instead.
-   * Get intake form by external organization ID
-   */
-  async getByExternalOrganizationId(externalOrgId: string): Promise<IntakeForm | null> {
-    // First, get the internal organization_id
-    const organization_id = await this.getOrganizationId(externalOrgId);
-    
-    const query = `
-      SELECT * FROM intake_forms
-      WHERE organization_id = $1;
-    `;
-    const result = await this.pool.query<IntakeForm>(query, [organization_id]);
-    return result.rows[0] || null;
-  }
-
-  /**
-   * Get intake form by internal organization ID (for internal use)
-   * @private
-   */
-  private async getByOrganizationId(organizationId: string): Promise<IntakeForm | null> {
-    const query = `
-      SELECT * FROM intake_forms
-      WHERE organization_id = $1;
-    `;
-    const result = await this.pool.query<IntakeForm>(query, [organizationId]);
-    return result.rows[0] || null;
-  }
-
-  /**
-   * Get intake form by Liveblocks room ID
-   */
   async getByLiveblocksRoomId(roomId: string): Promise<IntakeForm | null> {
-    const query = `
-      SELECT * FROM intake_forms
-      WHERE liveblocks_room_id = $1;
-    `;
-    const result = await this.pool.query<IntakeForm>(query, [roomId]);
-    return result.rows[0] || null;
+    const result = await db
+      .select()
+      .from(intakeForms)
+      .where(eq(intakeForms.liveblocksRoomId, roomId))
+      .limit(1);
+
+    return result.length > 0 ? formatIntakeForm(result[0]) : null;
   }
 
-  /**
-   * Delete intake form by Clerk organization ID
-   */
   async deleteByClerkOrganizationId(clerkOrgId: string): Promise<boolean> {
-    // First, get the internal organization_id
-    const organization_id = await this.getOrganizationIdFromClerkId(clerkOrgId);
-    
-    const query = `
-      DELETE FROM intake_forms
-      WHERE organization_id = $1
-      RETURNING id;
-    `;
-    const result = await this.pool.query(query, [organization_id]);
-    return result.rowCount ? result.rowCount > 0 : false;
-  }
+    const brandId = await getBrandIdFromClerkId(clerkOrgId);
 
-  /**
-   * @deprecated Use deleteByClerkOrganizationId instead.
-   * Delete intake form by external organization ID
-   */
-  async deleteByExternalOrganizationId(externalOrgId: string): Promise<boolean> {
-    // First, get the internal organization_id
-    const organization_id = await this.getOrganizationId(externalOrgId);
-    
-    const query = `
-      DELETE FROM intake_forms
-      WHERE organization_id = $1
-      RETURNING id;
-    `;
-    const result = await this.pool.query(query, [organization_id]);
-    return result.rowCount ? result.rowCount > 0 : false;
+    const result = await db
+      .delete(intakeForms)
+      .where(eq(intakeForms.brandId, brandId))
+      .returning({ id: intakeForms.id });
+
+    return result.length > 0;
   }
 }
 
-// Export singleton instance
-export const intakeFormService = new IntakeFormService(pool);
+export const intakeFormService = new IntakeFormService();

@@ -1,47 +1,40 @@
 import { Router, Request, Response } from 'express';
-import pool from '../db';
+import { eq, desc, sql } from 'drizzle-orm';
+import { db, users } from '../db';
 
 const router = Router();
 
 /**
  * GET /users/list
- * Returns all users from company-service users table.
- * Used by client-service to check user existence across services.
+ * Returns all users from brand-service users table.
  */
 router.get('/list', async (req: Request, res: Response) => {
-  let client;
-
   try {
-    client = await pool.connect();
-
-    const result = await client.query(`
-      SELECT 
-        id,
-        clerk_user_id,
-        created_at,
-        updated_at
-      FROM users
-      ORDER BY created_at DESC
-    `);
+    const result = await db
+      .select({
+        id: users.id,
+        clerk_user_id: users.clerkUserId,
+        created_at: users.createdAt,
+        updated_at: users.updatedAt,
+      })
+      .from(users)
+      .orderBy(desc(users.createdAt));
 
     return res.status(200).json({
-      users: result.rows,
+      users: result,
       stats: {
-        total: result.rows.length,
+        total: result.length,
       },
     });
   } catch (error) {
     console.error('[users/list] Error:', error);
     return res.status(500).json({ error: 'Failed to fetch users list' });
-  } finally {
-    if (client) client.release();
   }
 });
 
 /**
  * DELETE /users/:clerkUserId
- * Deletes a user from company-service database.
- * Used by client-service for user deletion orchestration.
+ * Deletes a user from brand-service database.
  */
 router.delete('/:clerkUserId', async (req: Request, res: Response) => {
   const { clerkUserId } = req.params;
@@ -50,51 +43,35 @@ router.delete('/:clerkUserId', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Clerk User ID is required' });
   }
 
-  let client;
-
   try {
-    client = await pool.connect();
-
     // Find the user
-    const userResult = await client.query(
-      'SELECT id FROM users WHERE clerk_user_id = $1',
-      [clerkUserId]
-    );
+    const userResult = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clerkUserId, clerkUserId))
+      .limit(1);
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ 
+    if (userResult.length === 0) {
+      return res.status(404).json({
         error: 'User not found',
-        message: `No user found with clerk_user_id: ${clerkUserId}` 
+        message: `No user found with clerk_user_id: ${clerkUserId}`,
       });
     }
 
-    const userId = userResult.rows[0].id;
+    const userId = userResult[0].id;
 
-    // Delete organization_users associations first (if exists)
-    const orgUsersResult = await client.query(
-      'DELETE FROM organization_users WHERE user_id = $1',
-      [userId]
-    );
-    console.log(`[users/delete] Deleted ${orgUsersResult.rowCount} organization_users entries for user ${clerkUserId}`);
+    // Delete the user (cascades will handle related data)
+    await db.delete(users).where(eq(users.id, userId));
 
-    // Delete the user
-    await client.query(
-      'DELETE FROM users WHERE id = $1',
-      [userId]
-    );
-
-    console.log(`[users/delete] Successfully deleted user ${clerkUserId} from company-service`);
+    console.log(`[users/delete] Successfully deleted user ${clerkUserId}`);
 
     return res.status(200).json({
       success: true,
-      message: `User ${clerkUserId} deleted successfully from company-service`,
-      deleted_organization_users: orgUsersResult.rowCount,
+      message: `User ${clerkUserId} deleted successfully`,
     });
   } catch (error) {
     console.error('[users/delete] Error:', error);
     return res.status(500).json({ error: 'Failed to delete user' });
-  } finally {
-    if (client) client.release();
   }
 });
 

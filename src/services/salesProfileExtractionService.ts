@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
-import pool from '../db';
+import { eq, and, gt, desc, sql } from 'drizzle-orm';
+import { db, brands, brandSalesProfiles } from '../db';
 
 const SCRAPING_SERVICE_URL = process.env.SCRAPING_SERVICE_URL || 'http://localhost:3010';
 const SCRAPING_SERVICE_API_KEY = process.env.SCRAPING_SERVICE_API_KEY || '';
@@ -34,40 +35,27 @@ export interface SalesProfile {
 
 interface Brand {
   id: string;
-  url: string;
+  url: string | null;
   name: string | null;
   domain: string | null;
   clerkOrgId: string | null;
 }
 
-/**
- * Get Anthropic client with BYOK
- */
 function getAnthropicClient(apiKey: string): Anthropic {
   return new Anthropic({ apiKey });
 }
 
-/**
- * Call scraping service to map URLs
- */
 async function mapSiteUrls(url: string): Promise<string[]> {
   try {
     const response = await axios.post(
       `${SCRAPING_SERVICE_URL}/map`,
       { url, limit: 100 },
       {
-        headers: {
-          'X-API-Key': SCRAPING_SERVICE_API_KEY,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'X-API-Key': SCRAPING_SERVICE_API_KEY, 'Content-Type': 'application/json' },
         timeout: 30000,
       }
     );
-
-    if (!response.data.success) {
-      throw new Error(response.data.error || 'Map failed');
-    }
-
+    if (!response.data.success) throw new Error(response.data.error || 'Map failed');
     return response.data.urls || [];
   } catch (error: any) {
     console.error('Map site URLs error:', error.message);
@@ -75,23 +63,16 @@ async function mapSiteUrls(url: string): Promise<string[]> {
   }
 }
 
-/**
- * Call scraping service to scrape a URL
- */
 async function scrapeUrl(url: string, brandId: string): Promise<string | null> {
   try {
     const response = await axios.post(
       `${SCRAPING_SERVICE_URL}/scrape`,
       { url, sourceService: 'brand-service', sourceOrgId: brandId },
       {
-        headers: {
-          'X-API-Key': SCRAPING_SERVICE_API_KEY,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'X-API-Key': SCRAPING_SERVICE_API_KEY, 'Content-Type': 'application/json' },
         timeout: 60000,
       }
     );
-
     return response.data.result?.rawMarkdown || null;
   } catch (error: any) {
     console.error(`Scrape error for ${url}:`, error.message);
@@ -99,16 +80,8 @@ async function scrapeUrl(url: string, brandId: string): Promise<string | null> {
   }
 }
 
-/**
- * Use AI to select top 10 relevant URLs for sales profile extraction
- */
-async function selectRelevantUrls(
-  allUrls: string[],
-  anthropicClient: Anthropic
-): Promise<string[]> {
-  if (allUrls.length <= 10) {
-    return allUrls;
-  }
+async function selectRelevantUrls(allUrls: string[], anthropicClient: Anthropic): Promise<string[]> {
+  if (allUrls.length <= 10) return allUrls;
 
   const prompt = `You are helping extract sales/marketing information from a company website.
 
@@ -135,25 +108,16 @@ Skip: blog posts, news, careers, legal, privacy, terms pages.`;
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     });
-
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
     const match = text.match(/\[[\s\S]*\]/);
-    if (match) {
-      const urls = JSON.parse(match[0]);
-      return urls.slice(0, 10);
-    }
+    if (match) return JSON.parse(match[0]).slice(0, 10);
   } catch (error: any) {
     console.error('URL selection error:', error.message);
   }
-
-  // Fallback: return first 10 URLs
   return allUrls.slice(0, 10);
 }
 
-/**
- * Extract sales profile from page contents using AI
- */
-async function extractSalesProfile(
+async function extractSalesProfileFromContent(
   pageContents: { url: string; content: string }[],
   anthropicClient: Anthropic
 ): Promise<{
@@ -205,12 +169,10 @@ Return ONLY valid JSON.`;
 
   const text = response.content[0].type === 'text' ? response.content[0].text : '';
   const match = text.match(/\{[\s\S]*\}/);
-  
-  if (!match) {
-    throw new Error('Failed to parse AI response as JSON');
-  }
+  if (!match) throw new Error('Failed to parse AI response as JSON');
 
   const parsed = JSON.parse(match[0]);
+  const cost = (response.usage.input_tokens * 5 + response.usage.output_tokens * 25) / 1000000;
 
   return {
     profile: {
@@ -226,55 +188,66 @@ Return ONLY valid JSON.`;
       targetAudience: parsed.targetAudience || null,
       keyFeatures: parsed.keyFeatures || [],
       extractionModel: 'claude-opus-4-5',
-      extractionCostUsd: calculateCost(response.usage.input_tokens, response.usage.output_tokens),
+      extractionCostUsd: cost,
     },
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
   };
 }
 
-/**
- * Calculate cost for Claude Opus 4.5
- */
-function calculateCost(inputTokens: number, outputTokens: number): number {
-  // Opus 4.5 pricing: $5/1M input, $25/1M output
-  return (inputTokens * 5 + outputTokens * 25) / 1000000;
+function formatProfileFromDb(row: typeof brandSalesProfiles.$inferSelect): SalesProfile {
+  return {
+    id: row.id,
+    brandId: row.brandId,
+    companyName: row.companyName,
+    valueProposition: row.valueProposition,
+    customerPainPoints: (row.customerPainPoints as string[]) || [],
+    callToAction: row.callToAction,
+    socialProof: (row.socialProof as any) || { caseStudies: [], testimonials: [], results: [] },
+    companyOverview: row.companyOverview,
+    additionalContext: row.additionalContext,
+    competitors: (row.competitors as string[]) || [],
+    productDifferentiators: (row.productDifferentiators as string[]) || [],
+    targetAudience: row.targetAudience,
+    keyFeatures: (row.keyFeatures as string[]) || [],
+    extractionModel: row.extractionModel,
+    extractionCostUsd: row.extractionCostUsd ? parseFloat(row.extractionCostUsd) : null,
+    extractedAt: row.extractedAt,
+    expiresAt: row.expiresAt,
+  };
 }
 
-/**
- * Get existing sales profile from database
- */
-export async function getExistingSalesProfile(
-  brandId: string
-): Promise<SalesProfile | null> {
-  const query = `
-    SELECT * FROM brand_sales_profiles
-    WHERE brand_id = $1
-    AND (expires_at IS NULL OR expires_at > NOW())
-  `;
+export async function getExistingSalesProfile(brandId: string): Promise<SalesProfile | null> {
+  const result = await db
+    .select()
+    .from(brandSalesProfiles)
+    .where(
+      and(
+        eq(brandSalesProfiles.brandId, brandId),
+        gt(brandSalesProfiles.expiresAt, sql`NOW()`)
+      )
+    )
+    .limit(1);
 
-  const result = await pool.query(query, [brandId]);
-  
-  if (result.rows.length === 0) {
-    return null;
-  }
-
-  const row = result.rows[0];
-  return formatProfileFromDb(row);
+  return result.length > 0 ? formatProfileFromDb(result[0]) : null;
 }
 
-/**
- * Get brand by ID
- */
 export async function getBrand(brandId: string): Promise<Brand | null> {
-  const query = `SELECT id, url, name, domain, clerk_org_id as "clerkOrgId" FROM brands WHERE id = $1`;
-  const result = await pool.query(query, [brandId]);
-  return result.rows[0] || null;
+  const result = await db
+    .select({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+      clerkOrgId: brands.clerkOrgId,
+    })
+    .from(brands)
+    .where(eq(brands.id, brandId))
+    .limit(1);
+
+  return result[0] || null;
 }
 
-/**
- * Extract domain from URL
- */
 function extractDomainFromUrl(url: string): string {
   try {
     const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`);
@@ -284,99 +257,76 @@ function extractDomainFromUrl(url: string): string {
   }
 }
 
-/**
- * Get or create brand by clerkOrgId and URL
- * Key insight: One clerkOrgId can have multiple brands (different domains)
- */
-export async function getOrCreateBrand(
-  clerkOrgId: string,
-  url: string
-): Promise<Brand> {
+export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise<Brand> {
   const domain = extractDomainFromUrl(url);
-  
-  // Try to find existing brand by domain + clerkOrgId
-  const findQuery = `
-    SELECT id, url, name, domain, clerk_org_id as "clerkOrgId" 
-    FROM brands 
-    WHERE clerk_org_id = $1 AND domain = $2
-  `;
-  const existing = await pool.query(findQuery, [clerkOrgId, domain]);
-  
-  if (existing.rows.length > 0) {
-    const brand = existing.rows[0];
-    // Update URL if changed
+
+  // Find existing brand
+  const existing = await db
+    .select({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+      clerkOrgId: brands.clerkOrgId,
+    })
+    .from(brands)
+    .where(and(eq(brands.clerkOrgId, clerkOrgId), eq(brands.domain, domain)))
+    .limit(1);
+
+  if (existing.length > 0) {
+    const brand = existing[0];
     if (brand.url !== url) {
-      await pool.query(
-        `UPDATE brands SET url = $1, updated_at = NOW() WHERE id = $2`,
-        [url, brand.id]
-      );
+      await db.update(brands).set({ url, updatedAt: sql`NOW()` }).where(eq(brands.id, brand.id));
       brand.url = url;
     }
     return brand;
   }
-  
+
   // Create new brand
-  const insertQuery = `
-    INSERT INTO brands (clerk_org_id, url, domain, created_at, updated_at)
-    VALUES ($1, $2, $3, NOW(), NOW())
-    RETURNING id, url, name, domain, clerk_org_id as "clerkOrgId"
-  `;
-  const result = await pool.query(insertQuery, [clerkOrgId, url, domain]);
+  const inserted = await db
+    .insert(brands)
+    .values({ clerkOrgId, url, domain })
+    .returning({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+      clerkOrgId: brands.clerkOrgId,
+    });
+
   console.log(`[sales-profile] Created brand for ${clerkOrgId} with domain ${domain}`);
-  return result.rows[0];
+  return inserted[0];
 }
 
-/**
- * Get sales profile by clerkOrgId (returns first/most recent brand profile)
- */
-export async function getSalesProfileByClerkOrgId(
-  clerkOrgId: string
-): Promise<SalesProfile | null> {
-  const query = `
-    SELECT sp.* 
-    FROM brand_sales_profiles sp
-    JOIN brands b ON sp.brand_id = b.id
-    WHERE b.clerk_org_id = $1
-    AND (sp.expires_at IS NULL OR sp.expires_at > NOW())
-    ORDER BY sp.extracted_at DESC
-    LIMIT 1
-  `;
-  
-  const result = await pool.query(query, [clerkOrgId]);
-  
-  if (result.rows.length === 0) {
-    return null;
-  }
-  
-  return formatProfileFromDb(result.rows[0]);
+export async function getSalesProfileByClerkOrgId(clerkOrgId: string): Promise<SalesProfile | null> {
+  const result = await db
+    .select()
+    .from(brandSalesProfiles)
+    .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
+    .where(and(eq(brands.clerkOrgId, clerkOrgId), gt(brandSalesProfiles.expiresAt, sql`NOW()`)))
+    .orderBy(desc(brandSalesProfiles.extractedAt))
+    .limit(1);
+
+  return result.length > 0 ? formatProfileFromDb(result[0].brand_sales_profiles) : null;
 }
 
-/**
- * Get all sales profiles for a clerkOrgId (includes URL and domain from brand)
- */
 export async function getAllSalesProfilesByClerkOrgId(
   clerkOrgId: string
-): Promise<(SalesProfile & { url: string; domain: string })[]> {
-  const query = `
-    SELECT sp.*, b.url, b.domain 
-    FROM brand_sales_profiles sp
-    JOIN brands b ON sp.brand_id = b.id
-    WHERE b.clerk_org_id = $1
-    ORDER BY sp.extracted_at DESC
-  `;
-  
-  const result = await pool.query(query, [clerkOrgId]);
-  
-  return result.rows.map((row: any) => ({
-    ...formatProfileFromDb(row),
-    url: row.url,
-    domain: row.domain,
+): Promise<(SalesProfile & { url: string | null; domain: string | null })[]> {
+  const result = await db
+    .select()
+    .from(brandSalesProfiles)
+    .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
+    .where(eq(brands.clerkOrgId, clerkOrgId))
+    .orderBy(desc(brandSalesProfiles.extractedAt));
+
+  return result.map(row => ({
+    ...formatProfileFromDb(row.brand_sales_profiles),
+    url: row.brands.url,
+    domain: row.brands.domain,
   }));
 }
 
-/**
- * Save or update sales profile
- */
 async function upsertSalesProfile(
   brandId: string,
   profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt'>,
@@ -384,155 +334,100 @@ async function upsertSalesProfile(
   outputTokens: number,
   scrapeIds: string[]
 ): Promise<SalesProfile> {
-  const expiresAt = new Date(Date.now() + CACHE_DURATION_MS);
+  const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
 
-  const query = `
-    INSERT INTO brand_sales_profiles (
-      brand_id, company_name, value_proposition, customer_pain_points,
-      call_to_action, social_proof, company_overview, additional_context,
-      competitors, product_differentiators, target_audience, key_features,
-      extraction_model, extraction_input_tokens, extraction_output_tokens,
-      extraction_cost_usd, source_scrape_ids, extracted_at, expires_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), $18)
-    ON CONFLICT (brand_id) DO UPDATE SET
-      company_name = EXCLUDED.company_name,
-      value_proposition = EXCLUDED.value_proposition,
-      customer_pain_points = EXCLUDED.customer_pain_points,
-      call_to_action = EXCLUDED.call_to_action,
-      social_proof = EXCLUDED.social_proof,
-      company_overview = EXCLUDED.company_overview,
-      additional_context = EXCLUDED.additional_context,
-      competitors = EXCLUDED.competitors,
-      product_differentiators = EXCLUDED.product_differentiators,
-      target_audience = EXCLUDED.target_audience,
-      key_features = EXCLUDED.key_features,
-      extraction_model = EXCLUDED.extraction_model,
-      extraction_input_tokens = EXCLUDED.extraction_input_tokens,
-      extraction_output_tokens = EXCLUDED.extraction_output_tokens,
-      extraction_cost_usd = EXCLUDED.extraction_cost_usd,
-      source_scrape_ids = EXCLUDED.source_scrape_ids,
-      extracted_at = NOW(),
-      expires_at = EXCLUDED.expires_at,
-      updated_at = NOW()
-    RETURNING *
-  `;
+  const result = await db
+    .insert(brandSalesProfiles)
+    .values({
+      brandId,
+      companyName: profile.companyName,
+      valueProposition: profile.valueProposition,
+      customerPainPoints: profile.customerPainPoints,
+      callToAction: profile.callToAction,
+      socialProof: profile.socialProof,
+      companyOverview: profile.companyOverview,
+      additionalContext: profile.additionalContext,
+      competitors: profile.competitors,
+      productDifferentiators: profile.productDifferentiators,
+      targetAudience: profile.targetAudience,
+      keyFeatures: profile.keyFeatures,
+      extractionModel: profile.extractionModel,
+      extractionInputTokens: inputTokens,
+      extractionOutputTokens: outputTokens,
+      extractionCostUsd: profile.extractionCostUsd?.toString(),
+      sourceScrapeIds: scrapeIds,
+      expiresAt,
+    })
+    .onConflictDoUpdate({
+      target: brandSalesProfiles.brandId,
+      set: {
+        companyName: profile.companyName,
+        valueProposition: profile.valueProposition,
+        customerPainPoints: profile.customerPainPoints,
+        callToAction: profile.callToAction,
+        socialProof: profile.socialProof,
+        companyOverview: profile.companyOverview,
+        additionalContext: profile.additionalContext,
+        competitors: profile.competitors,
+        productDifferentiators: profile.productDifferentiators,
+        targetAudience: profile.targetAudience,
+        keyFeatures: profile.keyFeatures,
+        extractionModel: profile.extractionModel,
+        extractionInputTokens: inputTokens,
+        extractionOutputTokens: outputTokens,
+        extractionCostUsd: profile.extractionCostUsd?.toString(),
+        sourceScrapeIds: scrapeIds,
+        extractedAt: sql`NOW()`,
+        expiresAt,
+        updatedAt: sql`NOW()`,
+      },
+    })
+    .returning();
 
-  const result = await pool.query(query, [
-    brandId,
-    profile.companyName,
-    profile.valueProposition,
-    JSON.stringify(profile.customerPainPoints),
-    profile.callToAction,
-    JSON.stringify(profile.socialProof),
-    profile.companyOverview,
-    profile.additionalContext,
-    JSON.stringify(profile.competitors),
-    JSON.stringify(profile.productDifferentiators),
-    profile.targetAudience,
-    JSON.stringify(profile.keyFeatures),
-    profile.extractionModel,
-    inputTokens,
-    outputTokens,
-    profile.extractionCostUsd,
-    JSON.stringify(scrapeIds),
-    expiresAt,
-  ]);
-
-  return formatProfileFromDb(result.rows[0]);
+  return formatProfileFromDb(result[0]);
 }
 
-/**
- * Format database row to SalesProfile
- */
-function formatProfileFromDb(row: any): SalesProfile {
-  return {
-    id: row.id,
-    brandId: row.brand_id,
-    companyName: row.company_name,
-    valueProposition: row.value_proposition,
-    customerPainPoints: row.customer_pain_points || [],
-    callToAction: row.call_to_action,
-    socialProof: row.social_proof || { caseStudies: [], testimonials: [], results: [] },
-    companyOverview: row.company_overview,
-    additionalContext: row.additional_context,
-    competitors: row.competitors || [],
-    productDifferentiators: row.product_differentiators || [],
-    targetAudience: row.target_audience,
-    keyFeatures: row.key_features || [],
-    extractionModel: row.extraction_model,
-    extractionCostUsd: parseFloat(row.extraction_cost_usd) || null,
-    extractedAt: row.extracted_at?.toISOString(),
-    expiresAt: row.expires_at?.toISOString(),
-  };
-}
-
-/**
- * Main extraction function
- */
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
   options: { skipCache?: boolean; forceRescrape?: boolean } = {}
 ): Promise<{ cached: boolean; profile: SalesProfile }> {
-  // Check cache first
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
-    if (existing) {
-      return { cached: true, profile: existing };
-    }
+    if (existing) return { cached: true, profile: existing };
   }
 
-  // Get brand
   const brand = await getBrand(brandId);
-  if (!brand) {
-    throw new Error('Brand not found');
-  }
-
-  if (!brand.url) {
-    throw new Error('Brand has no URL');
-  }
+  if (!brand) throw new Error('Brand not found');
+  if (!brand.url) throw new Error('Brand has no URL');
 
   const anthropicClient = getAnthropicClient(anthropicApiKey);
 
-  // Step 1: Map site URLs
   console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
   const allUrls = await mapSiteUrls(brand.url);
   console.log(`[${brandId}] Found ${allUrls.length} URLs`);
 
-  // Step 2: Select top 10 relevant URLs
   console.log(`[${brandId}] Selecting relevant URLs...`);
   const selectedUrls = await selectRelevantUrls(allUrls, anthropicClient);
   console.log(`[${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
-  // Step 3: Scrape selected URLs in parallel
   console.log(`[${brandId}] Scraping ${selectedUrls.length} pages...`);
-  const scrapePromises = selectedUrls.map(url => 
+  const scrapePromises = selectedUrls.map(url =>
     scrapeUrl(url, brandId).then(content => ({ url, content: content || '' }))
   );
   const pageContents = await Promise.all(scrapePromises);
   const successfulScrapes = pageContents.filter(p => p.content);
   console.log(`[${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
 
-  if (successfulScrapes.length === 0) {
-    throw new Error('Failed to scrape any pages');
-  }
+  if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
 
-  // Step 4: Extract sales profile with AI
   console.log(`[${brandId}] Extracting sales profile with AI...`);
-  const { profile, inputTokens, outputTokens } = await extractSalesProfile(
+  const { profile, inputTokens, outputTokens } = await extractSalesProfileFromContent(
     successfulScrapes,
     anthropicClient
   );
 
-  // Step 5: Save to database
-  const savedProfile = await upsertSalesProfile(
-    brandId,
-    profile,
-    inputTokens,
-    outputTokens,
-    [] // scrape IDs not tracked for now
-  );
-
+  const savedProfile = await upsertSalesProfile(brandId, profile, inputTokens, outputTokens, []);
   console.log(`[${brandId}] Sales profile extracted and saved`);
 
   return { cached: false, profile: savedProfile };

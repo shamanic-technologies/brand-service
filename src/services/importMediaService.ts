@@ -1,4 +1,4 @@
-import pool from '../db';
+import pool from '../db-legacy';
 import { getMediaFilesFromUrl, downloadFileAsStream } from './googleDriveService';
 import { uploadToSupabase } from './supabaseStorageService';
 import { getOrganizationIdByExternalId } from './organizationUpsertService';
