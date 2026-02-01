@@ -5,6 +5,7 @@ import mediaAssetsRoutes from '../../src/routes/media-assets.routes';
 import analyzeRoutes from '../../src/routes/analyze.routes';
 import intakeFormRoutes from '../../src/routes/intake-form.routes';
 import publicInfoRoutes from '../../src/routes/public-information.routes';
+import salesProfileRoutes from '../../src/routes/sales-profile.routes';
 
 /**
  * Create a test Express app instance
@@ -30,6 +31,7 @@ export function createTestApp() {
   app.use('/analyze', analyzeRoutes);
   app.use('/', intakeFormRoutes);
   app.use('/', publicInfoRoutes);
+  app.use('/', salesProfileRoutes);
 
   return app;
 }

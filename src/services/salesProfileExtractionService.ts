@@ -260,8 +260,8 @@ function extractDomainFromUrl(url: string): string {
 export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise<Brand> {
   const domain = extractDomainFromUrl(url);
 
-  // Find existing brand
-  const existing = await db
+  // CASE 1: Find existing brand by clerkOrgId + domain
+  const existingByBoth = await db
     .select({
       id: brands.id,
       url: brands.url,
@@ -273,16 +273,79 @@ export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise
     .where(and(eq(brands.clerkOrgId, clerkOrgId), eq(brands.domain, domain)))
     .limit(1);
 
-  if (existing.length > 0) {
-    const brand = existing[0];
+  if (existingByBoth.length > 0) {
+    const brand = existingByBoth[0];
     if (brand.url !== url) {
       await db.update(brands).set({ url, updatedAt: sql`NOW()` }).where(eq(brands.id, brand.id));
       brand.url = url;
     }
+    console.log(`[sales-profile] Found existing brand by clerkOrgId+domain: ${brand.id}`);
     return brand;
   }
 
-  // Create new brand
+  // CASE 2: Check if brand exists by domain alone (UNIQUE constraint on domain!)
+  // This handles the case where domain was created by another clerkOrgId or without clerkOrgId
+  const existingByDomain = await db
+    .select({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+      clerkOrgId: brands.clerkOrgId,
+    })
+    .from(brands)
+    .where(eq(brands.domain, domain))
+    .limit(1);
+
+  if (existingByDomain.length > 0) {
+    const brand = existingByDomain[0];
+    // Domain exists - update it with this clerkOrgId if not set, or if same org
+    if (!brand.clerkOrgId || brand.clerkOrgId === clerkOrgId) {
+      await db.update(brands).set({ 
+        clerkOrgId, 
+        url, 
+        updatedAt: sql`NOW()` 
+      }).where(eq(brands.id, brand.id));
+      brand.clerkOrgId = clerkOrgId;
+      brand.url = url;
+      console.log(`[sales-profile] Updated existing brand (domain match) with clerkOrgId: ${brand.id}`);
+      return brand;
+    }
+    // Domain already owned by different org - log warning but still return the brand
+    // This is a conflict scenario - the domain is already taken
+    console.warn(`[sales-profile] Domain ${domain} already owned by org ${brand.clerkOrgId}, requested by ${clerkOrgId}`);
+    // Return existing brand - caller can decide what to do
+    return brand;
+  }
+
+  // CASE 3: Check if brand exists by clerkOrgId alone (different domain)
+  const existingByClerkOrgId = await db
+    .select({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+      clerkOrgId: brands.clerkOrgId,
+    })
+    .from(brands)
+    .where(eq(brands.clerkOrgId, clerkOrgId))
+    .limit(1);
+
+  if (existingByClerkOrgId.length > 0) {
+    // Org already has a brand with different domain - update with new domain
+    const brand = existingByClerkOrgId[0];
+    await db.update(brands).set({ 
+      url, 
+      domain,
+      updatedAt: sql`NOW()` 
+    }).where(eq(brands.id, brand.id));
+    brand.url = url;
+    brand.domain = domain;
+    console.log(`[sales-profile] Updated existing brand (clerkOrgId match) with new domain: ${brand.id}`);
+    return brand;
+  }
+
+  // CASE 4: Create new brand - no existing match
   const inserted = await db
     .insert(brands)
     .values({ clerkOrgId, url, domain })
@@ -294,7 +357,7 @@ export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise
       clerkOrgId: brands.clerkOrgId,
     });
 
-  console.log(`[sales-profile] Created brand for ${clerkOrgId} with domain ${domain}`);
+  console.log(`[sales-profile] Created NEW brand for ${clerkOrgId} with domain ${domain}: ${inserted[0].id}`);
   return inserted[0];
 }
 
