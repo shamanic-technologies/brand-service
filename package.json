@@ -12,6 +12,11 @@
     "test:coverage": "vitest run --coverage",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:pull": "drizzle-kit pull",
+    "db:studio": "drizzle-kit studio",
     "migrate": "dotenv -- node-pg-migrate",
     "migrate:create": "npm run migrate -- create --",
     "migrate:up:local": "npm run migrate -- up",
@@ -29,11 +34,13 @@
     "axios": "^1.12.1",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "drizzle-orm": "^0.45.1",
     "express": "^4.21.2",
     "googleapis": "^161.0.0",
     "heic-convert": "^2.1.0",
     "multer": "^2.0.2",
     "pg": "^8.16.3",
+    "postgres": "^3.4.8",
     "sharp": "^0.34.4"
   },
   "devDependencies": {
@@ -45,10 +52,12 @@
     "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^4.0.18",
     "dotenv-cli": "^10.0.0",
+    "drizzle-kit": "^0.31.8",
     "node-pg-migrate": "^8.0.3",
     "nodemon": "^3.1.10",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.2",
     "vitest": "^4.0.18"
   }
