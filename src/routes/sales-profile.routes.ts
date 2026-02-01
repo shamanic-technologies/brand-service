@@ -52,7 +52,11 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     // Check if we already have a sales profile for this brand
     const existingProfile = await getExistingSalesProfile(brand.id);
     if (existingProfile && !skipCache) {
-      return res.json({ cached: true, profile: sanitizeProfileForExternal(existingProfile) });
+      return res.json({ 
+        cached: true, 
+        brandId: brand.id,  // Include brandId for campaign-service to store
+        profile: sanitizeProfileForExternal(existingProfile) 
+      });
     }
 
     // Get API key from keys-service
@@ -73,9 +77,10 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
       { skipCache: true }
     );
 
-    // Sanitize before returning
+    // Sanitize before returning, include brandId for campaign-service
     res.json({
       ...result,
+      brandId: brand.id,  // Include brandId for campaign-service to store
       profile: sanitizeProfileForExternal(result.profile),
     });
   } catch (error: any) {
