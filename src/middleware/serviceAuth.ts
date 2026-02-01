@@ -13,10 +13,10 @@ export function serviceAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   const serviceSecret = req.headers['x-service-secret'];
-  const validSecret = process.env.COMPANY_SERVICE_API_KEY;
+  const validSecret = process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY;
 
   if (!validSecret) {
-    console.error('COMPANY_SERVICE_API_KEY not configured in environment variables');
+    console.error('BRAND_SERVICE_API_KEY not configured in environment variables');
     return res.status(500).json({ 
       error: 'Server configuration error' 
     });
@@ -50,7 +50,7 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
 
   const apiKey = req.headers['x-api-key'];
   
-  const validApiKey = process.env.COMPANY_SERVICE_API_KEY;
+  const validApiKey = process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY;
   const legacyApiKey = process.env.API_KEY; // Legacy, for ai-pr backward compat
 
   if (!apiKey) {

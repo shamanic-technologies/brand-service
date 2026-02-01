@@ -13,10 +13,10 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   const apiKey = req.headers['x-api-key'];
-  const validApiKey = process.env.COMPANY_SERVICE_API_KEY || process.env.API_KEY;
+  const validApiKey = process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || process.env.API_KEY;
 
   if (!validApiKey) {
-    console.error('COMPANY_SERVICE_API_KEY not configured in environment variables');
+    console.error('BRAND_SERVICE_API_KEY not configured in environment variables');
     return res.status(500).json({ 
       error: 'Server configuration error' 
     });
