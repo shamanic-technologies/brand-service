@@ -1,6 +1,8 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { combinedAuth } from './middleware/serviceAuth';
+import { db } from './db';
 
 // Import routes
 import organizationRoutes from './routes/organization.routes';
@@ -54,6 +56,19 @@ app.use('/users', usersRoutes);
 app.use('/', salesProfileRoutes);
 app.use('/', brandsRoutes);
 
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
-});
+// Only start server if not in test environment
+if (process.env.NODE_ENV !== "test") {
+  migrate(db, { migrationsFolder: "./drizzle" })
+    .then(() => {
+      console.log("Migrations complete");
+      app.listen(Number(port), "::", () => {
+        console.log(`Service running on port ${port}`);
+      });
+    })
+    .catch((err) => {
+      console.error("Migration failed:", err);
+      process.exit(1);
+    });
+}
+
+export default app;
