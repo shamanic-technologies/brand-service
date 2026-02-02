@@ -30,6 +30,23 @@
 - pnpm as package manager
 - Vitest for testing
 
+## Testing (MANDATORY)
+
+**Every agent working in this repo MUST write tests for every change. No exceptions.**
+
+1. **Bug fixes** - Write a regression test that reproduces the bug BEFORE fixing it, then verify it passes after the fix.
+2. **New endpoints/routes** - Add integration tests in `tests/integration/` covering happy path + error cases.
+3. **New services/business logic** - Add unit tests in `tests/unit/` covering core logic, edge cases, and error handling.
+4. **Schema changes** - Add or update integration tests that exercise the new/changed tables.
+5. **Refactors** - Existing tests must still pass. If behavior changes, update tests accordingly.
+
+### Rules
+
+- Test file naming: `tests/unit/<feature>.test.ts` or `tests/integration/<feature>.test.ts`
+- Use Vitest (`pnpm test:unit`, `pnpm test:integration`)
+- A PR with source changes in `src/` but no test changes/additions will be flagged by CI
+- Never skip or `.todo()` tests to make CI pass
+
 ## Database Migrations
 
 - After schema changes: `pnpm db:generate` then `pnpm db:migrate`
