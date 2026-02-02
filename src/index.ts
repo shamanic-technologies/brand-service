@@ -15,6 +15,7 @@ import thesisRoutes from './routes/thesis.routes';
 import publicInformationRoutes from './routes/public-information.routes';
 import usersRoutes from './routes/users.routes';
 import salesProfileRoutes from './routes/sales-profile.routes';
+import icpSuggestionRoutes from './routes/icp-suggestion.routes';
 import brandsRoutes from './routes/brands.routes';
 
 const app = express();
@@ -54,6 +55,7 @@ app.use('/', thesisRoutes);
 app.use('/', publicInformationRoutes);
 app.use('/users', usersRoutes);
 app.use('/', salesProfileRoutes);
+app.use('/', icpSuggestionRoutes);
 app.use('/', brandsRoutes);
 
 // Only start server if not in test environment

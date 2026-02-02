@@ -41,11 +41,11 @@ interface Brand {
   clerkOrgId: string | null;
 }
 
-function getAnthropicClient(apiKey: string): Anthropic {
+export function getAnthropicClient(apiKey: string): Anthropic {
   return new Anthropic({ apiKey });
 }
 
-async function mapSiteUrls(url: string): Promise<string[]> {
+export async function mapSiteUrls(url: string): Promise<string[]> {
   try {
     const response = await axios.post(
       `${SCRAPING_SERVICE_URL}/map`,
@@ -63,7 +63,7 @@ async function mapSiteUrls(url: string): Promise<string[]> {
   }
 }
 
-async function scrapeUrl(url: string, brandId: string): Promise<string | null> {
+export async function scrapeUrl(url: string, brandId: string): Promise<string | null> {
   try {
     const response = await axios.post(
       `${SCRAPING_SERVICE_URL}/scrape`,
@@ -80,7 +80,7 @@ async function scrapeUrl(url: string, brandId: string): Promise<string | null> {
   }
 }
 
-async function selectRelevantUrls(allUrls: string[], anthropicClient: Anthropic): Promise<string[]> {
+export async function selectRelevantUrls(allUrls: string[], anthropicClient: Anthropic): Promise<string[]> {
   if (allUrls.length <= 10) return allUrls;
 
   const prompt = `You are helping extract sales/marketing information from a company website.
