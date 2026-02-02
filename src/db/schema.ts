@@ -312,6 +312,30 @@ export const brandSalesProfiles = pgTable("brand_sales_profiles", {
 	unique("organization_sales_profiles_organization_id_key").on(table.brandId),
 ]);
 
+export const brandIcpSuggestionsForApollo = pgTable("brand_icp_suggestions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	targetTitles: jsonb("target_titles"),
+	targetIndustries: jsonb("target_industries"),
+	targetLocations: jsonb("target_locations"),
+	extractionModel: text("extraction_model"),
+	extractionInputTokens: integer("extraction_input_tokens"),
+	extractionOutputTokens: integer("extraction_output_tokens"),
+	extractionCostUsd: numeric("extraction_cost_usd"),
+	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_icp_suggestions_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_icp_suggestions_brand_id_fkey"
+	}).onDelete("cascade"),
+	unique("brand_icp_suggestions_brand_id_key").on(table.brandId),
+]);
+
 export const scrapedUrlFirecrawl = pgTable("scraped_url_firecrawl", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),

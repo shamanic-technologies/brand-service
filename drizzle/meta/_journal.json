@@ -15,6 +15,13 @@
       "when": 1769916260931,
       "tag": "0001_brief_miss_america",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770024982649,
+      "tag": "0002_chunky_mauler",
+      "breakpoints": true
     }
   ]
 }
