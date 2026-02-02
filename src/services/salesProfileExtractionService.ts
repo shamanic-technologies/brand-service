@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
 import { eq, and, gt, desc, sql } from 'drizzle-orm';
 import { db, brands, brandSalesProfiles } from '../db';
+import { ensureOrganization, createRun, updateRun, addCosts } from '../lib/runs-client';
 
 const SCRAPING_SERVICE_URL = process.env.SCRAPING_SERVICE_URL || 'http://localhost:3010';
 const SCRAPING_SERVICE_API_KEY = process.env.SCRAPING_SERVICE_API_KEY || '';
@@ -453,8 +454,8 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean } = {}
-): Promise<{ cached: boolean; profile: SalesProfile }> {
+  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId?: string; parentRunId?: string } = {}
+): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
     if (existing) return { cached: true, profile: existing };
@@ -464,34 +465,77 @@ export async function extractBrandSalesProfile(
   if (!brand) throw new Error('Brand not found');
   if (!brand.url) throw new Error('Brand has no URL');
 
-  const anthropicClient = getAnthropicClient(anthropicApiKey);
+  // Resolve clerkOrgId for run tracking
+  const clerkOrgId = options.clerkOrgId || brand.clerkOrgId;
 
-  console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
-  const allUrls = await mapSiteUrls(brand.url);
-  console.log(`[${brandId}] Found ${allUrls.length} URLs`);
+  // Create run in runs-service (best-effort)
+  let runId: string | undefined;
+  if (clerkOrgId) {
+    try {
+      const runsOrgId = await ensureOrganization(clerkOrgId);
+      const run = await createRun({
+        organizationId: runsOrgId,
+        serviceName: "brand-service",
+        taskName: "sales-profile-extraction",
+        parentRunId: options.parentRunId,
+      });
+      runId = run.id;
+    } catch (err) {
+      console.warn("[sales-profile] Failed to create run in runs-service:", err);
+    }
+  }
 
-  console.log(`[${brandId}] Selecting relevant URLs...`);
-  const selectedUrls = await selectRelevantUrls(allUrls, anthropicClient);
-  console.log(`[${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
+  try {
+    const anthropicClient = getAnthropicClient(anthropicApiKey);
 
-  console.log(`[${brandId}] Scraping ${selectedUrls.length} pages...`);
-  const scrapePromises = selectedUrls.map(url =>
-    scrapeUrl(url, brandId).then(content => ({ url, content: content || '' }))
-  );
-  const pageContents = await Promise.all(scrapePromises);
-  const successfulScrapes = pageContents.filter(p => p.content);
-  console.log(`[${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
+    console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
+    const allUrls = await mapSiteUrls(brand.url);
+    console.log(`[${brandId}] Found ${allUrls.length} URLs`);
 
-  if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
+    console.log(`[${brandId}] Selecting relevant URLs...`);
+    const selectedUrls = await selectRelevantUrls(allUrls, anthropicClient);
+    console.log(`[${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
-  console.log(`[${brandId}] Extracting sales profile with AI...`);
-  const { profile, inputTokens, outputTokens } = await extractSalesProfileFromContent(
-    successfulScrapes,
-    anthropicClient
-  );
+    console.log(`[${brandId}] Scraping ${selectedUrls.length} pages...`);
+    const scrapePromises = selectedUrls.map(url =>
+      scrapeUrl(url, brandId).then(content => ({ url, content: content || '' }))
+    );
+    const pageContents = await Promise.all(scrapePromises);
+    const successfulScrapes = pageContents.filter(p => p.content);
+    console.log(`[${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
 
-  const savedProfile = await upsertSalesProfile(brandId, profile, inputTokens, outputTokens, []);
-  console.log(`[${brandId}] Sales profile extracted and saved`);
+    if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
 
-  return { cached: false, profile: savedProfile };
+    console.log(`[${brandId}] Extracting sales profile with AI...`);
+    const { profile, inputTokens, outputTokens } = await extractSalesProfileFromContent(
+      successfulScrapes,
+      anthropicClient
+    );
+
+    const savedProfile = await upsertSalesProfile(brandId, profile, inputTokens, outputTokens, []);
+    console.log(`[${brandId}] Sales profile extracted and saved`);
+
+    // Record costs and complete run (best-effort)
+    if (runId) {
+      try {
+        const costItems = [];
+        if (inputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-input", quantity: inputTokens });
+        if (outputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-output", quantity: outputTokens });
+        if (costItems.length > 0) await addCosts(runId, costItems);
+        await updateRun(runId, "completed");
+      } catch (err) {
+        console.warn("[sales-profile] Failed to track run costs in runs-service:", err);
+      }
+    }
+
+    return { cached: false, profile: savedProfile, runId };
+  } catch (error) {
+    // Mark run as failed (best-effort)
+    if (runId) {
+      try { await updateRun(runId, "failed"); } catch (err) {
+        console.warn("[sales-profile] Failed to mark run as failed:", err);
+      }
+    }
+    throw error;
+  }
 }

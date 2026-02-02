@@ -9,6 +9,7 @@ import {
   getOrCreateBrand,
   getBrand,
 } from './salesProfileExtractionService';
+import { ensureOrganization, createRun, updateRun, addCosts } from '../lib/runs-client';
 
 // Cache duration: 30 days
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -178,8 +179,8 @@ async function upsertIcpSuggestionForApollo(
 export async function extractIcpSuggestionForApollo(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean } = {}
-): Promise<{ cached: boolean; icp: IcpSuggestionForApollo }> {
+  options: { skipCache?: boolean; clerkOrgId?: string; parentRunId?: string } = {}
+): Promise<{ cached: boolean; icp: IcpSuggestionForApollo; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingIcpSuggestionForApollo(brandId);
     if (existing) return { cached: true, icp: existing };
@@ -189,31 +190,74 @@ export async function extractIcpSuggestionForApollo(
   if (!brand) throw new Error('Brand not found');
   if (!brand.url) throw new Error('Brand has no URL');
 
-  const anthropicClient = getAnthropicClient(anthropicApiKey);
+  // Resolve clerkOrgId for run tracking
+  const clerkOrgId = options.clerkOrgId || brand.clerkOrgId;
 
-  console.log(`[icp][${brandId}] Mapping site URLs for: ${brand.url}`);
-  const allUrls = await mapSiteUrls(brand.url);
+  // Create run in runs-service (best-effort)
+  let runId: string | undefined;
+  if (clerkOrgId) {
+    try {
+      const runsOrgId = await ensureOrganization(clerkOrgId);
+      const run = await createRun({
+        organizationId: runsOrgId,
+        serviceName: "brand-service",
+        taskName: "icp-extraction",
+        parentRunId: options.parentRunId,
+      });
+      runId = run.id;
+    } catch (err) {
+      console.warn("[icp] Failed to create run in runs-service:", err);
+    }
+  }
 
-  console.log(`[icp][${brandId}] Selecting relevant URLs...`);
-  const selectedUrls = await selectRelevantUrls(allUrls, anthropicClient);
+  try {
+    const anthropicClient = getAnthropicClient(anthropicApiKey);
 
-  console.log(`[icp][${brandId}] Scraping ${selectedUrls.length} pages...`);
-  const scrapePromises = selectedUrls.map(url =>
-    scrapeUrl(url, brandId).then(content => ({ url, content: content || '' }))
-  );
-  const pageContents = await Promise.all(scrapePromises);
-  const successfulScrapes = pageContents.filter(p => p.content);
+    console.log(`[icp][${brandId}] Mapping site URLs for: ${brand.url}`);
+    const allUrls = await mapSiteUrls(brand.url);
 
-  if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
+    console.log(`[icp][${brandId}] Selecting relevant URLs...`);
+    const selectedUrls = await selectRelevantUrls(allUrls, anthropicClient);
 
-  console.log(`[icp][${brandId}] Extracting ICP with AI...`);
-  const { icp, inputTokens, outputTokens } = await extractIcpFromContentForApollo(
-    successfulScrapes,
-    anthropicClient
-  );
+    console.log(`[icp][${brandId}] Scraping ${selectedUrls.length} pages...`);
+    const scrapePromises = selectedUrls.map(url =>
+      scrapeUrl(url, brandId).then(content => ({ url, content: content || '' }))
+    );
+    const pageContents = await Promise.all(scrapePromises);
+    const successfulScrapes = pageContents.filter(p => p.content);
 
-  const saved = await upsertIcpSuggestionForApollo(brandId, icp, inputTokens, outputTokens);
-  console.log(`[icp][${brandId}] ICP suggestion extracted and saved`);
+    if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
 
-  return { cached: false, icp: saved };
+    console.log(`[icp][${brandId}] Extracting ICP with AI...`);
+    const { icp, inputTokens, outputTokens } = await extractIcpFromContentForApollo(
+      successfulScrapes,
+      anthropicClient
+    );
+
+    const saved = await upsertIcpSuggestionForApollo(brandId, icp, inputTokens, outputTokens);
+    console.log(`[icp][${brandId}] ICP suggestion extracted and saved`);
+
+    // Record costs and complete run (best-effort)
+    if (runId) {
+      try {
+        const costItems = [];
+        if (inputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-input", quantity: inputTokens });
+        if (outputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-output", quantity: outputTokens });
+        if (costItems.length > 0) await addCosts(runId, costItems);
+        await updateRun(runId, "completed");
+      } catch (err) {
+        console.warn("[icp] Failed to track run costs in runs-service:", err);
+      }
+    }
+
+    return { cached: false, icp: saved, runId };
+  } catch (error) {
+    // Mark run as failed (best-effort)
+    if (runId) {
+      try { await updateRun(runId, "failed"); } catch (err) {
+        console.warn("[icp] Failed to mark run as failed:", err);
+      }
+    }
+    throw error;
+  }
 }

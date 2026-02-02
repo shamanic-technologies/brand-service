@@ -13,7 +13,7 @@ Microservice for managing brand information, sales profiles, media assets, organ
 - **Deployment:** Docker + Railway
 - **AI:** Anthropic Claude, Google Gemini
 - **Storage:** Supabase
-- **External:** Firecrawl (web scraping), Google Drive, PDL (enrichment)
+- **External:** Firecrawl (web scraping), Google Drive, PDL (enrichment), runs-service (cost tracking)
 
 ## Setup
 
@@ -53,6 +53,7 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 | GET | `/brands` | List brands by clerkOrgId |
 | GET | `/brands/:id` | Get brand by ID |
 | GET | `/brands/:id/sales-profile` | Get sales profile for brand |
+| GET | `/brands/:id/runs` | List extraction runs with costs (via runs-service) |
 
 ### Sales Profiles
 
@@ -172,7 +173,8 @@ Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 - `media_assets`, `supabase_storage`
 - `intake_forms`, `brand_thesis`
 - `brand_relations`, `web_pages`, `scraped_url_firecrawl`
-- `tasks`, `tasks_runs`, `tasks_runs_costs`
+
+Run/cost tracking is handled by runs-service (see `src/lib/runs-client.ts`).
 
 Migrations live in `drizzle/`. Run `pnpm db:generate` after schema changes, then `pnpm db:migrate`.
 
@@ -185,6 +187,7 @@ See `.env.example` for all required variables:
 - `GEMINI_API_KEY` - Google Gemini
 - `FIRECRAWL_API_KEY` - Web scraping
 - `SCRAPING_SERVICE_URL` / `SCRAPING_SERVICE_API_KEY` - Scraping service
+- `RUNS_SERVICE_URL` / `RUNS_SERVICE_API_KEY` - Run tracking & cost management
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage
 - `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` - Google Drive
 - `PORT` - Server port (default 3008)

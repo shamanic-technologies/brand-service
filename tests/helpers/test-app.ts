@@ -7,6 +7,7 @@ import intakeFormRoutes from '../../src/routes/intake-form.routes';
 import publicInfoRoutes from '../../src/routes/public-information.routes';
 import salesProfileRoutes from '../../src/routes/sales-profile.routes';
 import icpSuggestionRoutes from '../../src/routes/icp-suggestion.routes';
+import brandsRoutes from '../../src/routes/brands.routes';
 
 /**
  * Create a test Express app instance
@@ -34,6 +35,7 @@ export function createTestApp() {
   app.use('/', publicInfoRoutes);
   app.use('/', salesProfileRoutes);
   app.use('/', icpSuggestionRoutes);
+  app.use('/', brandsRoutes);
 
   return app;
 }
