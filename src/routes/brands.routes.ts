@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq, desc } from 'drizzle-orm';
 import { db, brands, brandSalesProfiles } from '../db';
+import { ensureOrganization, listRuns } from '../lib/runs-client';
 
 const router = Router();
 
@@ -114,6 +115,48 @@ router.get('/brands/:id/sales-profile', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get brand sales profile error:', error);
     res.status(500).json({ error: error.message || 'Failed to get sales profile' });
+  }
+});
+
+/**
+ * GET /brands/:id/runs
+ * List runs-service runs for a brand (extraction history with costs)
+ */
+router.get('/brands/:id/runs', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const taskName = req.query.taskName as string | undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
+
+    // Look up the brand to get clerkOrgId
+    const [brand] = await db
+      .select({ id: brands.id, clerkOrgId: brands.clerkOrgId })
+      .from(brands)
+      .where(eq(brands.id, id))
+      .limit(1);
+
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    if (!brand.clerkOrgId) {
+      return res.json({ runs: [] });
+    }
+
+    const runsOrgId = await ensureOrganization(brand.clerkOrgId);
+    const result = await listRuns({
+      organizationId: runsOrgId,
+      serviceName: 'brand-service',
+      taskName,
+      limit,
+      offset,
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    console.error('Get brand runs error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get brand runs' });
   }
 });
 

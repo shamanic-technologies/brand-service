@@ -56,11 +56,16 @@ router.post('/icp-suggestion', async (req: Request, res: Response) => {
       });
     }
 
-    const result = await extractIcpSuggestionForApollo(brand.id, anthropicApiKey, { skipCache: true });
+    const result = await extractIcpSuggestionForApollo(brand.id, anthropicApiKey, {
+      skipCache: true,
+      clerkOrgId,
+      parentRunId: req.body.parentRunId,
+    });
 
     res.json({
-      ...result,
+      cached: result.cached,
       brandId: brand.id,
+      runId: result.runId,
       icp: sanitizeForExternal(result.icp),
     });
   } catch (error: any) {

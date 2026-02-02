@@ -74,13 +74,14 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     const result = await extractBrandSalesProfile(
       brand.id,
       anthropicApiKey,
-      { skipCache: true }
+      { skipCache: true, clerkOrgId, parentRunId: req.body.parentRunId }
     );
 
     // Sanitize before returning, include brandId for campaign-service
     res.json({
-      ...result,
+      cached: result.cached,
       brandId: brand.id,  // Include brandId for campaign-service to store
+      runId: result.runId,
       profile: sanitizeProfileForExternal(result.profile),
     });
   } catch (error: any) {
@@ -147,7 +148,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { brandId } = req.params;
-      const { anthropicApiKey, skipCache, forceRescrape } = req.body;
+      const { anthropicApiKey, skipCache, forceRescrape, parentRunId } = req.body;
 
       if (!anthropicApiKey) {
         return res.status(400).json({ error: 'anthropicApiKey is required (BYOK)' });
@@ -163,11 +164,11 @@ router.post(
         return res.status(404).json({ error: 'Brand not found' });
       }
 
-      // Extract sales profile
+      // Extract sales profile (uses brand's clerkOrgId for run tracking)
       const result = await extractBrandSalesProfile(
         brandId,
         anthropicApiKey,
-        { skipCache, forceRescrape }
+        { skipCache, forceRescrape, clerkOrgId: brand.clerkOrgId || undefined, parentRunId }
       );
 
       res.json(result);

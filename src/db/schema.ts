@@ -888,49 +888,6 @@ export const vTargetOrganizations = pgView("v_target_organizations", {	sourceExt
 	targetOrgSocialMedia: jsonb("target_org_social_media"),
 }).as(sql`SELECT source_org.external_organization_id AS source_external_organization_id, target_org.id AS target_org_id, target_org.external_organization_id AS target_org_external_id, target_org.name AS target_org_name, target_org.url AS target_org_url, target_org.organization_linkedin_url AS target_org_linkedin_url, target_org.domain AS target_org_domain, rel.relation_type, rel.relation_confidence_level, rel.relation_confidence_rationale, rel.status AS relation_status, rel.created_at AS relation_created_at, rel.updated_at AS relation_updated_at, target_org.location AS target_org_location, target_org.bio AS target_org_bio, target_org.elevator_pitch AS target_org_elevator_pitch, target_org.mission AS target_org_mission, target_org.story AS target_org_story, target_org.offerings AS target_org_offerings, target_org.problem_solution AS target_org_problem_solution, target_org.goals AS target_org_goals, target_org.categories AS target_org_categories, target_org.founded_date AS target_org_founded_date, target_org.contact_name AS target_org_contact_name, target_org.contact_email AS target_org_contact_email, target_org.contact_phone AS target_org_contact_phone, target_org.social_media AS target_org_social_media FROM brands source_org JOIN brand_relations rel ON source_org.id = rel.source_brand_id JOIN brands target_org ON rel.target_brand_id = target_org.id ORDER BY source_org.external_organization_id, rel.created_at DESC`);
 
-// Task type registry
-export const tasks = pgTable("tasks", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	name: text("name").notNull().unique(),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-});
-
-// Task runs (individual executions)
-export const tasksRuns = pgTable("tasks_runs", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	taskId: uuid("task_id").notNull().references(() => tasks.id),
-	orgId: uuid("org_id").notNull().references(() => orgs.id),
-	userId: uuid("user_id").references(() => users.id),
-	status: text("status").notNull().default("running"),
-	startedAt: timestamp("started_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	endedAt: timestamp("ended_at", { withTimezone: true, mode: 'string' }),
-	error: text("error"),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("idx_tasks_runs_task").on(table.taskId),
-	index("idx_tasks_runs_org").on(table.orgId),
-	index("idx_tasks_runs_status").on(table.status),
-]);
-
-// Cost line items per task run
-export const tasksRunsCosts = pgTable("tasks_runs_costs", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	taskRunId: uuid("task_run_id").notNull().references(() => tasksRuns.id, { onDelete: "cascade" }),
-	costName: text("cost_name").notNull(),
-	units: integer("units").notNull(),
-	costPerUnitInUsdCents: numeric("cost_per_unit_in_usd_cents", { precision: 12, scale: 10 }).notNull(),
-	totalCostInUsdCents: numeric("total_cost_in_usd_cents", { precision: 12, scale: 10 }).notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("idx_tasks_runs_costs_run").on(table.taskRunId),
-	index("idx_tasks_runs_costs_name").on(table.costName),
-]);
-
-// Type exports for tasks tables
-export type Task = typeof tasks.$inferSelect;
-export type NewTask = typeof tasks.$inferInsert;
-export type TaskRun = typeof tasksRuns.$inferSelect;
-export type NewTaskRun = typeof tasksRuns.$inferInsert;
-export type TaskRunCost = typeof tasksRunsCosts.$inferSelect;
-export type NewTaskRunCost = typeof tasksRunsCosts.$inferInsert;
+// Deprecated: tasks, tasks_runs, tasks_runs_costs tables removed from schema.
+// Run tracking is now handled by runs-service via src/lib/runs-client.ts.
+// The physical tables still exist in the database but are no longer used.
