@@ -60,12 +60,21 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     }
 
     // Get API key from keys-service
-    const anthropicApiKey = await getKeyForOrg(clerkOrgId, "anthropic", keyType);
+    let anthropicApiKey: string | null;
+    try {
+      anthropicApiKey = await getKeyForOrg(clerkOrgId, "anthropic", keyType);
+    } catch (keyError: any) {
+      console.error('[sales-profile] api-service error:', keyError.message);
+      return res.status(502).json({
+        error: 'Failed to fetch API key from key service',
+        detail: keyError.message,
+      });
+    }
     if (!anthropicApiKey) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: `No Anthropic API key found (keyType: ${keyType})`,
-        hint: keyType === "byok" 
-          ? 'User needs to configure their Anthropic API key' 
+        hint: keyType === "byok"
+          ? 'User needs to configure their Anthropic API key'
           : 'Platform Anthropic key not configured'
       });
     }

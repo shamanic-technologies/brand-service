@@ -45,7 +45,10 @@ export async function getKeyForOrg(
       console.log(`No BYOK key found for org ${clerkOrgId}, provider ${provider}`);
       return null;
     }
-    console.error(`Error fetching key from api-service:`, error.message);
-    return null;
+    const detail = error.response?.status
+      ? `HTTP ${error.response.status}: ${error.response.data?.error || error.message}`
+      : `${error.code || 'UNKNOWN'}: ${error.message || 'no error message'}`;
+    console.error(`Error fetching key from api-service: ${detail}`);
+    throw new Error(`api-service key fetch failed: ${detail}`);
   }
 }
