@@ -282,7 +282,6 @@ export const brandLinkedinPosts = pgTable("brand_linkedin_posts", {
 export const brandSalesProfiles = pgTable("brand_sales_profiles", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	brandId: uuid("brand_id").notNull(),
-	companyName: text("company_name"),
 	valueProposition: text("value_proposition"),
 	customerPainPoints: jsonb("customer_pain_points"),
 	callToAction: text("call_to_action"),

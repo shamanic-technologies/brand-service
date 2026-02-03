@@ -36,7 +36,6 @@ describe('Sales Profile Extraction', () => {
       const profile = {
         id: 'uuid',
         organizationId: 'org-uuid',
-        companyName: 'Test Company',
         valueProposition: 'Test value prop',
         customerPainPoints: ['pain1', 'pain2'],
         callToAction: 'Book a demo',
@@ -141,7 +140,7 @@ describe('Sales Profile Extraction', () => {
       const aiResponse = `Here is the analysis:
 
 {
-  "companyName": "Apollo.io",
+  "brandName": "Apollo.io",
   "valueProposition": "End-to-end sales automation"
 }
 
@@ -151,7 +150,7 @@ Hope this helps!`;
       expect(match).not.toBeNull();
       
       const parsed = JSON.parse(match![0]);
-      expect(parsed.companyName).toBe('Apollo.io');
+      expect(parsed.brandName).toBe('Apollo.io');
       expect(parsed.valueProposition).toBe('End-to-end sales automation');
     });
 
