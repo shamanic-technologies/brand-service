@@ -13,7 +13,6 @@ const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 export interface SalesProfile {
   id: string;
   brandId: string;
-  companyName: string | null;
   valueProposition: string | null;
   customerPainPoints: string[];
   callToAction: string | null;
@@ -122,6 +121,7 @@ async function extractSalesProfileFromContent(
   pageContents: { url: string; content: string }[],
   anthropicClient: Anthropic
 ): Promise<{
+  brandName: string | null;
   profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt'>;
   inputTokens: number;
   outputTokens: number;
@@ -142,7 +142,7 @@ ${combinedContent.substring(0, 100000)}
 Extract the following information and return as JSON:
 
 {
-  "companyName": "Official company or product name",
+  "brandName": "Official company or product name",
   "valueProposition": "Core value proposition / elevator pitch (1-2 sentences)",
   "customerPainPoints": ["Pain point 1", "Pain point 2", ...],
   "callToAction": "Primary CTA on the site (e.g., 'Book a demo', 'Start free trial')",
@@ -175,9 +175,11 @@ Return ONLY valid JSON.`;
   const parsed = JSON.parse(match[0]);
   const cost = (response.usage.input_tokens * 5 + response.usage.output_tokens * 25) / 1000000;
 
+  const brandName: string | null = parsed.brandName || null;
+
   return {
+    brandName,
     profile: {
-      companyName: parsed.companyName || null,
       valueProposition: parsed.valueProposition || null,
       customerPainPoints: parsed.customerPainPoints || [],
       callToAction: parsed.callToAction || null,
@@ -200,7 +202,6 @@ function formatProfileFromDb(row: typeof brandSalesProfiles.$inferSelect): Sales
   return {
     id: row.id,
     brandId: row.brandId,
-    companyName: row.companyName,
     valueProposition: row.valueProposition,
     customerPainPoints: (row.customerPainPoints as string[]) || [],
     callToAction: row.callToAction,
@@ -404,7 +405,6 @@ async function upsertSalesProfile(
     .insert(brandSalesProfiles)
     .values({
       brandId,
-      companyName: profile.companyName,
       valueProposition: profile.valueProposition,
       customerPainPoints: profile.customerPainPoints,
       callToAction: profile.callToAction,
@@ -425,7 +425,6 @@ async function upsertSalesProfile(
     .onConflictDoUpdate({
       target: brandSalesProfiles.brandId,
       set: {
-        companyName: profile.companyName,
         valueProposition: profile.valueProposition,
         customerPainPoints: profile.customerPainPoints,
         callToAction: profile.callToAction,
@@ -507,12 +506,20 @@ export async function extractBrandSalesProfile(
     if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
 
     console.log(`[${brandId}] Extracting sales profile with AI...`);
-    const { profile, inputTokens, outputTokens } = await extractSalesProfileFromContent(
+    const { brandName, profile, inputTokens, outputTokens } = await extractSalesProfileFromContent(
       successfulScrapes,
       anthropicClient
     );
 
     const savedProfile = await upsertSalesProfile(brandId, profile, inputTokens, outputTokens, []);
+
+    // Backfill brands.name from AI-extracted brandName if not already set
+    if (brandName) {
+      await db.update(brands)
+        .set({ name: brandName, updatedAt: sql`NOW()` })
+        .where(and(eq(brands.id, brandId), sql`${brands.name} IS NULL`));
+    }
+
     console.log(`[${brandId}] Sales profile extracted and saved`);
 
     // Record costs and complete run (best-effort)
