@@ -61,11 +61,35 @@ jobs:
           SCRAPING_SERVICE_URL: http://localhost:3010
           SCRAPING_SERVICE_API_KEY: test-scraping-key
 
+      # Create isolated Neon branch for PR integration tests
+      - name: Create Neon branch for PR
+        if: github.event_name == 'pull_request'
+        id: neon
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      # Use Neon branch URL for PRs, dev secret for main
+      - name: Set database URL
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "DB_URL=${{ steps.neon.outputs.db_url_pooled }}" >> "$GITHUB_ENV"
+          else
+            echo "DB_URL=${{ secrets.BRAND_SERVICE_DATABASE_URL }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Push schema to database
+        run: pnpm exec drizzle-kit push --force
+        env:
+          BRAND_SERVICE_DATABASE_URL: ${{ env.DB_URL }}
+
       - name: Run integration tests
         run: pnpm run test:integration
         env:
-          BRAND_SERVICE_DATABASE_URL: ${{ secrets.BRAND_SERVICE_DATABASE_URL }}
-          COMPANY_SERVICE_DATABASE_URL: ${{ secrets.COMPANY_SERVICE_DATABASE_URL }}
+          BRAND_SERVICE_DATABASE_URL: ${{ env.DB_URL }}
+          COMPANY_SERVICE_DATABASE_URL: ${{ env.DB_URL }}
           BRAND_SERVICE_API_KEY: test-secret-key
           COMPANY_SERVICE_API_KEY: test-secret-key
           GEMINI_API_KEY: test-gemini-key

@@ -191,10 +191,18 @@ See `.env.example` for all required variables:
 
 ## CI/CD
 
-GitHub Actions (`.github/workflows/test.yml`) runs on push to main and PRs:
+GitHub Actions runs on push to main and PRs:
+
+**`.github/workflows/test.yml`:**
 1. Build TypeScript + sanity tests
-2. Unit tests + integration tests
-3. Coverage upload to Codecov
+2. Unit tests
+3. Integration tests (creates isolated Neon DB branch per PR, falls back to dev DB on main)
+4. Coverage upload to Codecov
+
+**`.github/workflows/neon-cleanup.yml`:**
+- Deletes the Neon branch when a PR is closed
+
+**Required secrets/variables:** `NEON_API_KEY` (secret), `NEON_PROJECT_ID` (variable)
 
 Deployed via Docker on Railway.
 
