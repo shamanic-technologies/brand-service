@@ -7,8 +7,8 @@ const doc = {
     description: 'Microservice for managing brand information, sales profiles, media assets, organization data, and AI-powered content analysis.',
     version: '1.0.0',
   },
-  host: process.env.SERVICE_URL?.replace(/^https?:\/\//, '') || 'localhost:3005',
-  schemes: process.env.SERVICE_URL?.startsWith('https') ? ['https'] : ['http'],
+  host: process.env.BRAND_SERVICE_URL?.replace(/^https?:\/\//, '') || 'localhost:3005',
+  schemes: process.env.BRAND_SERVICE_URL?.startsWith('https') ? ['https'] : ['http'],
   securityDefinitions: {
     apiKey: {
       type: 'apiKey',

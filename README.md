@@ -198,7 +198,7 @@ See `.env.example` for all required variables:
 - `RUNS_SERVICE_URL` / `RUNS_SERVICE_API_KEY` - Run tracking & cost management
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage
 - `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` - Google Drive
-- `SERVICE_URL` - Public URL for OpenAPI spec (used in generated spec, defaults to localhost)
+- `BRAND_SERVICE_URL` - Public URL for OpenAPI spec (used in generated spec, defaults to localhost)
 - `PORT` - Server port (default 3008)
 
 ## CI/CD
