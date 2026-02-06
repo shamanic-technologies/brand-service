@@ -8,7 +8,7 @@ import { Request, Response, NextFunction } from 'express';
  */
 export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   // Skip auth for health check
-  if (req.path === '/health' || req.path === '/') {
+  if (req.path === '/health' || req.path === '/' || req.path === '/openapi.json') {
     return next();
   }
 

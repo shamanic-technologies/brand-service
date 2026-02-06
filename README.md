@@ -13,6 +13,7 @@ Microservice for managing brand information, sales profiles, media assets, organ
 - **Deployment:** Docker + Railway
 - **AI:** Anthropic Claude, Google Gemini
 - **Storage:** Supabase
+- **API Docs:** swagger-autogen (OpenAPI 3.0)
 - **External:** Firecrawl (web scraping), Google Drive, PDL (enrichment), runs-service (cost tracking)
 
 ## Setup
@@ -28,7 +29,8 @@ pnpm dev              # starts on PORT (default 3008)
 | Command | Description |
 |---------|-------------|
 | `pnpm dev` | Dev server with hot reload |
-| `pnpm build` | Compile TypeScript |
+| `pnpm build` | Compile TypeScript + generate OpenAPI spec |
+| `pnpm generate:openapi` | Generate openapi.json from routes |
 | `pnpm start` | Run compiled server |
 | `pnpm test` | Run full test suite |
 | `pnpm test:unit` | Unit tests only |
@@ -42,9 +44,15 @@ pnpm dev              # starts on PORT (default 3008)
 
 ## Authentication
 
-All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secret` header.
+All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secret` header. Public endpoints (`/`, `/health`, `/openapi.json`) are exempt.
 
 ## API Endpoints
+
+### OpenAPI
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/openapi.json` | OpenAPI 3.0 spec (no auth required) |
 
 ### Brands
 
@@ -190,6 +198,7 @@ See `.env.example` for all required variables:
 - `RUNS_SERVICE_URL` / `RUNS_SERVICE_API_KEY` - Run tracking & cost management
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage
 - `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` - Google Drive
+- `BRAND_SERVICE_URL` - Public URL for OpenAPI spec (used in generated spec, defaults to localhost)
 - `PORT` - Server port (default 3008)
 
 ## CI/CD
@@ -222,5 +231,7 @@ src/
 ├── middleware/            # Auth middleware
 ├── lib/                  # Utilities
 ├── scripts/              # One-off scripts
+scripts/
+└── generate-openapi.ts   # OpenAPI spec generator
 └── types/                # Type declarations
 ```
