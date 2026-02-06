@@ -41,6 +41,15 @@ describe('combinedAuth middleware', () => {
       expect(mockNext).toHaveBeenCalled();
       expect(mockRes.status).not.toHaveBeenCalled();
     });
+
+    it('should skip auth for /openapi.json', () => {
+      mockReq.path = '/openapi.json';
+
+      combinedAuth(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+      expect(mockRes.status).not.toHaveBeenCalled();
+    });
   });
 
   describe('reject without auth', () => {

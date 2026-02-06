@@ -1,5 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { combinedAuth } from './middleware/serviceAuth';
 import { db } from './db';
@@ -42,6 +44,16 @@ app.get('/', (req: Request, res: Response) => {
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', service: 'company-service' });
+});
+
+// OpenAPI spec endpoint
+app.get('/openapi.json', (req: Request, res: Response) => {
+  const specPath = path.resolve(__dirname, '../openapi.json');
+  if (!fs.existsSync(specPath)) {
+    return res.status(404).json({ error: 'OpenAPI spec not generated yet. Run pnpm generate:openapi' });
+  }
+  const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
+  res.json(spec);
 });
 
 // Mount routes

@@ -1,4 +1,6 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import { combinedAuth } from '../../src/middleware/serviceAuth';
 import organizationRoutes from '../../src/routes/organization.routes';
 import mediaAssetsRoutes from '../../src/routes/media-assets.routes';
@@ -25,6 +27,16 @@ export function createTestApp() {
 
   app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', service: 'brand-service' });
+  });
+
+  // OpenAPI spec endpoint
+  app.get('/openapi.json', (req, res) => {
+    const specPath = path.resolve(__dirname, '../../openapi.json');
+    if (!fs.existsSync(specPath)) {
+      return res.status(404).json({ error: 'OpenAPI spec not generated yet. Run pnpm generate:openapi' });
+    }
+    const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
+    res.json(spec);
   });
 
   // Mount routes
