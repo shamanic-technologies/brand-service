@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq, desc } from 'drizzle-orm';
 import { db, brands } from '../db';
-import { ensureOrganization, listRuns } from '../lib/runs-client';
+import { listRuns } from '../lib/runs-client';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema } from '../schemas';
 
 const router = Router();
@@ -128,9 +128,9 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
       return res.json({ runs: [] });
     }
 
-    const runsOrgId = await ensureOrganization(brand.clerkOrgId);
     const result = await listRuns({
-      organizationId: runsOrgId,
+      clerkOrgId: brand.clerkOrgId,
+      appId: 'mcpfactory',
       serviceName: 'brand-service',
       taskName,
       limit,

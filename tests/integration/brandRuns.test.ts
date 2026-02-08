@@ -7,7 +7,6 @@ import { eq, like } from 'drizzle-orm';
 
 // Mock runs-client to avoid calling real runs-service in tests
 vi.mock('../../src/lib/runs-client', () => ({
-  ensureOrganization: vi.fn().mockResolvedValue('mock-runs-org-id'),
   listRuns: vi.fn().mockResolvedValue({ runs: [], limit: 50, offset: 0 }),
 }));
 
@@ -95,7 +94,8 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
     expect(response.status).toBe(200);
     expect(listRuns).toHaveBeenCalledWith(
       expect.objectContaining({
-        organizationId: 'mock-runs-org-id',
+        clerkOrgId: testClerkOrgId,
+        appId: 'mcpfactory',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
         limit: 10,
