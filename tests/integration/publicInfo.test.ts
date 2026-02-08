@@ -14,7 +14,7 @@ describe('Public Information Endpoints', () => {
       const response = await request(app).get('/public-information-map').set(getAuthHeaders());
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('clerkOrgId');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should accept authenticated requests with query param', async () => {
@@ -45,7 +45,7 @@ describe('Public Information Endpoints', () => {
         .send({});
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('selected_urls');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should reject non-array selected_urls', async () => {
@@ -55,7 +55,7 @@ describe('Public Information Endpoints', () => {
         .send({ selected_urls: 'not-an-array' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('selected_urls');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should accept valid request with empty array', async () => {
@@ -84,7 +84,7 @@ describe('Public Information Endpoints', () => {
       expect(response.body.contents).toHaveLength(2);
     });
 
-    it('should handle unknown source_type', async () => {
+    it('should reject unknown source_type', async () => {
       const response = await request(app)
         .post('/public-information-content')
         .set(getAuthHeaders())
@@ -92,8 +92,8 @@ describe('Public Information Endpoints', () => {
           selected_urls: [{ url: 'https://example.com', source_type: 'unknown_type' }],
         });
 
-      expect(response.status).toBe(200);
-      expect(response.body.contents[0].error).toContain('Unknown source_type');
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid request');
     });
   });
 });

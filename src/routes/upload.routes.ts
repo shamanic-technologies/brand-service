@@ -3,6 +3,7 @@ import multer from 'multer';
 import { startImportJob } from '../services/importMediaService';
 import { uploadMediaFile } from '../services/uploadMediaService';
 import { getJob } from '../services/jobTrackingService';
+import { ImportFromGDriveRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -30,15 +31,11 @@ const upload = multer({
 
 // POST import from Google Drive (async with job tracking)
 router.post('/import-from-google-drive', async (req: Request, res: Response) => {
-  const { external_organization_id, google_drive_url } = req.body;
-
-  if (!external_organization_id) {
-    return res.status(400).json({ error: 'external_organization_id is required.' });
+  const parsed = ImportFromGDriveRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-
-  if (!google_drive_url) {
-    return res.status(400).json({ error: 'google_drive_url is required.' });
-  }
+  const { external_organization_id, google_drive_url } = parsed.data;
 
   try {
     console.log(`Starting async import for external org ${external_organization_id} from ${google_drive_url}`);

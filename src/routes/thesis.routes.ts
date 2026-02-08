@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { eq, sql } from 'drizzle-orm';
 import { db, brands, brandThesis } from '../db';
+import { TriggerWorkflowRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -14,11 +15,11 @@ const PRESS_FUNNEL_API_KEY = process.env.PRESS_FUNNEL_API_KEY || '';
  */
 router.post('/trigger-thesis-generation', async (req: Request, res: Response) => {
   console.log(`[${new Date().toISOString()}] Request body for /trigger-thesis-generation:`, req.body);
-  const { clerk_organization_id } = req.body;
-
-  if (!clerk_organization_id) {
-    return res.status(400).json({ error: 'clerk_organization_id is required' });
+  const parsed = TriggerWorkflowRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { clerk_organization_id } = parsed.data;
 
   try {
     // Get brand using clerk_organization_id

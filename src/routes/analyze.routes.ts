@@ -4,6 +4,7 @@ import { eq, and, isNull, like } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
 import { db, brands, mediaAssets, supabaseStorage } from '../db';
+import { AnalyzeRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -27,14 +28,15 @@ async function getBrandFromClerkId(clerkOrganizationId: string): Promise<{ id: s
 // POST analyze single media asset
 router.post('/:id/analyze', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { clerk_organization_id } = req.body;
 
   console.log(`\n📥 [ENDPOINT] Received analysis request for asset ${id}`);
 
-  if (!clerk_organization_id) {
-    console.error(`❌ [ENDPOINT] Missing clerk_organization_id`);
-    return res.status(400).json({ error: 'clerk_organization_id is required.' });
+  const parsed = AnalyzeRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    console.error(`❌ [ENDPOINT] Invalid request`);
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { clerk_organization_id } = parsed.data;
 
   try {
     console.log(`🔎 [ENDPOINT] Looking up asset in database...`);
@@ -113,14 +115,16 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
 
 // POST batch analyze media assets
 router.post('/analyze-batch', async (req: Request, res: Response) => {
-  const { clerk_organization_id } = req.body;
+  console.log(`\n📥 [BATCH ANALYZE] Received batch analysis request`);
 
-  console.log(`\n📥 [BATCH ANALYZE] Received batch analysis request for clerk org ${clerk_organization_id}`);
-
-  if (!clerk_organization_id) {
-    console.error(`❌ [BATCH ANALYZE] Missing clerk_organization_id`);
-    return res.status(400).json({ error: 'clerk_organization_id is required.' });
+  const parsed = AnalyzeRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    console.error(`❌ [BATCH ANALYZE] Invalid request`);
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { clerk_organization_id } = parsed.data;
+
+  console.log(`📥 [BATCH ANALYZE] Processing for clerk org ${clerk_organization_id}`);
 
   try {
     const { id: brandId, externalId: externalOrganizationId } = await getBrandFromClerkId(clerk_organization_id);

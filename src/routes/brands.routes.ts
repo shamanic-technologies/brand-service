@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { eq, desc } from 'drizzle-orm';
 import { db, brands, brandSalesProfiles } from '../db';
 import { ensureOrganization, listRuns } from '../lib/runs-client';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema } from '../schemas';
 
 const router = Router();
 
@@ -14,11 +15,11 @@ const router = Router();
  */
 router.get('/brands', async (req: Request, res: Response) => {
   try {
-    const clerkOrgId = req.query.clerkOrgId as string;
-
-    if (!clerkOrgId) {
-      return res.status(400).json({ error: 'clerkOrgId query param is required' });
+    const parsed = ListBrandsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
+    const { clerkOrgId } = parsed.data;
 
     // Get all brands for this org
     const orgBrands = await db
@@ -50,7 +51,11 @@ router.get('/brands', async (req: Request, res: Response) => {
 router.get('/brands/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const clerkOrgId = req.query.clerkOrgId as string;
+    const parsed = GetBrandQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+    const { clerkOrgId } = parsed.data;
 
     const [brand] = await db
       .select({
@@ -125,9 +130,13 @@ router.get('/brands/:id/sales-profile', async (req: Request, res: Response) => {
 router.get('/brands/:id/runs', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const taskName = req.query.taskName as string | undefined;
-    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
+    const parsed = BrandRunsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+    const { taskName } = parsed.data;
+    const limit = parsed.data.limit ? parseInt(parsed.data.limit, 10) : undefined;
+    const offset = parsed.data.offset ? parseInt(parsed.data.offset, 10) : undefined;
 
     // Look up the brand to get clerkOrgId
     const [brand] = await db

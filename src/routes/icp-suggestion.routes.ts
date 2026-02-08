@@ -5,6 +5,7 @@ import {
   getOrCreateBrand,
 } from '../services/icpSuggestionService';
 import { getKeyForOrg } from '../lib/keys-service';
+import { IcpSuggestionRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -23,17 +24,11 @@ function sanitizeForExternal(icp: any) {
  */
 router.post('/icp-suggestion', async (req: Request, res: Response) => {
   try {
-    const { clerkOrgId, url, keyType = 'byok', skipCache } = req.body;
-
-    if (!clerkOrgId) {
-      return res.status(400).json({ error: 'clerkOrgId is required' });
+    const parsed = IcpSuggestionRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    if (!url) {
-      return res.status(400).json({
-        error: 'url is required',
-        hint: 'Provide the brand website URL to extract ICP suggestion',
-      });
-    }
+    const { clerkOrgId, url, keyType, skipCache, parentRunId } = parsed.data;
 
     const brand = await getOrCreateBrand(clerkOrgId, url);
 
@@ -59,7 +54,7 @@ router.post('/icp-suggestion', async (req: Request, res: Response) => {
     const result = await extractIcpSuggestionForApollo(brand.id, anthropicApiKey, {
       skipCache: true,
       clerkOrgId,
-      parentRunId: req.body.parentRunId,
+      parentRunId,
     });
 
     res.json({

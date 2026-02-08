@@ -9,16 +9,17 @@ import {
 } from '../services/mediaAssetService';
 import { getOrganizationIdByExternalId } from '../services/organizationUpsertService';
 import { db, mediaAssets, supabaseStorage } from '../db';
+import { MediaAssetsQuerySchema, UpdateShareableRequestSchema, UpdateMediaByUrlRequestSchema, UpdateMediaCaptionRequestSchema, DeleteMediaAssetRequestSchema } from '../schemas';
 
 const router = Router();
 
 // GET all media assets for an organization
 router.get('/', async (req: Request, res: Response) => {
-  const externalOrganizationId = req.query.external_organization_id as string;
-
-  if (!externalOrganizationId) {
-    return res.status(400).send({ error: 'external_organization_id query parameter is required.' });
+  const parsed = MediaAssetsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { external_organization_id: externalOrganizationId } = parsed.data;
 
   try {
     const brandId = await getOrganizationIdByExternalId(externalOrganizationId);
@@ -33,15 +34,11 @@ router.get('/', async (req: Request, res: Response) => {
 // PATCH update media asset shareable status
 router.patch('/:id/shareable', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { external_organization_id, is_shareable } = req.body;
-
-  if (!external_organization_id) {
-    return res.status(400).json({ error: 'external_organization_id is required.' });
+  const parsed = UpdateShareableRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-
-  if (typeof is_shareable !== 'boolean') {
-    return res.status(400).json({ error: 'is_shareable must be a boolean.' });
-  }
+  const { external_organization_id, is_shareable } = parsed.data;
 
   try {
     console.log(`Updating shareable status for asset ${id}: ${is_shareable}`);
@@ -71,15 +68,15 @@ router.patch('/:id/shareable', async (req: Request, res: Response) => {
 // PATCH update media asset by URL
 router.patch('/by-url', async (req: Request, res: Response) => {
   const externalOrgId = req.headers['x-external-organization-id'] as string;
-  const { url, caption, alt_text } = req.body;
-
   if (!externalOrgId) {
     return res.status(400).json({ error: 'X-External-Organization-Id header is required.' });
   }
 
-  if (!url) {
-    return res.status(400).json({ error: 'url is required.' });
+  const parsed = UpdateMediaByUrlRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { url, caption, alt_text } = parsed.data;
 
   if (caption === undefined && alt_text === undefined) {
     return res.status(400).json({ error: 'At least one of caption or alt_text is required.' });
@@ -114,15 +111,15 @@ router.patch('/by-url', async (req: Request, res: Response) => {
 router.patch('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const externalOrgId = req.headers['x-external-organization-id'] as string;
-  const { caption } = req.body;
-
   if (!externalOrgId) {
     return res.status(400).json({ error: 'X-External-Organization-Id header is required.' });
   }
 
-  if (caption === undefined) {
-    return res.status(400).json({ error: 'caption is required.' });
+  const parsed = UpdateMediaCaptionRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { caption } = parsed.data;
 
   try {
     console.log(`Updating asset ${id} caption for external org ${externalOrgId}`);
@@ -152,11 +149,11 @@ router.patch('/:id', async (req: Request, res: Response) => {
 // DELETE media asset (from database and Supabase Storage)
 router.delete('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { external_organization_id } = req.body;
-
-  if (!external_organization_id) {
-    return res.status(400).json({ error: 'external_organization_id is required.' });
+  const parsed = DeleteMediaAssetRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { external_organization_id } = parsed.data;
 
   try {
     console.log(`Deleting asset ${id} for external org ${external_organization_id}`);
