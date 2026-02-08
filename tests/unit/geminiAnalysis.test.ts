@@ -55,5 +55,10 @@ describe("Gemini Analysis Service", () => {
       process.env.GEMINI_API_KEY = "test-gemini-key";
       expect(process.env.GEMINI_API_KEY).toBe("test-gemini-key");
     });
+
+    it("should read PRESS_FUNNEL_API_KEY from environment for org context calls", () => {
+      process.env.PRESS_FUNNEL_API_KEY = "test-press-funnel-key";
+      expect(process.env.PRESS_FUNNEL_API_KEY).toBe("test-press-funnel-key");
+    });
   });
 });

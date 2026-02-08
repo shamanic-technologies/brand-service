@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { eq, desc } from 'drizzle-orm';
-import { db, brands, brandSalesProfiles } from '../db';
+import { db, brands } from '../db';
 import { ensureOrganization, listRuns } from '../lib/runs-client';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema } from '../schemas';
 
@@ -95,31 +95,6 @@ router.get('/brands/:id', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get brand error:', error);
     res.status(500).json({ error: error.message || 'Failed to get brand' });
-  }
-});
-
-/**
- * GET /brands/:id/sales-profile
- * Get sales profile for a brand
- */
-router.get('/brands/:id/sales-profile', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    const [profile] = await db
-      .select()
-      .from(brandSalesProfiles)
-      .where(eq(brandSalesProfiles.brandId, id))
-      .limit(1);
-
-    if (!profile) {
-      return res.status(404).json({ error: 'Sales profile not found' });
-    }
-
-    res.json({ profile });
-  } catch (error: any) {
-    console.error('Get brand sales profile error:', error);
-    res.status(500).json({ error: error.message || 'Failed to get sales profile' });
   }
 });
 

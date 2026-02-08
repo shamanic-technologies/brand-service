@@ -69,6 +69,52 @@ describe('No Legacy Imports - CRITICAL', () => {
   });
 });
 
+describe('API Consistency', () => {
+  const srcDir = path.join(__dirname, '../../src');
+
+  function getAllTsFiles(dir: string): string[] {
+    const files: string[] = [];
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...getAllTsFiles(fullPath));
+      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) {
+        files.push(fullPath);
+      }
+    }
+    return files;
+  }
+
+  it('should include X-API-Key header in all press-funnel HTTP calls', () => {
+    const files = getAllTsFiles(srcDir);
+    const violations: string[] = [];
+
+    for (const file of files) {
+      const content = fs.readFileSync(file, 'utf-8');
+      // Find files that call press-funnel URLs
+      if (content.includes('PRESS_FUNNEL_SERVICE_URL') || content.includes('pressFunnelUrl')) {
+        // Check for axios.get/post calls without X-API-Key
+        const lines = content.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes('axios.get') || lines[i].includes('axios.post')) {
+            // Look at the surrounding context (next 5 lines) for X-API-Key
+            const context = lines.slice(i, i + 8).join('\n');
+            if (!context.includes('X-API-Key')) {
+              violations.push(`${file}:${i + 1}`);
+            }
+          }
+        }
+      }
+    }
+
+    expect(
+      violations,
+      `Press-funnel calls missing X-API-Key header: ${violations.join(', ')}`
+    ).toHaveLength(0);
+  });
+});
+
 describe('Build Artifacts - CRITICAL', () => {
   const distDir = path.join(__dirname, '../../dist');
   

@@ -60,7 +60,6 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 |--------|------|-------------|
 | GET | `/brands` | List brands by clerkOrgId |
 | GET | `/brands/:id` | Get brand by ID |
-| GET | `/brands/:id/sales-profile` | Get sales profile for brand |
 | GET | `/brands/:id/runs` | List extraction runs with costs (via runs-service) |
 
 ### Sales Profiles

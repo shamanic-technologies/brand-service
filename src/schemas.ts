@@ -104,17 +104,6 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/brands/{id}/sales-profile',
-  summary: 'Get sales profile for a brand',
-  responses: {
-    200: { description: 'Sales profile' },
-    404: { description: 'Sales profile not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'get',
   path: '/brands/{id}/runs',
   summary: 'List runs-service runs for a brand',
   request: { query: BrandRunsQuerySchema },

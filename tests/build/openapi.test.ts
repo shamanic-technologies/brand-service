@@ -50,6 +50,14 @@ describe('OpenAPI Spec', () => {
     expect(salesProfilePost?.requestBody?.content?.['application/json']?.schema).toBeDefined();
   });
 
+  it('should not have duplicate path registrations for brand sales-profile', () => {
+    const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
+    const paths = Object.keys(spec.paths);
+    // Only /brands/{brandId}/sales-profile should exist, not /brands/{id}/sales-profile
+    const brandSalesProfilePaths = paths.filter(p => p.includes('sales-profile') && p.startsWith('/brands/'));
+    expect(brandSalesProfilePaths).not.toContain('/brands/{id}/sales-profile');
+  });
+
   it('should be gitignored', () => {
     const gitignore = fs.readFileSync(path.join(__dirname, '../../.gitignore'), 'utf-8');
     expect(gitignore).toContain('openapi.json');
