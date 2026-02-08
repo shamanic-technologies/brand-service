@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getOrganizationRelationsByUrl } from '../services/organizationService';
 import { getOrganizationIdByClerkId } from '../services/organizationUpsertService';
 import { pool } from '../db/utils';
+import { SetUrlRequestSchema, UpsertOrganizationRequestSchema, AddIndividualRequestSchema, UpdateIndividualStatusRequestSchema, UpdateRelationStatusRequestSchema, UpdateThesisStatusRequestSchema, UpdateLogoRequestSchema, BulkDeleteOrgsRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -52,11 +53,11 @@ router.get('/by-clerk-id/:clerkOrgId', async (req: Request, res: Response) => {
 
 // PUT set organization URL (only if not already set)
 router.put('/set-url', async (req: Request, res: Response) => {
-  const { clerk_organization_id, url } = req.body;
-
-  if (!clerk_organization_id || !url) {
-    return res.status(400).send({ error: 'clerk_organization_id and url are required.' });
+  const parsed = SetUrlRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { clerk_organization_id, url } = parsed.data;
 
   try {
     // First check if org exists and if URL is already set
@@ -152,11 +153,11 @@ router.get('/relations', async (req: Request, res: Response) => {
 
 // PUT/POST upsert organization by Clerk organization ID
 router.put('/organizations', async (req: Request, res: Response) => {
-  const { clerk_organization_id, external_organization_id, name, url } = req.body;
-
-  if (!clerk_organization_id) {
-    return res.status(400).json({ error: 'clerk_organization_id is required.' });
+  const parsed = UpsertOrganizationRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { clerk_organization_id, external_organization_id, name, url } = parsed.data;
 
   try {
     console.log(`Upserting organization: ${clerk_organization_id}, external_id: ${external_organization_id}`);
@@ -193,11 +194,11 @@ router.put('/organizations', async (req: Request, res: Response) => {
 
 // Alias POST for the same endpoint
 router.post('/organizations', async (req: Request, res: Response) => {
-  const { clerk_organization_id, external_organization_id, name, url } = req.body;
-
-  if (!clerk_organization_id) {
-    return res.status(400).json({ error: 'clerk_organization_id is required.' });
+  const parsed = UpsertOrganizationRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { clerk_organization_id, external_organization_id, name, url } = parsed.data;
 
   try {
     console.log(`Upserting organization: ${clerk_organization_id}, external_id: ${external_organization_id}`);
@@ -472,6 +473,15 @@ router.get('/organizations/:organizationId/content', async (req: Request, res: R
 // POST add/upsert individual to organization
 router.post('/organizations/:organizationId/individuals', async (req: Request, res: Response) => {
   const { organizationId } = req.params;
+
+  if (!organizationId) {
+    return res.status(400).json({ error: 'organizationId parameter is required.' });
+  }
+
+  const parsed = AddIndividualRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+  }
   const {
     first_name,
     last_name,
@@ -481,33 +491,7 @@ router.post('/organizations/:organizationId/individuals', async (req: Request, r
     linkedin_url,
     personal_website_url,
     joined_organization_at,
-  } = req.body;
-
-  if (!organizationId) {
-    return res.status(400).json({ error: 'organizationId parameter is required.' });
-  }
-
-  if (!first_name || !last_name) {
-    return res.status(400).json({ error: 'first_name and last_name are required.' });
-  }
-
-  if (!organization_role) {
-    return res.status(400).json({ error: 'organization_role is required.' });
-  }
-
-  if (!belonging_confidence_rationale) {
-    return res.status(400).json({ 
-      error: 'belonging_confidence_rationale is required.' 
-    });
-  }
-
-  // Validate belonging_confidence_level enum value if provided
-  const validConfidenceLevels = ['found_online', 'guessed', 'user_inputed'];
-  if (belonging_confidence_level && !validConfidenceLevels.includes(belonging_confidence_level)) {
-    return res.status(400).json({ 
-      error: `belonging_confidence_level must be one of: ${validConfidenceLevels.join(', ')}` 
-    });
-  }
+  } = parsed.data;
 
   try {
     console.log(`Adding/updating individual ${first_name} ${last_name} for organization: ${organizationId}`);
@@ -584,7 +568,6 @@ router.post('/organizations/:organizationId/individuals', async (req: Request, r
 // PATCH update individual status in organization
 router.patch('/organizations/:organizationId/individuals/:individualId/status', async (req: Request, res: Response) => {
   const { organizationId, individualId } = req.params;
-  const { status } = req.body;
 
   if (!organizationId) {
     return res.status(400).json({ error: 'organizationId parameter is required.' });
@@ -594,9 +577,11 @@ router.patch('/organizations/:organizationId/individuals/:individualId/status', 
     return res.status(400).json({ error: 'individualId parameter is required.' });
   }
 
-  if (!status || !['active', 'ended', 'hidden'].includes(status)) {
-    return res.status(400).json({ error: 'Valid status is required (active, ended, or hidden).' });
+  const parsed = UpdateIndividualStatusRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { status } = parsed.data;
 
   try {
     console.log(`Updating individual ${individualId} status to ${status} for organization: ${organizationId}`);
@@ -721,7 +706,6 @@ router.get('/organizations/:organizationId/thesis', async (req: Request, res: Re
 // targetOrgId: internal UUID (organizations.id) for target org
 router.patch('/organizations/:sourceOrgId/relations/:targetOrgId/status', async (req: Request, res: Response) => {
   const { sourceOrgId, targetOrgId } = req.params;
-  const { status } = req.body;
 
   if (!sourceOrgId) {
     return res.status(400).json({ error: 'sourceOrgId parameter is required.' });
@@ -731,9 +715,11 @@ router.patch('/organizations/:sourceOrgId/relations/:targetOrgId/status', async 
     return res.status(400).json({ error: 'targetOrgId parameter is required.' });
   }
 
-  if (!status || !['active', 'ended', 'hidden', 'not_related'].includes(status)) {
-    return res.status(400).json({ error: 'Valid status is required (active, ended, hidden, or not_related).' });
+  const parsed = UpdateRelationStatusRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { status } = parsed.data;
 
   try {
     console.log(`Updating organization relation status to ${status} between ${sourceOrgId} and ${targetOrgId}`);
@@ -894,7 +880,6 @@ router.get('/organizations/:organizationId/theses', async (req: Request, res: Re
 // User can validate or deny a thesis. status_changed_by_type is always 'user' for this endpoint.
 router.patch('/organizations/:organizationId/theses/:thesisId/status', async (req: Request, res: Response) => {
   const { organizationId, thesisId } = req.params;
-  const { status, status_reason } = req.body;
 
   if (!organizationId) {
     return res.status(400).json({ error: 'organizationId parameter is required.' });
@@ -904,10 +889,11 @@ router.patch('/organizations/:organizationId/theses/:thesisId/status', async (re
     return res.status(400).json({ error: 'thesisId parameter is required.' });
   }
 
-  // Only validated and denied are valid. 'pending' is deprecated.
-  if (!status || !['validated', 'denied'].includes(status)) {
-    return res.status(400).json({ error: 'Valid status is required (validated or denied).' });
+  const parsed = UpdateThesisStatusRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { status, status_reason } = parsed.data;
 
   try {
     console.log(`Updating thesis ${thesisId} status to ${status} for organization: ${organizationId}`);
@@ -1009,17 +995,13 @@ router.delete('/organizations/:organizationId/theses', async (req: Request, res:
  */
 // PATCH update organization logo (if null or deprecated Clearbit URL)
 router.patch('/organizations/logo', async (req: Request, res: Response) => {
-  const { url, logo_url } = req.body;
+  const parsed = UpdateLogoRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+  }
+  const { url, logo_url } = parsed.data;
 
   console.log('PATCH /organizations/logo called with:', { url, logo_url });
-
-  if (!url) {
-    return res.status(400).json({ error: 'url is required.' });
-  }
-
-  if (!logo_url) {
-    return res.status(400).json({ error: 'logo_url is required.' });
-  }
 
   try {
     console.log(`Updating logo for organization with URL: ${url}`);
@@ -1401,11 +1383,11 @@ router.get('/admin/organization-individuals', async (req: Request, res: Response
  * Body: { ids: string[] } - Array of organization IDs to delete
  */
 router.delete('/admin/organizations-descriptions/bulk', async (req: Request, res: Response) => {
-  const { ids } = req.body as { ids: string[] };
-
-  if (!ids || !Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: 'ids array is required' });
+  const parsed = BulkDeleteOrgsRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { ids } = parsed.data;
 
   console.log(`[DELETE /admin/organizations-descriptions/bulk] Deleting ${ids.length} organizations`);
 

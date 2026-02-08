@@ -13,7 +13,7 @@ Microservice for managing brand information, sales profiles, media assets, organ
 - **Deployment:** Docker + Railway
 - **AI:** Anthropic Claude, Google Gemini
 - **Storage:** Supabase
-- **API Docs:** swagger-autogen (OpenAPI 3.0)
+- **Validation:** Zod + @asteasolutions/zod-to-openapi (OpenAPI 3.0)
 - **External:** Firecrawl (web scraping), Google Drive, PDL (enrichment), runs-service (cost tracking)
 
 ## Setup

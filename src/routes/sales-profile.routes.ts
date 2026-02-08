@@ -8,6 +8,7 @@ import {
   getAllSalesProfilesByClerkOrgId,
 } from '../services/salesProfileExtractionService';
 import { getKeyForOrg } from '../lib/keys-service';
+import { CreateSalesProfileRequestSchema, ListSalesProfilesQuerySchema, ExtractSalesProfileRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -33,18 +34,11 @@ function sanitizeProfileForExternal(profile: any) {
  */
 router.post('/sales-profile', async (req: Request, res: Response) => {
   try {
-    const { clerkOrgId, url, keyType = "byok", skipCache } = req.body;
-
-    if (!clerkOrgId) {
-      return res.status(400).json({ error: 'clerkOrgId is required' });
+    const parsed = CreateSalesProfileRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-
-    if (!url) {
-      return res.status(400).json({ 
-        error: 'url is required',
-        hint: 'Provide the brand website URL to get/extract sales profile'
-      });
-    }
+    const { clerkOrgId, url, keyType, skipCache, parentRunId } = parsed.data;
 
     // Get or create brand by clerkOrgId + URL (domain is the unique key per org)
     const brand = await getOrCreateBrand(clerkOrgId, url);
@@ -52,10 +46,10 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     // Check if we already have a sales profile for this brand
     const existingProfile = await getExistingSalesProfile(brand.id);
     if (existingProfile && !skipCache) {
-      return res.json({ 
-        cached: true, 
+      return res.json({
+        cached: true,
         brandId: brand.id,  // Include brandId for campaign-service to store
-        profile: sanitizeProfileForExternal(existingProfile) 
+        profile: sanitizeProfileForExternal(existingProfile)
       });
     }
 
@@ -83,7 +77,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     const result = await extractBrandSalesProfile(
       brand.id,
       anthropicApiKey,
-      { skipCache: true, clerkOrgId, parentRunId: req.body.parentRunId }
+      { skipCache: true, clerkOrgId, parentRunId }
     );
 
     // Sanitize before returning, include brandId for campaign-service
@@ -105,11 +99,11 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
  */
 router.get('/sales-profiles', async (req: Request, res: Response) => {
   try {
-    const clerkOrgId = req.query.clerkOrgId as string;
-
-    if (!clerkOrgId) {
-      return res.status(400).json({ error: 'clerkOrgId query param is required' });
+    const parsed = ListSalesProfilesQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
+    const { clerkOrgId } = parsed.data;
 
     const profiles = await getAllSalesProfilesByClerkOrgId(clerkOrgId);
     
@@ -157,11 +151,11 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { brandId } = req.params;
-      const { anthropicApiKey, skipCache, forceRescrape, parentRunId } = req.body;
-
-      if (!anthropicApiKey) {
-        return res.status(400).json({ error: 'anthropicApiKey is required (BYOK)' });
+      const parsed = ExtractSalesProfileRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
       }
+      const { anthropicApiKey, skipCache, forceRescrape, parentRunId } = parsed.data;
 
       if (!brandId) {
         return res.status(400).json({ error: 'brandId is required' });

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { eq, sql } from 'drizzle-orm';
 import { db, brands, intakeForms } from '../db';
 import { intakeFormService } from '../services/intakeFormService';
+import { TriggerWorkflowRequestSchema, IntakeFormUpsertRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -11,11 +12,11 @@ const router = Router();
  */
 router.post('/trigger-intake-form-generation', async (req: Request, res: Response) => {
   console.log(`[${new Date().toISOString()}] Request body for /trigger-intake-form-generation:`, req.body);
-  const { clerk_organization_id } = req.body;
-
-  if (!clerk_organization_id) {
-    return res.status(400).json({ error: 'clerk_organization_id is required' });
+  const parsed = TriggerWorkflowRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { clerk_organization_id } = parsed.data;
 
   try {
     // Get brand using clerk_organization_id
@@ -103,13 +104,12 @@ router.post('/trigger-intake-form-generation', async (req: Request, res: Respons
  */
 router.post('/intake-forms', async (req: Request, res: Response) => {
   try {
-    const data = req.body;
-
-    if (!data.clerk_organization_id) {
-      return res.status(400).json({ error: 'clerk_organization_id is required' });
+    const parsed = IntakeFormUpsertRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
-    const intakeForm = await intakeFormService.upsertIntakeFormByClerkId(data);
+    const intakeForm = await intakeFormService.upsertIntakeFormByClerkId(parsed.data);
 
     return res.status(200).json({
       success: true,

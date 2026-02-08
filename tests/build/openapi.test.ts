@@ -36,6 +36,20 @@ describe('OpenAPI Spec', () => {
     expect(paths.length).toBeGreaterThan(10);
   });
 
+  it('should have zod-to-openapi component schemas', () => {
+    const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
+    const schemas = Object.keys(spec.components?.schemas || {});
+    expect(schemas.length).toBeGreaterThan(10);
+    expect(schemas).toContain('CreateSalesProfileRequest');
+    expect(schemas).toContain('ListBrandsResponse');
+  });
+
+  it('should have request body schemas on POST endpoints', () => {
+    const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
+    const salesProfilePost = spec.paths['/sales-profile']?.post;
+    expect(salesProfilePost?.requestBody?.content?.['application/json']?.schema).toBeDefined();
+  });
+
   it('should be gitignored', () => {
     const gitignore = fs.readFileSync(path.join(__dirname, '../../.gitignore'), 'utf-8');
     expect(gitignore).toContain('openapi.json');

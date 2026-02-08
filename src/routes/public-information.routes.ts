@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq, sql } from 'drizzle-orm';
 import { db, brands, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
+import { PublicInfoMapQuerySchema, PublicInfoContentRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -9,11 +10,11 @@ const router = Router();
  * Light version of public information that only returns URLs and short descriptions.
  */
 router.get('/public-information-map', async (req: Request, res: Response) => {
-  const clerkOrgId = req.query.clerkOrgId as string;
-
-  if (!clerkOrgId) {
-    return res.status(400).json({ error: 'clerkOrgId query parameter is required' });
+  const parsed = PublicInfoMapQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { clerkOrgId } = parsed.data;
 
   try {
     // Get main brand basic info
@@ -228,11 +229,11 @@ async function getIndividualLinkedinArticlesMap(individualId: string) {
  * Fetch full content for selected URLs.
  */
 router.post('/public-information-content', async (req: Request, res: Response) => {
-  const { selected_urls } = req.body;
-
-  if (!selected_urls || !Array.isArray(selected_urls)) {
-    return res.status(400).json({ error: 'selected_urls array is required in body' });
+  const parsed = PublicInfoContentRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
+  const { selected_urls } = parsed.data;
 
   try {
     const results = await Promise.all(
