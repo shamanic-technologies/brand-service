@@ -42,7 +42,7 @@ describe('ICP Suggestion API', () => {
         .send({ url: 'https://example.com' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('clerkOrgId');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should return 400 if url is missing', async () => {
@@ -52,7 +52,7 @@ describe('ICP Suggestion API', () => {
         .send({ clerkOrgId: 'org_test_icp_nourl' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('url');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should create brand in database when calling POST /icp-suggestion for first time', async () => {

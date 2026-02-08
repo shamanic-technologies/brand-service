@@ -14,7 +14,7 @@ describe('Media Assets Endpoints', () => {
       const response = await request(app).get('/media-assets').set(getAuthHeaders());
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('external_organization_id');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should accept authenticated requests with query param', async () => {
@@ -45,7 +45,7 @@ describe('Media Assets Endpoints', () => {
         .send({ is_shareable: true });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('external_organization_id');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should require is_shareable as boolean', async () => {
@@ -55,7 +55,7 @@ describe('Media Assets Endpoints', () => {
         .send({ external_organization_id: 'test-ext-org', is_shareable: 'yes' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('boolean');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should accept valid request', async () => {
@@ -88,7 +88,7 @@ describe('Media Assets Endpoints', () => {
         .send({ caption: 'Test caption' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('url');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should require at least caption or alt_text', async () => {
@@ -110,7 +110,7 @@ describe('Media Assets Endpoints', () => {
         .send({});
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('external_organization_id');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should accept valid delete request', async () => {

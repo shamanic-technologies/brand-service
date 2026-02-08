@@ -48,7 +48,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .send({ url: testUrl });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('clerkOrgId');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should return 400 if url is missing', async () => {
@@ -58,7 +58,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .send({ clerkOrgId: testClerkOrgId });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('url');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should create brand in database when calling POST /sales-profile for first time', async () => {
@@ -239,7 +239,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders());
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('clerkOrgId');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should return empty array for org with no profiles', async () => {
@@ -269,7 +269,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .send({});
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('anthropicApiKey');
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should return 404 for non-existent brand', async () => {
