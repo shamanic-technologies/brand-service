@@ -26,7 +26,9 @@ interface OrganizationContext {
 const getOrganizationContext = async (externalOrganizationId: string): Promise<OrganizationContext | null> => {
   try {
     const pressFunnelUrl = process.env.PRESS_FUNNEL_SERVICE_URL || 'http://localhost:3003';
+    const pressFunnelApiKey = process.env.PRESS_FUNNEL_API_KEY || '';
     const response = await axios.get(`${pressFunnelUrl}/organizations/${externalOrganizationId}/context`, {
+      headers: { 'X-API-Key': pressFunnelApiKey },
       timeout: 5000,
     });
     return response.data;
