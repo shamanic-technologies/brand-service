@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
 import { eq, and, gt, desc, sql } from 'drizzle-orm';
 import { db, brands, brandSalesProfiles } from '../db';
-import { ensureOrganization, createRun, updateRun, addCosts } from '../lib/runs-client';
+import { createRun, updateRun, addCosts } from '../lib/runs-client';
 
 const SCRAPING_SERVICE_URL = process.env.SCRAPING_SERVICE_URL || 'http://localhost:3010';
 const SCRAPING_SERVICE_API_KEY = process.env.SCRAPING_SERVICE_API_KEY || '';
@@ -471,9 +471,10 @@ export async function extractBrandSalesProfile(
   let runId: string | undefined;
   if (clerkOrgId) {
     try {
-      const runsOrgId = await ensureOrganization(clerkOrgId);
       const run = await createRun({
-        organizationId: runsOrgId,
+        clerkOrgId,
+        appId: "mcpfactory",
+        brandId,
         serviceName: "brand-service",
         taskName: "sales-profile-extraction",
         parentRunId: options.parentRunId,

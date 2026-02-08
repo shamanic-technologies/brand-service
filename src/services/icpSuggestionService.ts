@@ -9,7 +9,7 @@ import {
   getOrCreateBrand,
   getBrand,
 } from './salesProfileExtractionService';
-import { ensureOrganization, createRun, updateRun, addCosts } from '../lib/runs-client';
+import { createRun, updateRun, addCosts } from '../lib/runs-client';
 
 // Cache duration: 30 days
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -197,9 +197,10 @@ export async function extractIcpSuggestionForApollo(
   let runId: string | undefined;
   if (clerkOrgId) {
     try {
-      const runsOrgId = await ensureOrganization(clerkOrgId);
       const run = await createRun({
-        organizationId: runsOrgId,
+        clerkOrgId,
+        appId: "mcpfactory",
+        brandId,
         serviceName: "brand-service",
         taskName: "icp-extraction",
         parentRunId: options.parentRunId,
