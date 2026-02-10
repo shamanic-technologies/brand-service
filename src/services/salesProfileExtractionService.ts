@@ -320,34 +320,8 @@ export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise
     return brand;
   }
 
-  // CASE 3: Check if brand exists by clerkOrgId alone (different domain)
-  const existingByClerkOrgId = await db
-    .select({
-      id: brands.id,
-      url: brands.url,
-      name: brands.name,
-      domain: brands.domain,
-      clerkOrgId: brands.clerkOrgId,
-    })
-    .from(brands)
-    .where(eq(brands.clerkOrgId, clerkOrgId))
-    .limit(1);
-
-  if (existingByClerkOrgId.length > 0) {
-    // Org already has a brand with different domain - update with new domain
-    const brand = existingByClerkOrgId[0];
-    await db.update(brands).set({ 
-      url, 
-      domain,
-      updatedAt: sql`NOW()` 
-    }).where(eq(brands.id, brand.id));
-    brand.url = url;
-    brand.domain = domain;
-    console.log(`[sales-profile] Updated existing brand (clerkOrgId match) with new domain: ${brand.id}`);
-    return brand;
-  }
-
-  // CASE 4: Create new brand - no existing match
+  // CASE 3: Create new brand - no existing match by domain or clerkOrgId+domain
+  // An org can have multiple brands with different domains
   const inserted = await db
     .insert(brands)
     .values({ clerkOrgId, url, domain })

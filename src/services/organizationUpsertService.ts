@@ -78,7 +78,7 @@ export const getOrganizationIdByClerkId = async (
       return result[0].id;
     }
 
-    // CASE 2: Brand exists by clerk_id only -> update
+    // CASE 2: Brand exists by clerk_id only -> update the first match
     if (existingByClerk.length > 0) {
       const result = await db
         .update(brands)
@@ -89,7 +89,7 @@ export const getOrganizationIdByClerkId = async (
           domain: domain || sql`${brands.domain}`,
           updatedAt: sql`NOW()`,
         })
-        .where(eq(brands.clerkOrgId, clerkOrganizationId))
+        .where(eq(brands.id, existingByClerk[0].id))
         .returning({ id: brands.id });
 
       console.log(`[BRAND UPSERT] Updated existing brand by clerk_id:`, result[0]?.id);

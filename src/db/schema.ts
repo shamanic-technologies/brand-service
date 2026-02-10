@@ -57,7 +57,7 @@ export const brands = pgTable("brands", {
 	uniqueIndex("idx_brands_org_domain").using("btree", table.orgId.asc().nullsLast().op("text_ops"), table.domain.asc().nullsLast().op("text_ops")),
 	index("idx_brands_org_id").using("btree", table.orgId.asc().nullsLast().op("uuid_ops")),
 	index("idx_organizations_categories").using("btree", table.categories.asc().nullsLast().op("text_ops")).where(sql`(categories IS NOT NULL)`),
-	uniqueIndex("idx_organizations_clerk_organization_id").using("btree", table.clerkOrgId.asc().nullsLast().op("text_ops")).where(sql`(clerk_org_id IS NOT NULL)`),
+	index("idx_organizations_clerk_organization_id").using("btree", table.clerkOrgId.asc().nullsLast().op("text_ops")).where(sql`(clerk_org_id IS NOT NULL)`),
 	uniqueIndex("organizations_domain_unique_index").using("btree", table.domain.asc().nullsLast().op("text_ops")).where(sql`(domain IS NOT NULL)`),
 	index("organizations_logo_url_index").using("btree", table.logoUrl.asc().nullsLast().op("text_ops")).where(sql`(logo_url IS NOT NULL)`),
 	index("organizations_status_index").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status IS NOT NULL)`),
@@ -68,7 +68,6 @@ export const brands = pgTable("brands", {
 			name: "brands_org_id_fkey"
 		}).onDelete("cascade"),
 	unique("organizations_external_organization_id_key").on(table.externalOrganizationId),
-	unique("organizations_clerk_organization_id_key").on(table.clerkOrgId),
 	check("organizations_status_check", sql`(status IS NULL) OR (status = 'generating'::text)`),
 ]);
 
