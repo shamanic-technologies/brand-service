@@ -115,6 +115,47 @@ describe('getOrCreateBrand - CRITICAL', () => {
     }
   }, 30000);
 
+  it('should CREATE a second brand when same org uses a different domain', async () => {
+    const clerkOrgId = `${testPrefix}${Date.now()}_multi`;
+    const url1 = 'https://mcpfactory.example.com';
+    const url2 = 'https://growthservice.example.com';
+
+    // Create first brand
+    const brand1 = await getOrCreateBrand(clerkOrgId, url1);
+    expect(brand1.domain).toBe('mcpfactory.example.com');
+
+    // Create second brand with different domain, same org
+    const brand2 = await getOrCreateBrand(clerkOrgId, url2);
+    expect(brand2.domain).toBe('growthservice.example.com');
+
+    // They should be DIFFERENT brands
+    expect(brand2.id).not.toBe(brand1.id);
+
+    // Verify first brand is NOT overwritten
+    const brand1Check = await getBrand(brand1.id);
+    expect(brand1Check).not.toBeNull();
+    expect(brand1Check!.domain).toBe('mcpfactory.example.com');
+    expect(brand1Check!.url).toBe(url1);
+
+    // Verify both brands exist in DB for this org
+    const allBrands = await db
+      .select()
+      .from(brands)
+      .where(eq(brands.clerkOrgId, clerkOrgId));
+    expect(allBrands.length).toBe(2);
+  }, 10000);
+
+  it('should RETURN existing brand when same org+domain is called again', async () => {
+    const clerkOrgId = `${testPrefix}${Date.now()}_same`;
+    const url = 'https://same-domain.example.com';
+
+    const brand1 = await getOrCreateBrand(clerkOrgId, url);
+    const brand2 = await getOrCreateBrand(clerkOrgId, url);
+
+    // Should be the same brand (CASE 1)
+    expect(brand2.id).toBe(brand1.id);
+  }, 10000);
+
   it('should handle concurrent calls without creating duplicates', async () => {
     const clerkOrgId = `${testPrefix}${Date.now()}_concurrent`;
     const url = 'https://concurrent-test.example.com';
