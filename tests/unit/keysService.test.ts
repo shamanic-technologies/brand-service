@@ -13,6 +13,7 @@ describe('keys-service', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.useFakeTimers();
   });
 
   async function importModule() {
@@ -71,16 +72,6 @@ describe('keys-service', () => {
         .rejects.toThrow('api-service key fetch failed: HTTP 500: db connection failed');
     });
 
-    it('should throw on network error with code', async () => {
-      const error = new Error('connect ECONNREFUSED') as any;
-      error.code = 'ECONNREFUSED';
-      mockedAxios.get.mockRejectedValueOnce(error);
-
-      const { getKeyForOrg } = await importModule();
-      await expect(getKeyForOrg('org_123', 'anthropic', 'byok'))
-        .rejects.toThrow('api-service key fetch failed: ECONNREFUSED: connect ECONNREFUSED');
-    });
-
     it('should throw with fallback detail when error has no message', async () => {
       const error = new Error('') as any;
       error.code = undefined;
@@ -97,6 +88,114 @@ describe('keys-service', () => {
       const { getKeyForOrg } = await importModule();
       const key = await getKeyForOrg('org_123', 'anthropic', 'byok');
       expect(key).toBeNull();
+    });
+  });
+
+  describe('getKeyForOrg - retry logic', () => {
+    it('should retry on ECONNREFUSED and succeed on second attempt', async () => {
+      const econnError = new Error('connect ECONNREFUSED') as any;
+      econnError.code = 'ECONNREFUSED';
+      mockedAxios.get
+        .mockRejectedValueOnce(econnError)
+        .mockResolvedValueOnce({ data: { key: 'recovered-key' } });
+
+      const { getKeyForOrg } = await importModule();
+      const promise = getKeyForOrg('org_123', 'anthropic', 'byok');
+
+      // Advance past the first retry delay (500ms)
+      await vi.advanceTimersByTimeAsync(500);
+
+      const key = await promise;
+      expect(key).toBe('recovered-key');
+      expect(mockedAxios.get).toHaveBeenCalledTimes(2);
+    });
+
+    it('should retry on ETIMEDOUT and succeed on third attempt', async () => {
+      const timeoutError = new Error('connect ETIMEDOUT') as any;
+      timeoutError.code = 'ETIMEDOUT';
+      mockedAxios.get
+        .mockRejectedValueOnce(timeoutError)
+        .mockRejectedValueOnce(timeoutError)
+        .mockResolvedValueOnce({ data: { key: 'finally-ok' } });
+
+      const { getKeyForOrg } = await importModule();
+      const promise = getKeyForOrg('org_123', 'anthropic', 'byok');
+
+      // First retry at 500ms
+      await vi.advanceTimersByTimeAsync(500);
+      // Second retry at 1000ms
+      await vi.advanceTimersByTimeAsync(1000);
+
+      const key = await promise;
+      expect(key).toBe('finally-ok');
+      expect(mockedAxios.get).toHaveBeenCalledTimes(3);
+    });
+
+    it('should throw after exhausting retries on ECONNREFUSED', async () => {
+      const econnError = new Error('connect ECONNREFUSED') as any;
+      econnError.code = 'ECONNREFUSED';
+      mockedAxios.get
+        .mockRejectedValueOnce(econnError)
+        .mockRejectedValueOnce(econnError)
+        .mockRejectedValueOnce(econnError);
+
+      const { getKeyForOrg } = await importModule();
+
+      // Capture the promise and attach a catch handler immediately to prevent unhandled rejection
+      let caughtError: Error | undefined;
+      const promise = getKeyForOrg('org_123', 'anthropic', 'byok').catch((e) => {
+        caughtError = e;
+      });
+
+      // Advance through all retry delays
+      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      await promise;
+      expect(caughtError).toBeDefined();
+      expect(caughtError!.message).toBe(
+        'api-service key fetch failed: ECONNREFUSED: connect ECONNREFUSED (after 2 retries)'
+      );
+      expect(mockedAxios.get).toHaveBeenCalledTimes(3);
+    });
+
+    it('should not retry on non-transient errors', async () => {
+      const error = new Error('Internal Server Error') as any;
+      error.response = { status: 500, data: { error: 'db down' } };
+      mockedAxios.get.mockRejectedValueOnce(error);
+
+      const { getKeyForOrg } = await importModule();
+      await expect(getKeyForOrg('org_123', 'anthropic', 'byok'))
+        .rejects.toThrow('api-service key fetch failed: HTTP 500: db down');
+      expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not retry on 404 errors', async () => {
+      const error = new Error('Not found') as any;
+      error.response = { status: 404 };
+      mockedAxios.get.mockRejectedValueOnce(error);
+
+      const { getKeyForOrg } = await importModule();
+      const key = await getKeyForOrg('org_123', 'anthropic', 'byok');
+      expect(key).toBeNull();
+      expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry on ECONNRESET', async () => {
+      const resetError = new Error('socket hang up') as any;
+      resetError.code = 'ECONNRESET';
+      mockedAxios.get
+        .mockRejectedValueOnce(resetError)
+        .mockResolvedValueOnce({ data: { key: 'ok-after-reset' } });
+
+      const { getKeyForOrg } = await importModule();
+      const promise = getKeyForOrg('org_123', 'anthropic', 'byok');
+
+      await vi.advanceTimersByTimeAsync(500);
+
+      const key = await promise;
+      expect(key).toBe('ok-after-reset');
+      expect(mockedAxios.get).toHaveBeenCalledTimes(2);
     });
   });
 });
