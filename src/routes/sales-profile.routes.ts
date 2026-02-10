@@ -58,7 +58,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     try {
       anthropicApiKey = await getKeyForOrg(clerkOrgId, "anthropic", keyType);
     } catch (keyError: any) {
-      console.error('[sales-profile] api-service error:', keyError.message);
+      console.error('[sales-profile] key-service error:', keyError.message);
       return res.status(502).json({
         error: 'Failed to fetch API key from key service',
         detail: keyError.message,

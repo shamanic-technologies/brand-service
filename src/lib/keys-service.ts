@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const API_SERVICE_URL = process.env.API_SERVICE_URL || 'http://localhost:3000';
-const API_SERVICE_API_KEY = process.env.API_SERVICE_API_KEY;
+const KEY_SERVICE_URL = process.env.KEY_SERVICE_URL || 'https://key.mcpfactory.org';
+const KEY_SERVICE_API_KEY = process.env.KEY_SERVICE_API_KEY;
 const PLATFORM_ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
 const TRANSIENT_ERROR_CODES = new Set(['ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN']);
@@ -17,7 +17,7 @@ async function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Get API key for an organization via api-service
+ * Get API key for an organization via key-service
  *
  * @param clerkOrgId - The Clerk organization ID
  * @param provider - The provider (e.g., "anthropic", "openai")
@@ -37,8 +37,8 @@ export async function getKeyForOrg(
     return null;
   }
 
-  // BYOK - fetch via api-service with retries for transient errors
-  const url = `${API_SERVICE_URL}/v1/internal/keys/${provider}/decrypt`;
+  // BYOK - fetch via key-service with retries for transient errors
+  const url = `${KEY_SERVICE_URL}/internal/keys/${provider}/decrypt`;
   let lastError: any;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -47,7 +47,7 @@ export async function getKeyForOrg(
         params: { clerkOrgId },
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': API_SERVICE_API_KEY,
+          'x-api-key': KEY_SERVICE_API_KEY,
         },
         timeout: 10000,
       });
@@ -76,8 +76,8 @@ export async function getKeyForOrg(
         ? `HTTP ${error.response.status}: ${error.response.data?.error || error.message}`
         : `${error.code || 'UNKNOWN'}: ${error.message || 'no error message'}`;
       const retryNote = isTransientError(error) ? ` (after ${MAX_RETRIES} retries)` : '';
-      console.error(`Error fetching key from api-service at ${url}: ${detail}${retryNote}`);
-      throw new Error(`api-service key fetch failed: ${detail}${retryNote}`);
+      console.error(`Error fetching key from key-service at ${url}: ${detail}${retryNote}`);
+      throw new Error(`key-service fetch failed: ${detail}${retryNote}`);
     }
   }
 
