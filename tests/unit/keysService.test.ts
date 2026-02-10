@@ -5,8 +5,8 @@ vi.mock('axios');
 const mockedAxios = vi.mocked(axios);
 
 // Set env vars before import
-process.env.API_SERVICE_URL = 'https://api-test.example.com';
-process.env.API_SERVICE_API_KEY = 'test-api-key';
+process.env.KEY_SERVICE_URL = 'https://key-test.example.com';
+process.env.KEY_SERVICE_API_KEY = 'test-key-service-key';
 process.env.ANTHROPIC_API_KEY = 'platform-key-123';
 
 describe('keys-service', () => {
@@ -37,7 +37,7 @@ describe('keys-service', () => {
   });
 
   describe('getKeyForOrg - BYOK keys', () => {
-    it('should return key from api-service on success', async () => {
+    it('should return key from key-service on success', async () => {
       mockedAxios.get.mockResolvedValueOnce({ data: { key: 'user-key-abc' } });
 
       const { getKeyForOrg } = await importModule();
@@ -45,14 +45,14 @@ describe('keys-service', () => {
 
       expect(key).toBe('user-key-abc');
       expect(mockedAxios.get).toHaveBeenCalledWith(
-        'https://api-test.example.com/v1/internal/keys/anthropic/decrypt',
+        'https://key-test.example.com/internal/keys/anthropic/decrypt',
         expect.objectContaining({
           params: { clerkOrgId: 'org_123' },
         }),
       );
     });
 
-    it('should return null when api-service returns 404', async () => {
+    it('should return null when key-service returns 404', async () => {
       const error = new Error('Not found') as any;
       error.response = { status: 404 };
       mockedAxios.get.mockRejectedValueOnce(error);
@@ -69,7 +69,7 @@ describe('keys-service', () => {
 
       const { getKeyForOrg } = await importModule();
       await expect(getKeyForOrg('org_123', 'anthropic', 'byok'))
-        .rejects.toThrow('api-service key fetch failed: HTTP 500: db connection failed');
+        .rejects.toThrow('key-service fetch failed: HTTP 500: db connection failed');
     });
 
     it('should throw with fallback detail when error has no message', async () => {
@@ -79,10 +79,10 @@ describe('keys-service', () => {
 
       const { getKeyForOrg } = await importModule();
       await expect(getKeyForOrg('org_123', 'anthropic', 'byok'))
-        .rejects.toThrow('api-service key fetch failed: UNKNOWN: no error message');
+        .rejects.toThrow('key-service fetch failed: UNKNOWN: no error message');
     });
 
-    it('should return null when api-service returns empty key', async () => {
+    it('should return null when key-service returns empty key', async () => {
       mockedAxios.get.mockResolvedValueOnce({ data: { key: '' } });
 
       const { getKeyForOrg } = await importModule();
@@ -154,7 +154,7 @@ describe('keys-service', () => {
       await promise;
       expect(caughtError).toBeDefined();
       expect(caughtError!.message).toBe(
-        'api-service key fetch failed: ECONNREFUSED: connect ECONNREFUSED (after 2 retries)'
+        'key-service fetch failed: ECONNREFUSED: connect ECONNREFUSED (after 2 retries)'
       );
       expect(mockedAxios.get).toHaveBeenCalledTimes(3);
     });
@@ -166,7 +166,7 @@ describe('keys-service', () => {
 
       const { getKeyForOrg } = await importModule();
       await expect(getKeyForOrg('org_123', 'anthropic', 'byok'))
-        .rejects.toThrow('api-service key fetch failed: HTTP 500: db down');
+        .rejects.toThrow('key-service fetch failed: HTTP 500: db down');
       expect(mockedAxios.get).toHaveBeenCalledTimes(1);
     });
 
