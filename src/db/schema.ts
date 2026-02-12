@@ -18,11 +18,18 @@ export const pgmigrations = pgTable("pgmigrations", {
 export const users = pgTable("users", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	clerkUserId: text("clerk_user_id").notNull(),
+	orgId: uuid("org_id"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index().using("btree", table.clerkUserId.asc().nullsLast().op("text_ops")),
 	unique("users_clerk_user_id_key").on(table.clerkUserId),
+	index("idx_users_org_id").using("btree", table.orgId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+		columns: [table.orgId],
+		foreignColumns: [orgs.id],
+		name: "users_org_id_fkey"
+	}).onDelete("cascade"),
 ]);
 
 export const brands = pgTable("brands", {
@@ -479,12 +486,12 @@ export const organizationIdeas = pgTable("organization_ideas", {
 
 export const orgs = pgTable("orgs", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
+	appId: text("app_id").notNull(),
 	clerkOrgId: text("clerk_org_id").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	uniqueIndex("idx_orgs_clerk_id").using("btree", table.clerkOrgId.asc().nullsLast().op("text_ops")),
-	unique("orgs_clerk_org_id_key").on(table.clerkOrgId),
+	uniqueIndex("idx_orgs_app_clerk_id").using("btree", table.appId.asc().nullsLast().op("text_ops"), table.clerkOrgId.asc().nullsLast().op("text_ops")),
 ]);
 
 export const intakeForms = pgTable("intake_forms", {

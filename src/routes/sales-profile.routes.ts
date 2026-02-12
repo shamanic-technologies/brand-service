@@ -38,10 +38,10 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { clerkOrgId, url, keyType, skipCache, parentRunId } = parsed.data;
+    const { appId, clerkOrgId, url, clerkUserId, keyType, skipCache, parentRunId } = parsed.data;
 
     // Get or create brand by clerkOrgId + URL (domain is the unique key per org)
-    const brand = await getOrCreateBrand(clerkOrgId, url);
+    const brand = await getOrCreateBrand(clerkOrgId, url, { appId, clerkUserId });
 
     // Check if we already have a sales profile for this brand
     const existingProfile = await getExistingSalesProfile(brand.id);

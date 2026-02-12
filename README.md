@@ -176,6 +176,8 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 
 Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 
+- `orgs` — multi-tenant orgs keyed by `(app_id, clerk_org_id)`
+- `users` — users linked to an org via `org_id` FK
 - `brands`, `brand_sales_profiles`, `brand_linkedin_posts`
 - `individuals`, `brand_individuals`, `individuals_pdl_enrichment`
 - `media_assets`, `supabase_storage`
