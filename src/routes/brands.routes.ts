@@ -20,7 +20,7 @@ router.post('/brands', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { clerkOrgId, url } = parsed.data;
+    const { appId, clerkOrgId, url, clerkUserId } = parsed.data;
 
     // Extract domain to check if brand already exists
     let domain: string;
@@ -37,7 +37,7 @@ router.post('/brands', async (req: Request, res: Response) => {
       .where(and(eq(brands.clerkOrgId, clerkOrgId), eq(brands.domain, domain)))
       .limit(1);
 
-    const brand = await getOrCreateBrand(clerkOrgId, url);
+    const brand = await getOrCreateBrand(clerkOrgId, url, { appId, clerkUserId });
 
     res.json({
       brandId: brand.id,

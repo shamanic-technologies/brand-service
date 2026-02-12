@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import { db } from '../../src/db';
-import { brands, brandSalesProfiles } from '../../src/db/schema';
+import { brands, brandSalesProfiles, orgs } from '../../src/db/schema';
 import { eq, and, like } from 'drizzle-orm';
 import { getOrCreateBrand, getBrand, getExistingSalesProfile } from '../../src/services/salesProfileExtractionService';
 
@@ -16,8 +16,8 @@ describe('getOrCreateBrand - CRITICAL', () => {
   // Clean up test data after each test
   afterEach(async () => {
     try {
-      // Delete all test brands
       await db.delete(brands).where(like(brands.clerkOrgId, `${testPrefix}%`));
+      await db.delete(orgs).where(like(orgs.clerkOrgId, `${testPrefix}%`));
     } catch (e) {
       console.error('Cleanup error:', e);
     }
@@ -185,6 +185,7 @@ describe('getBrand - CRITICAL', () => {
 
   afterEach(async () => {
     await db.delete(brands).where(like(brands.clerkOrgId, `${testPrefix}%`));
+    await db.delete(orgs).where(like(orgs.clerkOrgId, `${testPrefix}%`));
   });
 
   it('should return null for non-existent brandId', async () => {
@@ -224,6 +225,7 @@ describe('getExistingSalesProfile - CRITICAL', () => {
       await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
     }
     await db.delete(brands).where(like(brands.clerkOrgId, `${testPrefix}%`));
+    await db.delete(orgs).where(like(orgs.clerkOrgId, `${testPrefix}%`));
   });
 
   it('should return null for brand with no profile', async () => {
@@ -252,6 +254,7 @@ describe('Full Flow Integration - CRITICAL', () => {
       await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
     }
     await db.delete(brands).where(like(brands.clerkOrgId, `${testPrefix}%`));
+    await db.delete(orgs).where(like(orgs.clerkOrgId, `${testPrefix}%`));
   });
 
   it('should create brand and it should be queryable immediately', async () => {

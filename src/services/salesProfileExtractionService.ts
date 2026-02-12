@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
 import { eq, and, gt, desc, sql } from 'drizzle-orm';
-import { db, brands, brandSalesProfiles } from '../db';
+import { db, brands, brandSalesProfiles, orgs, users } from '../db';
 import { createRun, updateRun, addCosts } from '../lib/runs-client';
 
 const SCRAPING_SERVICE_URL = process.env.SCRAPING_SERVICE_URL || 'http://localhost:3010';
@@ -259,7 +259,84 @@ function extractDomainFromUrl(url: string): string {
   }
 }
 
-export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise<Brand> {
+export async function resolveOrCreateOrg(appId: string, clerkOrgId: string): Promise<{ id: string }> {
+  const existing = await db
+    .select({ id: orgs.id })
+    .from(orgs)
+    .where(and(eq(orgs.appId, appId), eq(orgs.clerkOrgId, clerkOrgId)))
+    .limit(1);
+
+  if (existing.length > 0) return existing[0];
+
+  const [created] = await db
+    .insert(orgs)
+    .values({ appId, clerkOrgId })
+    .onConflictDoNothing()
+    .returning({ id: orgs.id });
+
+  // Handle race condition: if conflict, re-fetch
+  if (!created) {
+    const [refetched] = await db
+      .select({ id: orgs.id })
+      .from(orgs)
+      .where(and(eq(orgs.appId, appId), eq(orgs.clerkOrgId, clerkOrgId)))
+      .limit(1);
+    return refetched;
+  }
+
+  return created;
+}
+
+export async function resolveOrCreateUser(clerkUserId: string, orgId: string): Promise<{ id: string }> {
+  const existing = await db
+    .select({ id: users.id, orgId: users.orgId })
+    .from(users)
+    .where(eq(users.clerkUserId, clerkUserId))
+    .limit(1);
+
+  if (existing.length > 0) {
+    // Update orgId if not set
+    if (!existing[0].orgId) {
+      await db.update(users)
+        .set({ orgId, updatedAt: sql`NOW()` })
+        .where(eq(users.id, existing[0].id));
+    }
+    return { id: existing[0].id };
+  }
+
+  const [created] = await db
+    .insert(users)
+    .values({ clerkUserId, orgId })
+    .onConflictDoNothing()
+    .returning({ id: users.id });
+
+  if (!created) {
+    const [refetched] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clerkUserId, clerkUserId))
+      .limit(1);
+    return refetched;
+  }
+
+  return created;
+}
+
+export async function getOrCreateBrand(
+  clerkOrgId: string,
+  url: string,
+  options?: { appId?: string; clerkUserId?: string }
+): Promise<Brand> {
+  const appId = options?.appId ?? 'mcpfactory';
+
+  // Resolve or create org
+  const org = await resolveOrCreateOrg(appId, clerkOrgId);
+
+  // Optionally resolve or create user
+  if (options?.clerkUserId) {
+    await resolveOrCreateUser(options.clerkUserId, org.id);
+  }
+
   const domain = extractDomainFromUrl(url);
 
   // CASE 1: Find existing brand by clerkOrgId + domain
@@ -277,16 +354,17 @@ export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise
 
   if (existingByBoth.length > 0) {
     const brand = existingByBoth[0];
-    if (brand.url !== url) {
-      await db.update(brands).set({ url, updatedAt: sql`NOW()` }).where(eq(brands.id, brand.id));
+    const updates: Record<string, unknown> = { updatedAt: sql`NOW()` };
+    if (brand.url !== url) updates.url = url;
+    if (Object.keys(updates).length > 1) {
+      await db.update(brands).set({ ...updates, orgId: org.id }).where(eq(brands.id, brand.id));
       brand.url = url;
     }
-    console.log(`[sales-profile] Found existing brand by clerkOrgId+domain: ${brand.id}`);
+    console.log(`[brand] Found existing brand by clerkOrgId+domain: ${brand.id}`);
     return brand;
   }
 
   // CASE 2: Check if brand exists by domain alone (UNIQUE constraint on domain!)
-  // This handles the case where domain was created by another clerkOrgId or without clerkOrgId
   const existingByDomain = await db
     .select({
       id: brands.id,
@@ -301,30 +379,26 @@ export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise
 
   if (existingByDomain.length > 0) {
     const brand = existingByDomain[0];
-    // Domain exists - update it with this clerkOrgId if not set, or if same org
     if (!brand.clerkOrgId || brand.clerkOrgId === clerkOrgId) {
-      await db.update(brands).set({ 
-        clerkOrgId, 
-        url, 
-        updatedAt: sql`NOW()` 
+      await db.update(brands).set({
+        clerkOrgId,
+        url,
+        orgId: org.id,
+        updatedAt: sql`NOW()`
       }).where(eq(brands.id, brand.id));
       brand.clerkOrgId = clerkOrgId;
       brand.url = url;
-      console.log(`[sales-profile] Updated existing brand (domain match) with clerkOrgId: ${brand.id}`);
+      console.log(`[brand] Updated existing brand (domain match) with clerkOrgId: ${brand.id}`);
       return brand;
     }
-    // Domain already owned by different org - log warning but still return the brand
-    // This is a conflict scenario - the domain is already taken
-    console.warn(`[sales-profile] Domain ${domain} already owned by org ${brand.clerkOrgId}, requested by ${clerkOrgId}`);
-    // Return existing brand - caller can decide what to do
+    console.warn(`[brand] Domain ${domain} already owned by org ${brand.clerkOrgId}, requested by ${clerkOrgId}`);
     return brand;
   }
 
-  // CASE 3: Create new brand - no existing match by domain or clerkOrgId+domain
-  // An org can have multiple brands with different domains
+  // CASE 3: Create new brand
   const inserted = await db
     .insert(brands)
-    .values({ clerkOrgId, url, domain })
+    .values({ clerkOrgId, url, domain, orgId: org.id })
     .returning({
       id: brands.id,
       url: brands.url,
@@ -333,7 +407,7 @@ export async function getOrCreateBrand(clerkOrgId: string, url: string): Promise
       clerkOrgId: brands.clerkOrgId,
     });
 
-  console.log(`[sales-profile] Created NEW brand for ${clerkOrgId} with domain ${domain}: ${inserted[0].id}`);
+  console.log(`[brand] Created NEW brand for ${clerkOrgId} with domain ${domain}: ${inserted[0].id}`);
   return inserted[0];
 }
 

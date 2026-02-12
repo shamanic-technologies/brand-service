@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands, brandSalesProfiles } from '../../src/db/schema';
+import { brands, brandSalesProfiles, orgs } from '../../src/db/schema';
 import { eq, and, like } from 'drizzle-orm';
 
 const app = createTestApp();
@@ -25,8 +25,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
       }
       
-      // Delete test brands
+      // Delete test brands, then orgs
       await db.delete(brands).where(like(brands.clerkOrgId, 'org_test_%'));
+      await db.delete(orgs).where(like(orgs.clerkOrgId, 'org_test_%'));
     } catch (e) {
       console.error('Cleanup error:', e);
     }
