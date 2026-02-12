@@ -6,6 +6,8 @@ import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema } from
 
 const router = Router();
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * GET /brands
  * List all brands for an organization by clerkOrgId
@@ -51,6 +53,9 @@ router.get('/brands', async (req: Request, res: Response) => {
 router.get('/brands/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    if (!UUID_REGEX.test(id)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
     const parsed = GetBrandQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
@@ -105,6 +110,9 @@ router.get('/brands/:id', async (req: Request, res: Response) => {
 router.get('/brands/:id/runs', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    if (!UUID_REGEX.test(id)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
     const parsed = BrandRunsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
