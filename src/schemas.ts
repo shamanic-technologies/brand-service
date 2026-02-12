@@ -78,6 +78,34 @@ export const BrandRunsQuerySchema = z
   })
   .openapi('BrandRunsQuery');
 
+export const UpsertBrandRequestSchema = z
+  .object({
+    clerkOrgId: z.string(),
+    url: z.string(),
+  })
+  .openapi('UpsertBrandRequest');
+
+export const UpsertBrandResponseSchema = z
+  .object({
+    brandId: z.string(),
+    domain: z.string().nullable(),
+    name: z.string().nullable(),
+    created: z.boolean(),
+  })
+  .openapi('UpsertBrandResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/brands',
+  summary: 'Upsert a brand by clerkOrgId + URL (no scraping)',
+  request: { body: { content: { 'application/json': { schema: UpsertBrandRequestSchema } } } },
+  responses: {
+    200: { description: 'Brand found or created', content: { 'application/json': { schema: UpsertBrandResponseSchema } } },
+    400: { description: 'Missing required fields' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 registry.registerPath({
   method: 'get',
   path: '/brands',

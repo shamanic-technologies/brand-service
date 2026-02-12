@@ -58,6 +58,7 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 
 | Method | Path | Description |
 |--------|------|-------------|
+| POST | `/brands` | Upsert brand by clerkOrgId + URL (no scraping) |
 | GET | `/brands` | List brands by clerkOrgId |
 | GET | `/brands/:id` | Get brand by ID |
 | GET | `/brands/:id/runs` | List extraction runs with costs (via runs-service) |
