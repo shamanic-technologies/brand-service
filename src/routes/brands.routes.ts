@@ -1,12 +1,55 @@
 import { Router, Request, Response } from 'express';
-import { eq, desc } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db, brands } from '../db';
 import { listRuns } from '../lib/runs-client';
-import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema } from '../schemas';
+import { getOrCreateBrand } from '../services/salesProfileExtractionService';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema } from '../schemas';
 
 const router = Router();
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * POST /brands
+ * Upsert a brand by clerkOrgId + URL. Lightweight — no scraping or AI.
+ * Returns { brandId, domain, name, created }
+ */
+router.post('/brands', async (req: Request, res: Response) => {
+  try {
+    const parsed = UpsertBrandRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+    const { clerkOrgId, url } = parsed.data;
+
+    // Extract domain to check if brand already exists
+    let domain: string;
+    try {
+      const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`);
+      domain = urlObj.hostname.replace(/^www\./, '').toLowerCase();
+    } catch {
+      domain = url.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+    }
+
+    const existing = await db
+      .select({ id: brands.id })
+      .from(brands)
+      .where(and(eq(brands.clerkOrgId, clerkOrgId), eq(brands.domain, domain)))
+      .limit(1);
+
+    const brand = await getOrCreateBrand(clerkOrgId, url);
+
+    res.json({
+      brandId: brand.id,
+      domain: brand.domain,
+      name: brand.name,
+      created: existing.length === 0,
+    });
+  } catch (error: any) {
+    console.error('Upsert brand error:', error);
+    res.status(500).json({ error: error.message || 'Failed to upsert brand' });
+  }
+});
 
 /**
  * GET /brands
