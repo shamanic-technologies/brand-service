@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands } from '../../src/db/schema';
-import { eq, like } from 'drizzle-orm';
+import { brands, orgs } from '../../src/db/schema';
+import { eq, like, inArray } from 'drizzle-orm';
 
 // Mock runs-client to avoid calling real runs-service in tests
 vi.mock('../../src/lib/runs-client', () => ({
@@ -17,11 +17,19 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
   const testClerkOrgId = `org_test_runs_${Date.now()}`;
 
   beforeAll(async () => {
-    // Create a test brand
+    // Create a test org first, then a brand
+    const [org] = await db
+      .insert(orgs)
+      .values({
+        appId: 'mcpfactory',
+        clerkOrgId: testClerkOrgId,
+      })
+      .returning();
+
     const [brand] = await db
       .insert(brands)
       .values({
-        clerkOrgId: testClerkOrgId,
+        orgId: org.id,
         url: `https://runs-test-${Date.now()}.example.com`,
         domain: `runs-test-${Date.now()}.example.com`,
       })
@@ -31,7 +39,16 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
 
   afterAll(async () => {
     try {
-      await db.delete(brands).where(like(brands.clerkOrgId, 'org_test_runs_%'));
+      const testOrgs = await db
+        .select({ id: orgs.id })
+        .from(orgs)
+        .where(like(orgs.clerkOrgId, 'org_test_runs_%'));
+
+      if (testOrgs.length > 0) {
+        const orgIds = testOrgs.map(o => o.id);
+        await db.delete(brands).where(inArray(brands.orgId, orgIds));
+      }
+      await db.delete(orgs).where(like(orgs.clerkOrgId, 'org_test_runs_%'));
     } catch (e) {
       console.error('Cleanup error:', e);
     }
@@ -60,27 +77,6 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
     expect(response.status).toBe(200);
     expect(response.body).toHaveProperty('runs');
     expect(Array.isArray(response.body.runs)).toBe(true);
-  });
-
-  it('should return empty runs for brand without clerkOrgId', async () => {
-    // Create a brand without clerkOrgId
-    const [brandNoOrg] = await db
-      .insert(brands)
-      .values({
-        url: `https://no-org-runs-${Date.now()}.example.com`,
-        domain: `no-org-runs-${Date.now()}.example.com`,
-      })
-      .returning({ id: brands.id });
-
-    const response = await request(app)
-      .get(`/brands/${brandNoOrg.id}/runs`)
-      .set(getAuthHeaders());
-
-    expect(response.status).toBe(200);
-    expect(response.body.runs).toEqual([]);
-
-    // Cleanup
-    await db.delete(brands).where(eq(brands.id, brandNoOrg.id));
   });
 
   it('should pass query params to listRuns', async () => {

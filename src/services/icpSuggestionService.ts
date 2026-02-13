@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { eq, and, gt, sql } from 'drizzle-orm';
-import { db, brands, brandIcpSuggestionsForApollo } from '../db';
+import { db, brands, orgs, brandIcpSuggestionsForApollo } from '../db';
 import {
   mapSiteUrls,
   scrapeUrl,
@@ -190,8 +190,17 @@ export async function extractIcpSuggestionForApollo(
   if (!brand) throw new Error('Brand not found');
   if (!brand.url) throw new Error('Brand has no URL');
 
-  // Resolve clerkOrgId for run tracking
-  const clerkOrgId = options.clerkOrgId || brand.clerkOrgId;
+  // Resolve clerkOrgId for run tracking (from orgs table if not provided)
+  let clerkOrgId = options.clerkOrgId;
+  if (!clerkOrgId) {
+    const [brandOrg] = await db
+      .select({ clerkOrgId: orgs.clerkOrgId })
+      .from(brands)
+      .innerJoin(orgs, eq(brands.orgId, orgs.id))
+      .where(eq(brands.id, brandId))
+      .limit(1);
+    clerkOrgId = brandOrg?.clerkOrgId;
+  }
 
   // Create run in runs-service (best-effort)
   let runId: string | undefined;

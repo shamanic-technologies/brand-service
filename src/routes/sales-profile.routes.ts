@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import { eq } from 'drizzle-orm';
+import { db, brands, orgs } from '../db';
 import {
   extractBrandSalesProfile,
   getExistingSalesProfile,
@@ -167,11 +169,18 @@ router.post(
         return res.status(404).json({ error: 'Brand not found' });
       }
 
-      // Extract sales profile (uses brand's clerkOrgId for run tracking)
+      // Resolve clerkOrgId from orgs table for run tracking
+      const [brandOrg] = await db
+        .select({ clerkOrgId: orgs.clerkOrgId })
+        .from(brands)
+        .innerJoin(orgs, eq(brands.orgId, orgs.id))
+        .where(eq(brands.id, brandId))
+        .limit(1);
+
       const result = await extractBrandSalesProfile(
         brandId,
         anthropicApiKey,
-        { skipCache, forceRescrape, clerkOrgId: brand.clerkOrgId || undefined, parentRunId }
+        { skipCache, forceRescrape, clerkOrgId: brandOrg?.clerkOrgId || undefined, parentRunId }
       );
 
       res.json(result);

@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { eq, sql } from 'drizzle-orm';
-import { db, brands, brandThesis } from '../db';
+import { db, brands, orgs, brandThesis } from '../db';
+import { resolveOrgIdOptional } from '../lib/org-resolver';
 import { TriggerWorkflowRequestSchema } from '../schemas';
 
 const router = Router();
@@ -22,11 +23,16 @@ router.post('/trigger-thesis-generation', async (req: Request, res: Response) =>
   const { clerk_organization_id } = parsed.data;
 
   try {
-    // Get brand using clerk_organization_id
+    // Resolve org, then get brand
+    const orgId = await resolveOrgIdOptional(clerk_organization_id);
+    if (!orgId) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
     const brandResult = await db
       .select({ id: brands.id, externalOrganizationId: brands.externalOrganizationId })
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerk_organization_id))
+      .where(eq(brands.orgId, orgId))
       .limit(1);
 
     if (brandResult.length === 0) {
@@ -85,17 +91,17 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
   const filter = req.query.filter as string | undefined;
 
   try {
-    // Get thesis data from brand-service database
+    // Get thesis data from brand-service database (join through orgs for clerkOrgId)
     const thesisData = await db
       .select({
-        clerkOrgId: brands.clerkOrgId,
+        clerkOrgId: orgs.clerkOrgId,
         lastThesisUpdate: sql<string>`MAX(${brandThesis.updatedAt})`,
         thesisCount: sql<number>`COUNT(${brandThesis.id})::integer`,
       })
       .from(brands)
+      .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .leftJoin(brandThesis, eq(brands.id, brandThesis.brandId))
-      .where(sql`${brands.clerkOrgId} IS NOT NULL`)
-      .groupBy(brands.clerkOrgId);
+      .groupBy(orgs.clerkOrgId);
 
     // Create thesis lookup map
     const thesisMap = new Map(
@@ -250,7 +256,7 @@ router.get('/theses-setup', async (req: Request, res: Response) => {
   try {
     const result = await db
       .select({
-        clerkOrgId: brands.clerkOrgId,
+        clerkOrgId: orgs.clerkOrgId,
         organizationName: brands.name,
         validatedCount: sql<number>`COUNT(${brandThesis.id}) FILTER (WHERE ${brandThesis.status} = 'validated')::integer`,
         userValidatedCount: sql<number>`COUNT(${brandThesis.id}) FILTER (WHERE ${brandThesis.status} = 'validated' AND ${brandThesis.statusChangedByType} = 'user')::integer`,
@@ -259,9 +265,9 @@ router.get('/theses-setup', async (req: Request, res: Response) => {
         lastUpdatedAt: sql<string>`MAX(${brandThesis.updatedAt})`,
       })
       .from(brands)
+      .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .leftJoin(brandThesis, eq(brands.id, brandThesis.brandId))
-      .where(sql`${brands.clerkOrgId} IS NOT NULL`)
-      .groupBy(brands.clerkOrgId, brands.name)
+      .groupBy(orgs.clerkOrgId, brands.name)
       .orderBy(sql`MAX(${brandThesis.updatedAt}) DESC NULLS LAST`);
 
     const organizations = result.map((row) => {

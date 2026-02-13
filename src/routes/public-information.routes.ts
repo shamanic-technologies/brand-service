@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq, sql } from 'drizzle-orm';
-import { db, brands, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
+import { db, brands, orgs, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
+import { resolveOrgIdOptional } from '../lib/org-resolver';
 import { PublicInfoMapQuerySchema, PublicInfoContentRequestSchema } from '../schemas';
 
 const router = Router();
@@ -17,11 +18,17 @@ router.get('/public-information-map', async (req: Request, res: Response) => {
   const { clerkOrgId } = parsed.data;
 
   try {
+    // Resolve org
+    const orgId = await resolveOrgIdOptional(clerkOrgId);
+    if (!orgId) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
     // Get main brand basic info
     const mainBrandResult = await db
       .select({ id: brands.id, name: brands.name, url: brands.url })
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId))
+      .where(eq(brands.orgId, orgId))
       .limit(1);
 
     if (mainBrandResult.length === 0) {
@@ -42,7 +49,7 @@ router.get('/public-information-map', async (req: Request, res: Response) => {
       .from(brands)
       .innerJoin(brandRelations, eq(brands.id, brandRelations.targetBrandId))
       .innerJoin(
-        db.select({ id: brands.id }).from(brands).where(eq(brands.clerkOrgId, clerkOrgId)).as('source'),
+        db.select({ id: brands.id }).from(brands).where(eq(brands.orgId, orgId)).as('source'),
         eq(brandRelations.sourceBrandId, sql`source.id`)
       );
 

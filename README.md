@@ -178,7 +178,8 @@ Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 
 - `orgs` — multi-tenant orgs keyed by `(app_id, clerk_org_id)`
 - `users` — users linked to an org via `org_id` FK
-- `brands`, `brand_sales_profiles`, `brand_linkedin_posts`
+- `brands` — linked to `orgs` via `org_id` (NOT NULL FK), no direct `clerk_org_id`
+- `brand_sales_profiles`, `brand_linkedin_posts`
 - `individuals`, `brand_individuals`, `individuals_pdl_enrichment`
 - `media_assets`, `supabase_storage`
 - `intake_forms`, `brand_thesis`
