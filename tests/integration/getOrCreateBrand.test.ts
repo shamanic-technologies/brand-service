@@ -1,12 +1,12 @@
-import { describe, it, expect, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { db } from '../../src/db';
 import { brands, brandSalesProfiles, orgs } from '../../src/db/schema';
-import { eq, and, like } from 'drizzle-orm';
+import { eq, and, like, inArray } from 'drizzle-orm';
 import { getOrCreateBrand, getBrand, getExistingSalesProfile } from '../../src/services/salesProfileExtractionService';
 
 /**
  * CRITICAL UNIT TESTS for getOrCreateBrand
- * 
+ *
  * This is the core function that creates brands in the database.
  * If this fails, brands are NOT created and the entire pipeline breaks.
  */
@@ -16,7 +16,16 @@ describe('getOrCreateBrand - CRITICAL', () => {
   // Clean up test data after each test
   afterEach(async () => {
     try {
-      await db.delete(brands).where(like(brands.clerkOrgId, `${testPrefix}%`));
+      // Find test orgs, delete brands via orgId, then delete orgs
+      const testOrgs = await db
+        .select({ id: orgs.id })
+        .from(orgs)
+        .where(like(orgs.clerkOrgId, `${testPrefix}%`));
+
+      if (testOrgs.length > 0) {
+        const orgIds = testOrgs.map(o => o.id);
+        await db.delete(brands).where(inArray(brands.orgId, orgIds));
+      }
       await db.delete(orgs).where(like(orgs.clerkOrgId, `${testPrefix}%`));
     } catch (e) {
       console.error('Cleanup error:', e);
@@ -28,12 +37,12 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const url = 'https://new-brand-test.example.com';
     const expectedDomain = 'new-brand-test.example.com';
 
-    // Verify brand doesn't exist
-    const before = await db
+    // Verify no org exists yet
+    const orgBefore = await db
       .select()
-      .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId));
-    expect(before.length).toBe(0);
+      .from(orgs)
+      .where(eq(orgs.clerkOrgId, clerkOrgId));
+    expect(orgBefore.length).toBe(0);
 
     // Call getOrCreateBrand
     const result = await getOrCreateBrand(clerkOrgId, url);
@@ -41,19 +50,23 @@ describe('getOrCreateBrand - CRITICAL', () => {
     // Verify brand was created
     expect(result).toBeDefined();
     expect(result.id).toBeDefined();
-    expect(result.clerkOrgId).toBe(clerkOrgId);
     expect(result.domain).toBe(expectedDomain);
     expect(result.url).toBe(url);
 
-    // Double-check by querying DB directly
+    // Double-check by querying DB directly via org
+    const [org] = await db
+      .select()
+      .from(orgs)
+      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, clerkOrgId)));
+    expect(org).toBeDefined();
+
     const after = await db
       .select()
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId));
-    
+      .where(eq(brands.orgId, org.id));
+
     expect(after.length).toBe(1);
     expect(after[0].id).toBe(result.id);
-    expect(after[0].clerkOrgId).toBe(clerkOrgId);
     expect(after[0].domain).toBe(expectedDomain);
     expect(after[0].url).toBe(url);
   }, 10000);
@@ -73,11 +86,15 @@ describe('getOrCreateBrand - CRITICAL', () => {
     expect(second.id).toBe(first.id);
 
     // Verify only one brand exists
+    const [org] = await db
+      .select()
+      .from(orgs)
+      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, clerkOrgId)));
     const allBrands = await db
       .select()
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId));
-    
+      .where(eq(brands.orgId, org.id));
+
     expect(allBrands.length).toBe(1);
   }, 10000);
 
@@ -138,10 +155,14 @@ describe('getOrCreateBrand - CRITICAL', () => {
     expect(brand1Check!.url).toBe(url1);
 
     // Verify both brands exist in DB for this org
+    const [org] = await db
+      .select()
+      .from(orgs)
+      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, clerkOrgId)));
     const allBrands = await db
       .select()
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId));
+      .where(eq(brands.orgId, org.id));
     expect(allBrands.length).toBe(2);
   }, 10000);
 
@@ -171,11 +192,15 @@ describe('getOrCreateBrand - CRITICAL', () => {
     }
 
     // Only one brand should exist in DB
+    const [org] = await db
+      .select()
+      .from(orgs)
+      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, clerkOrgId)));
     const allBrands = await db
       .select()
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId));
-    
+      .where(eq(brands.orgId, org.id));
+
     expect(allBrands.length).toBe(1);
   }, 15000);
 });
@@ -184,7 +209,15 @@ describe('getBrand - CRITICAL', () => {
   const testPrefix = 'test_getbrand_';
 
   afterEach(async () => {
-    await db.delete(brands).where(like(brands.clerkOrgId, `${testPrefix}%`));
+    const testOrgs = await db
+      .select({ id: orgs.id })
+      .from(orgs)
+      .where(like(orgs.clerkOrgId, `${testPrefix}%`));
+
+    if (testOrgs.length > 0) {
+      const orgIds = testOrgs.map(o => o.id);
+      await db.delete(brands).where(inArray(brands.orgId, orgIds));
+    }
     await db.delete(orgs).where(like(orgs.clerkOrgId, `${testPrefix}%`));
   });
 
@@ -202,10 +235,9 @@ describe('getBrand - CRITICAL', () => {
 
     // Get the brand by ID
     const result = await getBrand(created.id);
-    
+
     expect(result).not.toBeNull();
     expect(result!.id).toBe(created.id);
-    expect(result!.clerkOrgId).toBe(clerkOrgId);
     expect(result!.url).toBe(url);
     expect(result!.domain).toBe('getbrand-test.example.com');
   }, 10000);
@@ -215,16 +247,24 @@ describe('getExistingSalesProfile - CRITICAL', () => {
   const testPrefix = 'test_getprofile_';
 
   afterEach(async () => {
-    // Clean up: delete profiles first, then brands
-    const testBrands = await db
-      .select({ id: brands.id })
-      .from(brands)
-      .where(like(brands.clerkOrgId, `${testPrefix}%`));
-    
-    for (const brand of testBrands) {
-      await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
+    // Clean up: delete profiles first, then brands, then orgs
+    const testOrgs = await db
+      .select({ id: orgs.id })
+      .from(orgs)
+      .where(like(orgs.clerkOrgId, `${testPrefix}%`));
+
+    if (testOrgs.length > 0) {
+      const orgIds = testOrgs.map(o => o.id);
+      const testBrands = await db
+        .select({ id: brands.id })
+        .from(brands)
+        .where(inArray(brands.orgId, orgIds));
+
+      for (const brand of testBrands) {
+        await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
+      }
+      await db.delete(brands).where(inArray(brands.orgId, orgIds));
     }
-    await db.delete(brands).where(like(brands.clerkOrgId, `${testPrefix}%`));
     await db.delete(orgs).where(like(orgs.clerkOrgId, `${testPrefix}%`));
   });
 
@@ -245,15 +285,23 @@ describe('Full Flow Integration - CRITICAL', () => {
   const testPrefix = 'test_fullflow_';
 
   afterEach(async () => {
-    const testBrands = await db
-      .select({ id: brands.id })
-      .from(brands)
-      .where(like(brands.clerkOrgId, `${testPrefix}%`));
-    
-    for (const brand of testBrands) {
-      await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
+    const testOrgs = await db
+      .select({ id: orgs.id })
+      .from(orgs)
+      .where(like(orgs.clerkOrgId, `${testPrefix}%`));
+
+    if (testOrgs.length > 0) {
+      const orgIds = testOrgs.map(o => o.id);
+      const testBrands = await db
+        .select({ id: brands.id })
+        .from(brands)
+        .where(inArray(brands.orgId, orgIds));
+
+      for (const brand of testBrands) {
+        await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
+      }
+      await db.delete(brands).where(inArray(brands.orgId, orgIds));
     }
-    await db.delete(brands).where(like(brands.clerkOrgId, `${testPrefix}%`));
     await db.delete(orgs).where(like(orgs.clerkOrgId, `${testPrefix}%`));
   });
 
@@ -261,12 +309,12 @@ describe('Full Flow Integration - CRITICAL', () => {
     const clerkOrgId = `${testPrefix}${Date.now()}_fullflow`;
     const url = 'https://fullflow-test.mcpfactory.org';
 
-    // Step 1: Verify brand doesn't exist
-    const brandsBefore = await db
+    // Step 1: Verify no org exists yet
+    const orgsBefore = await db
       .select()
-      .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId));
-    expect(brandsBefore.length).toBe(0);
+      .from(orgs)
+      .where(eq(orgs.clerkOrgId, clerkOrgId));
+    expect(orgsBefore.length).toBe(0);
 
     // Step 2: Create brand via getOrCreateBrand
     const created = await getOrCreateBrand(clerkOrgId, url);
@@ -280,13 +328,17 @@ describe('Full Flow Integration - CRITICAL', () => {
     expect(byId).not.toBeNull();
     expect(byId!.id).toBe(created.id);
 
-    // Step 4: Query brand by clerkOrgId directly from DB
-    const byClerkOrgId = await db
+    // Step 4: Query brand by orgId directly from DB
+    const [org] = await db
+      .select()
+      .from(orgs)
+      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, clerkOrgId)));
+    const byOrgId = await db
       .select()
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId));
-    expect(byClerkOrgId.length).toBe(1);
-    expect(byClerkOrgId[0].id).toBe(created.id);
+      .where(eq(brands.orgId, org.id));
+    expect(byOrgId.length).toBe(1);
+    expect(byOrgId[0].id).toBe(created.id);
 
     // Step 5: Query brand by domain directly from DB
     const byDomain = await db

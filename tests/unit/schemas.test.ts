@@ -17,8 +17,10 @@ describe('Zod Schemas', () => {
   describe('CreateSalesProfileRequestSchema', () => {
     it('should accept valid request', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'mcpfactory',
         clerkOrgId: 'org_123',
         url: 'https://example.com',
+        clerkUserId: 'user_123',
       });
       expect(result.success).toBe(true);
       if (result.success) {
@@ -28,8 +30,10 @@ describe('Zod Schemas', () => {
 
     it('should accept all fields', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'mcpfactory',
         clerkOrgId: 'org_123',
         url: 'https://example.com',
+        clerkUserId: 'user_123',
         keyType: 'platform',
         skipCache: true,
         parentRunId: 'run_abc',
@@ -38,19 +42,31 @@ describe('Zod Schemas', () => {
     });
 
     it('should reject missing clerkOrgId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ url: 'https://example.com' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', url: 'https://example.com', clerkUserId: 'user_123' });
       expect(result.success).toBe(false);
     });
 
     it('should reject missing url', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ clerkOrgId: 'org_123' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', clerkUserId: 'user_123' });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject missing appId', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({ clerkOrgId: 'org_123', url: 'https://example.com', clerkUserId: 'user_123' });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject missing clerkUserId', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', url: 'https://example.com' });
       expect(result.success).toBe(false);
     });
 
     it('should reject invalid keyType', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'mcpfactory',
         clerkOrgId: 'org_123',
         url: 'https://example.com',
+        clerkUserId: 'user_123',
         keyType: 'invalid',
       });
       expect(result.success).toBe(false);
@@ -74,14 +90,26 @@ describe('Zod Schemas', () => {
   describe('IcpSuggestionRequestSchema', () => {
     it('should accept valid request', () => {
       const result = IcpSuggestionRequestSchema.safeParse({
+        appId: 'mcpfactory',
         clerkOrgId: 'org_123',
         url: 'https://example.com',
+        clerkUserId: 'user_123',
       });
       expect(result.success).toBe(true);
     });
 
     it('should reject missing url', () => {
-      const result = IcpSuggestionRequestSchema.safeParse({ clerkOrgId: 'org_123' });
+      const result = IcpSuggestionRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', clerkUserId: 'user_123' });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject missing appId', () => {
+      const result = IcpSuggestionRequestSchema.safeParse({ clerkOrgId: 'org_123', url: 'https://example.com', clerkUserId: 'user_123' });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject missing clerkUserId', () => {
+      const result = IcpSuggestionRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', url: 'https://example.com' });
       expect(result.success).toBe(false);
     });
   });

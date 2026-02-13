@@ -38,7 +38,6 @@ interface Brand {
   url: string | null;
   name: string | null;
   domain: string | null;
-  clerkOrgId: string | null;
 }
 
 export function getAnthropicClient(apiKey: string): Anthropic {
@@ -241,7 +240,6 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
-      clerkOrgId: brands.clerkOrgId,
     })
     .from(brands)
     .where(eq(brands.id, brandId))
@@ -339,28 +337,25 @@ export async function getOrCreateBrand(
 
   const domain = extractDomainFromUrl(url);
 
-  // CASE 1: Find existing brand by clerkOrgId + domain
+  // CASE 1: Find existing brand by orgId + domain
   const existingByBoth = await db
     .select({
       id: brands.id,
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
-      clerkOrgId: brands.clerkOrgId,
     })
     .from(brands)
-    .where(and(eq(brands.clerkOrgId, clerkOrgId), eq(brands.domain, domain)))
+    .where(and(eq(brands.orgId, org.id), eq(brands.domain, domain)))
     .limit(1);
 
   if (existingByBoth.length > 0) {
     const brand = existingByBoth[0];
-    const updates: Record<string, unknown> = { updatedAt: sql`NOW()` };
-    if (brand.url !== url) updates.url = url;
-    if (Object.keys(updates).length > 1) {
-      await db.update(brands).set({ ...updates, orgId: org.id }).where(eq(brands.id, brand.id));
+    if (brand.url !== url) {
+      await db.update(brands).set({ url, updatedAt: sql`NOW()` }).where(eq(brands.id, brand.id));
       brand.url = url;
     }
-    console.log(`[brand] Found existing brand by clerkOrgId+domain: ${brand.id}`);
+    console.log(`[brand] Found existing brand by orgId+domain: ${brand.id}`);
     return brand;
   }
 
@@ -371,7 +366,7 @@ export async function getOrCreateBrand(
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
-      clerkOrgId: brands.clerkOrgId,
+      orgId: brands.orgId,
     })
     .from(brands)
     .where(eq(brands.domain, domain))
@@ -379,35 +374,31 @@ export async function getOrCreateBrand(
 
   if (existingByDomain.length > 0) {
     const brand = existingByDomain[0];
-    if (!brand.clerkOrgId || brand.clerkOrgId === clerkOrgId) {
+    if (brand.orgId === org.id) {
       await db.update(brands).set({
-        clerkOrgId,
         url,
-        orgId: org.id,
         updatedAt: sql`NOW()`
       }).where(eq(brands.id, brand.id));
-      brand.clerkOrgId = clerkOrgId;
       brand.url = url;
-      console.log(`[brand] Updated existing brand (domain match) with clerkOrgId: ${brand.id}`);
+      console.log(`[brand] Updated existing brand (domain match): ${brand.id}`);
       return brand;
     }
-    console.warn(`[brand] Domain ${domain} already owned by org ${brand.clerkOrgId}, requested by ${clerkOrgId}`);
-    return brand;
+    console.warn(`[brand] Domain ${domain} already owned by org ${brand.orgId}, requested by ${org.id}`);
+    return { id: brand.id, url: brand.url, name: brand.name, domain: brand.domain };
   }
 
   // CASE 3: Create new brand
   const inserted = await db
     .insert(brands)
-    .values({ clerkOrgId, url, domain, orgId: org.id })
+    .values({ url, domain, orgId: org.id })
     .returning({
       id: brands.id,
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
-      clerkOrgId: brands.clerkOrgId,
     });
 
-  console.log(`[brand] Created NEW brand for ${clerkOrgId} with domain ${domain}: ${inserted[0].id}`);
+  console.log(`[brand] Created NEW brand for org ${org.id} with domain ${domain}: ${inserted[0].id}`);
   return inserted[0];
 }
 
@@ -416,7 +407,8 @@ export async function getSalesProfileByClerkOrgId(clerkOrgId: string): Promise<S
     .select()
     .from(brandSalesProfiles)
     .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
-    .where(and(eq(brands.clerkOrgId, clerkOrgId), gt(brandSalesProfiles.expiresAt, sql`NOW()`)))
+    .innerJoin(orgs, eq(brands.orgId, orgs.id))
+    .where(and(eq(orgs.clerkOrgId, clerkOrgId), gt(brandSalesProfiles.expiresAt, sql`NOW()`)))
     .orderBy(desc(brandSalesProfiles.extractedAt))
     .limit(1);
 
@@ -430,7 +422,8 @@ export async function getAllSalesProfilesByClerkOrgId(
     .select()
     .from(brandSalesProfiles)
     .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
-    .where(eq(brands.clerkOrgId, clerkOrgId))
+    .innerJoin(orgs, eq(brands.orgId, orgs.id))
+    .where(eq(orgs.clerkOrgId, clerkOrgId))
     .orderBy(desc(brandSalesProfiles.extractedAt));
 
   return result.map(row => ({
@@ -513,7 +506,7 @@ export async function extractBrandSalesProfile(
   if (!brand.url) throw new Error('Brand has no URL');
 
   // Resolve clerkOrgId for run tracking
-  const clerkOrgId = options.clerkOrgId || brand.clerkOrgId;
+  const clerkOrgId = options.clerkOrgId;
 
   // Create run in runs-service (best-effort)
   let runId: string | undefined;

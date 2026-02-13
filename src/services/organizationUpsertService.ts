@@ -1,5 +1,6 @@
-import { eq, sql } from 'drizzle-orm';
-import { db, brands } from '../db';
+import { eq, and, sql } from 'drizzle-orm';
+import { db, brands, orgs } from '../db';
+import { resolveOrCreateOrg } from './salesProfileExtractionService';
 
 /**
  * Extracts domain from URL using JavaScript (matches SQL extract_domain_from_url)
@@ -16,8 +17,7 @@ function extractDomainFromUrl(url: string): string | null {
 
 /**
  * Gets or creates a brand by Clerk organization ID and returns its internal UUID.
- * This function should be called at the beginning of every endpoint that needs brand_id.
- * The brand will be auto-created if it doesn't exist (with name/url = NULL).
+ * Resolves org first, then queries brands by orgId.
  */
 export const getOrganizationIdByClerkId = async (
   clerkOrganizationId: string,
@@ -29,20 +29,23 @@ export const getOrganizationIdByClerkId = async (
     console.log(`[BRAND UPSERT] Starting upsert for clerk_org_id: ${clerkOrganizationId}`);
     console.log(`[BRAND UPSERT] Params: name=${organizationName}, url=${organizationUrl}`);
 
-    // Check if brand exists by clerk_org_id
-    const existingByClerk = await db
+    // Resolve or create org
+    const org = await resolveOrCreateOrg('mcpfactory', clerkOrganizationId);
+
+    // Check if brand exists by orgId
+    const existingByOrg = await db
       .select({ id: brands.id, domain: brands.domain })
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrganizationId))
+      .where(eq(brands.orgId, org.id))
       .limit(1);
 
     // Check if brand exists by domain
     const domain = organizationUrl ? extractDomainFromUrl(organizationUrl) : null;
-    let existingByDomain: { id: string; clerkOrgId: string | null } | null = null;
-    
+    let existingByDomain: { id: string; orgId: string } | null = null;
+
     if (domain) {
       const domainResult = await db
-        .select({ id: brands.id, clerkOrgId: brands.clerkOrgId })
+        .select({ id: brands.id, orgId: brands.orgId })
         .from(brands)
         .where(eq(brands.domain, domain))
         .limit(1);
@@ -51,21 +54,21 @@ export const getOrganizationIdByClerkId = async (
       }
     }
 
-    // CASE 1: Brand exists by clerk_id AND different brand exists by domain -> merge
-    if (existingByClerk.length > 0 && existingByDomain && existingByDomain.id !== existingByClerk[0].id) {
+    // CASE 1: Brand exists by orgId AND different brand exists by domain -> merge
+    if (existingByOrg.length > 0 && existingByDomain && existingByDomain.id !== existingByOrg[0].id) {
       console.log(`[BRAND UPSERT] Found duplicate. Merging...`);
 
-      // Delete skeleton (clerk_id brand without domain)
-      if (!existingByClerk[0].domain) {
-        await db.delete(brands).where(eq(brands.id, existingByClerk[0].id));
-        console.log(`[BRAND UPSERT] Deleted skeleton brand: ${existingByClerk[0].id}`);
+      // Delete skeleton (org brand without domain)
+      if (!existingByOrg[0].domain) {
+        await db.delete(brands).where(eq(brands.id, existingByOrg[0].id));
+        console.log(`[BRAND UPSERT] Deleted skeleton brand: ${existingByOrg[0].id}`);
       }
 
-      // Update domain brand with clerk_org_id
+      // Update domain brand with orgId
       const result = await db
         .update(brands)
         .set({
-          clerkOrgId: clerkOrganizationId,
+          orgId: org.id,
           externalOrganizationId: externalOrganizationId || sql`${brands.externalOrganizationId}`,
           name: organizationName || sql`${brands.name}`,
           url: organizationUrl || sql`${brands.url}`,
@@ -78,8 +81,8 @@ export const getOrganizationIdByClerkId = async (
       return result[0].id;
     }
 
-    // CASE 2: Brand exists by clerk_id only -> update the first match
-    if (existingByClerk.length > 0) {
+    // CASE 2: Brand exists by orgId only -> update the first match
+    if (existingByOrg.length > 0) {
       const result = await db
         .update(brands)
         .set({
@@ -89,19 +92,19 @@ export const getOrganizationIdByClerkId = async (
           domain: domain || sql`${brands.domain}`,
           updatedAt: sql`NOW()`,
         })
-        .where(eq(brands.id, existingByClerk[0].id))
+        .where(eq(brands.id, existingByOrg[0].id))
         .returning({ id: brands.id });
 
-      console.log(`[BRAND UPSERT] Updated existing brand by clerk_id:`, result[0]?.id);
+      console.log(`[BRAND UPSERT] Updated existing brand by orgId:`, result[0]?.id);
       return result[0].id;
     }
 
-    // CASE 3: Brand exists by domain only -> update with clerk_org_id
+    // CASE 3: Brand exists by domain only -> update with orgId
     if (existingByDomain) {
       const result = await db
         .update(brands)
         .set({
-          clerkOrgId: clerkOrganizationId,
+          orgId: org.id,
           externalOrganizationId: externalOrganizationId || sql`${brands.externalOrganizationId}`,
           name: organizationName || sql`${brands.name}`,
           url: organizationUrl || sql`${brands.url}`,
@@ -118,7 +121,7 @@ export const getOrganizationIdByClerkId = async (
     const result = await db
       .insert(brands)
       .values({
-        clerkOrgId: clerkOrganizationId,
+        orgId: org.id,
         externalOrganizationId: externalOrganizationId || null,
         name: organizationName || null,
         url: organizationUrl || null,
@@ -137,6 +140,7 @@ export const getOrganizationIdByClerkId = async (
 /**
  * @deprecated Use getOrganizationIdByClerkId instead.
  * Gets or creates a brand by external ID (press-funnel UUID).
+ * Note: This creates brands without an org link — caller should ensure org exists.
  */
 export const getOrganizationIdByExternalId = async (
   externalOrganizationId: string,
@@ -171,10 +175,13 @@ export const getOrganizationIdByExternalId = async (
       return result[0].id;
     }
 
-    // Create new
+    // Create new — use a system org for unowned brands
+    const systemOrg = await resolveOrCreateOrg('mcpfactory', 'system');
+
     const result = await db
       .insert(brands)
       .values({
+        orgId: systemOrg.id,
         externalOrganizationId,
         name: organizationName || null,
         url: organizationUrl || null,

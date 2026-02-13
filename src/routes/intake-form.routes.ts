@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { eq, sql } from 'drizzle-orm';
-import { db, brands, intakeForms } from '../db';
+import { eq, and, sql } from 'drizzle-orm';
+import { db, brands, orgs, intakeForms } from '../db';
 import { intakeFormService } from '../services/intakeFormService';
+import { resolveOrgIdOptional } from '../lib/org-resolver';
 import { TriggerWorkflowRequestSchema, IntakeFormUpsertRequestSchema } from '../schemas';
 
 const router = Router();
@@ -19,11 +20,16 @@ router.post('/trigger-intake-form-generation', async (req: Request, res: Respons
   const { clerk_organization_id } = parsed.data;
 
   try {
-    // Get brand using clerk_organization_id
+    // Resolve org, then get brand
+    const orgId = await resolveOrgIdOptional(clerk_organization_id);
+    if (!orgId) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
     const brandResult = await db
       .select({ id: brands.id, externalOrganizationId: brands.externalOrganizationId })
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerk_organization_id))
+      .where(eq(brands.orgId, orgId))
       .limit(1);
 
     if (brandResult.length === 0) {

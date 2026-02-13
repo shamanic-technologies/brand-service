@@ -3,7 +3,7 @@ import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
 import { brands, brandSalesProfiles, orgs } from '../../src/db/schema';
-import { eq, and, like } from 'drizzle-orm';
+import { eq, and, like, inArray } from 'drizzle-orm';
 
 const app = createTestApp();
 
@@ -15,18 +15,27 @@ describe('Sales Profile API - Complete Integration Tests', () => {
   // Clean up test data after all tests
   afterAll(async () => {
     try {
-      // Delete sales profiles for test brands first (foreign key)
-      const testBrands = await db
-        .select({ id: brands.id })
-        .from(brands)
-        .where(like(brands.clerkOrgId, 'org_test_%'));
-      
-      for (const brand of testBrands) {
-        await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
+      // Find test orgs
+      const testOrgs = await db
+        .select({ id: orgs.id })
+        .from(orgs)
+        .where(like(orgs.clerkOrgId, 'org_test_%'));
+
+      if (testOrgs.length > 0) {
+        const orgIds = testOrgs.map(o => o.id);
+        // Delete sales profiles for test brands first (foreign key)
+        const testBrands = await db
+          .select({ id: brands.id })
+          .from(brands)
+          .where(inArray(brands.orgId, orgIds));
+
+        for (const brand of testBrands) {
+          await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
+        }
+
+        // Delete test brands, then orgs
+        await db.delete(brands).where(inArray(brands.orgId, orgIds));
       }
-      
-      // Delete test brands, then orgs
-      await db.delete(brands).where(like(brands.clerkOrgId, 'org_test_%'));
       await db.delete(orgs).where(like(orgs.clerkOrgId, 'org_test_%'));
     } catch (e) {
       console.error('Cleanup error:', e);
@@ -37,7 +46,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)
         .post('/sales-profile')
-        .send({ clerkOrgId: testClerkOrgId, url: testUrl });
+        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test' });
 
       expect(response.status).toBe(401);
     });
@@ -46,7 +55,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ url: testUrl });
+        .send({ appId: 'mcpfactory', url: testUrl, clerkUserId: 'user_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -56,7 +65,27 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ clerkOrgId: testClerkOrgId });
+        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, clerkUserId: 'user_test' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid request');
+    });
+
+    it('should return 400 if appId is missing', async () => {
+      const response = await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({ clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid request');
+    });
+
+    it('should return 400 if clerkUserId is missing', async () => {
+      const response = await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -67,40 +96,41 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const uniqueUrl = `https://unique-test-${Date.now()}.example.com`;
       const uniqueDomain = uniqueUrl.replace('https://', '');
 
-      // Verify brand doesn't exist before the call
-      const existingBrand = await db
+      // Verify no org exists before the call
+      const existingOrg = await db
         .select()
-        .from(brands)
-        .where(and(
-          eq(brands.clerkOrgId, uniqueClerkOrgId),
-          eq(brands.domain, uniqueDomain)
-        ))
+        .from(orgs)
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)))
         .limit(1);
-      
-      expect(existingBrand.length).toBe(0);
+
+      expect(existingOrg.length).toBe(0);
 
       // Call the endpoint (will fail on Anthropic key but should still create brand)
       await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ 
-          clerkOrgId: uniqueClerkOrgId, 
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
           url: uniqueUrl,
+          clerkUserId: `user_test_${Date.now()}`,
           keyType: 'byok'
         });
 
-      // Verify brand was created in database
+      // Verify org and brand were created in database
+      const [org] = await db
+        .select()
+        .from(orgs)
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+      expect(org).toBeDefined();
+
       const createdBrand = await db
         .select()
         .from(brands)
-        .where(and(
-          eq(brands.clerkOrgId, uniqueClerkOrgId),
-          eq(brands.domain, uniqueDomain)
-        ))
+        .where(and(eq(brands.orgId, org.id), eq(brands.domain, uniqueDomain)))
         .limit(1);
 
       expect(createdBrand.length).toBe(1);
-      expect(createdBrand[0].clerkOrgId).toBe(uniqueClerkOrgId);
       expect(createdBrand[0].domain).toBe(uniqueDomain);
       expect(createdBrand[0].url).toBe(uniqueUrl);
     }, 15000);
@@ -108,33 +138,41 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should not create duplicate brands on subsequent calls', async () => {
       const uniqueClerkOrgId = `org_test_no_dup_${Date.now()}`;
       const uniqueUrl = `https://no-dup-test-${Date.now()}.example.com`;
+      const clerkUserId = `user_test_${Date.now()}`;
 
       // First call creates brand
       await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ 
-          clerkOrgId: uniqueClerkOrgId, 
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
           url: uniqueUrl,
+          clerkUserId,
           keyType: 'byok'
         });
 
       // Get brand count after first call
+      const [org] = await db
+        .select()
+        .from(orgs)
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
       const brandsAfterFirst = await db
         .select()
         .from(brands)
-        .where(eq(brands.clerkOrgId, uniqueClerkOrgId));
-      
-      const countAfterFirst = brandsAfterFirst.length;
-      expect(countAfterFirst).toBe(1);
+        .where(eq(brands.orgId, org.id));
+
+      expect(brandsAfterFirst.length).toBe(1);
 
       // Second call should not create duplicate
       await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ 
-          clerkOrgId: uniqueClerkOrgId, 
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
           url: uniqueUrl,
+          clerkUserId,
           keyType: 'byok'
         });
 
@@ -142,41 +180,43 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const brandsAfterSecond = await db
         .select()
         .from(brands)
-        .where(eq(brands.clerkOrgId, uniqueClerkOrgId));
-      
-      expect(brandsAfterSecond.length).toBe(countAfterFirst);
+        .where(eq(brands.orgId, org.id));
+
+      expect(brandsAfterSecond.length).toBe(brandsAfterFirst.length);
     }, 15000);
 
     it('should update URL if brand exists with different URL', async () => {
       const uniqueClerkOrgId = `org_test_url_update_${Date.now()}`;
       const originalUrl = `https://original-${Date.now()}.example.com`;
-      const updatedUrl = `https://updated-${Date.now()}.example.com`;
+      const clerkUserId = `user_test_${Date.now()}`;
 
       // First call with original URL
       await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ 
-          clerkOrgId: uniqueClerkOrgId, 
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
           url: originalUrl,
+          clerkUserId,
           keyType: 'byok'
         });
 
       // Verify original URL stored
-      let brand = await db
+      const [org] = await db
+        .select()
+        .from(orgs)
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+      const brand = await db
         .select()
         .from(brands)
-        .where(eq(brands.clerkOrgId, uniqueClerkOrgId))
+        .where(eq(brands.orgId, org.id))
         .limit(1);
-      
-      expect(brand[0].url).toBe(originalUrl);
 
-      // Second call with updated URL (same domain would be same brand)
-      // Note: Different domain would create a different brand
+      expect(brand[0].url).toBe(originalUrl);
     }, 15000);
 
     it('should create brand with correct domain extraction', async () => {
-      // Use unique domains for each test case to avoid UNIQUE constraint conflicts
       const timestamp = Date.now();
       const testCases = [
         { url: `https://www.domain-test-${timestamp}-1.com`, expectedDomain: `domain-test-${timestamp}-1.com` },
@@ -187,20 +227,26 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       for (let i = 0; i < testCases.length; i++) {
         const testCase = testCases[i];
         const uniqueClerkOrgId = `org_test_domain_${timestamp}_${i}`;
-        
+
         await request(app)
           .post('/sales-profile')
           .set(getAuthHeaders())
-          .send({ 
-            clerkOrgId: uniqueClerkOrgId, 
+          .send({
+            appId: 'mcpfactory',
+            clerkOrgId: uniqueClerkOrgId,
             url: testCase.url,
+            clerkUserId: `user_test_${timestamp}_${i}`,
             keyType: 'byok'
           });
 
+        const [org] = await db
+          .select()
+          .from(orgs)
+          .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
         const brand = await db
           .select()
           .from(brands)
-          .where(eq(brands.clerkOrgId, uniqueClerkOrgId))
+          .where(eq(brands.orgId, org.id))
           .limit(1);
 
         expect(brand.length).toBe(1);
@@ -295,21 +341,27 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       // First create a brand
       const uniqueClerkOrgId = `org_test_no_profile_${Date.now()}`;
       const uniqueUrl = `https://no-profile-${Date.now()}.example.com`;
-      
+
       await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ 
-          clerkOrgId: uniqueClerkOrgId, 
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
           url: uniqueUrl,
+          clerkUserId: `user_test_${Date.now()}`,
           keyType: 'byok'
         });
 
-      // Get the brand ID
+      // Get the brand ID via org
+      const [org] = await db
+        .select()
+        .from(orgs)
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
       const brand = await db
         .select()
         .from(brands)
-        .where(eq(brands.clerkOrgId, uniqueClerkOrgId))
+        .where(eq(brands.orgId, org.id))
         .limit(1);
 
       expect(brand.length).toBe(1);

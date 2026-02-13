@@ -3,7 +3,7 @@ import axios from 'axios';
 import { eq, and, isNull, like } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
-import { db, brands, mediaAssets, supabaseStorage } from '../db';
+import { db, brands, orgs, mediaAssets, supabaseStorage } from '../db';
 import { AnalyzeRequestSchema } from '../schemas';
 
 const router = Router();
@@ -15,7 +15,8 @@ async function getBrandFromClerkId(clerkOrganizationId: string): Promise<{ id: s
   const result = await db
     .select({ id: brands.id, externalId: brands.externalOrganizationId })
     .from(brands)
-    .where(eq(brands.clerkOrgId, clerkOrganizationId))
+    .innerJoin(orgs, eq(brands.orgId, orgs.id))
+    .where(eq(orgs.clerkOrgId, clerkOrganizationId))
     .limit(1);
 
   if (result.length === 0) {

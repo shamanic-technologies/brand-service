@@ -27,7 +27,6 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
     const brandResult = await db
       .select({
         id: brands.id,
-        clerkOrgId: brands.clerkOrgId,
         externalOrganizationId: brands.externalOrganizationId,
       })
       .from(brands)

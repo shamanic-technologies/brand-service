@@ -80,10 +80,10 @@ export const BrandRunsQuerySchema = z
 
 export const UpsertBrandRequestSchema = z
   .object({
-    appId: z.string().optional().default('mcpfactory'),
+    appId: z.string(),
     clerkOrgId: z.string(),
     url: z.string(),
-    clerkUserId: z.string().optional(),
+    clerkUserId: z.string(),
   })
   .openapi('UpsertBrandRequest');
 
@@ -150,10 +150,10 @@ registry.registerPath({
 
 export const CreateSalesProfileRequestSchema = z
   .object({
-    appId: z.string().optional().default('mcpfactory'),
+    appId: z.string(),
     clerkOrgId: z.string(),
     url: z.string(),
-    clerkUserId: z.string().optional(),
+    clerkUserId: z.string(),
     keyType: z.enum(['byok', 'platform']).default('byok'),
     skipCache: z.boolean().optional(),
     parentRunId: z.string().optional(),
@@ -1010,10 +1010,10 @@ registry.registerPath({
 
 export const IcpSuggestionRequestSchema = z
   .object({
-    appId: z.string().optional().default('mcpfactory'),
+    appId: z.string(),
     clerkOrgId: z.string(),
     url: z.string(),
-    clerkUserId: z.string().optional(),
+    clerkUserId: z.string(),
     keyType: z.enum(['byok', 'platform']).default('byok'),
     skipCache: z.boolean().optional(),
     parentRunId: z.string().optional(),

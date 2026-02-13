@@ -1,5 +1,5 @@
-import { db, brands, mediaAssets, supabaseStorage, intakeForms } from '../../src/db';
-import { eq, like, or, sql } from 'drizzle-orm';
+import { db, brands, mediaAssets, intakeForms, orgs } from '../../src/db';
+import { eq, like, or, sql, inArray } from 'drizzle-orm';
 
 /**
  * Clean test data from database
@@ -17,13 +17,24 @@ export async function cleanTestData() {
       like(intakeForms.brandId, 'test-%')
     );
 
-    // Clean brands with test prefix
+    // Find test orgs and delete brands via orgId
+    const testOrgs = await db
+      .select({ id: orgs.id })
+      .from(orgs)
+      .where(like(orgs.clerkOrgId, 'test-%'));
+
+    if (testOrgs.length > 0) {
+      const orgIds = testOrgs.map(o => o.id);
+      await db.delete(brands).where(inArray(brands.orgId, orgIds));
+    }
+
+    // Clean brands with test prefix external org ids (legacy)
     await db.delete(brands).where(
-      or(
-        like(brands.clerkOrgId, 'test-%'),
-        like(brands.externalOrganizationId, 'test-%')
-      )
+      like(brands.externalOrganizationId, 'test-%')
     );
+
+    // Clean test orgs
+    await db.delete(orgs).where(like(orgs.clerkOrgId, 'test-%'));
   } catch (error) {
     // Table might not exist or connection issue, ignore in tests
     console.log('cleanTestData: ignoring error (table may not exist or DB unavailable)');
@@ -31,10 +42,28 @@ export async function cleanTestData() {
 }
 
 /**
- * Insert a test brand
+ * Insert a test org and return its id
+ */
+export async function insertTestOrg(data?: {
+  appId?: string;
+  clerkOrgId?: string;
+}) {
+  const result = await db
+    .insert(orgs)
+    .values({
+      appId: data?.appId || 'mcpfactory',
+      clerkOrgId: data?.clerkOrgId || `test-clerk-${Date.now()}`,
+    })
+    .returning();
+
+  return result[0];
+}
+
+/**
+ * Insert a test brand (requires an orgId)
  */
 export async function insertTestBrand(data: {
-  clerkOrgId?: string;
+  orgId: string;
   externalOrganizationId?: string;
   name?: string;
   url?: string;
@@ -45,7 +74,7 @@ export async function insertTestBrand(data: {
     .insert(brands)
     .values({
       id,
-      clerkOrgId: data.clerkOrgId || `test-clerk-${Date.now()}`,
+      orgId: data.orgId,
       externalOrganizationId: data.externalOrganizationId || `test-ext-${Date.now()}`,
       name: data.name || 'Test Brand',
       url: data.url || 'https://test.example.com',

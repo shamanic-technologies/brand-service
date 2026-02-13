@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
-import { db, brands } from '../db';
+import { db, brands, orgs } from '../db';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand } from '../services/salesProfileExtractionService';
+import { getOrCreateBrand, resolveOrCreateOrg } from '../services/salesProfileExtractionService';
+import { resolveOrgId, resolveOrgIdOptional } from '../lib/org-resolver';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema } from '../schemas';
 
 const router = Router();
@@ -31,10 +32,12 @@ router.post('/brands', async (req: Request, res: Response) => {
       domain = url.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
     }
 
+    // Resolve org to check if brand exists by orgId + domain
+    const org = await resolveOrCreateOrg(appId, clerkOrgId);
     const existing = await db
       .select({ id: brands.id })
       .from(brands)
-      .where(and(eq(brands.clerkOrgId, clerkOrgId), eq(brands.domain, domain)))
+      .where(and(eq(brands.orgId, org.id), eq(brands.domain, domain)))
       .limit(1);
 
     const brand = await getOrCreateBrand(clerkOrgId, url, { appId, clerkUserId });
@@ -54,7 +57,7 @@ router.post('/brands', async (req: Request, res: Response) => {
 /**
  * GET /brands
  * List all brands for an organization by clerkOrgId
- * 
+ *
  * Query params:
  * - clerkOrgId: required
  */
@@ -65,6 +68,11 @@ router.get('/brands', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
     const { clerkOrgId } = parsed.data;
+
+    const orgId = await resolveOrgIdOptional(clerkOrgId);
+    if (!orgId) {
+      return res.json({ brands: [] });
+    }
 
     // Get all brands for this org
     const orgBrands = await db
@@ -79,7 +87,7 @@ router.get('/brands', async (req: Request, res: Response) => {
         elevatorPitch: brands.elevatorPitch,
       })
       .from(brands)
-      .where(eq(brands.clerkOrgId, clerkOrgId))
+      .where(eq(brands.orgId, orgId))
       .orderBy(desc(brands.updatedAt));
 
     res.json({ brands: orgBrands });
@@ -103,7 +111,6 @@ router.get('/brands/:id', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { clerkOrgId } = parsed.data;
 
     const [brand] = await db
       .select({
@@ -126,17 +133,6 @@ router.get('/brands/:id', async (req: Request, res: Response) => {
 
     if (!brand) {
       return res.status(404).json({ error: 'Brand not found' });
-    }
-
-    // If clerkOrgId provided, verify ownership
-    if (clerkOrgId) {
-      const [owned] = await db
-        .select({ id: brands.id })
-        .from(brands)
-        .where(eq(brands.id, id))
-        .limit(1);
-      
-      // For now, just return the brand - ownership check can be added later
     }
 
     res.json({ brand });
@@ -164,23 +160,20 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
     const limit = parsed.data.limit ? parseInt(parsed.data.limit, 10) : undefined;
     const offset = parsed.data.offset ? parseInt(parsed.data.offset, 10) : undefined;
 
-    // Look up the brand to get clerkOrgId
-    const [brand] = await db
-      .select({ id: brands.id, clerkOrgId: brands.clerkOrgId })
+    // Look up the brand and join to orgs to get clerkOrgId
+    const [brandRow] = await db
+      .select({ id: brands.id, clerkOrgId: orgs.clerkOrgId })
       .from(brands)
+      .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .where(eq(brands.id, id))
       .limit(1);
 
-    if (!brand) {
+    if (!brandRow) {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    if (!brand.clerkOrgId) {
-      return res.json({ runs: [] });
-    }
-
     const result = await listRuns({
-      clerkOrgId: brand.clerkOrgId,
+      clerkOrgId: brandRow.clerkOrgId,
       appId: 'mcpfactory',
       serviceName: 'brand-service',
       taskName,
