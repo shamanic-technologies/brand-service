@@ -177,10 +177,14 @@ router.post(
         .where(eq(brands.id, brandId))
         .limit(1);
 
+      if (!brandOrg?.clerkOrgId) {
+        return res.status(400).json({ error: 'Brand has no associated organization — cannot track costs' });
+      }
+
       const result = await extractBrandSalesProfile(
         brandId,
         anthropicApiKey,
-        { skipCache, forceRescrape, clerkOrgId: brandOrg?.clerkOrgId || undefined, parentRunId }
+        { skipCache, forceRescrape, clerkOrgId: brandOrg.clerkOrgId, parentRunId }
       );
 
       res.json(result);

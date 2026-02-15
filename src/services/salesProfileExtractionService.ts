@@ -494,7 +494,7 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId?: string; parentRunId?: string } = {}
+  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId: string; parentRunId?: string }
 ): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
@@ -505,26 +505,22 @@ export async function extractBrandSalesProfile(
   if (!brand) throw new Error('Brand not found');
   if (!brand.url) throw new Error('Brand has no URL');
 
-  // Resolve clerkOrgId for run tracking
+  // Resolve clerkOrgId for run tracking — required for cost tracking
   const clerkOrgId = options.clerkOrgId;
-
-  // Create run in runs-service (best-effort)
-  let runId: string | undefined;
-  if (clerkOrgId) {
-    try {
-      const run = await createRun({
-        clerkOrgId,
-        appId: "mcpfactory",
-        brandId,
-        serviceName: "brand-service",
-        taskName: "sales-profile-extraction",
-        parentRunId: options.parentRunId,
-      });
-      runId = run.id;
-    } catch (err) {
-      console.warn("[sales-profile] Failed to create run in runs-service:", err);
-    }
+  if (!clerkOrgId) {
+    throw new Error('[sales-profile] clerkOrgId is required for run/cost tracking');
   }
+
+  // Create run in runs-service
+  const run = await createRun({
+    clerkOrgId,
+    appId: "mcpfactory",
+    brandId,
+    serviceName: "brand-service",
+    taskName: "sales-profile-extraction",
+    parentRunId: options.parentRunId,
+  });
+  const runId = run.id;
 
   try {
     const anthropicClient = getAnthropicClient(anthropicApiKey);
@@ -564,26 +560,18 @@ export async function extractBrandSalesProfile(
 
     console.log(`[${brandId}] Sales profile extracted and saved`);
 
-    // Record costs and complete run (best-effort)
-    if (runId) {
-      try {
-        const costItems = [];
-        if (inputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-input", quantity: inputTokens });
-        if (outputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-output", quantity: outputTokens });
-        if (costItems.length > 0) await addCosts(runId, costItems);
-        await updateRun(runId, "completed");
-      } catch (err) {
-        console.warn("[sales-profile] Failed to track run costs in runs-service:", err);
-      }
-    }
+    // Record costs and complete run — must succeed
+    const costItems = [];
+    if (inputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-input", quantity: inputTokens });
+    if (outputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-output", quantity: outputTokens });
+    if (costItems.length > 0) await addCosts(runId, costItems);
+    await updateRun(runId, "completed");
 
     return { cached: false, profile: savedProfile, runId };
   } catch (error) {
-    // Mark run as failed (best-effort)
-    if (runId) {
-      try { await updateRun(runId, "failed"); } catch (err) {
-        console.warn("[sales-profile] Failed to mark run as failed:", err);
-      }
+    // Mark run as failed (best-effort — original error takes priority)
+    try { await updateRun(runId, "failed"); } catch (err) {
+      console.warn("[sales-profile] Failed to mark run as failed:", err);
     }
     throw error;
   }
