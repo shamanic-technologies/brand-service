@@ -1017,6 +1017,7 @@ export const IcpSuggestionRequestSchema = z
     keyType: z.enum(['byok', 'platform']).default('byok'),
     skipCache: z.boolean().optional(),
     parentRunId: z.string().optional(),
+    targetAudience: z.string().optional(),
   })
   .openapi('IcpSuggestionRequest');
 

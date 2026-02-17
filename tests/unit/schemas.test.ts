@@ -98,6 +98,33 @@ describe('Zod Schemas', () => {
       expect(result.success).toBe(true);
     });
 
+    it('should accept request with targetAudience', () => {
+      const result = IcpSuggestionRequestSchema.safeParse({
+        appId: 'mcpfactory',
+        clerkOrgId: 'org_123',
+        url: 'https://example.com',
+        clerkUserId: 'user_123',
+        targetAudience: 'CTOs at fintech startups with 10-50 employees in Europe',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.targetAudience).toBe('CTOs at fintech startups with 10-50 employees in Europe');
+      }
+    });
+
+    it('should accept request without targetAudience (optional)', () => {
+      const result = IcpSuggestionRequestSchema.safeParse({
+        appId: 'mcpfactory',
+        clerkOrgId: 'org_123',
+        url: 'https://example.com',
+        clerkUserId: 'user_123',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.targetAudience).toBeUndefined();
+      }
+    });
+
     it('should reject missing url', () => {
       const result = IcpSuggestionRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', clerkUserId: 'user_123' });
       expect(result.success).toBe(false);
