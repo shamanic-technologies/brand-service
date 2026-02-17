@@ -135,6 +135,81 @@ describe('Sales Profile Extraction', () => {
     });
   });
 
+  describe('New fields — leadership, funding, awards, revenueMilestones', () => {
+    it('should include new fields in profile structure', () => {
+      const profile = {
+        leadership: [{ name: 'Jane Smith', role: 'CEO', bio: 'Experienced leader', notableBackground: 'Former Google VP' }],
+        funding: {
+          totalRaised: '$10M',
+          rounds: [{ type: 'Series A', amount: '$10M', date: '2023', notableInvestors: ['Sequoia'] }],
+          notableBackers: ['Y Combinator'],
+        },
+        awardsAndRecognition: [{ title: 'Best SaaS 2023', issuer: 'G2', year: '2023', description: null }],
+        revenueMilestones: [{ metric: 'ARR', value: '$5M', date: '2023', context: null }],
+      };
+
+      expect(profile.leadership).toHaveLength(1);
+      expect(profile.leadership[0].name).toBe('Jane Smith');
+      expect(profile.funding.totalRaised).toBe('$10M');
+      expect(profile.funding.notableBackers).toContain('Y Combinator');
+      expect(profile.awardsAndRecognition).toHaveLength(1);
+      expect(profile.revenueMilestones[0].metric).toBe('ARR');
+    });
+
+    it('should default new fields to empty arrays and null when absent from LLM response', () => {
+      const parsed: Record<string, unknown> = {};
+      const leadership = (parsed.leadership as unknown[]) || [];
+      const funding = parsed.funding || null;
+      const awardsAndRecognition = (parsed.awardsAndRecognition as unknown[]) || [];
+      const revenueMilestones = (parsed.revenueMilestones as unknown[]) || [];
+
+      expect(leadership).toEqual([]);
+      expect(funding).toBeNull();
+      expect(awardsAndRecognition).toEqual([]);
+      expect(revenueMilestones).toEqual([]);
+    });
+
+    it('should handle rich testimonial objects', () => {
+      const testimonials = [
+        { quote: 'Amazing product', name: 'Jane', role: 'CTO', company: 'Acme' },
+        { quote: 'Saved us hours', name: null, role: null, company: null },
+      ];
+
+      expect(testimonials[0].quote).toBe('Amazing product');
+      expect(testimonials[0].name).toBe('Jane');
+      expect(testimonials[1].name).toBeNull();
+    });
+
+    it('should support mixed legacy string and rich testimonials', () => {
+      const testimonials: (string | { quote: string; name: string | null; role: string | null; company: string | null })[] = [
+        'Legacy string testimonial',
+        { quote: 'Rich testimonial', name: 'Bob', role: 'VP Sales', company: 'Corp' },
+      ];
+
+      expect(typeof testimonials[0]).toBe('string');
+      expect(typeof testimonials[1]).toBe('object');
+      expect((testimonials[1] as { quote: string }).quote).toBe('Rich testimonial');
+    });
+
+    it('should parse new fields from AI JSON response', () => {
+      const aiResponse = `{
+  "brandName": "TestCo",
+  "valueProposition": "Best product",
+  "leadership": [{"name": "Alice", "role": "CEO", "bio": "Founded in 2020", "notableBackground": null}],
+  "funding": {"totalRaised": "$5M", "rounds": [], "notableBackers": ["YC"]},
+  "awardsAndRecognition": [{"title": "Top 50 Startups", "issuer": "Forbes", "year": "2024", "description": null}],
+  "revenueMilestones": [{"metric": "Revenue", "value": "$1M", "date": "2023", "context": "First million"}]
+}`;
+
+      const parsed = JSON.parse(aiResponse);
+      expect(parsed.leadership).toHaveLength(1);
+      expect(parsed.leadership[0].name).toBe('Alice');
+      expect(parsed.funding.notableBackers).toContain('YC');
+      expect(parsed.awardsAndRecognition[0].issuer).toBe('Forbes');
+      expect(parsed.revenueMilestones[0].value).toBe('$1M');
+    });
+  });
+
   describe('JSON parsing', () => {
     it('should extract JSON from AI response', () => {
       const aiResponse = `Here is the analysis:

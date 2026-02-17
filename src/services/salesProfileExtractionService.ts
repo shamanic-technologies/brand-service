@@ -10,6 +10,45 @@ const SCRAPING_SERVICE_API_KEY = process.env.SCRAPING_SERVICE_API_KEY || '';
 // Cache duration: 30 days
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
+export interface Testimonial {
+  quote: string;
+  name: string | null;
+  role: string | null;
+  company: string | null;
+}
+
+export interface LeadershipMember {
+  name: string;
+  role: string;
+  bio: string | null;
+  notableBackground: string | null;
+}
+
+export interface FundingInfo {
+  totalRaised: string | null;
+  rounds: Array<{
+    type: string;
+    amount: string | null;
+    date: string | null;
+    notableInvestors: string[];
+  }>;
+  notableBackers: string[];
+}
+
+export interface Award {
+  title: string;
+  issuer: string | null;
+  year: string | null;
+  description: string | null;
+}
+
+export interface RevenueMilestone {
+  metric: string;
+  value: string;
+  date: string | null;
+  context: string | null;
+}
+
 export interface SalesProfile {
   id: string;
   brandId: string;
@@ -18,7 +57,7 @@ export interface SalesProfile {
   callToAction: string | null;
   socialProof: {
     caseStudies: string[];
-    testimonials: string[];
+    testimonials: Array<string | Testimonial>;
     results: string[];
   };
   companyOverview: string | null;
@@ -27,6 +66,10 @@ export interface SalesProfile {
   productDifferentiators: string[];
   targetAudience: string | null;
   keyFeatures: string[];
+  leadership: LeadershipMember[];
+  funding: FundingInfo | null;
+  awardsAndRecognition: Award[];
+  revenueMilestones: RevenueMilestone[];
   extractionModel: string | null;
   extractionCostUsd: number | null;
   extractedAt: string;
@@ -147,7 +190,9 @@ Extract the following information and return as JSON:
   "callToAction": "Primary CTA on the site (e.g., 'Book a demo', 'Start free trial')",
   "socialProof": {
     "caseStudies": ["Case study 1 summary", ...],
-    "testimonials": ["Testimonial quote 1", ...],
+    "testimonials": [
+      { "quote": "Testimonial quote", "name": "Jane Doe", "role": "CTO", "company": "Acme Corp" }
+    ],
     "results": ["Result/metric 1 (e.g., '50% increase in sales')", ...]
   },
   "companyOverview": "Brief company description (2-3 sentences)",
@@ -155,9 +200,27 @@ Extract the following information and return as JSON:
   "competitors": ["Competitor 1", "Competitor 2", ...],
   "productDifferentiators": ["Differentiator 1", "Differentiator 2", ...],
   "targetAudience": "Who the product is for (e.g., 'Sales teams at B2B SaaS companies')",
-  "keyFeatures": ["Feature 1", "Feature 2", ...]
+  "keyFeatures": ["Feature 1", "Feature 2", ...],
+  "leadership": [
+    { "name": "Jane Smith", "role": "CEO & Co-founder", "bio": "Brief bio (1-2 sentences)", "notableBackground": "Former VP at Google" }
+  ],
+  "funding": {
+    "totalRaised": "$25M",
+    "rounds": [
+      { "type": "Series A", "amount": "$10M", "date": "2023", "notableInvestors": ["Sequoia"] }
+    ],
+    "notableBackers": ["Y Combinator"]
+  },
+  "awardsAndRecognition": [
+    { "title": "Best SaaS 2023", "issuer": "G2", "year": "2023", "description": null }
+  ],
+  "revenueMilestones": [
+    { "metric": "ARR", "value": "$5M", "date": "2023", "context": "Announced publicly" }
+  ]
 }
 
+For testimonials, extract structured objects with quote, name, role, and company when available. Use null for unknown attribution fields.
+For leadership, funding, awards, and revenue milestones: only include what is explicitly published on the site. Use empty arrays or null if not found.
 Be specific and extract actual content from the pages. If information is not found, use empty arrays or null.
 Return ONLY valid JSON.`;
 
@@ -189,6 +252,10 @@ Return ONLY valid JSON.`;
       productDifferentiators: parsed.productDifferentiators || [],
       targetAudience: parsed.targetAudience || null,
       keyFeatures: parsed.keyFeatures || [],
+      leadership: parsed.leadership || [],
+      funding: parsed.funding || null,
+      awardsAndRecognition: parsed.awardsAndRecognition || [],
+      revenueMilestones: parsed.revenueMilestones || [],
       extractionModel: 'claude-opus-4-5',
       extractionCostUsd: cost,
     },
@@ -198,19 +265,28 @@ Return ONLY valid JSON.`;
 }
 
 function formatProfileFromDb(row: typeof brandSalesProfiles.$inferSelect): SalesProfile {
+  const rawSocialProof = (row.socialProof as any) || {};
   return {
     id: row.id,
     brandId: row.brandId,
     valueProposition: row.valueProposition,
     customerPainPoints: (row.customerPainPoints as string[]) || [],
     callToAction: row.callToAction,
-    socialProof: (row.socialProof as any) || { caseStudies: [], testimonials: [], results: [] },
+    socialProof: {
+      caseStudies: rawSocialProof.caseStudies || [],
+      testimonials: rawSocialProof.testimonials || [],
+      results: rawSocialProof.results || [],
+    },
     companyOverview: row.companyOverview,
     additionalContext: row.additionalContext,
     competitors: (row.competitors as string[]) || [],
     productDifferentiators: (row.productDifferentiators as string[]) || [],
     targetAudience: row.targetAudience,
     keyFeatures: (row.keyFeatures as string[]) || [],
+    leadership: (row.leadership as LeadershipMember[]) || [],
+    funding: (row.funding as FundingInfo) || null,
+    awardsAndRecognition: (row.awardsAndRecognition as Award[]) || [],
+    revenueMilestones: (row.revenueMilestones as RevenueMilestone[]) || [],
     extractionModel: row.extractionModel,
     extractionCostUsd: row.extractionCostUsd ? parseFloat(row.extractionCostUsd) : null,
     extractedAt: row.extractedAt,
@@ -456,6 +532,10 @@ async function upsertSalesProfile(
       productDifferentiators: profile.productDifferentiators,
       targetAudience: profile.targetAudience,
       keyFeatures: profile.keyFeatures,
+      leadership: profile.leadership,
+      funding: profile.funding,
+      awardsAndRecognition: profile.awardsAndRecognition,
+      revenueMilestones: profile.revenueMilestones,
       extractionModel: profile.extractionModel,
       extractionInputTokens: inputTokens,
       extractionOutputTokens: outputTokens,
@@ -476,6 +556,10 @@ async function upsertSalesProfile(
         productDifferentiators: profile.productDifferentiators,
         targetAudience: profile.targetAudience,
         keyFeatures: profile.keyFeatures,
+        leadership: profile.leadership,
+        funding: profile.funding,
+        awardsAndRecognition: profile.awardsAndRecognition,
+        revenueMilestones: profile.revenueMilestones,
         extractionModel: profile.extractionModel,
         extractionInputTokens: inputTokens,
         extractionOutputTokens: outputTokens,
