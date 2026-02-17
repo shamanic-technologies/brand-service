@@ -329,6 +329,152 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     });
   });
 
+  describe('New fields roundtrip (leadership, funding, awards, milestones)', () => {
+    it('should return new fields from a stored profile via GET /brands/:brandId/sales-profile', async () => {
+      const uniqueClerkOrgId = `org_test_newfields_${Date.now()}`;
+      const uniqueUrl = `https://newfields-test-${Date.now()}.example.com`;
+
+      // Create org + brand via API
+      await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
+          url: uniqueUrl,
+          clerkUserId: `user_test_${Date.now()}`,
+          keyType: 'byok',
+        });
+
+      const [org] = await db
+        .select()
+        .from(orgs)
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+      const [brand] = await db
+        .select()
+        .from(brands)
+        .where(eq(brands.orgId, org.id));
+
+      // Insert profile with new fields directly
+      await db.insert(brandSalesProfiles).values({
+        brandId: brand.id,
+        valueProposition: 'Test VP',
+        customerPainPoints: ['pain1'],
+        callToAction: 'Book demo',
+        socialProof: {
+          caseStudies: [],
+          testimonials: [{ quote: 'Great!', name: 'Alice', role: 'CTO', company: 'Acme' }],
+          results: [],
+        },
+        companyOverview: 'Test overview',
+        additionalContext: null,
+        competitors: [],
+        productDifferentiators: [],
+        targetAudience: 'B2B SaaS',
+        keyFeatures: [],
+        leadership: [{ name: 'Jane Smith', role: 'CEO', bio: null, notableBackground: 'Former Google' }],
+        funding: { totalRaised: '$10M', rounds: [], notableBackers: ['YC'] },
+        awardsAndRecognition: [{ title: 'Best SaaS', issuer: 'G2', year: '2023', description: null }],
+        revenueMilestones: [{ metric: 'ARR', value: '$5M', date: '2023', context: null }],
+        extractionModel: 'claude-opus-4-5',
+        extractionInputTokens: 1000,
+        extractionOutputTokens: 500,
+        extractionCostUsd: '0.01',
+        sourceScrapeIds: [],
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      }).onConflictDoUpdate({
+        target: brandSalesProfiles.brandId,
+        set: {
+          leadership: [{ name: 'Jane Smith', role: 'CEO', bio: null, notableBackground: 'Former Google' }],
+          funding: { totalRaised: '$10M', rounds: [], notableBackers: ['YC'] },
+          awardsAndRecognition: [{ title: 'Best SaaS', issuer: 'G2', year: '2023', description: null }],
+          revenueMilestones: [{ metric: 'ARR', value: '$5M', date: '2023', context: null }],
+          socialProof: {
+            caseStudies: [],
+            testimonials: [{ quote: 'Great!', name: 'Alice', role: 'CTO', company: 'Acme' }],
+            results: [],
+          },
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      });
+
+      const response = await request(app)
+        .get(`/brands/${brand.id}/sales-profile`)
+        .set(getAuthHeaders());
+
+      expect(response.status).toBe(200);
+      const profile = response.body.profile;
+
+      expect(profile.leadership).toHaveLength(1);
+      expect(profile.leadership[0].name).toBe('Jane Smith');
+      expect(profile.funding.totalRaised).toBe('$10M');
+      expect(profile.funding.notableBackers).toContain('YC');
+      expect(profile.awardsAndRecognition).toHaveLength(1);
+      expect(profile.awardsAndRecognition[0].title).toBe('Best SaaS');
+      expect(profile.revenueMilestones).toHaveLength(1);
+      expect(profile.revenueMilestones[0].metric).toBe('ARR');
+      expect(profile.socialProof.testimonials[0]).toHaveProperty('quote', 'Great!');
+    }, 15000);
+
+    it('should return empty arrays/null for new fields when absent in DB', async () => {
+      const uniqueClerkOrgId = `org_test_nullfields_${Date.now()}`;
+      const uniqueUrl = `https://nullfields-test-${Date.now()}.example.com`;
+
+      await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
+          url: uniqueUrl,
+          clerkUserId: `user_test_${Date.now()}`,
+          keyType: 'byok',
+        });
+
+      const [org] = await db
+        .select()
+        .from(orgs)
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+      const [brand] = await db
+        .select()
+        .from(brands)
+        .where(eq(brands.orgId, org.id));
+
+      // Insert profile WITHOUT new fields (simulating pre-migration data)
+      await db.insert(brandSalesProfiles).values({
+        brandId: brand.id,
+        valueProposition: 'Test VP',
+        customerPainPoints: [],
+        socialProof: { caseStudies: [], testimonials: ['Legacy string'], results: [] },
+        extractionModel: 'claude-opus-4-5',
+        extractionInputTokens: 1000,
+        extractionOutputTokens: 500,
+        extractionCostUsd: '0.01',
+        sourceScrapeIds: [],
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      }).onConflictDoUpdate({
+        target: brandSalesProfiles.brandId,
+        set: {
+          socialProof: { caseStudies: [], testimonials: ['Legacy string'], results: [] },
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      });
+
+      const response = await request(app)
+        .get(`/brands/${brand.id}/sales-profile`)
+        .set(getAuthHeaders());
+
+      expect(response.status).toBe(200);
+      const profile = response.body.profile;
+      expect(profile.leadership).toEqual([]);
+      expect(profile.funding).toBeNull();
+      expect(profile.awardsAndRecognition).toEqual([]);
+      expect(profile.revenueMilestones).toEqual([]);
+      // Legacy string testimonial preserved
+      expect(profile.socialProof.testimonials[0]).toBe('Legacy string');
+    }, 15000);
+  });
+
   describe('GET /brands/:brandId/sales-profile', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)

@@ -43,6 +43,13 @@
       "when": 1771307837293,
       "tag": "0005_empty_network",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1771312415469,
+      "tag": "0006_chilly_triathlon",
+      "breakpoints": true
     }
   ]
 }

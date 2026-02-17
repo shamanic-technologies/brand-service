@@ -160,12 +160,81 @@ export const CreateSalesProfileRequestSchema = z
   })
   .openapi('CreateSalesProfileRequest');
 
+export const TestimonialSchema = z.union([
+  z.string(),
+  z.object({
+    quote: z.string(),
+    name: z.string().nullable(),
+    role: z.string().nullable(),
+    company: z.string().nullable(),
+  }),
+]).openapi('Testimonial');
+
+export const LeadershipMemberSchema = z.object({
+  name: z.string(),
+  role: z.string(),
+  bio: z.string().nullable(),
+  notableBackground: z.string().nullable(),
+}).openapi('LeadershipMember');
+
+export const FundingRoundSchema = z.object({
+  type: z.string(),
+  amount: z.string().nullable(),
+  date: z.string().nullable(),
+  notableInvestors: z.array(z.string()),
+}).openapi('FundingRound');
+
+export const FundingInfoSchema = z.object({
+  totalRaised: z.string().nullable(),
+  rounds: z.array(FundingRoundSchema),
+  notableBackers: z.array(z.string()),
+}).openapi('FundingInfo');
+
+export const AwardSchema = z.object({
+  title: z.string(),
+  issuer: z.string().nullable(),
+  year: z.string().nullable(),
+  description: z.string().nullable(),
+}).openapi('Award');
+
+export const RevenueMilestoneSchema = z.object({
+  metric: z.string(),
+  value: z.string(),
+  date: z.string().nullable(),
+  context: z.string().nullable(),
+}).openapi('RevenueMilestone');
+
+export const SalesProfileSchema = z.object({
+  valueProposition: z.string().nullable(),
+  customerPainPoints: z.array(z.string()),
+  callToAction: z.string().nullable(),
+  socialProof: z.object({
+    caseStudies: z.array(z.string()),
+    testimonials: z.array(TestimonialSchema),
+    results: z.array(z.string()),
+  }),
+  companyOverview: z.string().nullable(),
+  additionalContext: z.string().nullable(),
+  competitors: z.array(z.string()),
+  productDifferentiators: z.array(z.string()),
+  targetAudience: z.string().nullable(),
+  keyFeatures: z.array(z.string()),
+  leadership: z.array(LeadershipMemberSchema),
+  funding: FundingInfoSchema.nullable(),
+  awardsAndRecognition: z.array(AwardSchema),
+  revenueMilestones: z.array(RevenueMilestoneSchema),
+  extractionModel: z.string().nullable(),
+  extractionCostUsd: z.number().nullable(),
+  extractedAt: z.string(),
+  expiresAt: z.string().nullable(),
+}).openapi('SalesProfile');
+
 export const SalesProfileResponseSchema = z
   .object({
     cached: z.boolean(),
     brandId: z.string(),
     runId: z.string().optional(),
-    profile: z.any(),
+    profile: SalesProfileSchema,
   })
   .openapi('SalesProfileResponse');
 
