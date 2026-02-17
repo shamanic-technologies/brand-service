@@ -28,11 +28,11 @@ router.post('/icp-suggestion', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { appId, clerkOrgId, url, clerkUserId, keyType, skipCache, parentRunId } = parsed.data;
+    const { appId, clerkOrgId, url, clerkUserId, keyType, skipCache, parentRunId, targetAudience } = parsed.data;
 
     const brand = await getOrCreateBrand(clerkOrgId, url, { appId, clerkUserId });
 
-    const existing = await getExistingIcpSuggestionForApollo(brand.id);
+    const existing = await getExistingIcpSuggestionForApollo(brand.id, targetAudience);
     if (existing && !skipCache) {
       return res.json({
         cached: true,
@@ -55,6 +55,7 @@ router.post('/icp-suggestion', async (req: Request, res: Response) => {
       skipCache: true,
       clerkOrgId,
       parentRunId,
+      targetAudience,
     });
 
     res.json({

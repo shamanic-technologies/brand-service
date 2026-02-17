@@ -31,7 +31,8 @@ export { getOrCreateBrand };
 
 async function extractIcpFromContentForApollo(
   pageContents: { url: string; content: string }[],
-  anthropicClient: Anthropic
+  anthropicClient: Anthropic,
+  targetAudience?: string
 ): Promise<{
   icp: { targetTitles: string[]; targetIndustries: string[]; targetLocations: string[] };
   inputTokens: number;
@@ -42,10 +43,14 @@ async function extractIcpFromContentForApollo(
     .map(p => `=== PAGE: ${p.url} ===\n${p.content.substring(0, 15000)}`)
     .join('\n\n');
 
+  const targetAudienceBlock = targetAudience
+    ? `\n\nIMPORTANT — The user has specified their target audience:\n"${targetAudience}"\n\nUse this as the PRIMARY guide for generating person_titles, q_organization_keyword_tags, and organization_locations. The website content below provides additional context about what the company does, but the target audience description above should override any inferences you would otherwise make from the website alone.\n`
+    : '';
+
   const prompt = `You are analyzing a company website to build an Ideal Customer Profile (ICP) for B2B cold outbound sales prospecting.
 
 The goal is to identify WHO this company should target with cold emails — specifically the job titles, industries, and locations of their ideal buyers. The output will be used directly as search filters in Apollo.io's people search API.
-
+${targetAudienceBlock}
 Analyze the following website content:
 
 ${combinedContent.substring(0, 100000)}
@@ -119,13 +124,14 @@ function formatIcpFromDbForApollo(row: typeof brandIcpSuggestionsForApollo.$infe
   };
 }
 
-export async function getExistingIcpSuggestionForApollo(brandId: string): Promise<IcpSuggestionForApollo | null> {
+export async function getExistingIcpSuggestionForApollo(brandId: string, targetAudience?: string): Promise<IcpSuggestionForApollo | null> {
   const result = await db
     .select()
     .from(brandIcpSuggestionsForApollo)
     .where(
       and(
         eq(brandIcpSuggestionsForApollo.brandId, brandId),
+        eq(brandIcpSuggestionsForApollo.targetAudience, targetAudience || ''),
         gt(brandIcpSuggestionsForApollo.expiresAt, sql`NOW()`)
       )
     )
@@ -138,7 +144,8 @@ async function upsertIcpSuggestionForApollo(
   brandId: string,
   icp: { targetTitles: string[]; targetIndustries: string[]; targetLocations: string[] },
   inputTokens: number,
-  outputTokens: number
+  outputTokens: number,
+  targetAudience?: string
 ): Promise<IcpSuggestionForApollo> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
   const cost = (inputTokens * 5 + outputTokens * 25) / 1000000;
@@ -147,6 +154,7 @@ async function upsertIcpSuggestionForApollo(
     .insert(brandIcpSuggestionsForApollo)
     .values({
       brandId,
+      targetAudience: targetAudience || '',
       targetTitles: icp.targetTitles,
       targetIndustries: icp.targetIndustries,
       targetLocations: icp.targetLocations,
@@ -157,7 +165,7 @@ async function upsertIcpSuggestionForApollo(
       expiresAt,
     })
     .onConflictDoUpdate({
-      target: brandIcpSuggestionsForApollo.brandId,
+      target: [brandIcpSuggestionsForApollo.brandId, brandIcpSuggestionsForApollo.targetAudience],
       set: {
         targetTitles: icp.targetTitles,
         targetIndustries: icp.targetIndustries,
@@ -179,10 +187,10 @@ async function upsertIcpSuggestionForApollo(
 export async function extractIcpSuggestionForApollo(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; clerkOrgId?: string; parentRunId?: string }
+  options: { skipCache?: boolean; clerkOrgId?: string; parentRunId?: string; targetAudience?: string }
 ): Promise<{ cached: boolean; icp: IcpSuggestionForApollo; runId?: string }> {
   if (!options.skipCache) {
-    const existing = await getExistingIcpSuggestionForApollo(brandId);
+    const existing = await getExistingIcpSuggestionForApollo(brandId, options.targetAudience);
     if (existing) return { cached: true, icp: existing };
   }
 
@@ -237,10 +245,11 @@ export async function extractIcpSuggestionForApollo(
     console.log(`[icp][${brandId}] Extracting ICP with AI...`);
     const { icp, inputTokens, outputTokens } = await extractIcpFromContentForApollo(
       successfulScrapes,
-      anthropicClient
+      anthropicClient,
+      options.targetAudience
     );
 
-    const saved = await upsertIcpSuggestionForApollo(brandId, icp, inputTokens, outputTokens);
+    const saved = await upsertIcpSuggestionForApollo(brandId, icp, inputTokens, outputTokens, options.targetAudience);
     console.log(`[icp][${brandId}] ICP suggestion extracted and saved`);
 
     // Record costs and complete run — must succeed

@@ -318,6 +318,7 @@ export const brandSalesProfiles = pgTable("brand_sales_profiles", {
 export const brandIcpSuggestionsForApollo = pgTable("brand_icp_suggestions", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	brandId: uuid("brand_id").notNull(),
+	targetAudience: text("target_audience").default('').notNull(),
 	targetTitles: jsonb("target_titles"),
 	targetIndustries: jsonb("target_industries"),
 	targetLocations: jsonb("target_locations"),
@@ -336,7 +337,7 @@ export const brandIcpSuggestionsForApollo = pgTable("brand_icp_suggestions", {
 		foreignColumns: [brands.id],
 		name: "brand_icp_suggestions_brand_id_fkey"
 	}).onDelete("cascade"),
-	unique("brand_icp_suggestions_brand_id_key").on(table.brandId),
+	unique("brand_icp_suggestions_brand_id_target_audience_key").on(table.brandId, table.targetAudience),
 ]);
 
 export const scrapedUrlFirecrawl = pgTable("scraped_url_firecrawl", {

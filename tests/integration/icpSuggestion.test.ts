@@ -129,6 +129,31 @@ describe('ICP Suggestion API', () => {
       expect(createdBrand[0].url).toBe(uniqueUrl);
     }, 15000);
 
+    it('should accept targetAudience as optional field', async () => {
+      const uniqueClerkOrgId = `org_test_icp_ta_${Date.now()}`;
+      const uniqueUrl = `https://icp-ta-${Date.now()}.example.com`;
+
+      // Call with targetAudience — should not 400
+      const response = await request(app)
+        .post('/icp-suggestion')
+        .set(getAuthHeaders())
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
+          url: uniqueUrl,
+          clerkUserId: `user_test_icp_ta_${Date.now()}`,
+          keyType: 'byok',
+          targetAudience: 'CTOs at fintech startups with 10-50 employees in Europe',
+        });
+
+      // Will fail on Anthropic key (400), but should NOT fail on validation
+      expect(response.status).not.toBe(400);
+      // Specifically: if 400, it should be about API key, not validation
+      if (response.status === 400) {
+        expect(response.body.error).toContain('Anthropic API key');
+      }
+    }, 15000);
+
     it('should not create duplicate brands on subsequent calls', async () => {
       const uniqueClerkOrgId = `org_test_icp_nodup_${Date.now()}`;
       const uniqueUrl = `https://icp-nodup-${Date.now()}.example.com`;
