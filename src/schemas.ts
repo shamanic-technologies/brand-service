@@ -1074,35 +1074,6 @@ registry.registerPath({
 });
 
 // ============================================================
-// ICP Suggestion
-// ============================================================
-
-export const IcpSuggestionRequestSchema = z
-  .object({
-    appId: z.string(),
-    clerkOrgId: z.string(),
-    url: z.string(),
-    clerkUserId: z.string(),
-    keyType: z.enum(['byok', 'platform']).default('byok'),
-    skipCache: z.boolean().optional(),
-    parentRunId: z.string().optional(),
-    targetAudience: z.string().optional(),
-  })
-  .openapi('IcpSuggestionRequest');
-
-registry.registerPath({
-  method: 'post',
-  path: '/icp-suggestion',
-  summary: 'Get or extract ICP suggestion for a brand',
-  request: { body: { content: { 'application/json': { schema: IcpSuggestionRequestSchema } } } },
-  responses: {
-    200: { description: 'ICP suggestion' },
-    400: { description: 'Missing required fields or API key' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-// ============================================================
 // Health / Root
 // ============================================================
 

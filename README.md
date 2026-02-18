@@ -73,12 +73,6 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 | POST | `/brands/:brandId/extract-sales-profile` | AI-extract profile from website |
 | GET | `/brands/:brandId/sales-profile` | Get existing profile for brand |
 
-### ICP Suggestion
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/icp-suggestion` | Get or extract ICP (Apollo params) for a brand. Optional `targetAudience` overrides AI inference. |
-
 ### Organizations
 
 | Method | Path | Description |
