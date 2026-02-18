@@ -8,7 +8,6 @@ import analyzeRoutes from '../../src/routes/analyze.routes';
 import intakeFormRoutes from '../../src/routes/intake-form.routes';
 import publicInfoRoutes from '../../src/routes/public-information.routes';
 import salesProfileRoutes from '../../src/routes/sales-profile.routes';
-import icpSuggestionRoutes from '../../src/routes/icp-suggestion.routes';
 import brandsRoutes from '../../src/routes/brands.routes';
 
 /**
@@ -46,7 +45,6 @@ export function createTestApp() {
   app.use('/', intakeFormRoutes);
   app.use('/', publicInfoRoutes);
   app.use('/', salesProfileRoutes);
-  app.use('/', icpSuggestionRoutes);
   app.use('/', brandsRoutes);
 
   return app;

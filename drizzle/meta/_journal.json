@@ -50,6 +50,13 @@
       "when": 1771312415469,
       "tag": "0006_chilly_triathlon",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1771404875142,
+      "tag": "0007_melted_frank_castle",
+      "breakpoints": true
     }
   ]
 }

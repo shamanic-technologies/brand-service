@@ -43,7 +43,6 @@ vi.mock('../../src/db', () => {
     db: chainable(),
     brands: { id: 'brands.id', orgId: 'brands.orgId', name: 'brands.name', url: 'brands.url', domain: 'brands.domain' },
     brandSalesProfiles: { brandId: 'bsp.brandId' },
-    brandIcpSuggestionsForApollo: { brandId: 'bic.brandId' },
     orgs: { id: 'orgs.id', clerkOrgId: 'orgs.clerkOrgId', appId: 'orgs.appId' },
     users: { id: 'users.id', clerkUserId: 'users.clerkUserId', orgId: 'users.orgId' },
   };
@@ -53,7 +52,7 @@ vi.mock('@anthropic-ai/sdk', () => {
   class MockAnthropic {
     messages = {
       create: vi.fn().mockResolvedValue({
-        content: [{ type: 'text', text: '{"brandName":"Test","valueProposition":"test","person_titles":["CTO"],"q_organization_keyword_tags":["SaaS"],"organization_locations":["United States"]}' }],
+        content: [{ type: 'text', text: '{"brandName":"Test","valueProposition":"test"}' }],
         usage: { input_tokens: 100, output_tokens: 50 },
       }),
     };
@@ -160,63 +159,4 @@ describe('Mandatory run/cost tracking', () => {
     });
   });
 
-  describe('extractIcpSuggestionForApollo', () => {
-    // DB call sequence for ICP extraction:
-    // 1. getExistingIcpSuggestionForApollo → [] (no cache)
-    // 2. getBrand → [{ id, url, name, domain }]
-    // 3. org lookup (innerJoin) → [{ clerkOrgId }] or []
-    const brandRow = { id: 'brand-1', url: 'https://example.com', name: 'Test', domain: 'example.com' };
-
-    it('should throw when clerkOrgId cannot be resolved', async () => {
-      setDbSequence([
-        [],          // no cached ICP
-        [brandRow],  // getBrand
-        [],          // org lookup → no org found
-      ]);
-
-      const { extractIcpSuggestionForApollo } = await import('../../src/services/icpSuggestionService');
-
-      await expect(
-        extractIcpSuggestionForApollo('brand-1', 'sk-test', {})
-      ).rejects.toThrow('clerkOrgId is required for run/cost tracking');
-
-      expect(mockCreateRun).not.toHaveBeenCalled();
-    });
-
-    it('should throw when createRun fails (not swallow the error)', async () => {
-      setDbSequence([
-        [],          // no cached ICP
-        [brandRow],  // getBrand
-      ]);
-
-      mockCreateRun.mockRejectedValue(new Error('runs-service POST /v1/runs failed: 401'));
-
-      const { extractIcpSuggestionForApollo } = await import('../../src/services/icpSuggestionService');
-
-      await expect(
-        extractIcpSuggestionForApollo('brand-1', 'sk-test', { clerkOrgId: 'org_123' })
-      ).rejects.toThrow('runs-service POST /v1/runs failed: 401');
-    });
-
-    it('should call createRun, addCosts, and updateRun on success', async () => {
-      setDbSequence([
-        [],          // no cached ICP
-        [brandRow],  // getBrand
-      ]);
-
-      const { extractIcpSuggestionForApollo } = await import('../../src/services/icpSuggestionService');
-
-      const result = await extractIcpSuggestionForApollo('brand-1', 'sk-test', { clerkOrgId: 'org_123' });
-
-      expect(result.cached).toBe(false);
-      expect(result.runId).toBe('run-123');
-      expect(mockCreateRun).toHaveBeenCalledWith(expect.objectContaining({
-        clerkOrgId: 'org_123',
-        serviceName: 'brand-service',
-        taskName: 'icp-extraction',
-      }));
-      expect(mockAddCosts).toHaveBeenCalledWith('run-123', expect.any(Array));
-      expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'completed');
-    });
-  });
 });
