@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CreateSalesProfileRequestSchema,
-  ExtractSalesProfileRequestSchema,
   ImportFromGDriveRequestSchema,
   PublicInfoContentRequestSchema,
   TriggerWorkflowRequestSchema,
@@ -20,6 +19,7 @@ describe('Zod Schemas', () => {
         clerkOrgId: 'org_123',
         url: 'https://example.com',
         clerkUserId: 'user_123',
+        parentRunId: 'run_parent_123',
       });
       expect(result.success).toBe(true);
       if (result.success) {
@@ -40,23 +40,33 @@ describe('Zod Schemas', () => {
       expect(result.success).toBe(true);
     });
 
+    it('should reject missing parentRunId', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'mcpfactory',
+        clerkOrgId: 'org_123',
+        url: 'https://example.com',
+        clerkUserId: 'user_123',
+      });
+      expect(result.success).toBe(false);
+    });
+
     it('should reject missing clerkOrgId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', url: 'https://example.com', clerkUserId: 'user_123' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', url: 'https://example.com', clerkUserId: 'user_123', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
     it('should reject missing url', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', clerkUserId: 'user_123' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', clerkUserId: 'user_123', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
     it('should reject missing appId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ clerkOrgId: 'org_123', url: 'https://example.com', clerkUserId: 'user_123' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ clerkOrgId: 'org_123', url: 'https://example.com', clerkUserId: 'user_123', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
     it('should reject missing clerkUserId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', url: 'https://example.com' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', url: 'https://example.com', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
@@ -66,22 +76,9 @@ describe('Zod Schemas', () => {
         clerkOrgId: 'org_123',
         url: 'https://example.com',
         clerkUserId: 'user_123',
+        parentRunId: 'run_1',
         keyType: 'invalid',
       });
-      expect(result.success).toBe(false);
-    });
-  });
-
-  describe('ExtractSalesProfileRequestSchema', () => {
-    it('should accept valid request', () => {
-      const result = ExtractSalesProfileRequestSchema.safeParse({
-        anthropicApiKey: 'sk-test-123',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('should reject missing anthropicApiKey', () => {
-      const result = ExtractSalesProfileRequestSchema.safeParse({});
       expect(result.success).toBe(false);
     });
   });

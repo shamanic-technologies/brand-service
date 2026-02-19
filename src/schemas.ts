@@ -156,7 +156,7 @@ export const CreateSalesProfileRequestSchema = z
     clerkUserId: z.string(),
     keyType: z.enum(['byok', 'platform']).default('byok'),
     skipCache: z.boolean().optional(),
-    parentRunId: z.string().optional(),
+    parentRunId: z.string(),
   })
   .openapi('CreateSalesProfileRequest');
 
@@ -242,15 +242,6 @@ export const ListSalesProfilesQuerySchema = z
   .object({ clerkOrgId: z.string() })
   .openapi('ListSalesProfilesQuery');
 
-export const ExtractSalesProfileRequestSchema = z
-  .object({
-    anthropicApiKey: z.string(),
-    skipCache: z.boolean().optional(),
-    forceRescrape: z.boolean().optional(),
-    parentRunId: z.string().optional(),
-  })
-  .openapi('ExtractSalesProfileRequest');
-
 registry.registerPath({
   method: 'post',
   path: '/sales-profile',
@@ -283,19 +274,6 @@ registry.registerPath({
   responses: {
     200: { description: 'Sales profile' },
     404: { description: 'Sales profile not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'post',
-  path: '/brands/{brandId}/extract-sales-profile',
-  summary: 'Extract sales profile from brand website using AI',
-  request: { body: { content: { 'application/json': { schema: ExtractSalesProfileRequestSchema } } } },
-  responses: {
-    200: { description: 'Extraction result' },
-    400: { description: 'Missing anthropicApiKey' },
-    404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
   },
 });

@@ -1,16 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { eq } from 'drizzle-orm';
-import { db, brands, orgs } from '../db';
 import {
   extractBrandSalesProfile,
   getExistingSalesProfile,
-  getBrand,
   getOrCreateBrand,
   getSalesProfileByClerkOrgId,
   getAllSalesProfilesByClerkOrgId,
 } from '../services/salesProfileExtractionService';
 import { getKeyForOrg } from '../lib/keys-service';
-import { CreateSalesProfileRequestSchema, ListSalesProfilesQuerySchema, ExtractSalesProfileRequestSchema } from '../schemas';
+import { CreateSalesProfileRequestSchema, ListSalesProfilesQuerySchema } from '../schemas';
 
 const router = Router();
 
@@ -143,57 +140,6 @@ router.get('/sales-profile/:clerkOrgId', async (req: Request, res: Response) => 
     res.status(500).json({ error: error.message || 'Failed to get sales profile' });
   }
 });
-
-/**
- * POST /brands/:brandId/extract-sales-profile
- * Extract sales profile from brand's website using AI
- */
-router.post(
-  '/brands/:brandId/extract-sales-profile',
-  async (req: Request, res: Response) => {
-    try {
-      const { brandId } = req.params;
-      const parsed = ExtractSalesProfileRequestSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
-      }
-      const { anthropicApiKey, skipCache, forceRescrape, parentRunId } = parsed.data;
-
-      if (!brandId) {
-        return res.status(400).json({ error: 'brandId is required' });
-      }
-
-      // Verify brand exists
-      const brand = await getBrand(brandId);
-      if (!brand) {
-        return res.status(404).json({ error: 'Brand not found' });
-      }
-
-      // Resolve clerkOrgId from orgs table for run tracking
-      const [brandOrg] = await db
-        .select({ clerkOrgId: orgs.clerkOrgId })
-        .from(brands)
-        .innerJoin(orgs, eq(brands.orgId, orgs.id))
-        .where(eq(brands.id, brandId))
-        .limit(1);
-
-      if (!brandOrg?.clerkOrgId) {
-        return res.status(400).json({ error: 'Brand has no associated organization — cannot track costs' });
-      }
-
-      const result = await extractBrandSalesProfile(
-        brandId,
-        anthropicApiKey,
-        { skipCache, forceRescrape, clerkOrgId: brandOrg.clerkOrgId, parentRunId }
-      );
-
-      res.json(result);
-    } catch (error: any) {
-      console.error('Extract sales profile error:', error);
-      res.status(500).json({ error: error.message || 'Failed to extract sales profile' });
-    }
-  }
-);
 
 /**
  * GET /brands/:brandId/sales-profile

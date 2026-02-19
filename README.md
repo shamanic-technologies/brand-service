@@ -70,7 +70,6 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 | POST | `/sales-profile` | Get or create sales profile |
 | GET | `/sales-profiles` | List all sales profiles for org |
 | GET | `/sales-profile/:clerkOrgId` | Most recent profile by org |
-| POST | `/brands/:brandId/extract-sales-profile` | AI-extract profile from website |
 | GET | `/brands/:brandId/sales-profile` | Get existing profile for brand |
 
 ### Organizations
