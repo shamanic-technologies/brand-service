@@ -51,7 +51,6 @@ describe('Sales Profile Extraction', () => {
         targetAudience: 'B2B SaaS companies',
         keyFeatures: ['Feature 1', 'Feature 2'],
         extractionModel: 'claude-3-haiku-20240307',
-        extractionCostUsd: 0.002,
         extractedAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       };
@@ -63,7 +62,7 @@ describe('Sales Profile Extraction', () => {
       expect(profile.socialProof).toHaveProperty('caseStudies');
       expect(profile.socialProof).toHaveProperty('testimonials');
       expect(profile.socialProof).toHaveProperty('results');
-      expect(typeof profile.extractionCostUsd).toBe('number');
+      expect(profile.extractionModel).toBe('claude-3-haiku-20240307');
     });
 
     it('should handle empty arrays gracefully', () => {

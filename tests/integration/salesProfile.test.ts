@@ -431,9 +431,6 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         priceAnchoring: { anchors: ['Value: $25,000'], comparisonPoints: ['Pack at $997'] },
         valueStacking: { bundledValue: ['Press ($5K)', 'Podcasts ($3K)'], totalPerceivedValue: '$25,000+' },
         extractionModel: 'claude-sonnet-4-6',
-        extractionInputTokens: 1000,
-        extractionOutputTokens: 500,
-        extractionCostUsd: '0.01',
         sourceScrapeIds: [],
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       }).onConflictDoUpdate({
@@ -516,9 +513,6 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         customerPainPoints: [],
         socialProof: { caseStudies: [], testimonials: ['Legacy string'], results: [] },
         extractionModel: 'claude-sonnet-4-6',
-        extractionInputTokens: 1000,
-        extractionOutputTokens: 500,
-        extractionCostUsd: '0.01',
         sourceScrapeIds: [],
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       }).onConflictDoUpdate({
