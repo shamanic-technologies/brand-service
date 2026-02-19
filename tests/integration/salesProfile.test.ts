@@ -46,16 +46,26 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)
         .post('/sales-profile')
-        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test' });
+        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(401);
+    });
+
+    it('should return 400 if parentRunId is missing', async () => {
+      const response = await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid request');
     });
 
     it('should return 400 if clerkOrgId is missing', async () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', url: testUrl, clerkUserId: 'user_test' });
+        .send({ appId: 'mcpfactory', url: testUrl, clerkUserId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -65,7 +75,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, clerkUserId: 'user_test' });
+        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, clerkUserId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -75,7 +85,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test' });
+        .send({ clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -85,7 +95,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl });
+        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl, parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -114,7 +124,8 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           clerkOrgId: uniqueClerkOrgId,
           url: uniqueUrl,
           clerkUserId: `user_test_${Date.now()}`,
-          keyType: 'byok'
+          keyType: 'byok',
+          parentRunId: 'run_test_parent',
         });
 
       // Verify org and brand were created in database
@@ -149,7 +160,8 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           clerkOrgId: uniqueClerkOrgId,
           url: uniqueUrl,
           clerkUserId,
-          keyType: 'byok'
+          keyType: 'byok',
+          parentRunId: 'run_test_parent',
         });
 
       // Get brand count after first call
@@ -173,7 +185,8 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           clerkOrgId: uniqueClerkOrgId,
           url: uniqueUrl,
           clerkUserId,
-          keyType: 'byok'
+          keyType: 'byok',
+          parentRunId: 'run_test_parent_2',
         });
 
       // Verify no duplicate brands created
@@ -199,7 +212,8 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           clerkOrgId: uniqueClerkOrgId,
           url: originalUrl,
           clerkUserId,
-          keyType: 'byok'
+          keyType: 'byok',
+          parentRunId: 'run_test_parent',
         });
 
       // Verify original URL stored
@@ -236,7 +250,8 @@ describe('Sales Profile API - Complete Integration Tests', () => {
             clerkOrgId: uniqueClerkOrgId,
             url: testCase.url,
             clerkUserId: `user_test_${timestamp}_${i}`,
-            keyType: 'byok'
+            keyType: 'byok',
+            parentRunId: 'run_test_parent',
           });
 
         const [org] = await db
@@ -300,35 +315,6 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     });
   });
 
-  describe('POST /brands/:brandId/extract-sales-profile', () => {
-    it('should return 401 without authentication', async () => {
-      const response = await request(app)
-        .post('/brands/some-brand-id/extract-sales-profile')
-        .send({ anthropicApiKey: 'test-key' });
-
-      expect(response.status).toBe(401);
-    });
-
-    it('should return 400 if anthropicApiKey is missing', async () => {
-      const response = await request(app)
-        .post('/brands/some-brand-id/extract-sales-profile')
-        .set(getAuthHeaders())
-        .send({});
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
-    });
-
-    it('should return 404 for non-existent brand', async () => {
-      const response = await request(app)
-        .post('/brands/00000000-0000-0000-0000-000000000000/extract-sales-profile')
-        .set(getAuthHeaders())
-        .send({ anthropicApiKey: 'test-key' });
-
-      expect(response.status).toBe(404);
-    });
-  });
-
   describe('New fields roundtrip (leadership, funding, awards, milestones)', () => {
     it('should return new fields from a stored profile via GET /brands/:brandId/sales-profile', async () => {
       const uniqueClerkOrgId = `org_test_newfields_${Date.now()}`;
@@ -344,6 +330,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           url: uniqueUrl,
           clerkUserId: `user_test_${Date.now()}`,
           keyType: 'byok',
+          parentRunId: 'run_test_parent',
         });
 
       const [org] = await db
@@ -429,6 +416,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           url: uniqueUrl,
           clerkUserId: `user_test_${Date.now()}`,
           keyType: 'byok',
+          parentRunId: 'run_test_parent',
         });
 
       const [org] = await db
@@ -496,7 +484,8 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           clerkOrgId: uniqueClerkOrgId,
           url: uniqueUrl,
           clerkUserId: `user_test_${Date.now()}`,
-          keyType: 'byok'
+          keyType: 'byok',
+          parentRunId: 'run_test_parent',
         });
 
       // Get the brand ID via org

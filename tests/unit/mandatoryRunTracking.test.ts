@@ -114,7 +114,7 @@ describe('Mandatory run/cost tracking', () => {
       const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
 
       await expect(
-        extractBrandSalesProfile('brand-1', 'sk-test', { clerkOrgId: 'org_123' })
+        extractBrandSalesProfile('brand-1', 'sk-test', { clerkOrgId: 'org_123', parentRunId: 'parent-run-1' })
       ).rejects.toThrow('runs-service POST /v1/runs failed: 401');
     });
 
@@ -130,7 +130,7 @@ describe('Mandatory run/cost tracking', () => {
       const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
 
       await expect(
-        extractBrandSalesProfile('brand-1', 'sk-test', { clerkOrgId: 'org_123' })
+        extractBrandSalesProfile('brand-1', 'sk-test', { clerkOrgId: 'org_123', parentRunId: 'parent-run-1' })
       ).rejects.toThrow('runs-service POST costs failed: 500');
 
       // Should still attempt to mark run as failed
@@ -145,7 +145,7 @@ describe('Mandatory run/cost tracking', () => {
 
       const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
 
-      const result = await extractBrandSalesProfile('brand-1', 'sk-test', { clerkOrgId: 'org_123' });
+      const result = await extractBrandSalesProfile('brand-1', 'sk-test', { clerkOrgId: 'org_123', parentRunId: 'parent-run-1' });
 
       expect(result.cached).toBe(false);
       expect(result.runId).toBe('run-123');
@@ -153,6 +153,7 @@ describe('Mandatory run/cost tracking', () => {
         clerkOrgId: 'org_123',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
+        parentRunId: 'parent-run-1',
       }));
       expect(mockAddCosts).toHaveBeenCalledWith('run-123', expect.any(Array));
       expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'completed');
