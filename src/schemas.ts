@@ -204,6 +204,32 @@ export const RevenueMilestoneSchema = z.object({
   context: z.string().nullable(),
 }).openapi('RevenueMilestone');
 
+export const UrgencySchema = z.object({
+  elements: z.array(z.string()),
+  summary: z.string().nullable(),
+}).openapi('Urgency');
+
+export const ScarcitySchema = z.object({
+  elements: z.array(z.string()),
+  summary: z.string().nullable(),
+}).openapi('Scarcity');
+
+export const RiskReversalSchema = z.object({
+  guarantees: z.array(z.string()),
+  trialInfo: z.string().nullable(),
+  refundPolicy: z.string().nullable(),
+}).openapi('RiskReversal');
+
+export const PriceAnchoringSchema = z.object({
+  anchors: z.array(z.string()),
+  comparisonPoints: z.array(z.string()),
+}).openapi('PriceAnchoring');
+
+export const ValueStackingSchema = z.object({
+  bundledValue: z.array(z.string()),
+  totalPerceivedValue: z.string().nullable(),
+}).openapi('ValueStacking');
+
 export const SalesProfileSchema = z.object({
   valueProposition: z.string().nullable(),
   customerPainPoints: z.array(z.string()),
@@ -223,6 +249,11 @@ export const SalesProfileSchema = z.object({
   funding: FundingInfoSchema.nullable(),
   awardsAndRecognition: z.array(AwardSchema),
   revenueMilestones: z.array(RevenueMilestoneSchema),
+  urgency: UrgencySchema.nullable(),
+  scarcity: ScarcitySchema.nullable(),
+  riskReversal: RiskReversalSchema.nullable(),
+  priceAnchoring: PriceAnchoringSchema.nullable(),
+  valueStacking: ValueStackingSchema.nullable(),
   extractionModel: z.string().nullable(),
   extractionCostUsd: z.number().nullable(),
   extractedAt: z.string(),

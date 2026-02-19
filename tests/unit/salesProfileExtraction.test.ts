@@ -210,6 +210,117 @@ describe('Sales Profile Extraction', () => {
     });
   });
 
+  describe('Persuasion levers — urgency, scarcity, riskReversal, priceAnchoring, valueStacking', () => {
+    it('should include all 5 persuasion fields in profile structure', () => {
+      const profile = {
+        urgency: {
+          elements: ['Registration closes March 15', 'Early-bird pricing ends Friday'],
+          summary: 'Time-limited registration and pricing offers',
+        },
+        scarcity: {
+          elements: ['Only 10 spots available worldwide', 'Limited to 3 clients per quarter'],
+          summary: 'Strictly limited capacity',
+        },
+        riskReversal: {
+          guarantees: ['90-day money-back guarantee', 'Results guaranteed or full refund'],
+          trialInfo: '2-week free trial period',
+          refundPolicy: 'Full refund within 90 days, no questions asked',
+        },
+        priceAnchoring: {
+          anchors: ['Total value: $25,000', 'Agencies charge $15K for this'],
+          comparisonPoints: ['Get $25K of value for $997'],
+        },
+        valueStacking: {
+          bundledValue: ['Press coverage ($5K value)', 'Podcast placement ($3K value)', 'Event speaking ($7K value)'],
+          totalPerceivedValue: '$25,000+ in total value',
+        },
+      };
+
+      expect(profile.urgency.elements).toHaveLength(2);
+      expect(profile.urgency.summary).toContain('Time-limited');
+      expect(profile.scarcity.elements).toHaveLength(2);
+      expect(profile.riskReversal.guarantees).toHaveLength(2);
+      expect(profile.riskReversal.trialInfo).toContain('2-week');
+      expect(profile.riskReversal.refundPolicy).toContain('90 days');
+      expect(profile.priceAnchoring.anchors).toHaveLength(2);
+      expect(profile.priceAnchoring.comparisonPoints).toHaveLength(1);
+      expect(profile.valueStacking.bundledValue).toHaveLength(3);
+      expect(profile.valueStacking.totalPerceivedValue).toContain('$25,000');
+    });
+
+    it('should default persuasion fields to null when absent from LLM response', () => {
+      const parsed: Record<string, unknown> = {};
+      const urgency = parsed.urgency || null;
+      const scarcity = parsed.scarcity || null;
+      const riskReversal = parsed.riskReversal || null;
+      const priceAnchoring = parsed.priceAnchoring || null;
+      const valueStacking = parsed.valueStacking || null;
+
+      expect(urgency).toBeNull();
+      expect(scarcity).toBeNull();
+      expect(riskReversal).toBeNull();
+      expect(priceAnchoring).toBeNull();
+      expect(valueStacking).toBeNull();
+    });
+
+    it('should parse persuasion fields from AI JSON response', () => {
+      const aiResponse = `{
+  "brandName": "TestCo",
+  "valueProposition": "Best product",
+  "urgency": {
+    "elements": ["Offer expires Dec 31"],
+    "summary": "Year-end deadline"
+  },
+  "scarcity": {
+    "elements": ["5 spots remaining"],
+    "summary": "Very limited availability"
+  },
+  "riskReversal": {
+    "guarantees": ["30-day money-back"],
+    "trialInfo": "14-day free trial",
+    "refundPolicy": "Full refund within 30 days"
+  },
+  "priceAnchoring": {
+    "anchors": ["Value: $10,000"],
+    "comparisonPoints": ["Only $499 today"]
+  },
+  "valueStacking": {
+    "bundledValue": ["Core product ($5K)", "Bonus coaching ($3K)", "Community access ($2K)"],
+    "totalPerceivedValue": "$10,000 in total value"
+  }
+}`;
+
+      const parsed = JSON.parse(aiResponse);
+      expect(parsed.urgency.elements).toHaveLength(1);
+      expect(parsed.urgency.summary).toBe('Year-end deadline');
+      expect(parsed.scarcity.elements[0]).toContain('5 spots');
+      expect(parsed.riskReversal.guarantees[0]).toContain('money-back');
+      expect(parsed.riskReversal.trialInfo).toContain('14-day');
+      expect(parsed.priceAnchoring.anchors[0]).toContain('$10,000');
+      expect(parsed.valueStacking.bundledValue).toHaveLength(3);
+      expect(parsed.valueStacking.totalPerceivedValue).toContain('$10,000');
+    });
+
+    it('should handle partial persuasion data (some fields null, some populated)', () => {
+      const parsed = {
+        urgency: { elements: ['Limited time offer'], summary: null },
+        scarcity: null,
+        riskReversal: { guarantees: [], trialInfo: null, refundPolicy: 'Cancel anytime' },
+        priceAnchoring: null,
+        valueStacking: { bundledValue: ['Feature A', 'Feature B'], totalPerceivedValue: null },
+      };
+
+      expect(parsed.urgency?.elements).toHaveLength(1);
+      expect(parsed.urgency?.summary).toBeNull();
+      expect(parsed.scarcity).toBeNull();
+      expect(parsed.riskReversal?.guarantees).toHaveLength(0);
+      expect(parsed.riskReversal?.refundPolicy).toBe('Cancel anytime');
+      expect(parsed.priceAnchoring).toBeNull();
+      expect(parsed.valueStacking?.bundledValue).toHaveLength(2);
+      expect(parsed.valueStacking?.totalPerceivedValue).toBeNull();
+    });
+  });
+
   describe('JSON parsing', () => {
     it('should extract JSON from AI response', () => {
       const aiResponse = `Here is the analysis:

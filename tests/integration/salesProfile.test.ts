@@ -363,6 +363,11 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         funding: { totalRaised: '$10M', rounds: [], notableBackers: ['YC'] },
         awardsAndRecognition: [{ title: 'Best SaaS', issuer: 'G2', year: '2023', description: null }],
         revenueMilestones: [{ metric: 'ARR', value: '$5M', date: '2023', context: null }],
+        urgency: { elements: ['Offer expires Dec 31'], summary: 'Year-end deadline' },
+        scarcity: { elements: ['Only 10 spots worldwide'], summary: 'Very limited' },
+        riskReversal: { guarantees: ['90-day money-back'], trialInfo: '2-week trial', refundPolicy: 'Full refund' },
+        priceAnchoring: { anchors: ['Value: $25,000'], comparisonPoints: ['Pack at $997'] },
+        valueStacking: { bundledValue: ['Press ($5K)', 'Podcasts ($3K)'], totalPerceivedValue: '$25,000+' },
         extractionModel: 'claude-opus-4-5',
         extractionInputTokens: 1000,
         extractionOutputTokens: 500,
@@ -381,6 +386,11 @@ describe('Sales Profile API - Complete Integration Tests', () => {
             testimonials: [{ quote: 'Great!', name: 'Alice', role: 'CTO', company: 'Acme' }],
             results: [],
           },
+          urgency: { elements: ['Offer expires Dec 31'], summary: 'Year-end deadline' },
+          scarcity: { elements: ['Only 10 spots worldwide'], summary: 'Very limited' },
+          riskReversal: { guarantees: ['90-day money-back'], trialInfo: '2-week trial', refundPolicy: 'Full refund' },
+          priceAnchoring: { anchors: ['Value: $25,000'], comparisonPoints: ['Pack at $997'] },
+          valueStacking: { bundledValue: ['Press ($5K)', 'Podcasts ($3K)'], totalPerceivedValue: '$25,000+' },
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         },
       });
@@ -401,6 +411,15 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       expect(profile.revenueMilestones).toHaveLength(1);
       expect(profile.revenueMilestones[0].metric).toBe('ARR');
       expect(profile.socialProof.testimonials[0]).toHaveProperty('quote', 'Great!');
+      // Persuasion levers
+      expect(profile.urgency.elements).toHaveLength(1);
+      expect(profile.urgency.summary).toBe('Year-end deadline');
+      expect(profile.scarcity.elements[0]).toContain('10 spots');
+      expect(profile.riskReversal.guarantees[0]).toContain('money-back');
+      expect(profile.riskReversal.trialInfo).toContain('2-week');
+      expect(profile.priceAnchoring.anchors[0]).toContain('$25,000');
+      expect(profile.valueStacking.bundledValue).toHaveLength(2);
+      expect(profile.valueStacking.totalPerceivedValue).toContain('$25,000');
     }, 15000);
 
     it('should return empty arrays/null for new fields when absent in DB', async () => {
@@ -458,6 +477,12 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       expect(profile.funding).toBeNull();
       expect(profile.awardsAndRecognition).toEqual([]);
       expect(profile.revenueMilestones).toEqual([]);
+      // Persuasion levers default to null for pre-migration data
+      expect(profile.urgency).toBeNull();
+      expect(profile.scarcity).toBeNull();
+      expect(profile.riskReversal).toBeNull();
+      expect(profile.priceAnchoring).toBeNull();
+      expect(profile.valueStacking).toBeNull();
       // Legacy string testimonial preserved
       expect(profile.socialProof.testimonials[0]).toBe('Legacy string');
     }, 15000);

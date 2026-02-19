@@ -49,6 +49,32 @@ export interface RevenueMilestone {
   context: string | null;
 }
 
+export interface Urgency {
+  elements: string[];
+  summary: string | null;
+}
+
+export interface Scarcity {
+  elements: string[];
+  summary: string | null;
+}
+
+export interface RiskReversal {
+  guarantees: string[];
+  trialInfo: string | null;
+  refundPolicy: string | null;
+}
+
+export interface PriceAnchoring {
+  anchors: string[];
+  comparisonPoints: string[];
+}
+
+export interface ValueStacking {
+  bundledValue: string[];
+  totalPerceivedValue: string | null;
+}
+
 export interface SalesProfile {
   id: string;
   brandId: string;
@@ -70,6 +96,11 @@ export interface SalesProfile {
   funding: FundingInfo | null;
   awardsAndRecognition: Award[];
   revenueMilestones: RevenueMilestone[];
+  urgency: Urgency | null;
+  scarcity: Scarcity | null;
+  riskReversal: RiskReversal | null;
+  priceAnchoring: PriceAnchoring | null;
+  valueStacking: ValueStacking | null;
   extractionModel: string | null;
   extractionCostUsd: number | null;
   extractedAt: string;
@@ -173,7 +204,7 @@ async function extractSalesProfileFromContent(
     .map(p => `=== PAGE: ${p.url} ===\n${p.content.substring(0, 15000)}`)
     .join('\n\n');
 
-  const prompt = `You are analyzing a company website to extract sales and marketing information.
+  const prompt = `You are analyzing a company website to extract sales, marketing, and persuasion information.
 
 Analyze the following website content and extract structured information:
 
@@ -193,7 +224,10 @@ Extract the following information and return as JSON:
     "testimonials": [
       { "quote": "Testimonial quote", "name": "Jane Doe", "role": "CTO", "company": "Acme Corp" }
     ],
-    "results": ["Result/metric 1 (e.g., '50% increase in sales')", ...]
+    "results": ["Result/metric 1 (e.g., '50% increase in sales')", ...],
+    "clientLogos": ["Notable client or partner name mentioned on the site", ...],
+    "totalCustomers": "Number of customers/users if mentioned (e.g., '10,000+ companies')",
+    "notableBackersOrPartners": ["Well-known backers, investors, or strategic partners featured on the site", ...]
   },
   "companyOverview": "Brief company description (2-3 sentences)",
   "additionalContext": "Any other relevant context for sales outreach",
@@ -216,12 +250,39 @@ Extract the following information and return as JSON:
   ],
   "revenueMilestones": [
     { "metric": "ARR", "value": "$5M", "date": "2023", "context": "Announced publicly" }
-  ]
+  ],
+  "urgency": {
+    "elements": ["Any time-limited offers, deadlines, countdowns, or expiring promotions (e.g., 'Price goes up Friday', 'Registration closes March 15', 'Early-bird pricing ends soon')"],
+    "summary": "One-sentence summary of urgency signals found on the site, or null if none"
+  },
+  "scarcity": {
+    "elements": ["Any quantity limits, limited availability, exclusive access, or capacity constraints (e.g., 'Only 10 spots left', 'Limited to 50 participants', 'Accepting 3 clients per quarter')"],
+    "summary": "One-sentence summary of scarcity signals found on the site, or null if none"
+  },
+  "riskReversal": {
+    "guarantees": ["Any guarantees, promises, or risk-reducing commitments (e.g., 'Money-back guarantee', '100% satisfaction guaranteed', 'If you don't get X result, we refund you')"],
+    "trialInfo": "Free trial or test period details if available (e.g., '14-day free trial', 'Try for 30 days risk-free')",
+    "refundPolicy": "Refund or money-back policy if mentioned (e.g., '30-day full refund', 'Cancel anytime')"
+  },
+  "priceAnchoring": {
+    "anchors": ["Any reference prices, 'normally costs X', total value mentions, or price comparisons (e.g., 'Total value: $25,000', 'Agencies charge $15K for this')"],
+    "comparisonPoints": ["Explicit value vs. price comparisons (e.g., 'Get $25K of value for $997', '10x cheaper than hiring in-house')"]
+  },
+  "valueStacking": {
+    "bundledValue": ["Individual components, bonuses, or extras included in the offer (e.g., 'Includes 1-on-1 coaching ($5K value)', 'Bonus: private community access', 'Press coverage + podcast placement + event speaking')"],
+    "totalPerceivedValue": "Total stacked value if mentioned (e.g., '$25,000+ in total value')"
+  }
 }
 
-For testimonials, extract structured objects with quote, name, role, and company when available. Use null for unknown attribution fields.
-For leadership, funding, awards, and revenue milestones: only include what is explicitly published on the site. Use empty arrays or null if not found.
-Be specific and extract actual content from the pages. If information is not found, use empty arrays or null.
+EXTRACTION GUIDELINES:
+- For testimonials, extract structured objects with quote, name, role, and company when available. Use null for unknown attribution fields.
+- For socialProof: be aggressive in extracting proof signals — look for client logos, "trusted by X companies", partner logos, investor names displayed on the site, press mentions, and volume metrics.
+- For leadership, funding, awards, and revenue milestones: only include what is explicitly published on the site. Use empty arrays or null if not found.
+- For urgency and scarcity: look for countdown timers, limited-time banners, "spots remaining", cohort deadlines, seasonal offers. These are time-based (urgency) vs. quantity-based (scarcity) constraints.
+- For riskReversal: look for guarantees, free trials, "cancel anytime", money-back promises, "no commitment" language, and any language that shifts risk from buyer to seller.
+- For priceAnchoring: look for crossed-out prices, "normally $X", value comparisons, ROI calculators, "competitors charge $X" language.
+- For valueStacking: look for offer breakdowns, bonus lists, "what's included" sections, value itemization. This is about how the brand bundles and presents total perceived value.
+- Be specific and extract actual content from the pages. If information is not found, use empty arrays or null.
 Return ONLY valid JSON.`;
 
   const response = await anthropicClient.messages.create({
@@ -256,6 +317,11 @@ Return ONLY valid JSON.`;
       funding: parsed.funding || null,
       awardsAndRecognition: parsed.awardsAndRecognition || [],
       revenueMilestones: parsed.revenueMilestones || [],
+      urgency: parsed.urgency || null,
+      scarcity: parsed.scarcity || null,
+      riskReversal: parsed.riskReversal || null,
+      priceAnchoring: parsed.priceAnchoring || null,
+      valueStacking: parsed.valueStacking || null,
       extractionModel: 'claude-opus-4-5',
       extractionCostUsd: cost,
     },
@@ -287,6 +353,11 @@ function formatProfileFromDb(row: typeof brandSalesProfiles.$inferSelect): Sales
     funding: (row.funding as FundingInfo) || null,
     awardsAndRecognition: (row.awardsAndRecognition as Award[]) || [],
     revenueMilestones: (row.revenueMilestones as RevenueMilestone[]) || [],
+    urgency: (row.urgency as Urgency) || null,
+    scarcity: (row.scarcity as Scarcity) || null,
+    riskReversal: (row.riskReversal as RiskReversal) || null,
+    priceAnchoring: (row.priceAnchoring as PriceAnchoring) || null,
+    valueStacking: (row.valueStacking as ValueStacking) || null,
     extractionModel: row.extractionModel,
     extractionCostUsd: row.extractionCostUsd ? parseFloat(row.extractionCostUsd) : null,
     extractedAt: row.extractedAt,
@@ -536,6 +607,11 @@ async function upsertSalesProfile(
       funding: profile.funding,
       awardsAndRecognition: profile.awardsAndRecognition,
       revenueMilestones: profile.revenueMilestones,
+      urgency: profile.urgency,
+      scarcity: profile.scarcity,
+      riskReversal: profile.riskReversal,
+      priceAnchoring: profile.priceAnchoring,
+      valueStacking: profile.valueStacking,
       extractionModel: profile.extractionModel,
       extractionInputTokens: inputTokens,
       extractionOutputTokens: outputTokens,
@@ -560,6 +636,11 @@ async function upsertSalesProfile(
         funding: profile.funding,
         awardsAndRecognition: profile.awardsAndRecognition,
         revenueMilestones: profile.revenueMilestones,
+        urgency: profile.urgency,
+        scarcity: profile.scarcity,
+        riskReversal: profile.riskReversal,
+        priceAnchoring: profile.priceAnchoring,
+        valueStacking: profile.valueStacking,
         extractionModel: profile.extractionModel,
         extractionInputTokens: inputTokens,
         extractionOutputTokens: outputTokens,
