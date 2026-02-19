@@ -121,21 +121,21 @@ describe('runs-client', () => {
       const { addCosts } = await importClient();
       const costResponse = {
         costs: [
-          { id: 'cost-1', runId: 'run-1', costName: 'anthropic-opus-4.5-tokens-input', quantity: '5000' },
-          { id: 'cost-2', runId: 'run-1', costName: 'anthropic-opus-4.5-tokens-output', quantity: '1000' },
+          { id: 'cost-1', runId: 'run-1', costName: 'anthropic-sonnet-4.6-tokens-input', quantity: '5000' },
+          { id: 'cost-2', runId: 'run-1', costName: 'anthropic-sonnet-4.6-tokens-output', quantity: '1000' },
         ],
       };
       mockFetch.mockResolvedValueOnce(mockResponse(costResponse));
 
       const result = await addCosts('run-1', [
-        { costName: 'anthropic-opus-4.5-tokens-input', quantity: 5000 },
-        { costName: 'anthropic-opus-4.5-tokens-output', quantity: 1000 },
+        { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 5000 },
+        { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 1000 },
       ]);
 
       expect(result.costs).toHaveLength(2);
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(callBody.items).toHaveLength(2);
-      expect(callBody.items[0].costName).toBe('anthropic-opus-4.5-tokens-input');
+      expect(callBody.items[0].costName).toBe('anthropic-sonnet-4.6-tokens-input');
     });
   });
 

@@ -102,7 +102,6 @@ export interface SalesProfile {
   priceAnchoring: PriceAnchoring | null;
   valueStacking: ValueStacking | null;
   extractionModel: string | null;
-  extractionCostUsd: number | null;
   extractedAt: string;
   expiresAt: string | null;
 }
@@ -314,7 +313,6 @@ Return ONLY valid JSON.`;
   if (!match) throw new Error('Failed to parse AI response as JSON');
 
   const parsed = JSON.parse(match[0]);
-  const cost = (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 1000000;
 
   const brandName: string | null = parsed.brandName || null;
 
@@ -341,7 +339,6 @@ Return ONLY valid JSON.`;
       priceAnchoring: parsed.priceAnchoring || null,
       valueStacking: parsed.valueStacking || null,
       extractionModel: 'claude-sonnet-4-6',
-      extractionCostUsd: cost,
     },
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
@@ -377,7 +374,6 @@ function formatProfileFromDb(row: typeof brandSalesProfiles.$inferSelect): Sales
     priceAnchoring: (row.priceAnchoring as PriceAnchoring) || null,
     valueStacking: (row.valueStacking as ValueStacking) || null,
     extractionModel: row.extractionModel,
-    extractionCostUsd: row.extractionCostUsd ? parseFloat(row.extractionCostUsd) : null,
     extractedAt: row.extractedAt,
     expiresAt: row.expiresAt,
   };
@@ -601,8 +597,6 @@ export async function getAllSalesProfilesByClerkOrgId(
 async function upsertSalesProfile(
   brandId: string,
   profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt'>,
-  inputTokens: number,
-  outputTokens: number,
   scrapeIds: string[]
 ): Promise<SalesProfile> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
@@ -631,9 +625,6 @@ async function upsertSalesProfile(
       priceAnchoring: profile.priceAnchoring,
       valueStacking: profile.valueStacking,
       extractionModel: profile.extractionModel,
-      extractionInputTokens: inputTokens,
-      extractionOutputTokens: outputTokens,
-      extractionCostUsd: profile.extractionCostUsd?.toString(),
       sourceScrapeIds: scrapeIds,
       expiresAt,
     })
@@ -660,9 +651,6 @@ async function upsertSalesProfile(
         priceAnchoring: profile.priceAnchoring,
         valueStacking: profile.valueStacking,
         extractionModel: profile.extractionModel,
-        extractionInputTokens: inputTokens,
-        extractionOutputTokens: outputTokens,
-        extractionCostUsd: profile.extractionCostUsd?.toString(),
         sourceScrapeIds: scrapeIds,
         extractedAt: sql`NOW()`,
         expiresAt,
@@ -733,7 +721,7 @@ export async function extractBrandSalesProfile(
       options.userHints
     );
 
-    const savedProfile = await upsertSalesProfile(brandId, profile, inputTokens, outputTokens, []);
+    const savedProfile = await upsertSalesProfile(brandId, profile, []);
 
     // Backfill brands.name from AI-extracted brandName if not already set
     if (brandName) {
@@ -746,8 +734,8 @@ export async function extractBrandSalesProfile(
 
     // Record costs and complete run — must succeed
     const costItems = [];
-    if (inputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-input", quantity: inputTokens });
-    if (outputTokens) costItems.push({ costName: "anthropic-opus-4.5-tokens-output", quantity: outputTokens });
+    if (inputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens });
+    if (outputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-output", quantity: outputTokens });
     if (costItems.length > 0) await addCosts(runId, costItems);
     await updateRun(runId, "completed");
 
