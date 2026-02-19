@@ -177,7 +177,7 @@ Skip: blog posts, news, careers, legal, privacy, terms pages.`;
 
   try {
     const response = await anthropicClient.messages.create({
-      model: 'claude-opus-4-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -304,7 +304,7 @@ EXTRACTION GUIDELINES:
 Return ONLY valid JSON.`;
 
   const response = await anthropicClient.messages.create({
-    model: 'claude-opus-4-5',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -314,7 +314,7 @@ Return ONLY valid JSON.`;
   if (!match) throw new Error('Failed to parse AI response as JSON');
 
   const parsed = JSON.parse(match[0]);
-  const cost = (response.usage.input_tokens * 5 + response.usage.output_tokens * 25) / 1000000;
+  const cost = (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 1000000;
 
   const brandName: string | null = parsed.brandName || null;
 
@@ -340,7 +340,7 @@ Return ONLY valid JSON.`;
       riskReversal: parsed.riskReversal || null,
       priceAnchoring: parsed.priceAnchoring || null,
       valueStacking: parsed.valueStacking || null,
-      extractionModel: 'claude-opus-4-5',
+      extractionModel: 'claude-sonnet-4-6',
       extractionCostUsd: cost,
     },
     inputTokens: response.usage.input_tokens,
