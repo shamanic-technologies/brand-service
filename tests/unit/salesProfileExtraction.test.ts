@@ -321,6 +321,54 @@ describe('Sales Profile Extraction', () => {
     });
   });
 
+  describe('User hints injection into LLM prompt', () => {
+    function buildUserHintBlock(userHints?: { urgency?: string; scarcity?: string; riskReversal?: string; socialProof?: string }) {
+      const userHintLines: string[] = [];
+      if (userHints?.urgency) userHintLines.push(`- Urgency: ${userHints.urgency}`);
+      if (userHints?.scarcity) userHintLines.push(`- Scarcity: ${userHints.scarcity}`);
+      if (userHints?.riskReversal) userHintLines.push(`- Risk reversal: ${userHints.riskReversal}`);
+      if (userHints?.socialProof) userHintLines.push(`- Social proof: ${userHints.socialProof}`);
+
+      return userHintLines.length > 0
+        ? `\n\n---\n\nIMPORTANT — The user has provided the following information about their brand. This takes priority over anything found on the website. Incorporate these into the relevant fields:\n${userHintLines.join('\n')}\n`
+        : '';
+    }
+
+    it('should produce empty string when no user hints are provided', () => {
+      expect(buildUserHintBlock()).toBe('');
+      expect(buildUserHintBlock({})).toBe('');
+      expect(buildUserHintBlock({ urgency: undefined })).toBe('');
+    });
+
+    it('should include all 4 fields when all are provided', () => {
+      const block = buildUserHintBlock({
+        urgency: 'Offer expires March 1st',
+        scarcity: 'Only 10 spots left',
+        riskReversal: '30-day money-back guarantee',
+        socialProof: 'Trusted by 500+ SaaS companies',
+      });
+      expect(block).toContain('Urgency: Offer expires March 1st');
+      expect(block).toContain('Scarcity: Only 10 spots left');
+      expect(block).toContain('Risk reversal: 30-day money-back guarantee');
+      expect(block).toContain('Social proof: Trusted by 500+ SaaS companies');
+      expect(block).toContain('takes priority over anything found on the website');
+    });
+
+    it('should include only provided fields', () => {
+      const block = buildUserHintBlock({ urgency: 'Limited time', socialProof: 'Used by Stripe' });
+      expect(block).toContain('Urgency: Limited time');
+      expect(block).toContain('Social proof: Used by Stripe');
+      expect(block).not.toContain('Scarcity:');
+      expect(block).not.toContain('Risk reversal:');
+    });
+
+    it('should skip empty strings', () => {
+      const block = buildUserHintBlock({ urgency: '', scarcity: 'Only 5 left' });
+      expect(block).not.toContain('Urgency:');
+      expect(block).toContain('Scarcity: Only 5 left');
+    });
+  });
+
   describe('JSON parsing', () => {
     it('should extract JSON from AI response', () => {
       const aiResponse = `Here is the analysis:

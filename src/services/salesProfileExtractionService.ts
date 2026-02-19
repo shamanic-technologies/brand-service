@@ -190,9 +190,17 @@ Skip: blog posts, news, careers, legal, privacy, terms pages.`;
   return allUrls.slice(0, 10);
 }
 
+export interface UserHints {
+  urgency?: string;
+  scarcity?: string;
+  riskReversal?: string;
+  socialProof?: string;
+}
+
 async function extractSalesProfileFromContent(
   pageContents: { url: string; content: string }[],
-  anthropicClient: Anthropic
+  anthropicClient: Anthropic,
+  userHints?: UserHints
 ): Promise<{
   brandName: string | null;
   profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt'>;
@@ -204,12 +212,22 @@ async function extractSalesProfileFromContent(
     .map(p => `=== PAGE: ${p.url} ===\n${p.content.substring(0, 15000)}`)
     .join('\n\n');
 
+  const userHintLines: string[] = [];
+  if (userHints?.urgency) userHintLines.push(`- Urgency: ${userHints.urgency}`);
+  if (userHints?.scarcity) userHintLines.push(`- Scarcity: ${userHints.scarcity}`);
+  if (userHints?.riskReversal) userHintLines.push(`- Risk reversal: ${userHints.riskReversal}`);
+  if (userHints?.socialProof) userHintLines.push(`- Social proof: ${userHints.socialProof}`);
+
+  const userHintBlock = userHintLines.length > 0
+    ? `\n\n---\n\nIMPORTANT — The user has provided the following information about their brand. This takes priority over anything found on the website. Incorporate these into the relevant fields:\n${userHintLines.join('\n')}\n`
+    : '';
+
   const prompt = `You are analyzing a company website to extract sales, marketing, and persuasion information.
 
 Analyze the following website content and extract structured information:
 
 ${combinedContent.substring(0, 100000)}
-
+${userHintBlock}
 ---
 
 Extract the following information and return as JSON:
@@ -659,7 +677,7 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId: string; parentRunId: string }
+  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId: string; parentRunId: string; userHints?: UserHints }
 ): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
@@ -711,7 +729,8 @@ export async function extractBrandSalesProfile(
     console.log(`[${brandId}] Extracting sales profile with AI...`);
     const { brandName, profile, inputTokens, outputTokens } = await extractSalesProfileFromContent(
       successfulScrapes,
-      anthropicClient
+      anthropicClient,
+      options.userHints
     );
 
     const savedProfile = await upsertSalesProfile(brandId, profile, inputTokens, outputTokens, []);
