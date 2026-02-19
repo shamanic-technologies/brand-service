@@ -81,6 +81,62 @@ describe('Zod Schemas', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('should accept optional user hint fields', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'mcpfactory',
+        clerkOrgId: 'org_123',
+        url: 'https://example.com',
+        clerkUserId: 'user_123',
+        parentRunId: 'run_1',
+        urgency: 'Offer expires March 1st',
+        scarcity: 'Only 10 enterprise spots left',
+        riskReversal: '30-day money-back guarantee',
+        socialProof: 'Trusted by 500+ SaaS companies',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.urgency).toBe('Offer expires March 1st');
+        expect(result.data.scarcity).toBe('Only 10 enterprise spots left');
+        expect(result.data.riskReversal).toBe('30-day money-back guarantee');
+        expect(result.data.socialProof).toBe('Trusted by 500+ SaaS companies');
+      }
+    });
+
+    it('should accept request with some user hint fields omitted', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'mcpfactory',
+        clerkOrgId: 'org_123',
+        url: 'https://example.com',
+        clerkUserId: 'user_123',
+        parentRunId: 'run_1',
+        urgency: 'Limited time offer',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.urgency).toBe('Limited time offer');
+        expect(result.data.scarcity).toBeUndefined();
+        expect(result.data.riskReversal).toBeUndefined();
+        expect(result.data.socialProof).toBeUndefined();
+      }
+    });
+
+    it('should accept request with no user hint fields', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'mcpfactory',
+        clerkOrgId: 'org_123',
+        url: 'https://example.com',
+        clerkUserId: 'user_123',
+        parentRunId: 'run_1',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.urgency).toBeUndefined();
+        expect(result.data.scarcity).toBeUndefined();
+        expect(result.data.riskReversal).toBeUndefined();
+        expect(result.data.socialProof).toBeUndefined();
+      }
+    });
   });
 
   describe('ImportFromGDriveRequestSchema', () => {

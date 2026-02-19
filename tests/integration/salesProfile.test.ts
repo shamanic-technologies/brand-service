@@ -270,6 +270,68 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 30000);
   });
 
+  describe('POST /sales-profile - User hints (urgency, scarcity, riskReversal, socialProof)', () => {
+    it('should accept request with all 4 user hint fields', async () => {
+      const uniqueClerkOrgId = `org_test_hints_all_${Date.now()}`;
+      const uniqueUrl = `https://hints-all-${Date.now()}.example.com`;
+
+      const response = await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
+          url: uniqueUrl,
+          clerkUserId: `user_test_${Date.now()}`,
+          parentRunId: 'run_test_hints',
+          urgency: 'Offer expires March 1st',
+          scarcity: 'Only 10 enterprise spots left',
+          riskReversal: '30-day money-back guarantee',
+          socialProof: 'Trusted by 500+ SaaS companies including Stripe',
+        });
+
+      // Should not be 400 (validation should pass)
+      expect(response.status).not.toBe(400);
+    }, 15000);
+
+    it('should accept request with partial user hint fields', async () => {
+      const uniqueClerkOrgId = `org_test_hints_partial_${Date.now()}`;
+      const uniqueUrl = `https://hints-partial-${Date.now()}.example.com`;
+
+      const response = await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
+          url: uniqueUrl,
+          clerkUserId: `user_test_${Date.now()}`,
+          parentRunId: 'run_test_hints_partial',
+          urgency: 'Limited time offer',
+        });
+
+      expect(response.status).not.toBe(400);
+    }, 15000);
+
+    it('should accept request with no user hint fields (backward compatible)', async () => {
+      const uniqueClerkOrgId = `org_test_hints_none_${Date.now()}`;
+      const uniqueUrl = `https://hints-none-${Date.now()}.example.com`;
+
+      const response = await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({
+          appId: 'mcpfactory',
+          clerkOrgId: uniqueClerkOrgId,
+          url: uniqueUrl,
+          clerkUserId: `user_test_${Date.now()}`,
+          parentRunId: 'run_test_hints_none',
+        });
+
+      expect(response.status).not.toBe(400);
+    }, 15000);
+  });
+
   describe('GET /sales-profile/:clerkOrgId', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)

@@ -67,7 +67,7 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/sales-profile` | Get or create sales profile |
+| POST | `/sales-profile` | Get or create sales profile (optional: `urgency`, `scarcity`, `riskReversal`, `socialProof` user hints) |
 | GET | `/sales-profiles` | List all sales profiles for org |
 | GET | `/sales-profile/:clerkOrgId` | Most recent profile by org |
 | GET | `/brands/:brandId/sales-profile` | Get existing profile for brand |

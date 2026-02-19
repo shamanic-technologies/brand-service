@@ -157,6 +157,10 @@ export const CreateSalesProfileRequestSchema = z
     keyType: z.enum(['byok', 'platform']).default('byok'),
     skipCache: z.boolean().optional(),
     parentRunId: z.string(),
+    urgency: z.string().optional(),
+    scarcity: z.string().optional(),
+    riskReversal: z.string().optional(),
+    socialProof: z.string().optional(),
   })
   .openapi('CreateSalesProfileRequest');
 
