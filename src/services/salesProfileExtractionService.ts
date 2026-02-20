@@ -122,6 +122,7 @@ interface ScrapingTrackingContext {
   sourceOrgId: string;
   parentRunId: string;
   clerkUserId?: string;
+  workflowName?: string;
 }
 
 export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContext): Promise<string[]> {
@@ -136,6 +137,7 @@ export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContex
           sourceOrgId: tracking.sourceOrgId,
           parentRunId: tracking.parentRunId,
           clerkUserId: tracking.clerkUserId,
+          workflowName: tracking.workflowName,
         }),
       },
       {
@@ -163,6 +165,7 @@ export async function scrapeUrl(url: string, tracking?: ScrapingTrackingContext)
           brandId: tracking.brandId,
           parentRunId: tracking.parentRunId,
           clerkUserId: tracking.clerkUserId,
+          workflowName: tracking.workflowName,
         }),
       },
       {
@@ -726,6 +729,7 @@ export async function extractBrandSalesProfile(
     sourceOrgId: clerkOrgId,
     parentRunId: runId,
     clerkUserId: options.clerkUserId,
+    workflowName: options.workflowName,
   };
 
   try {
