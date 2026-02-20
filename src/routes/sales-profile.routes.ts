@@ -77,7 +77,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     const result = await extractBrandSalesProfile(
       brand.id,
       anthropicApiKey,
-      { skipCache: true, clerkOrgId, parentRunId, workflowName, userHints }
+      { skipCache: true, clerkOrgId, clerkUserId, parentRunId, workflowName, userHints }
     );
 
     // Sanitize before returning, include brandId for campaign-service

@@ -60,14 +60,16 @@ vi.mock('@anthropic-ai/sdk', () => {
   return { default: MockAnthropic };
 });
 
+const mockAxiosPost = vi.fn().mockImplementation((_url: string) => {
+  if (_url.includes('/map')) {
+    return Promise.resolve({ data: { success: true, urls: ['https://example.com'] } });
+  }
+  return Promise.resolve({ data: { result: { rawMarkdown: 'page content here' } } });
+});
+
 vi.mock('axios', () => ({
   default: {
-    post: vi.fn().mockImplementation((_url: string) => {
-      if (_url.includes('/map')) {
-        return Promise.resolve({ data: { success: true, urls: ['https://example.com'] } });
-      }
-      return Promise.resolve({ data: { result: { rawMarkdown: 'page content here' } } });
-    }),
+    post: (...args: unknown[]) => mockAxiosPost(...args),
   },
 }));
 
@@ -193,6 +195,54 @@ describe('Mandatory run/cost tracking', () => {
 
       const createRunArg = mockCreateRun.mock.calls[0][0];
       expect(createRunArg.workflowName).toBeUndefined();
+    });
+
+    it('should pass clerkUserId to createRun when provided', async () => {
+      setDbSequence([
+        [],          // no cached profile
+        [brandRow],  // getBrand
+      ]);
+
+      const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
+
+      await extractBrandSalesProfile('brand-1', 'sk-test', {
+        clerkOrgId: 'org_123',
+        clerkUserId: 'user_456',
+        parentRunId: 'parent-run-1',
+      });
+
+      expect(mockCreateRun).toHaveBeenCalledWith(expect.objectContaining({
+        clerkUserId: 'user_456',
+      }));
+    });
+
+    it('should pass tracking context to scraping-service calls', async () => {
+      setDbSequence([
+        [],          // no cached profile
+        [brandRow],  // getBrand
+      ]);
+
+      const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
+
+      await extractBrandSalesProfile('brand-1', 'sk-test', {
+        clerkOrgId: 'org_123',
+        clerkUserId: 'user_456',
+        parentRunId: 'parent-run-1',
+      });
+
+      // First axios call is /map
+      const mapBody = mockAxiosPost.mock.calls[0][1];
+      expect(mapBody.brandId).toBe('brand-1');
+      expect(mapBody.sourceOrgId).toBe('org_123');
+      expect(mapBody.parentRunId).toBe('run-123');
+      expect(mapBody.clerkUserId).toBe('user_456');
+
+      // Second axios call is /scrape
+      const scrapeBody = mockAxiosPost.mock.calls[1][1];
+      expect(scrapeBody.brandId).toBe('brand-1');
+      expect(scrapeBody.sourceOrgId).toBe('org_123');
+      expect(scrapeBody.parentRunId).toBe('run-123');
+      expect(scrapeBody.clerkUserId).toBe('user_456');
     });
   });
 
