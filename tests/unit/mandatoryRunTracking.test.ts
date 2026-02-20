@@ -228,6 +228,7 @@ describe('Mandatory run/cost tracking', () => {
         clerkOrgId: 'org_123',
         clerkUserId: 'user_456',
         parentRunId: 'parent-run-1',
+        workflowName: 'cold-email-outreach',
       });
 
       // First axios call is /map
@@ -236,6 +237,7 @@ describe('Mandatory run/cost tracking', () => {
       expect(mapBody.sourceOrgId).toBe('org_123');
       expect(mapBody.parentRunId).toBe('run-123');
       expect(mapBody.clerkUserId).toBe('user_456');
+      expect(mapBody.workflowName).toBe('cold-email-outreach');
 
       // Second axios call is /scrape
       const scrapeBody = mockAxiosPost.mock.calls[1][1];
@@ -243,6 +245,7 @@ describe('Mandatory run/cost tracking', () => {
       expect(scrapeBody.sourceOrgId).toBe('org_123');
       expect(scrapeBody.parentRunId).toBe('run-123');
       expect(scrapeBody.clerkUserId).toBe('user_456');
+      expect(scrapeBody.workflowName).toBe('cold-email-outreach');
     });
   });
 
