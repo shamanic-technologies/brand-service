@@ -117,11 +117,27 @@ export function getAnthropicClient(apiKey: string): Anthropic {
   return new Anthropic({ apiKey });
 }
 
-export async function mapSiteUrls(url: string): Promise<string[]> {
+interface ScrapingTrackingContext {
+  brandId: string;
+  sourceOrgId: string;
+  parentRunId: string;
+  clerkUserId?: string;
+}
+
+export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContext): Promise<string[]> {
   try {
     const response = await axios.post(
       `${SCRAPING_SERVICE_URL}/map`,
-      { url, limit: 100 },
+      {
+        url,
+        limit: 100,
+        ...(tracking && {
+          brandId: tracking.brandId,
+          sourceOrgId: tracking.sourceOrgId,
+          parentRunId: tracking.parentRunId,
+          clerkUserId: tracking.clerkUserId,
+        }),
+      },
       {
         headers: { 'X-API-Key': SCRAPING_SERVICE_API_KEY, 'Content-Type': 'application/json' },
         timeout: 30000,
@@ -135,11 +151,20 @@ export async function mapSiteUrls(url: string): Promise<string[]> {
   }
 }
 
-export async function scrapeUrl(url: string, brandId: string): Promise<string | null> {
+export async function scrapeUrl(url: string, tracking?: ScrapingTrackingContext): Promise<string | null> {
   try {
     const response = await axios.post(
       `${SCRAPING_SERVICE_URL}/scrape`,
-      { url, sourceService: 'brand-service', sourceOrgId: brandId },
+      {
+        url,
+        sourceService: 'brand-service',
+        sourceOrgId: tracking?.sourceOrgId || '',
+        ...(tracking && {
+          brandId: tracking.brandId,
+          parentRunId: tracking.parentRunId,
+          clerkUserId: tracking.clerkUserId,
+        }),
+      },
       {
         headers: { 'X-API-Key': SCRAPING_SERVICE_API_KEY, 'Content-Type': 'application/json' },
         timeout: 60000,
@@ -665,7 +690,7 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId: string; parentRunId: string; workflowName?: string; userHints?: UserHints }
+  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId: string; clerkUserId?: string; parentRunId: string; workflowName?: string; userHints?: UserHints }
 ): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
@@ -685,6 +710,7 @@ export async function extractBrandSalesProfile(
   // Create run in runs-service
   const run = await createRun({
     clerkOrgId,
+    clerkUserId: options.clerkUserId,
     appId: "mcpfactory",
     brandId,
     serviceName: "brand-service",
@@ -694,11 +720,19 @@ export async function extractBrandSalesProfile(
   });
   const runId = run.id;
 
+  // Tracking context for child service calls (scraping-service)
+  const scrapingTracking: ScrapingTrackingContext = {
+    brandId,
+    sourceOrgId: clerkOrgId,
+    parentRunId: runId,
+    clerkUserId: options.clerkUserId,
+  };
+
   try {
     const anthropicClient = getAnthropicClient(anthropicApiKey);
 
     console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
-    const allUrls = await mapSiteUrls(brand.url);
+    const allUrls = await mapSiteUrls(brand.url, scrapingTracking);
     console.log(`[${brandId}] Found ${allUrls.length} URLs`);
 
     console.log(`[${brandId}] Selecting relevant URLs...`);
@@ -707,7 +741,7 @@ export async function extractBrandSalesProfile(
 
     console.log(`[${brandId}] Scraping ${selectedUrls.length} pages...`);
     const scrapePromises = selectedUrls.map(url =>
-      scrapeUrl(url, brandId).then(content => ({ url, content: content || '' }))
+      scrapeUrl(url, scrapingTracking).then(content => ({ url, content: content || '' }))
     );
     const pageContents = await Promise.all(scrapePromises);
     const successfulScrapes = pageContents.filter(p => p.content);
