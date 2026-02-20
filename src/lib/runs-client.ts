@@ -16,6 +16,7 @@ export interface Run {
   appId: string;
   brandId: string | null;
   campaignId: string | null;
+  workflowName: string | null;
   serviceName: string;
   taskName: string;
   status: string;
@@ -66,6 +67,7 @@ export interface CreateRunParams {
   appId: string;
   brandId?: string;
   campaignId?: string;
+  workflowName?: string;
   serviceName: string;
   taskName: string;
   parentRunId?: string;
@@ -82,6 +84,7 @@ export interface ListRunsParams {
   appId?: string;
   brandId?: string;
   campaignId?: string;
+  workflowName?: string;
   serviceName?: string;
   taskName?: string;
   status?: string;
@@ -159,6 +162,7 @@ export async function listRuns(
   if (params.appId) searchParams.set("appId", params.appId);
   if (params.brandId) searchParams.set("brandId", params.brandId);
   if (params.campaignId) searchParams.set("campaignId", params.campaignId);
+  if (params.workflowName) searchParams.set("workflowName", params.workflowName);
   if (params.serviceName) searchParams.set("serviceName", params.serviceName);
   if (params.taskName) searchParams.set("taskName", params.taskName);
   if (params.status) searchParams.set("status", params.status);
