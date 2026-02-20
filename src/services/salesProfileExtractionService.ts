@@ -665,7 +665,7 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId: string; parentRunId: string; userHints?: UserHints }
+  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId: string; parentRunId: string; workflowName?: string; userHints?: UserHints }
 ): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
@@ -690,6 +690,7 @@ export async function extractBrandSalesProfile(
     serviceName: "brand-service",
     taskName: "sales-profile-extraction",
     parentRunId: options.parentRunId,
+    workflowName: options.workflowName,
   });
   const runId = run.id;
 

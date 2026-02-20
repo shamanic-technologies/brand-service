@@ -37,7 +37,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { appId, clerkOrgId, url, clerkUserId, keyType, skipCache, parentRunId, urgency, scarcity, riskReversal, socialProof } = parsed.data;
+    const { appId, clerkOrgId, url, clerkUserId, keyType, skipCache, parentRunId, workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
 
     // Get or create brand by clerkOrgId + URL (domain is the unique key per org)
     const brand = await getOrCreateBrand(clerkOrgId, url, { appId, clerkUserId });
@@ -77,7 +77,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     const result = await extractBrandSalesProfile(
       brand.id,
       anthropicApiKey,
-      { skipCache: true, clerkOrgId, parentRunId, userHints }
+      { skipCache: true, clerkOrgId, parentRunId, workflowName, userHints }
     );
 
     // Sanitize before returning, include brandId for campaign-service

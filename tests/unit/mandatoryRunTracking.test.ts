@@ -158,6 +158,42 @@ describe('Mandatory run/cost tracking', () => {
       expect(mockAddCosts).toHaveBeenCalledWith('run-123', expect.any(Array));
       expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'completed');
     });
+
+    it('should pass workflowName to createRun when provided', async () => {
+      setDbSequence([
+        [],          // no cached profile
+        [brandRow],  // getBrand
+      ]);
+
+      const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
+
+      await extractBrandSalesProfile('brand-1', 'sk-test', {
+        clerkOrgId: 'org_123',
+        parentRunId: 'parent-run-1',
+        workflowName: 'cold-email-outreach',
+      });
+
+      expect(mockCreateRun).toHaveBeenCalledWith(expect.objectContaining({
+        workflowName: 'cold-email-outreach',
+      }));
+    });
+
+    it('should omit workflowName from createRun when not provided', async () => {
+      setDbSequence([
+        [],          // no cached profile
+        [brandRow],  // getBrand
+      ]);
+
+      const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
+
+      await extractBrandSalesProfile('brand-1', 'sk-test', {
+        clerkOrgId: 'org_123',
+        parentRunId: 'parent-run-1',
+      });
+
+      const createRunArg = mockCreateRun.mock.calls[0][0];
+      expect(createRunArg.workflowName).toBeUndefined();
+    });
   });
 
 });

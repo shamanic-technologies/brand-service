@@ -88,6 +88,22 @@ describe('runs-client', () => {
       expect(callBody.parentRunId).toBe('parent-run-1');
       expect(callBody.brandId).toBe('brand-123');
     });
+
+    it('should include workflowName in body when provided', async () => {
+      const { createRun } = await importClient();
+      mockFetch.mockResolvedValueOnce(mockResponse({ id: 'run-1' }));
+
+      await createRun({
+        clerkOrgId: 'clerk_org_1',
+        appId: 'mcpfactory',
+        serviceName: 'brand-service',
+        taskName: 'sales-profile-extraction',
+        workflowName: 'cold-email-outreach',
+      });
+
+      const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(callBody.workflowName).toBe('cold-email-outreach');
+    });
   });
 
   describe('updateRun', () => {
@@ -183,6 +199,19 @@ describe('runs-client', () => {
       const calledUrl = mockFetch.mock.calls[0][0] as string;
       expect(calledUrl).toContain('appId=mcpfactory');
       expect(calledUrl).toContain('brandId=brand-123');
+    });
+
+    it('should pass workflowName filter when provided', async () => {
+      const { listRuns } = await importClient();
+      mockFetch.mockResolvedValueOnce(mockResponse({ runs: [], limit: 50, offset: 0 }));
+
+      await listRuns({
+        clerkOrgId: 'clerk_org_1',
+        workflowName: 'cold-email-outreach',
+      });
+
+      const calledUrl = mockFetch.mock.calls[0][0] as string;
+      expect(calledUrl).toContain('workflowName=cold-email-outreach');
     });
   });
 
