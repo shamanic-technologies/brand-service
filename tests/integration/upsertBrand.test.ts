@@ -303,6 +303,30 @@ describe('POST /brands - Upsert Brand', () => {
     expect(dbUsers[0].orgId).toBe(dbBrands[0].orgId);
   }, 10000);
 
+  it('should allow two different orgs to upsert brands with the same domain', async () => {
+    const clerkOrgId1 = `${testPrefix}${Date.now()}_orgA`;
+    const clerkOrgId2 = `${testPrefix}${Date.now()}_orgB`;
+    const url = 'https://shared-upsert-domain.example.com';
+
+    const first = await request(app)
+      .post('/brands')
+      .set(getAuthHeaders())
+      .send({ appId: 'mcpfactory', clerkOrgId: clerkOrgId1, url, clerkUserId: `${testPrefix}${Date.now()}_userA` });
+
+    expect(first.status).toBe(200);
+    expect(first.body.created).toBe(true);
+
+    const second = await request(app)
+      .post('/brands')
+      .set(getAuthHeaders())
+      .send({ appId: 'mcpfactory', clerkOrgId: clerkOrgId2, url, clerkUserId: `${testPrefix}${Date.now()}_userB` });
+
+    expect(second.status).toBe(200);
+    expect(second.body.created).toBe(true);
+    expect(second.body.brandId).not.toBe(first.body.brandId);
+    expect(second.body.domain).toBe('shared-upsert-domain.example.com');
+  }, 10000);
+
   it('should allow same clerkOrgId with different appIds', async () => {
     const clerkOrgId = `${testPrefix}${Date.now()}_multiapp`;
     const url1 = 'https://multi-app-one.example.com';
