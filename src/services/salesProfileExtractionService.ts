@@ -548,38 +548,11 @@ export async function getOrCreateBrand(
     return brand;
   }
 
-  // CASE 2: Check if brand exists by domain alone (UNIQUE constraint on domain!)
-  const existingByDomain = await db
-    .select({
-      id: brands.id,
-      url: brands.url,
-      name: brands.name,
-      domain: brands.domain,
-      orgId: brands.orgId,
-    })
-    .from(brands)
-    .where(eq(brands.domain, domain))
-    .limit(1);
-
-  if (existingByDomain.length > 0) {
-    const brand = existingByDomain[0];
-    if (brand.orgId === org.id) {
-      await db.update(brands).set({
-        url,
-        updatedAt: sql`NOW()`
-      }).where(eq(brands.id, brand.id));
-      brand.url = url;
-      console.log(`[brand] Updated existing brand (domain match): ${brand.id}`);
-      return brand;
-    }
-    console.warn(`[brand] Domain ${domain} already owned by org ${brand.orgId}, requested by ${org.id}`);
-    return { id: brand.id, url: brand.url, name: brand.name, domain: brand.domain };
-  }
-
-  // CASE 3: Create new brand
+  // CASE 2: Create new brand
   const inserted = await db
     .insert(brands)
     .values({ url, domain, orgId: org.id })
+    .onConflictDoNothing()
     .returning({
       id: brands.id,
       url: brands.url,
@@ -587,8 +560,20 @@ export async function getOrCreateBrand(
       domain: brands.domain,
     });
 
-  console.log(`[brand] Created NEW brand for org ${org.id} with domain ${domain}: ${inserted[0].id}`);
-  return inserted[0];
+  if (inserted.length > 0) {
+    console.log(`[brand] Created NEW brand for org ${org.id} with domain ${domain}: ${inserted[0].id}`);
+    return inserted[0];
+  }
+
+  // Race condition: another request inserted the same org+domain — re-fetch
+  const [refetched] = await db
+    .select({ id: brands.id, url: brands.url, name: brands.name, domain: brands.domain })
+    .from(brands)
+    .where(and(eq(brands.orgId, org.id), eq(brands.domain, domain)))
+    .limit(1);
+
+  console.log(`[brand] Re-fetched brand after conflict for org ${org.id}: ${refetched.id}`);
+  return refetched;
 }
 
 export async function getSalesProfileByClerkOrgId(clerkOrgId: string): Promise<SalesProfile | null> {

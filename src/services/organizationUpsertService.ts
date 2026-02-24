@@ -47,7 +47,7 @@ export const getOrganizationIdByClerkId = async (
       const domainResult = await db
         .select({ id: brands.id, orgId: brands.orgId })
         .from(brands)
-        .where(eq(brands.domain, domain))
+        .where(and(eq(brands.domain, domain), eq(brands.orgId, org.id)))
         .limit(1);
       if (domainResult.length > 0) {
         existingByDomain = domainResult[0];

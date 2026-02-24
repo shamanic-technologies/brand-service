@@ -203,6 +203,44 @@ describe('getOrCreateBrand - CRITICAL', () => {
 
     expect(allBrands.length).toBe(1);
   }, 15000);
+
+  it('should allow two different orgs to create brands with the same domain (no cross-org leak)', async () => {
+    const clerkOrgId1 = `${testPrefix}${Date.now()}_orgA`;
+    const clerkOrgId2 = `${testPrefix}${Date.now()}_orgB`;
+    const url = 'https://shared-domain.example.com';
+    const expectedDomain = 'shared-domain.example.com';
+
+    // Org A creates a brand
+    const brandA = await getOrCreateBrand(clerkOrgId1, url);
+    expect(brandA).toBeDefined();
+    expect(brandA.domain).toBe(expectedDomain);
+
+    // Org B creates a brand with the same domain
+    const brandB = await getOrCreateBrand(clerkOrgId2, url);
+    expect(brandB).toBeDefined();
+    expect(brandB.domain).toBe(expectedDomain);
+
+    // They must be DIFFERENT brands (different IDs)
+    expect(brandB.id).not.toBe(brandA.id);
+
+    // Verify each brand belongs to the correct org
+    const [orgA] = await db
+      .select()
+      .from(orgs)
+      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, clerkOrgId1)));
+    const [orgB] = await db
+      .select()
+      .from(orgs)
+      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, clerkOrgId2)));
+
+    const brandsA = await db.select().from(brands).where(eq(brands.orgId, orgA.id));
+    const brandsB = await db.select().from(brands).where(eq(brands.orgId, orgB.id));
+
+    expect(brandsA.length).toBe(1);
+    expect(brandsB.length).toBe(1);
+    expect(brandsA[0].id).toBe(brandA.id);
+    expect(brandsB[0].id).toBe(brandB.id);
+  }, 15000);
 });
 
 describe('getBrand - CRITICAL', () => {

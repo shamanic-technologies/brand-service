@@ -63,10 +63,8 @@ export const brands = pgTable("brands", {
 	uniqueIndex("idx_brands_org_domain").using("btree", table.orgId.asc().nullsLast().op("text_ops"), table.domain.asc().nullsLast().op("text_ops")),
 	index("idx_brands_org_id").using("btree", table.orgId.asc().nullsLast().op("uuid_ops")),
 	index("idx_organizations_categories").using("btree", table.categories.asc().nullsLast().op("text_ops")).where(sql`(categories IS NOT NULL)`),
-	uniqueIndex("organizations_domain_unique_index").using("btree", table.domain.asc().nullsLast().op("text_ops")).where(sql`(domain IS NOT NULL)`),
 	index("organizations_logo_url_index").using("btree", table.logoUrl.asc().nullsLast().op("text_ops")).where(sql`(logo_url IS NOT NULL)`),
 	index("organizations_status_index").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status IS NOT NULL)`),
-	uniqueIndex("organizations_url_unique").using("btree", table.url.asc().nullsLast().op("text_ops")).where(sql`(url IS NOT NULL)`),
 	foreignKey({
 			columns: [table.orgId],
 			foreignColumns: [orgs.id],
