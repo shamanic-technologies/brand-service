@@ -9,6 +9,8 @@ process.env.KEY_SERVICE_URL = 'https://key-test.example.com';
 process.env.KEY_SERVICE_API_KEY = 'test-key-service-key';
 process.env.ANTHROPIC_API_KEY = 'platform-key-123';
 
+const testCaller = { method: 'POST', path: '/sales-profile' };
+
 describe('keys-service', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -25,13 +27,13 @@ describe('keys-service', () => {
   describe('getKeyForOrg - platform keys', () => {
     it('should return platform anthropic key', async () => {
       const { getKeyForOrg } = await importModule();
-      const key = await getKeyForOrg('org_123', 'anthropic', 'platform');
+      const key = await getKeyForOrg('org_123', 'anthropic', 'platform', testCaller);
       expect(key).toBe('platform-key-123');
     });
 
     it('should return null for unsupported platform provider', async () => {
       const { getKeyForOrg } = await importModule();
-      const key = await getKeyForOrg('org_123', 'openai', 'platform');
+      const key = await getKeyForOrg('org_123', 'openai', 'platform', testCaller);
       expect(key).toBeNull();
     });
   });
@@ -41,13 +43,36 @@ describe('keys-service', () => {
       mockedAxios.get.mockResolvedValueOnce({ data: { key: 'user-key-abc' } });
 
       const { getKeyForOrg } = await importModule();
-      const key = await getKeyForOrg('org_123', 'anthropic', 'byok');
+      const key = await getKeyForOrg('org_123', 'anthropic', 'byok', testCaller);
 
       expect(key).toBe('user-key-abc');
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://key-test.example.com/internal/keys/anthropic/decrypt',
         expect.objectContaining({
           params: { clerkOrgId: 'org_123' },
+          headers: expect.objectContaining({
+            'X-Caller-Service': 'brand',
+            'X-Caller-Method': 'POST',
+            'X-Caller-Path': '/sales-profile',
+          }),
+        }),
+      );
+    });
+
+    it('should forward caller context headers correctly', async () => {
+      mockedAxios.get.mockResolvedValueOnce({ data: { key: 'key-123' } });
+
+      const { getKeyForOrg } = await importModule();
+      await getKeyForOrg('org_123', 'anthropic', 'byok', { method: 'GET', path: '/brands/:brandId/keys' });
+
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'X-Caller-Service': 'brand',
+            'X-Caller-Method': 'GET',
+            'X-Caller-Path': '/brands/:brandId/keys',
+          }),
         }),
       );
     });
@@ -58,7 +83,7 @@ describe('keys-service', () => {
       mockedAxios.get.mockRejectedValueOnce(error);
 
       const { getKeyForOrg } = await importModule();
-      const key = await getKeyForOrg('org_123', 'anthropic', 'byok');
+      const key = await getKeyForOrg('org_123', 'anthropic', 'byok', testCaller);
       expect(key).toBeNull();
     });
 
@@ -68,7 +93,7 @@ describe('keys-service', () => {
       mockedAxios.get.mockRejectedValueOnce(error);
 
       const { getKeyForOrg } = await importModule();
-      await expect(getKeyForOrg('org_123', 'anthropic', 'byok'))
+      await expect(getKeyForOrg('org_123', 'anthropic', 'byok', testCaller))
         .rejects.toThrow('key-service fetch failed: HTTP 500: db connection failed');
     });
 
@@ -78,7 +103,7 @@ describe('keys-service', () => {
       mockedAxios.get.mockRejectedValueOnce(error);
 
       const { getKeyForOrg } = await importModule();
-      await expect(getKeyForOrg('org_123', 'anthropic', 'byok'))
+      await expect(getKeyForOrg('org_123', 'anthropic', 'byok', testCaller))
         .rejects.toThrow('key-service fetch failed: UNKNOWN: no error message');
     });
 
@@ -86,7 +111,7 @@ describe('keys-service', () => {
       mockedAxios.get.mockResolvedValueOnce({ data: { key: '' } });
 
       const { getKeyForOrg } = await importModule();
-      const key = await getKeyForOrg('org_123', 'anthropic', 'byok');
+      const key = await getKeyForOrg('org_123', 'anthropic', 'byok', testCaller);
       expect(key).toBeNull();
     });
   });
@@ -100,7 +125,7 @@ describe('keys-service', () => {
         .mockResolvedValueOnce({ data: { key: 'recovered-key' } });
 
       const { getKeyForOrg } = await importModule();
-      const promise = getKeyForOrg('org_123', 'anthropic', 'byok');
+      const promise = getKeyForOrg('org_123', 'anthropic', 'byok', testCaller);
 
       // Advance past the first retry delay (500ms)
       await vi.advanceTimersByTimeAsync(500);
@@ -119,7 +144,7 @@ describe('keys-service', () => {
         .mockResolvedValueOnce({ data: { key: 'finally-ok' } });
 
       const { getKeyForOrg } = await importModule();
-      const promise = getKeyForOrg('org_123', 'anthropic', 'byok');
+      const promise = getKeyForOrg('org_123', 'anthropic', 'byok', testCaller);
 
       // First retry at 500ms
       await vi.advanceTimersByTimeAsync(500);
@@ -143,7 +168,7 @@ describe('keys-service', () => {
 
       // Capture the promise and attach a catch handler immediately to prevent unhandled rejection
       let caughtError: Error | undefined;
-      const promise = getKeyForOrg('org_123', 'anthropic', 'byok').catch((e) => {
+      const promise = getKeyForOrg('org_123', 'anthropic', 'byok', testCaller).catch((e) => {
         caughtError = e;
       });
 
@@ -165,7 +190,7 @@ describe('keys-service', () => {
       mockedAxios.get.mockRejectedValueOnce(error);
 
       const { getKeyForOrg } = await importModule();
-      await expect(getKeyForOrg('org_123', 'anthropic', 'byok'))
+      await expect(getKeyForOrg('org_123', 'anthropic', 'byok', testCaller))
         .rejects.toThrow('key-service fetch failed: HTTP 500: db down');
       expect(mockedAxios.get).toHaveBeenCalledTimes(1);
     });
@@ -176,7 +201,7 @@ describe('keys-service', () => {
       mockedAxios.get.mockRejectedValueOnce(error);
 
       const { getKeyForOrg } = await importModule();
-      const key = await getKeyForOrg('org_123', 'anthropic', 'byok');
+      const key = await getKeyForOrg('org_123', 'anthropic', 'byok', testCaller);
       expect(key).toBeNull();
       expect(mockedAxios.get).toHaveBeenCalledTimes(1);
     });
@@ -189,7 +214,7 @@ describe('keys-service', () => {
         .mockResolvedValueOnce({ data: { key: 'ok-after-reset' } });
 
       const { getKeyForOrg } = await importModule();
-      const promise = getKeyForOrg('org_123', 'anthropic', 'byok');
+      const promise = getKeyForOrg('org_123', 'anthropic', 'byok', testCaller);
 
       await vi.advanceTimersByTimeAsync(500);
 

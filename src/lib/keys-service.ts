@@ -16,17 +16,24 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+export interface CallerContext {
+  method: string;
+  path: string;
+}
+
 /**
  * Get API key for an organization via key-service
  *
  * @param clerkOrgId - The Clerk organization ID
  * @param provider - The provider (e.g., "anthropic", "openai")
  * @param keyType - "byok" for user's key, "platform" for our key
+ * @param caller - The caller context (HTTP method + path) for key-service audit headers
  */
 export async function getKeyForOrg(
   clerkOrgId: string,
   provider: string,
-  keyType: "byok" | "platform"
+  keyType: "byok" | "platform",
+  caller: CallerContext,
 ): Promise<string | null> {
   // Platform key - use our own
   if (keyType === "platform") {
@@ -48,6 +55,9 @@ export async function getKeyForOrg(
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': KEY_SERVICE_API_KEY,
+          'X-Caller-Service': 'brand',
+          'X-Caller-Method': caller.method,
+          'X-Caller-Path': caller.path,
         },
         timeout: 10000,
       });
