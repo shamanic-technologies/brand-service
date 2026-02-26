@@ -7,21 +7,21 @@ describe('Authentication', () => {
 
   describe('Protected endpoints', () => {
     it('should reject requests without auth headers', async () => {
-      const response = await request(app).get('/clerk-ids');
+      const response = await request(app).get('/org-ids');
 
       expect(response.status).toBe(401);
       expect(response.body.error).toBe('Missing authentication');
     });
 
     it('should reject requests with invalid X-API-Key', async () => {
-      const response = await request(app).get('/clerk-ids').set('X-API-Key', 'wrong-key');
+      const response = await request(app).get('/org-ids').set('X-API-Key', 'wrong-key');
 
       expect(response.status).toBe(403);
       expect(response.body.error).toBe('Invalid credentials');
     });
 
     it('should accept requests with valid X-API-Key', async () => {
-      const response = await request(app).get('/clerk-ids').set(getAuthHeaders());
+      const response = await request(app).get('/org-ids').set(getAuthHeaders());
 
       // Should not be 401 or 403 (may be 200 or 500 depending on DB)
       expect(response.status).not.toBe(401);

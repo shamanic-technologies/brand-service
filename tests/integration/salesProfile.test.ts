@@ -8,7 +8,7 @@ import { eq, and, like, inArray } from 'drizzle-orm';
 const app = createTestApp();
 
 describe('Sales Profile API - Complete Integration Tests', () => {
-  const testClerkOrgId = `org_test_${Date.now()}`;
+  const testOrgId = `org_test_${Date.now()}`;
   const testUrl = 'https://test-brand-integration.example.com';
   const testDomain = 'test-brand-integration.example.com';
 
@@ -19,7 +19,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const testOrgs = await db
         .select({ id: orgs.id })
         .from(orgs)
-        .where(like(orgs.clerkOrgId, 'org_test_%'));
+        .where(like(orgs.orgId, 'org_test_%'));
 
       if (testOrgs.length > 0) {
         const orgIds = testOrgs.map(o => o.id);
@@ -36,7 +36,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         // Delete test brands, then orgs
         await db.delete(brands).where(inArray(brands.orgId, orgIds));
       }
-      await db.delete(orgs).where(like(orgs.clerkOrgId, 'org_test_%'));
+      await db.delete(orgs).where(like(orgs.orgId, 'org_test_%'));
     } catch (e) {
       console.error('Cleanup error:', e);
     }
@@ -46,7 +46,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)
         .post('/sales-profile')
-        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test', parentRunId: 'run_test' });
+        .send({ appId: 'mcpfactory', orgId: testOrgId, url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(401);
     });
@@ -55,17 +55,17 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test' });
+        .send({ appId: 'mcpfactory', orgId: testOrgId, url: testUrl, userId: 'user_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
     });
 
-    it('should return 400 if clerkOrgId is missing', async () => {
+    it('should return 400 if orgId is missing', async () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', url: testUrl, clerkUserId: 'user_test', parentRunId: 'run_test' });
+        .send({ appId: 'mcpfactory', url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -75,7 +75,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, clerkUserId: 'user_test', parentRunId: 'run_test' });
+        .send({ appId: 'mcpfactory', orgId: testOrgId, userId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -85,24 +85,24 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ clerkOrgId: testClerkOrgId, url: testUrl, clerkUserId: 'user_test', parentRunId: 'run_test' });
+        .send({ orgId: testOrgId, url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
     });
 
-    it('should return 400 if clerkUserId is missing', async () => {
+    it('should return 400 if userId is missing', async () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', clerkOrgId: testClerkOrgId, url: testUrl, parentRunId: 'run_test' });
+        .send({ appId: 'mcpfactory', orgId: testOrgId, url: testUrl, parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
     });
 
     it('should create brand in database when calling POST /sales-profile for first time', async () => {
-      const uniqueClerkOrgId = `org_test_brand_create_${Date.now()}`;
+      const uniqueOrgId = `org_test_brand_create_${Date.now()}`;
       const uniqueUrl = `https://unique-test-${Date.now()}.example.com`;
       const uniqueDomain = uniqueUrl.replace('https://', '');
 
@@ -110,7 +110,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const existingOrg = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)))
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)))
         .limit(1);
 
       expect(existingOrg.length).toBe(0);
@@ -121,9 +121,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId: `user_test_${Date.now()}`,
+          userId: `user_test_${Date.now()}`,
           keyType: 'byok',
           parentRunId: 'run_test_parent',
         });
@@ -132,7 +132,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
       expect(org).toBeDefined();
 
       const createdBrand = await db
@@ -147,9 +147,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should not create duplicate brands on subsequent calls', async () => {
-      const uniqueClerkOrgId = `org_test_no_dup_${Date.now()}`;
+      const uniqueOrgId = `org_test_no_dup_${Date.now()}`;
       const uniqueUrl = `https://no-dup-test-${Date.now()}.example.com`;
-      const clerkUserId = `user_test_${Date.now()}`;
+      const userId = `user_test_${Date.now()}`;
 
       // First call creates brand
       await request(app)
@@ -157,9 +157,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId,
+          userId,
           keyType: 'byok',
           parentRunId: 'run_test_parent',
         });
@@ -168,7 +168,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
       const brandsAfterFirst = await db
         .select()
         .from(brands)
@@ -182,9 +182,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId,
+          userId,
           keyType: 'byok',
           parentRunId: 'run_test_parent_2',
         });
@@ -199,9 +199,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should update URL if brand exists with different URL', async () => {
-      const uniqueClerkOrgId = `org_test_url_update_${Date.now()}`;
+      const uniqueOrgId = `org_test_url_update_${Date.now()}`;
       const originalUrl = `https://original-${Date.now()}.example.com`;
-      const clerkUserId = `user_test_${Date.now()}`;
+      const userId = `user_test_${Date.now()}`;
 
       // First call with original URL
       await request(app)
@@ -209,9 +209,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: originalUrl,
-          clerkUserId,
+          userId,
           keyType: 'byok',
           parentRunId: 'run_test_parent',
         });
@@ -220,7 +220,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
       const brand = await db
         .select()
         .from(brands)
@@ -240,16 +240,16 @@ describe('Sales Profile API - Complete Integration Tests', () => {
 
       for (let i = 0; i < testCases.length; i++) {
         const testCase = testCases[i];
-        const uniqueClerkOrgId = `org_test_domain_${timestamp}_${i}`;
+        const uniqueOrgId = `org_test_domain_${timestamp}_${i}`;
 
         await request(app)
           .post('/sales-profile')
           .set(getAuthHeaders())
           .send({
             appId: 'mcpfactory',
-            clerkOrgId: uniqueClerkOrgId,
+            orgId: uniqueOrgId,
             url: testCase.url,
-            clerkUserId: `user_test_${timestamp}_${i}`,
+            userId: `user_test_${timestamp}_${i}`,
             keyType: 'byok',
             parentRunId: 'run_test_parent',
           });
@@ -257,7 +257,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         const [org] = await db
           .select()
           .from(orgs)
-          .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+          .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
         const brand = await db
           .select()
           .from(brands)
@@ -272,7 +272,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
 
   describe('POST /sales-profile - User hints (urgency, scarcity, riskReversal, socialProof)', () => {
     it('should accept request with all 4 user hint fields', async () => {
-      const uniqueClerkOrgId = `org_test_hints_all_${Date.now()}`;
+      const uniqueOrgId = `org_test_hints_all_${Date.now()}`;
       const uniqueUrl = `https://hints-all-${Date.now()}.example.com`;
 
       const response = await request(app)
@@ -280,9 +280,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId: `user_test_${Date.now()}`,
+          userId: `user_test_${Date.now()}`,
           parentRunId: 'run_test_hints',
           urgency: 'Offer expires March 1st',
           scarcity: 'Only 10 enterprise spots left',
@@ -295,7 +295,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should accept request with partial user hint fields', async () => {
-      const uniqueClerkOrgId = `org_test_hints_partial_${Date.now()}`;
+      const uniqueOrgId = `org_test_hints_partial_${Date.now()}`;
       const uniqueUrl = `https://hints-partial-${Date.now()}.example.com`;
 
       const response = await request(app)
@@ -303,9 +303,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId: `user_test_${Date.now()}`,
+          userId: `user_test_${Date.now()}`,
           parentRunId: 'run_test_hints_partial',
           urgency: 'Limited time offer',
         });
@@ -314,7 +314,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should accept request with no user hint fields (backward compatible)', async () => {
-      const uniqueClerkOrgId = `org_test_hints_none_${Date.now()}`;
+      const uniqueOrgId = `org_test_hints_none_${Date.now()}`;
       const uniqueUrl = `https://hints-none-${Date.now()}.example.com`;
 
       const response = await request(app)
@@ -322,9 +322,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId: `user_test_${Date.now()}`,
+          userId: `user_test_${Date.now()}`,
           parentRunId: 'run_test_hints_none',
         });
 
@@ -332,10 +332,10 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
   });
 
-  describe('GET /sales-profile/:clerkOrgId', () => {
+  describe('GET /sales-profile/:orgId', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)
-        .get(`/sales-profile/${testClerkOrgId}`);
+        .get(`/sales-profile/${testOrgId}`);
 
       expect(response.status).toBe(401);
     });
@@ -357,7 +357,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       expect(response.status).toBe(401);
     });
 
-    it('should return 400 if clerkOrgId query param is missing', async () => {
+    it('should return 400 if orgId query param is missing', async () => {
       const response = await request(app)
         .get('/sales-profiles')
         .set(getAuthHeaders());
@@ -369,7 +369,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return empty array for org with no profiles', async () => {
       const response = await request(app)
         .get('/sales-profiles')
-        .query({ clerkOrgId: 'org_no_profiles_test' })
+        .query({ orgId: 'org_no_profiles_test' })
         .set(getAuthHeaders());
 
       expect(response.status).toBe(200);
@@ -379,7 +379,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
 
   describe('New fields roundtrip (leadership, funding, awards, milestones)', () => {
     it('should return new fields from a stored profile via GET /brands/:brandId/sales-profile', async () => {
-      const uniqueClerkOrgId = `org_test_newfields_${Date.now()}`;
+      const uniqueOrgId = `org_test_newfields_${Date.now()}`;
       const uniqueUrl = `https://newfields-test-${Date.now()}.example.com`;
 
       // Create org + brand via API
@@ -388,9 +388,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId: `user_test_${Date.now()}`,
+          userId: `user_test_${Date.now()}`,
           keyType: 'byok',
           parentRunId: 'run_test_parent',
         });
@@ -398,7 +398,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
       const [brand] = await db
         .select()
         .from(brands)
@@ -482,7 +482,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should return empty arrays/null for new fields when absent in DB', async () => {
-      const uniqueClerkOrgId = `org_test_nullfields_${Date.now()}`;
+      const uniqueOrgId = `org_test_nullfields_${Date.now()}`;
       const uniqueUrl = `https://nullfields-test-${Date.now()}.example.com`;
 
       await request(app)
@@ -490,9 +490,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId: `user_test_${Date.now()}`,
+          userId: `user_test_${Date.now()}`,
           keyType: 'byok',
           parentRunId: 'run_test_parent',
         });
@@ -500,7 +500,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
       const [brand] = await db
         .select()
         .from(brands)
@@ -554,7 +554,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
 
     it('should return 404 for brand with no profile', async () => {
       // First create a brand
-      const uniqueClerkOrgId = `org_test_no_profile_${Date.now()}`;
+      const uniqueOrgId = `org_test_no_profile_${Date.now()}`;
       const uniqueUrl = `https://no-profile-${Date.now()}.example.com`;
 
       await request(app)
@@ -562,9 +562,9 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders())
         .send({
           appId: 'mcpfactory',
-          clerkOrgId: uniqueClerkOrgId,
+          orgId: uniqueOrgId,
           url: uniqueUrl,
-          clerkUserId: `user_test_${Date.now()}`,
+          userId: `user_test_${Date.now()}`,
           keyType: 'byok',
           parentRunId: 'run_test_parent',
         });
@@ -573,7 +573,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.clerkOrgId, uniqueClerkOrgId)));
+        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
       const brand = await db
         .select()
         .from(brands)

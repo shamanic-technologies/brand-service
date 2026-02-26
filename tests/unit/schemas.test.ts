@@ -16,9 +16,9 @@ describe('Zod Schemas', () => {
     it('should accept valid request', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'mcpfactory',
-        clerkOrgId: 'org_123',
+        orgId: 'org_123',
         url: 'https://example.com',
-        clerkUserId: 'user_123',
+        userId: 'user_123',
         parentRunId: 'run_parent_123',
       });
       expect(result.success).toBe(true);
@@ -30,9 +30,9 @@ describe('Zod Schemas', () => {
     it('should accept all fields', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'mcpfactory',
-        clerkOrgId: 'org_123',
+        orgId: 'org_123',
         url: 'https://example.com',
-        clerkUserId: 'user_123',
+        userId: 'user_123',
         keyType: 'platform',
         skipCache: true,
         parentRunId: 'run_abc',
@@ -43,39 +43,39 @@ describe('Zod Schemas', () => {
     it('should reject missing parentRunId', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'mcpfactory',
-        clerkOrgId: 'org_123',
+        orgId: 'org_123',
         url: 'https://example.com',
-        clerkUserId: 'user_123',
+        userId: 'user_123',
       });
       expect(result.success).toBe(false);
     });
 
-    it('should reject missing clerkOrgId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', url: 'https://example.com', clerkUserId: 'user_123', parentRunId: 'run_1' });
+    it('should reject missing orgId', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', url: 'https://example.com', userId: 'user_123', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
     it('should reject missing url', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', clerkUserId: 'user_123', parentRunId: 'run_1' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', orgId: 'org_123', userId: 'user_123', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
     it('should reject missing appId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ clerkOrgId: 'org_123', url: 'https://example.com', clerkUserId: 'user_123', parentRunId: 'run_1' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ orgId: 'org_123', url: 'https://example.com', userId: 'user_123', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
-    it('should reject missing clerkUserId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', clerkOrgId: 'org_123', url: 'https://example.com', parentRunId: 'run_1' });
+    it('should reject missing userId', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', orgId: 'org_123', url: 'https://example.com', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
     it('should reject invalid keyType', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'mcpfactory',
-        clerkOrgId: 'org_123',
+        orgId: 'org_123',
         url: 'https://example.com',
-        clerkUserId: 'user_123',
+        userId: 'user_123',
         parentRunId: 'run_1',
         keyType: 'invalid',
       });
@@ -85,9 +85,9 @@ describe('Zod Schemas', () => {
     it('should accept optional user hint fields', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'mcpfactory',
-        clerkOrgId: 'org_123',
+        orgId: 'org_123',
         url: 'https://example.com',
-        clerkUserId: 'user_123',
+        userId: 'user_123',
         parentRunId: 'run_1',
         urgency: 'Offer expires March 1st',
         scarcity: 'Only 10 enterprise spots left',
@@ -106,9 +106,9 @@ describe('Zod Schemas', () => {
     it('should accept request with some user hint fields omitted', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'mcpfactory',
-        clerkOrgId: 'org_123',
+        orgId: 'org_123',
         url: 'https://example.com',
-        clerkUserId: 'user_123',
+        userId: 'user_123',
         parentRunId: 'run_1',
         urgency: 'Limited time offer',
       });
@@ -124,9 +124,9 @@ describe('Zod Schemas', () => {
     it('should accept request with no user hint fields', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'mcpfactory',
-        clerkOrgId: 'org_123',
+        orgId: 'org_123',
         url: 'https://example.com',
-        clerkUserId: 'user_123',
+        userId: 'user_123',
         parentRunId: 'run_1',
       });
       expect(result.success).toBe(true);
@@ -177,7 +177,7 @@ describe('Zod Schemas', () => {
 
   describe('TriggerWorkflowRequestSchema', () => {
     it('should accept valid request', () => {
-      const result = TriggerWorkflowRequestSchema.safeParse({ clerk_organization_id: 'org_123' });
+      const result = TriggerWorkflowRequestSchema.safeParse({ organization_id: 'org_123' });
       expect(result.success).toBe(true);
     });
 
@@ -189,11 +189,11 @@ describe('Zod Schemas', () => {
 
   describe('ListBrandsQuerySchema', () => {
     it('should accept valid query', () => {
-      const result = ListBrandsQuerySchema.safeParse({ clerkOrgId: 'org_123' });
+      const result = ListBrandsQuerySchema.safeParse({ orgId: 'org_123' });
       expect(result.success).toBe(true);
     });
 
-    it('should reject missing clerkOrgId', () => {
+    it('should reject missing orgId', () => {
       const result = ListBrandsQuerySchema.safeParse({});
       expect(result.success).toBe(false);
     });
@@ -201,7 +201,7 @@ describe('Zod Schemas', () => {
 
   describe('AnalyzeRequestSchema', () => {
     it('should accept valid request', () => {
-      const result = AnalyzeRequestSchema.safeParse({ clerk_organization_id: 'org_123' });
+      const result = AnalyzeRequestSchema.safeParse({ organization_id: 'org_123' });
       expect(result.success).toBe(true);
     });
   });

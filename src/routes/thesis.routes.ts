@@ -20,11 +20,11 @@ router.post('/trigger-thesis-generation', async (req: Request, res: Response) =>
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { clerk_organization_id } = parsed.data;
+  const { organization_id } = parsed.data;
 
   try {
     // Resolve org, then get brand
-    const orgId = await resolveOrgIdOptional(clerk_organization_id);
+    const orgId = await resolveOrgIdOptional(organization_id);
     if (!orgId) {
       return res.status(404).json({ error: 'Organization not found' });
     }
@@ -61,7 +61,7 @@ router.post('/trigger-thesis-generation', async (req: Request, res: Response) =>
     ];
 
     console.log(
-      `[${new Date().toISOString()}] Triggering thesis generation workflow for organization ${clerk_organization_id}`
+      `[${new Date().toISOString()}] Triggering thesis generation workflow for organization ${organization_id}`
     );
 
     fetch(webhookUrl, {
@@ -74,7 +74,7 @@ router.post('/trigger-thesis-generation', async (req: Request, res: Response) =>
 
     return res.status(200).json({
       message: 'Thesis generation workflow initiated successfully.',
-      clerk_organization_id: clerk_organization_id,
+      organization_id: organization_id,
       triggered_at: triggered_at,
     });
   } catch (error) {
@@ -91,22 +91,22 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
   const filter = req.query.filter as string | undefined;
 
   try {
-    // Get thesis data from brand-service database (join through orgs for clerkOrgId)
+    // Get thesis data from brand-service database (join through orgs for orgId)
     const thesisData = await db
       .select({
-        clerkOrgId: orgs.clerkOrgId,
+        orgId: orgs.orgId,
         lastThesisUpdate: sql<string>`MAX(${brandThesis.updatedAt})`,
         thesisCount: sql<number>`COUNT(${brandThesis.id})::integer`,
       })
       .from(brands)
       .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .leftJoin(brandThesis, eq(brands.id, brandThesis.brandId))
-      .groupBy(orgs.clerkOrgId);
+      .groupBy(orgs.orgId);
 
     // Create thesis lookup map
     const thesisMap = new Map(
       thesisData.map((row) => [
-        row.clerkOrgId,
+        row.orgId,
         { lastUpdate: row.lastThesisUpdate, count: row.thesisCount },
       ])
     );
@@ -146,7 +146,7 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
 
     const subscriptionMap = new Map(
       subscriptionData.map((row: any) => [
-        row.clerk_organization_id,
+        row.organization_id,
         { hasActive: row.has_active_subscription, status: row.subscription_status },
       ])
     );
@@ -167,21 +167,22 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
     }
 
     const taskSetupMap = new Map(
-      taskSetupData.map((row: any) => [row.clerk_organization_id, { isRunning: row.is_running }])
+      taskSetupData.map((row: any) => [row.organization_id, { isRunning: row.is_running }])
     );
 
     // Combine all data
     const results = pressFunnelData.map((row: any) => {
-      const subscriptionInfo = row.clerk_organization_id
-        ? subscriptionMap.get(row.clerk_organization_id) || { hasActive: false, status: 'Not found' }
-        : { hasActive: false, status: 'No clerk_organization_id' };
+      const extOrgId = row.organization_id;
+      const subscriptionInfo = extOrgId
+        ? subscriptionMap.get(extOrgId) || { hasActive: false, status: 'Not found' }
+        : { hasActive: false, status: 'No organization_id' };
 
-      const thesisInfo = row.clerk_organization_id
-        ? thesisMap.get(row.clerk_organization_id) || { lastUpdate: null, count: 0 }
+      const thesisInfo = extOrgId
+        ? thesisMap.get(extOrgId) || { lastUpdate: null, count: 0 }
         : { lastUpdate: null, count: 0 };
 
-      const taskSetupInfo = row.clerk_organization_id
-        ? taskSetupMap.get(row.clerk_organization_id) || { isRunning: false }
+      const taskSetupInfo = extOrgId
+        ? taskSetupMap.get(extOrgId) || { isRunning: false }
         : { isRunning: false };
 
       const isRunning = taskSetupInfo.isRunning;
@@ -219,7 +220,7 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
         client_organization_id: row.client_organization_id,
         client_organization_name: row.client_organization_name,
         client_organization_url: row.client_organization_url,
-        clerk_organization_id: row.clerk_organization_id,
+        organization_id: extOrgId,
         organization_created_at: row.organization_created_at,
         is_public_info_ready: row.is_public_info_ready,
         public_info_updated_at: row.public_info_updated_at,
@@ -256,7 +257,7 @@ router.get('/theses-setup', async (req: Request, res: Response) => {
   try {
     const result = await db
       .select({
-        clerkOrgId: orgs.clerkOrgId,
+        orgId: orgs.orgId,
         organizationName: brands.name,
         validatedCount: sql<number>`COUNT(${brandThesis.id}) FILTER (WHERE ${brandThesis.status} = 'validated')::integer`,
         userValidatedCount: sql<number>`COUNT(${brandThesis.id}) FILTER (WHERE ${brandThesis.status} = 'validated' AND ${brandThesis.statusChangedByType} = 'user')::integer`,
@@ -267,7 +268,7 @@ router.get('/theses-setup', async (req: Request, res: Response) => {
       .from(brands)
       .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .leftJoin(brandThesis, eq(brands.id, brandThesis.brandId))
-      .groupBy(orgs.clerkOrgId, brands.name)
+      .groupBy(orgs.orgId, brands.name)
       .orderBy(sql`MAX(${brandThesis.updatedAt}) DESC NULLS LAST`);
 
     const organizations = result.map((row) => {
@@ -286,7 +287,7 @@ router.get('/theses-setup', async (req: Request, res: Response) => {
       }
 
       return {
-        clerk_organization_id: row.clerkOrgId,
+        organization_id: row.orgId,
         organization_name: row.organizationName,
         has_thesis: hasValidated,
         validated_count: row.validatedCount,

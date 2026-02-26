@@ -121,7 +121,7 @@ interface ScrapingTrackingContext {
   brandId: string;
   sourceOrgId: string;
   parentRunId: string;
-  clerkUserId?: string;
+  userId?: string;
   workflowName?: string;
 }
 
@@ -136,7 +136,7 @@ export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContex
           brandId: tracking.brandId,
           sourceOrgId: tracking.sourceOrgId,
           parentRunId: tracking.parentRunId,
-          clerkUserId: tracking.clerkUserId,
+          userId: tracking.userId,
           workflowName: tracking.workflowName,
         }),
       },
@@ -164,7 +164,7 @@ export async function scrapeUrl(url: string, tracking?: ScrapingTrackingContext)
         ...(tracking && {
           brandId: tracking.brandId,
           parentRunId: tracking.parentRunId,
-          clerkUserId: tracking.clerkUserId,
+          userId: tracking.userId,
           workflowName: tracking.workflowName,
         }),
       },
@@ -446,18 +446,18 @@ function extractDomainFromUrl(url: string): string {
   }
 }
 
-export async function resolveOrCreateOrg(appId: string, clerkOrgId: string): Promise<{ id: string }> {
+export async function resolveOrCreateOrg(appId: string, orgId: string): Promise<{ id: string }> {
   const existing = await db
     .select({ id: orgs.id })
     .from(orgs)
-    .where(and(eq(orgs.appId, appId), eq(orgs.clerkOrgId, clerkOrgId)))
+    .where(and(eq(orgs.appId, appId), eq(orgs.orgId, orgId)))
     .limit(1);
 
   if (existing.length > 0) return existing[0];
 
   const [created] = await db
     .insert(orgs)
-    .values({ appId, clerkOrgId })
+    .values({ appId, orgId })
     .onConflictDoNothing()
     .returning({ id: orgs.id });
 
@@ -466,7 +466,7 @@ export async function resolveOrCreateOrg(appId: string, clerkOrgId: string): Pro
     const [refetched] = await db
       .select({ id: orgs.id })
       .from(orgs)
-      .where(and(eq(orgs.appId, appId), eq(orgs.clerkOrgId, clerkOrgId)))
+      .where(and(eq(orgs.appId, appId), eq(orgs.orgId, orgId)))
       .limit(1);
     return refetched;
   }
@@ -474,11 +474,11 @@ export async function resolveOrCreateOrg(appId: string, clerkOrgId: string): Pro
   return created;
 }
 
-export async function resolveOrCreateUser(clerkUserId: string, orgId: string): Promise<{ id: string }> {
+export async function resolveOrCreateUser(userId: string, orgId: string): Promise<{ id: string }> {
   const existing = await db
     .select({ id: users.id, orgId: users.orgId })
     .from(users)
-    .where(eq(users.clerkUserId, clerkUserId))
+    .where(eq(users.userId, userId))
     .limit(1);
 
   if (existing.length > 0) {
@@ -493,7 +493,7 @@ export async function resolveOrCreateUser(clerkUserId: string, orgId: string): P
 
   const [created] = await db
     .insert(users)
-    .values({ clerkUserId, orgId })
+    .values({ userId, orgId })
     .onConflictDoNothing()
     .returning({ id: users.id });
 
@@ -501,7 +501,7 @@ export async function resolveOrCreateUser(clerkUserId: string, orgId: string): P
     const [refetched] = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.clerkUserId, clerkUserId))
+      .where(eq(users.userId, userId))
       .limit(1);
     return refetched;
   }
@@ -510,18 +510,18 @@ export async function resolveOrCreateUser(clerkUserId: string, orgId: string): P
 }
 
 export async function getOrCreateBrand(
-  clerkOrgId: string,
+  orgId: string,
   url: string,
-  options?: { appId?: string; clerkUserId?: string }
+  options?: { appId?: string; userId?: string }
 ): Promise<Brand> {
   const appId = options?.appId ?? 'mcpfactory';
 
   // Resolve or create org
-  const org = await resolveOrCreateOrg(appId, clerkOrgId);
+  const org = await resolveOrCreateOrg(appId, orgId);
 
   // Optionally resolve or create user
-  if (options?.clerkUserId) {
-    await resolveOrCreateUser(options.clerkUserId, org.id);
+  if (options?.userId) {
+    await resolveOrCreateUser(options.userId, org.id);
   }
 
   const domain = extractDomainFromUrl(url);
@@ -576,28 +576,28 @@ export async function getOrCreateBrand(
   return refetched;
 }
 
-export async function getSalesProfileByClerkOrgId(clerkOrgId: string): Promise<SalesProfile | null> {
+export async function getSalesProfileByOrgId(orgId: string): Promise<SalesProfile | null> {
   const result = await db
     .select()
     .from(brandSalesProfiles)
     .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
     .innerJoin(orgs, eq(brands.orgId, orgs.id))
-    .where(and(eq(orgs.clerkOrgId, clerkOrgId), gt(brandSalesProfiles.expiresAt, sql`NOW()`)))
+    .where(and(eq(orgs.orgId, orgId), gt(brandSalesProfiles.expiresAt, sql`NOW()`)))
     .orderBy(desc(brandSalesProfiles.extractedAt))
     .limit(1);
 
   return result.length > 0 ? formatProfileFromDb(result[0].brand_sales_profiles) : null;
 }
 
-export async function getAllSalesProfilesByClerkOrgId(
-  clerkOrgId: string
+export async function getAllSalesProfilesByOrgId(
+  orgId: string
 ): Promise<(SalesProfile & { url: string | null; domain: string | null })[]> {
   const result = await db
     .select()
     .from(brandSalesProfiles)
     .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
     .innerJoin(orgs, eq(brands.orgId, orgs.id))
-    .where(eq(orgs.clerkOrgId, clerkOrgId))
+    .where(eq(orgs.orgId, orgId))
     .orderBy(desc(brandSalesProfiles.extractedAt));
 
   return result.map(row => ({
@@ -678,7 +678,7 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean; clerkOrgId: string; clerkUserId?: string; parentRunId: string; workflowName?: string; userHints?: UserHints }
+  options: { skipCache?: boolean; forceRescrape?: boolean; orgId: string; userId?: string; parentRunId: string; workflowName?: string; userHints?: UserHints }
 ): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
@@ -689,16 +689,16 @@ export async function extractBrandSalesProfile(
   if (!brand) throw new Error('Brand not found');
   if (!brand.url) throw new Error('Brand has no URL');
 
-  // Resolve clerkOrgId for run tracking — required for cost tracking
-  const clerkOrgId = options.clerkOrgId;
-  if (!clerkOrgId) {
-    throw new Error('[sales-profile] clerkOrgId is required for run/cost tracking');
+  // Resolve orgId for run tracking — required for cost tracking
+  const orgId = options.orgId;
+  if (!orgId) {
+    throw new Error('[sales-profile] orgId is required for run/cost tracking');
   }
 
   // Create run in runs-service
   const run = await createRun({
-    clerkOrgId,
-    clerkUserId: options.clerkUserId,
+    orgId,
+    userId: options.userId,
     appId: "mcpfactory",
     brandId,
     serviceName: "brand-service",
@@ -711,9 +711,9 @@ export async function extractBrandSalesProfile(
   // Tracking context for child service calls (scraping-service)
   const scrapingTracking: ScrapingTrackingContext = {
     brandId,
-    sourceOrgId: clerkOrgId,
+    sourceOrgId: orgId,
     parentRunId: runId,
-    clerkUserId: options.clerkUserId,
+    userId: options.userId,
     workflowName: options.workflowName,
   };
 

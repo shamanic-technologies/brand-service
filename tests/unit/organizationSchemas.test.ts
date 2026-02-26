@@ -14,19 +14,19 @@ describe('Organization route schemas - safeParse validation', () => {
   describe('SetUrlRequestSchema', () => {
     it('should accept valid input', () => {
       const result = SetUrlRequestSchema.safeParse({
-        clerk_organization_id: 'org_123',
+        organization_id: 'org_123',
         url: 'https://example.com',
       });
       expect(result.success).toBe(true);
     });
 
-    it('should reject missing clerk_organization_id', () => {
+    it('should reject missing organization_id', () => {
       const result = SetUrlRequestSchema.safeParse({ url: 'https://example.com' });
       expect(result.success).toBe(false);
     });
 
     it('should reject missing url', () => {
-      const result = SetUrlRequestSchema.safeParse({ clerk_organization_id: 'org_123' });
+      const result = SetUrlRequestSchema.safeParse({ organization_id: 'org_123' });
       expect(result.success).toBe(false);
     });
 
@@ -37,16 +37,16 @@ describe('Organization route schemas - safeParse validation', () => {
   });
 
   describe('UpsertOrganizationRequestSchema', () => {
-    it('should accept clerk_organization_id only', () => {
+    it('should accept organization_id only', () => {
       const result = UpsertOrganizationRequestSchema.safeParse({
-        clerk_organization_id: 'org_123',
+        organization_id: 'org_123',
       });
       expect(result.success).toBe(true);
     });
 
     it('should accept all fields', () => {
       const result = UpsertOrganizationRequestSchema.safeParse({
-        clerk_organization_id: 'org_123',
+        organization_id: 'org_123',
         external_organization_id: 'ext_456',
         name: 'Test Org',
         url: 'https://example.com',
@@ -59,7 +59,7 @@ describe('Organization route schemas - safeParse validation', () => {
       }
     });
 
-    it('should reject missing clerk_organization_id', () => {
+    it('should reject missing organization_id', () => {
       const result = UpsertOrganizationRequestSchema.safeParse({
         name: 'Test Org',
       });

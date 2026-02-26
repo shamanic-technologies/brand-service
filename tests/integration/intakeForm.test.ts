@@ -10,7 +10,7 @@ describe('Intake Form Endpoints', () => {
   const app = createTestApp();
 
   describe('POST /trigger-intake-form-generation', () => {
-    it('should require clerk_organization_id in body', async () => {
+    it('should require organization_id in body', async () => {
       const response = await request(app)
         .post('/trigger-intake-form-generation')
         .set(getAuthHeaders())
@@ -24,7 +24,7 @@ describe('Intake Form Endpoints', () => {
       const response = await request(app)
         .post('/trigger-intake-form-generation')
         .set(getAuthHeaders())
-        .send({ clerk_organization_id: 'org_test123' });
+        .send({ organization_id: 'org_test123' });
 
       // Not auth error (may be 404 or 500 if org not found)
       expect(response.status).not.toBe(401);
@@ -34,14 +34,14 @@ describe('Intake Form Endpoints', () => {
     it('should reject unauthenticated requests', async () => {
       const response = await request(app)
         .post('/trigger-intake-form-generation')
-        .send({ clerk_organization_id: 'org_test123' });
+        .send({ organization_id: 'org_test123' });
 
       expect(response.status).toBe(401);
     });
   });
 
   describe('POST /intake-forms', () => {
-    it('should require clerk_organization_id in body', async () => {
+    it('should require organization_id in body', async () => {
       const response = await request(app)
         .post('/intake-forms')
         .set(getAuthHeaders())
@@ -56,7 +56,7 @@ describe('Intake Form Endpoints', () => {
         .post('/intake-forms')
         .set(getAuthHeaders())
         .send({
-          clerk_organization_id: 'org_test123',
+          organization_id: 'org_test123',
           company_name: 'Test Company',
           industry: 'Technology',
         });
@@ -67,7 +67,7 @@ describe('Intake Form Endpoints', () => {
     });
   });
 
-  describe('GET /intake-forms/organization/:clerkOrganizationId', () => {
+  describe('GET /intake-forms/organization/:organizationId', () => {
     it('should accept authenticated requests', async () => {
       const response = await request(app)
         .get('/intake-forms/organization/org_test123')

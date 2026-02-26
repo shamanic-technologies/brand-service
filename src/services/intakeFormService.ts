@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, brands, intakeForms, orgs } from '../db';
 
 export interface IntakeFormData {
-  clerk_organization_id: string;
+  organization_id: string;
   liveblocks_room_id?: string | null;
   name_and_title?: string | null;
   phone_and_email?: string | null;
@@ -42,16 +42,16 @@ export interface IntakeForm extends IntakeFormData {
   updated_at: string;
 }
 
-async function getBrandIdFromClerkId(clerkOrgId: string): Promise<string> {
+async function getBrandIdFromOrgId(organizationId: string): Promise<string> {
   const result = await db
     .select({ id: brands.id })
     .from(brands)
     .innerJoin(orgs, eq(brands.orgId, orgs.id))
-    .where(eq(orgs.clerkOrgId, clerkOrgId))
+    .where(eq(orgs.orgId, organizationId))
     .limit(1);
 
   if (result.length === 0) {
-    throw new Error(`Brand not found for clerk_organization_id: ${clerkOrgId}`);
+    throw new Error(`Brand not found for organization_id: ${organizationId}`);
   }
 
   return result[0].id;
@@ -60,7 +60,7 @@ async function getBrandIdFromClerkId(clerkOrgId: string): Promise<string> {
 function formatIntakeForm(row: typeof intakeForms.$inferSelect): IntakeForm {
   return {
     id: row.id,
-    clerk_organization_id: '', // Not stored in intake_forms, caller should know it
+    organization_id: '', // Not stored in intake_forms, caller should know it
     liveblocks_room_id: row.liveblocksRoomId,
     name_and_title: row.nameAndTitle,
     phone_and_email: row.phoneAndEmail,
@@ -98,8 +98,8 @@ function formatIntakeForm(row: typeof intakeForms.$inferSelect): IntakeForm {
 }
 
 export class IntakeFormService {
-  async upsertIntakeFormByClerkId(data: IntakeFormData): Promise<IntakeForm> {
-    const brandId = await getBrandIdFromClerkId(data.clerk_organization_id);
+  async upsertIntakeFormByOrgId(data: IntakeFormData): Promise<IntakeForm> {
+    const brandId = await getBrandIdFromOrgId(data.organization_id);
 
     const result = await db
       .insert(intakeForms)
@@ -176,12 +176,12 @@ export class IntakeFormService {
       .returning();
 
     const form = formatIntakeForm(result[0]);
-    form.clerk_organization_id = data.clerk_organization_id;
+    form.organization_id = data.organization_id;
     return form;
   }
 
-  async getByClerkOrganizationId(clerkOrgId: string): Promise<IntakeForm | null> {
-    const brandId = await getBrandIdFromClerkId(clerkOrgId);
+  async getByOrganizationId(organizationId: string): Promise<IntakeForm | null> {
+    const brandId = await getBrandIdFromOrgId(organizationId);
 
     const result = await db
       .select()
@@ -192,7 +192,7 @@ export class IntakeFormService {
     if (result.length === 0) return null;
 
     const form = formatIntakeForm(result[0]);
-    form.clerk_organization_id = clerkOrgId;
+    form.organization_id = organizationId;
     return form;
   }
 
@@ -206,8 +206,8 @@ export class IntakeFormService {
     return result.length > 0 ? formatIntakeForm(result[0]) : null;
   }
 
-  async deleteByClerkOrganizationId(clerkOrgId: string): Promise<boolean> {
-    const brandId = await getBrandIdFromClerkId(clerkOrgId);
+  async deleteByOrganizationId(organizationId: string): Promise<boolean> {
+    const brandId = await getBrandIdFromOrgId(organizationId);
 
     const result = await db
       .delete(intakeForms)

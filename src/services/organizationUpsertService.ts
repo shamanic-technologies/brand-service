@@ -16,21 +16,21 @@ function extractDomainFromUrl(url: string): string | null {
 }
 
 /**
- * Gets or creates a brand by Clerk organization ID and returns its internal UUID.
+ * Gets or creates a brand by organization ID and returns its internal UUID.
  * Resolves org first, then queries brands by orgId.
  */
-export const getOrganizationIdByClerkId = async (
-  clerkOrganizationId: string,
+export const getOrganizationIdByOrgId = async (
+  organizationId: string,
   organizationName?: string,
   organizationUrl?: string,
   externalOrganizationId?: string
 ): Promise<string> => {
   try {
-    console.log(`[BRAND UPSERT] Starting upsert for clerk_org_id: ${clerkOrganizationId}`);
+    console.log(`[BRAND UPSERT] Starting upsert for org_id: ${organizationId}`);
     console.log(`[BRAND UPSERT] Params: name=${organizationName}, url=${organizationUrl}`);
 
     // Resolve or create org
-    const org = await resolveOrCreateOrg('mcpfactory', clerkOrganizationId);
+    const org = await resolveOrCreateOrg('mcpfactory', organizationId);
 
     // Check if brand exists by orgId
     const existingByOrg = await db
@@ -138,7 +138,7 @@ export const getOrganizationIdByClerkId = async (
 };
 
 /**
- * @deprecated Use getOrganizationIdByClerkId instead.
+ * @deprecated Use getOrganizationIdByOrgId instead.
  * Gets or creates a brand by external ID (press-funnel UUID).
  * Note: This creates brands without an org link — caller should ensure org exists.
  */

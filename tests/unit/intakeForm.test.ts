@@ -45,7 +45,7 @@ describe('Intake Form Logic', () => {
 
   describe('Form data validation', () => {
     interface IntakeFormData {
-      clerk_organization_id: string;
+      organization_id: string;
       company_name?: string;
       industry?: string;
       target_audience?: string;
@@ -55,8 +55,8 @@ describe('Intake Form Logic', () => {
     const validateFormData = (data: Partial<IntakeFormData>): { valid: boolean; errors: string[] } => {
       const errors: string[] = [];
 
-      if (!data.clerk_organization_id) {
-        errors.push('clerk_organization_id is required');
+      if (!data.organization_id) {
+        errors.push('organization_id is required');
       }
 
       if (data.company_name && data.company_name.length > 255) {
@@ -70,15 +70,15 @@ describe('Intake Form Logic', () => {
       return { valid: errors.length === 0, errors };
     };
 
-    it('should require clerk_organization_id', () => {
+    it('should require organization_id', () => {
       const result = validateFormData({});
       expect(result.valid).toBe(false);
-      expect(result.errors).toContain('clerk_organization_id is required');
+      expect(result.errors).toContain('organization_id is required');
     });
 
     it('should accept valid data', () => {
       const result = validateFormData({
-        clerk_organization_id: 'org_123',
+        organization_id: 'org_123',
         company_name: 'Test Company',
         industry: 'Technology',
       });
@@ -88,7 +88,7 @@ describe('Intake Form Logic', () => {
 
     it('should reject too long company_name', () => {
       const result = validateFormData({
-        clerk_organization_id: 'org_123',
+        organization_id: 'org_123',
         company_name: 'x'.repeat(300),
       });
       expect(result.valid).toBe(false);

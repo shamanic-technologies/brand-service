@@ -3,8 +3,8 @@ import {
   extractBrandSalesProfile,
   getExistingSalesProfile,
   getOrCreateBrand,
-  getSalesProfileByClerkOrgId,
-  getAllSalesProfilesByClerkOrgId,
+  getSalesProfileByOrgId,
+  getAllSalesProfilesByOrgId,
 } from '../services/salesProfileExtractionService';
 import { getKeyForOrg } from '../lib/keys-service';
 import { CreateSalesProfileRequestSchema, ListSalesProfilesQuerySchema } from '../schemas';
@@ -22,10 +22,10 @@ function sanitizeProfileForExternal(profile: any) {
 
 /**
  * POST /sales-profile
- * Get or create sales profile for a brand by clerkOrgId + URL
- * 
- * Body: { clerkOrgId, url, keyType }
- * - clerkOrgId: required
+ * Get or create sales profile for a brand by orgId + URL
+ *
+ * Body: { orgId, url, keyType }
+ * - orgId: required
  * - url: required (brand website URL)
  * - keyType: "byok" (user's key) or "platform" (our key) - default "byok"
  * 
@@ -37,10 +37,10 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { appId, clerkOrgId, url, clerkUserId, keyType, skipCache, parentRunId, workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
+    const { appId, orgId: inputOrgId, url, userId: inputUserId, keyType, skipCache, parentRunId, workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
 
-    // Get or create brand by clerkOrgId + URL (domain is the unique key per org)
-    const brand = await getOrCreateBrand(clerkOrgId, url, { appId, clerkUserId });
+    // Get or create brand by orgId + URL (domain is the unique key per org)
+    const brand = await getOrCreateBrand(inputOrgId, url, { appId, userId: inputUserId });
 
     // Check if we already have a sales profile for this brand
     const existingProfile = await getExistingSalesProfile(brand.id);
@@ -55,7 +55,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     // Get API key from keys-service
     let anthropicApiKey: string | null;
     try {
-      anthropicApiKey = await getKeyForOrg(clerkOrgId, "anthropic", keyType, { method: "POST", path: "/sales-profile" });
+      anthropicApiKey = await getKeyForOrg(inputOrgId, "anthropic", keyType, { method: "POST", path: "/sales-profile" });
     } catch (keyError: any) {
       console.error('[sales-profile] key-service error:', keyError.message);
       return res.status(502).json({
@@ -77,7 +77,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     const result = await extractBrandSalesProfile(
       brand.id,
       anthropicApiKey,
-      { skipCache: true, clerkOrgId, clerkUserId, parentRunId, workflowName, userHints }
+      { skipCache: true, orgId: inputOrgId, userId: inputUserId, parentRunId, workflowName, userHints }
     );
 
     // Sanitize before returning, include brandId for campaign-service
@@ -103,9 +103,9 @@ router.get('/sales-profiles', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { clerkOrgId } = parsed.data;
+    const { orgId: inputOrgId } = parsed.data;
 
-    const profiles = await getAllSalesProfilesByClerkOrgId(clerkOrgId);
+    const profiles = await getAllSalesProfilesByOrgId(inputOrgId);
     
     // Sanitize before returning
     const sanitizedProfiles = profiles.map(sanitizeProfileForExternal);
@@ -118,18 +118,18 @@ router.get('/sales-profiles', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /sales-profile/:clerkOrgId
- * Get most recent sales profile by clerkOrgId (no extraction)
+ * GET /sales-profile/:orgId
+ * Get most recent sales profile by orgId (no extraction)
  */
-router.get('/sales-profile/:clerkOrgId', async (req: Request, res: Response) => {
+router.get('/sales-profile/:orgId', async (req: Request, res: Response) => {
   try {
-    const { clerkOrgId } = req.params;
+    const { orgId } = req.params;
 
-    if (!clerkOrgId) {
-      return res.status(400).json({ error: 'clerkOrgId is required' });
+    if (!orgId) {
+      return res.status(400).json({ error: 'orgId is required' });
     }
 
-    const profile = await getSalesProfileByClerkOrgId(clerkOrgId);
+    const profile = await getSalesProfileByOrgId(orgId);
 
     if (!profile) {
       return res.status(404).json({ error: 'Sales profile not found for this organization' });
@@ -137,7 +137,7 @@ router.get('/sales-profile/:clerkOrgId', async (req: Request, res: Response) => 
 
     res.json({ profile: sanitizeProfileForExternal(profile) });
   } catch (error: any) {
-    console.error('Get sales profile by clerkOrgId error:', error);
+    console.error('Get sales profile by orgId error:', error);
     res.status(500).json({ error: error.message || 'Failed to get sales profile' });
   }
 });

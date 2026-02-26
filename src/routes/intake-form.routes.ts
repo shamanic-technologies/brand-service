@@ -17,11 +17,11 @@ router.post('/trigger-intake-form-generation', async (req: Request, res: Respons
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { clerk_organization_id } = parsed.data;
+  const { organization_id } = parsed.data;
 
   try {
     // Resolve org, then get brand
-    const orgId = await resolveOrgIdOptional(clerk_organization_id);
+    const orgId = await resolveOrgIdOptional(organization_id);
     if (!orgId) {
       return res.status(404).json({ error: 'Organization not found' });
     }
@@ -81,7 +81,7 @@ router.post('/trigger-intake-form-generation', async (req: Request, res: Respons
     ];
 
     console.log(
-      `[${new Date().toISOString()}] Triggering intake form generation workflow for organization ${clerk_organization_id}`
+      `[${new Date().toISOString()}] Triggering intake form generation workflow for organization ${organization_id}`
     );
 
     fetch(webhookUrl, {
@@ -94,7 +94,7 @@ router.post('/trigger-intake-form-generation', async (req: Request, res: Respons
 
     return res.status(200).json({
       message: 'Intake form generation workflow initiated successfully.',
-      clerk_organization_id: clerk_organization_id,
+      organization_id: organization_id,
       status: 'generating',
       generating_started_at: upsertResult[0].generatingStartedAt,
     });
@@ -115,7 +115,7 @@ router.post('/intake-forms', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
-    const intakeForm = await intakeFormService.upsertIntakeFormByClerkId(parsed.data);
+    const intakeForm = await intakeFormService.upsertIntakeFormByOrgId(parsed.data);
 
     return res.status(200).json({
       success: true,
@@ -133,18 +133,18 @@ router.post('/intake-forms', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /intake-forms/organization/:clerkOrganizationId
- * Get intake form by clerk organization ID
+ * GET /intake-forms/organization/:organizationId
+ * Get intake form by organization ID
  */
-router.get('/intake-forms/organization/:clerkOrganizationId', async (req: Request, res: Response) => {
+router.get('/intake-forms/organization/:organizationId', async (req: Request, res: Response) => {
   try {
-    const { clerkOrganizationId } = req.params;
+    const { organizationId } = req.params;
 
-    if (!clerkOrganizationId) {
-      return res.status(400).json({ error: 'clerkOrganizationId is required' });
+    if (!organizationId) {
+      return res.status(400).json({ error: 'organizationId is required' });
     }
 
-    const intakeForm = await intakeFormService.getByClerkOrganizationId(clerkOrganizationId);
+    const intakeForm = await intakeFormService.getByOrganizationId(organizationId);
 
     if (!intakeForm) {
       return res.status(404).json({ error: 'Intake form not found' });

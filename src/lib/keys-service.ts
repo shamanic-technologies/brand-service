@@ -24,13 +24,13 @@ export interface CallerContext {
 /**
  * Get API key for an organization via key-service
  *
- * @param clerkOrgId - The Clerk organization ID
+ * @param orgId - The organization ID
  * @param provider - The provider (e.g., "anthropic", "openai")
  * @param keyType - "byok" for user's key, "platform" for our key
  * @param caller - The caller context (HTTP method + path) for key-service audit headers
  */
 export async function getKeyForOrg(
-  clerkOrgId: string,
+  orgId: string,
   provider: string,
   keyType: "byok" | "platform",
   caller: CallerContext,
@@ -51,7 +51,7 @@ export async function getKeyForOrg(
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const response = await axios.get(url, {
-        params: { clerkOrgId },
+        params: { orgId },
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': KEY_SERVICE_API_KEY,
@@ -67,7 +67,7 @@ export async function getKeyForOrg(
       lastError = error;
 
       if (error.response?.status === 404) {
-        console.log(`No BYOK key found for org ${clerkOrgId}, provider ${provider}`);
+        console.log(`No BYOK key found for org ${orgId}, provider ${provider}`);
         return null;
       }
 
