@@ -25,7 +25,7 @@ export const SuccessResponseSchema = z
 // ============================================================
 
 export const ListBrandsQuerySchema = z
-  .object({ clerkOrgId: z.string() })
+  .object({ orgId: z.string() })
   .openapi('ListBrandsQuery');
 
 export const BrandSummarySchema = z
@@ -46,7 +46,7 @@ export const ListBrandsResponseSchema = z
   .openapi('ListBrandsResponse');
 
 export const GetBrandQuerySchema = z
-  .object({ clerkOrgId: z.string().optional() })
+  .object({ orgId: z.string().optional() })
   .openapi('GetBrandQuery');
 
 export const BrandDetailSchema = z
@@ -81,9 +81,9 @@ export const BrandRunsQuerySchema = z
 export const UpsertBrandRequestSchema = z
   .object({
     appId: z.string(),
-    clerkOrgId: z.string(),
+    orgId: z.string(),
     url: z.string(),
-    clerkUserId: z.string(),
+    userId: z.string(),
   })
   .openapi('UpsertBrandRequest');
 
@@ -99,7 +99,7 @@ export const UpsertBrandResponseSchema = z
 registry.registerPath({
   method: 'post',
   path: '/brands',
-  summary: 'Upsert a brand by clerkOrgId + URL (no scraping)',
+  summary: 'Upsert a brand by orgId + URL (no scraping)',
   request: { body: { content: { 'application/json': { schema: UpsertBrandRequestSchema } } } },
   responses: {
     200: { description: 'Brand found or created', content: { 'application/json': { schema: UpsertBrandResponseSchema } } },
@@ -115,7 +115,7 @@ registry.registerPath({
   request: { query: ListBrandsQuerySchema },
   responses: {
     200: { description: 'List of brands', content: { 'application/json': { schema: ListBrandsResponseSchema } } },
-    400: { description: 'Missing clerkOrgId' },
+    400: { description: 'Missing orgId' },
     500: { description: 'Internal server error' },
   },
 });
@@ -151,9 +151,9 @@ registry.registerPath({
 export const CreateSalesProfileRequestSchema = z
   .object({
     appId: z.string(),
-    clerkOrgId: z.string(),
+    orgId: z.string(),
     url: z.string(),
-    clerkUserId: z.string(),
+    userId: z.string(),
     keyType: z.enum(['byok', 'platform']).default('byok'),
     skipCache: z.boolean().optional(),
     parentRunId: z.string(),
@@ -274,7 +274,7 @@ export const SalesProfileResponseSchema = z
   .openapi('SalesProfileResponse');
 
 export const ListSalesProfilesQuerySchema = z
-  .object({ clerkOrgId: z.string() })
+  .object({ orgId: z.string() })
   .openapi('ListSalesProfilesQuery');
 
 registry.registerPath({
@@ -297,15 +297,15 @@ registry.registerPath({
   request: { query: ListSalesProfilesQuerySchema },
   responses: {
     200: { description: 'List of sales profiles' },
-    400: { description: 'Missing clerkOrgId' },
+    400: { description: 'Missing orgId' },
     500: { description: 'Internal server error' },
   },
 });
 
 registry.registerPath({
   method: 'get',
-  path: '/sales-profile/{clerkOrgId}',
-  summary: 'Get most recent sales profile by clerkOrgId',
+  path: '/sales-profile/{orgId}',
+  summary: 'Get most recent sales profile by orgId',
   responses: {
     200: { description: 'Sales profile' },
     404: { description: 'Sales profile not found' },
@@ -330,14 +330,14 @@ registry.registerPath({
 
 export const SetUrlRequestSchema = z
   .object({
-    clerk_organization_id: z.string(),
+    organization_id: z.string(),
     url: z.string(),
   })
   .openapi('SetUrlRequest');
 
 export const UpsertOrganizationRequestSchema = z
   .object({
-    clerk_organization_id: z.string(),
+    organization_id: z.string(),
     external_organization_id: z.string().optional(),
     name: z.string().optional(),
     url: z.string().optional(),
@@ -393,27 +393,27 @@ export const FilterQuerySchema = z
   .object({ filter: z.string().optional() })
   .openapi('FilterQuery');
 
-export const ClerkOrgIdsQuerySchema = z
-  .object({ clerkOrgIds: z.string() })
-  .openapi('ClerkOrgIdsQuery');
+export const OrgIdsQuerySchema = z
+  .object({ orgIds: z.string() })
+  .openapi('OrgIdsQuery');
 
 registry.registerPath({
   method: 'get',
-  path: '/clerk-ids',
-  summary: 'Get all clerk organization IDs',
+  path: '/org-ids',
+  summary: 'Get all organization IDs',
   responses: {
-    200: { description: 'List of clerk org IDs' },
+    200: { description: 'List of org IDs' },
     500: { description: 'Internal server error' },
   },
 });
 
 registry.registerPath({
   method: 'get',
-  path: '/by-clerk-id/{clerkOrgId}',
-  summary: 'Get organization by clerk organization ID',
+  path: '/by-org-id/{orgId}',
+  summary: 'Get organization by organization ID',
   responses: {
     200: { description: 'Organization details' },
-    400: { description: 'Missing clerkOrgId' },
+    400: { description: 'Missing orgId' },
     404: { description: 'Organization not found' },
     500: { description: 'Internal server error' },
   },
@@ -459,11 +459,11 @@ registry.registerPath({
 registry.registerPath({
   method: 'put',
   path: '/organizations',
-  summary: 'Upsert organization by Clerk organization ID',
+  summary: 'Upsert organization by organization ID',
   request: { body: { content: { 'application/json': { schema: UpsertOrganizationRequestSchema } } } },
   responses: {
     200: { description: 'Organization upserted' },
-    400: { description: 'Missing clerk_organization_id' },
+    400: { description: 'Missing organization_id' },
     500: { description: 'Internal server error' },
   },
 });
@@ -471,22 +471,22 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/organizations',
-  summary: 'Upsert organization by Clerk organization ID (alias)',
+  summary: 'Upsert organization by organization ID (alias)',
   request: { body: { content: { 'application/json': { schema: UpsertOrganizationRequestSchema } } } },
   responses: {
     200: { description: 'Organization upserted' },
-    400: { description: 'Missing clerk_organization_id' },
+    400: { description: 'Missing organization_id' },
     500: { description: 'Internal server error' },
   },
 });
 
 registry.registerPath({
   method: 'get',
-  path: '/organizations/{clerkOrganizationId}/targets',
-  summary: 'Get target organizations by Clerk organization ID',
+  path: '/organizations/{organizationId}/targets',
+  summary: 'Get target organizations by organization ID',
   responses: {
     200: { description: 'Target organizations' },
-    400: { description: 'Missing clerkOrganizationId' },
+    400: { description: 'Missing organizationId' },
     500: { description: 'Internal server error' },
   },
 });
@@ -695,22 +695,22 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/organizations/exists',
-  summary: 'Check if organizations exist by clerk org IDs',
-  request: { query: ClerkOrgIdsQuerySchema },
+  summary: 'Check if organizations exist by org IDs',
+  request: { query: OrgIdsQuerySchema },
   responses: {
     200: { description: 'Existence check result' },
-    400: { description: 'Missing clerkOrgIds' },
+    400: { description: 'Missing orgIds' },
     500: { description: 'Internal server error' },
   },
 });
 
 registry.registerPath({
   method: 'get',
-  path: '/email-data/public-info/{clerkOrgId}',
+  path: '/email-data/public-info/{orgId}',
   summary: 'Get public info formatted for lifecycle email',
   responses: {
     200: { description: 'Email-formatted public info' },
-    400: { description: 'Missing clerkOrgId' },
+    400: { description: 'Missing orgId' },
     404: { description: 'Organization not found' },
     500: { description: 'Internal server error' },
   },
@@ -718,11 +718,11 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/email-data/theses/{clerkOrgId}',
+  path: '/email-data/theses/{orgId}',
   summary: 'Get theses formatted for lifecycle email',
   responses: {
     200: { description: 'Email-formatted theses' },
-    400: { description: 'Missing clerkOrgId' },
+    400: { description: 'Missing orgId' },
     404: { description: 'Organization not found' },
     500: { description: 'Internal server error' },
   },
@@ -833,7 +833,7 @@ registry.registerPath({
 
 export const AnalyzeRequestSchema = z
   .object({
-    clerk_organization_id: z.string(),
+    organization_id: z.string(),
   })
   .openapi('AnalyzeRequest');
 
@@ -857,7 +857,7 @@ registry.registerPath({
   request: { body: { content: { 'application/json': { schema: AnalyzeRequestSchema } } } },
   responses: {
     200: { description: 'Batch analysis results' },
-    400: { description: 'Missing clerk_organization_id' },
+    400: { description: 'Missing organization_id' },
     500: { description: 'Internal server error' },
   },
 });
@@ -913,7 +913,7 @@ registry.registerPath({
 
 export const TriggerWorkflowRequestSchema = z
   .object({
-    clerk_organization_id: z.string(),
+    organization_id: z.string(),
   })
   .openapi('TriggerWorkflowRequest');
 
@@ -924,7 +924,7 @@ registry.registerPath({
   request: { body: { content: { 'application/json': { schema: TriggerWorkflowRequestSchema } } } },
   responses: {
     200: { description: 'Workflow initiated' },
-    400: { description: 'Missing clerk_organization_id' },
+    400: { description: 'Missing organization_id' },
     500: { description: 'Internal server error' },
   },
 });
@@ -935,7 +935,7 @@ registry.registerPath({
 
 export const IntakeFormUpsertRequestSchema = z
   .object({
-    clerk_organization_id: z.string(),
+    organization_id: z.string(),
   })
   .passthrough()
   .openapi('IntakeFormUpsertRequest');
@@ -947,7 +947,7 @@ registry.registerPath({
   request: { body: { content: { 'application/json': { schema: TriggerWorkflowRequestSchema } } } },
   responses: {
     200: { description: 'Generation initiated' },
-    400: { description: 'Missing clerk_organization_id' },
+    400: { description: 'Missing organization_id' },
     404: { description: 'Organization not found' },
     500: { description: 'Internal server error' },
   },
@@ -960,7 +960,7 @@ registry.registerPath({
   request: { body: { content: { 'application/json': { schema: IntakeFormUpsertRequestSchema } } } },
   responses: {
     200: { description: 'Intake form saved' },
-    400: { description: 'Missing clerk_organization_id' },
+    400: { description: 'Missing organization_id' },
     404: { description: 'Organization not found' },
     500: { description: 'Internal server error' },
   },
@@ -968,11 +968,11 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/intake-forms/organization/{clerkOrganizationId}',
-  summary: 'Get intake form by clerk organization ID',
+  path: '/intake-forms/organization/{organizationId}',
+  summary: 'Get intake form by organization ID',
   responses: {
     200: { description: 'Intake form data' },
-    400: { description: 'Missing clerkOrganizationId' },
+    400: { description: 'Missing organizationId' },
     404: { description: 'Intake form not found' },
     500: { description: 'Internal server error' },
   },
@@ -989,7 +989,7 @@ registry.registerPath({
   request: { body: { content: { 'application/json': { schema: TriggerWorkflowRequestSchema } } } },
   responses: {
     200: { description: 'Generation initiated' },
-    400: { description: 'Missing clerk_organization_id' },
+    400: { description: 'Missing organization_id' },
     404: { description: 'Organization not found' },
     500: { description: 'Internal server error' },
   },
@@ -1021,7 +1021,7 @@ registry.registerPath({
 // ============================================================
 
 export const PublicInfoMapQuerySchema = z
-  .object({ clerkOrgId: z.string() })
+  .object({ orgId: z.string() })
   .openapi('PublicInfoMapQuery');
 
 export const PublicInfoContentRequestSchema = z
@@ -1042,7 +1042,7 @@ registry.registerPath({
   request: { query: PublicInfoMapQuerySchema },
   responses: {
     200: { description: 'Public information map' },
-    400: { description: 'Missing clerkOrgId' },
+    400: { description: 'Missing orgId' },
     404: { description: 'Organization not found' },
     500: { description: 'Internal server error' },
   },
@@ -1076,11 +1076,11 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'delete',
-  path: '/users/{clerkUserId}',
-  summary: 'Delete a user by Clerk user ID',
+  path: '/users/{userId}',
+  summary: 'Delete a user by user ID',
   responses: {
     200: { description: 'User deleted' },
-    400: { description: 'Missing clerk user ID' },
+    400: { description: 'Missing user ID' },
     404: { description: 'User not found' },
     500: { description: 'Internal server error' },
   },

@@ -49,7 +49,7 @@ describe('keys-service', () => {
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://key-test.example.com/internal/keys/anthropic/decrypt',
         expect.objectContaining({
-          params: { clerkOrgId: 'org_123' },
+          params: { orgId: 'org_123' },
           headers: expect.objectContaining({
             'X-Caller-Service': 'brand',
             'X-Caller-Method': 'POST',

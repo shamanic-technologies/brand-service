@@ -21,7 +21,7 @@ export async function cleanTestData() {
     const testOrgs = await db
       .select({ id: orgs.id })
       .from(orgs)
-      .where(like(orgs.clerkOrgId, 'test-%'));
+      .where(like(orgs.orgId, 'test-%'));
 
     if (testOrgs.length > 0) {
       const orgIds = testOrgs.map(o => o.id);
@@ -34,7 +34,7 @@ export async function cleanTestData() {
     );
 
     // Clean test orgs
-    await db.delete(orgs).where(like(orgs.clerkOrgId, 'test-%'));
+    await db.delete(orgs).where(like(orgs.orgId, 'test-%'));
   } catch (error) {
     // Table might not exist or connection issue, ignore in tests
     console.log('cleanTestData: ignoring error (table may not exist or DB unavailable)');
@@ -46,13 +46,13 @@ export async function cleanTestData() {
  */
 export async function insertTestOrg(data?: {
   appId?: string;
-  clerkOrgId?: string;
+  orgId?: string;
 }) {
   const result = await db
     .insert(orgs)
     .values({
       appId: data?.appId || 'mcpfactory',
-      clerkOrgId: data?.clerkOrgId || `test-clerk-${Date.now()}`,
+      orgId: data?.orgId || `test-org-${Date.now()}`,
     })
     .returning();
 

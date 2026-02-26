@@ -13,7 +13,7 @@ router.get('/list', async (req: Request, res: Response) => {
     const result = await db
       .select({
         id: users.id,
-        clerk_user_id: users.clerkUserId,
+        user_id: users.userId,
         created_at: users.createdAt,
         updated_at: users.updatedAt,
       })
@@ -33,14 +33,14 @@ router.get('/list', async (req: Request, res: Response) => {
 });
 
 /**
- * DELETE /users/:clerkUserId
+ * DELETE /users/:userId
  * Deletes a user from brand-service database.
  */
-router.delete('/:clerkUserId', async (req: Request, res: Response) => {
-  const { clerkUserId } = req.params;
+router.delete('/:userId', async (req: Request, res: Response) => {
+  const { userId: inputUserId } = req.params;
 
-  if (!clerkUserId) {
-    return res.status(400).json({ error: 'Clerk User ID is required' });
+  if (!inputUserId) {
+    return res.status(400).json({ error: 'User ID is required' });
   }
 
   try {
@@ -48,26 +48,26 @@ router.delete('/:clerkUserId', async (req: Request, res: Response) => {
     const userResult = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.clerkUserId, clerkUserId))
+      .where(eq(users.userId, inputUserId))
       .limit(1);
 
     if (userResult.length === 0) {
       return res.status(404).json({
         error: 'User not found',
-        message: `No user found with clerk_user_id: ${clerkUserId}`,
+        message: `No user found with user_id: ${inputUserId}`,
       });
     }
 
-    const userId = userResult[0].id;
+    const dbUserId = userResult[0].id;
 
     // Delete the user (cascades will handle related data)
-    await db.delete(users).where(eq(users.id, userId));
+    await db.delete(users).where(eq(users.id, dbUserId));
 
-    console.log(`[users/delete] Successfully deleted user ${clerkUserId}`);
+    console.log(`[users/delete] Successfully deleted user ${inputUserId}`);
 
     return res.status(200).json({
       success: true,
-      message: `User ${clerkUserId} deleted successfully`,
+      message: `User ${inputUserId} deleted successfully`,
     });
   } catch (error) {
     console.error('[users/delete] Error:', error);

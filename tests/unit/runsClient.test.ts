@@ -31,7 +31,7 @@ describe('runs-client', () => {
   }
 
   describe('createRun', () => {
-    it('should POST to /v1/runs with clerkOrgId and appId', async () => {
+    it('should POST to /v1/runs with orgId and appId', async () => {
       const { createRun } = await importClient();
       const runResponse = {
         id: 'run-1',
@@ -52,7 +52,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse(runResponse));
 
       const result = await createRun({
-        clerkOrgId: 'clerk_org_1',
+        orgId: 'org_1',
         appId: 'mcpfactory',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
@@ -67,7 +67,7 @@ describe('runs-client', () => {
       );
 
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(callBody.clerkOrgId).toBe('clerk_org_1');
+      expect(callBody.orgId).toBe('org_1');
       expect(callBody.appId).toBe('mcpfactory');
     });
 
@@ -76,7 +76,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ id: 'run-2' }));
 
       await createRun({
-        clerkOrgId: 'clerk_org_1',
+        orgId: 'org_1',
         appId: 'mcpfactory',
         brandId: 'brand-123',
         serviceName: 'brand-service',
@@ -94,7 +94,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ id: 'run-1' }));
 
       await createRun({
-        clerkOrgId: 'clerk_org_1',
+        orgId: 'org_1',
         appId: 'mcpfactory',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
@@ -156,20 +156,20 @@ describe('runs-client', () => {
   });
 
   describe('listRuns', () => {
-    it('should GET /v1/runs with clerkOrgId query param', async () => {
+    it('should GET /v1/runs with orgId query param', async () => {
       const { listRuns } = await importClient();
       const runsResponse = { runs: [], limit: 50, offset: 0 };
       mockFetch.mockResolvedValueOnce(mockResponse(runsResponse));
 
       await listRuns({
-        clerkOrgId: 'clerk_org_1',
+        orgId: 'org_1',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
       });
 
       const calledUrl = mockFetch.mock.calls[0][0] as string;
       expect(calledUrl).toContain('/v1/runs?');
-      expect(calledUrl).toContain('clerkOrgId=clerk_org_1');
+      expect(calledUrl).toContain('orgId=org_1');
       expect(calledUrl).toContain('serviceName=brand-service');
       expect(calledUrl).toContain('taskName=sales-profile-extraction');
     });
@@ -178,10 +178,10 @@ describe('runs-client', () => {
       const { listRuns } = await importClient();
       mockFetch.mockResolvedValueOnce(mockResponse({ runs: [], limit: 50, offset: 0 }));
 
-      await listRuns({ clerkOrgId: 'clerk_org_1' });
+      await listRuns({ orgId: 'org_1' });
 
       const calledUrl = mockFetch.mock.calls[0][0] as string;
-      expect(calledUrl).toContain('clerkOrgId=clerk_org_1');
+      expect(calledUrl).toContain('orgId=org_1');
       expect(calledUrl).not.toContain('serviceName');
       expect(calledUrl).not.toContain('taskName');
     });
@@ -191,7 +191,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ runs: [], limit: 50, offset: 0 }));
 
       await listRuns({
-        clerkOrgId: 'clerk_org_1',
+        orgId: 'org_1',
         appId: 'mcpfactory',
         brandId: 'brand-123',
       });
@@ -206,7 +206,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ runs: [], limit: 50, offset: 0 }));
 
       await listRuns({
-        clerkOrgId: 'clerk_org_1',
+        orgId: 'org_1',
         workflowName: 'cold-email-outreach',
       });
 
@@ -221,7 +221,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse('Not found', 404));
 
       await expect(
-        createRun({ clerkOrgId: 'clerk_org_1', appId: 'mcpfactory', serviceName: 'test', taskName: 'test' })
+        createRun({ orgId: 'org_1', appId: 'mcpfactory', serviceName: 'test', taskName: 'test' })
       ).rejects.toThrow('runs-service POST /v1/runs failed: 404');
     });
 
@@ -229,7 +229,7 @@ describe('runs-client', () => {
       const { createRun } = await importClient();
       mockFetch.mockResolvedValueOnce(mockResponse({ id: 'run-1' }));
 
-      await createRun({ clerkOrgId: 'clerk_org_1', appId: 'mcpfactory', serviceName: 'test', taskName: 'test' });
+      await createRun({ orgId: 'org_1', appId: 'mcpfactory', serviceName: 'test', taskName: 'test' });
 
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers['X-API-Key']).toBe('test-api-key');

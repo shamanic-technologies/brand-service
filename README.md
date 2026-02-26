@@ -58,8 +58,8 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/brands` | Upsert brand by clerkOrgId + URL (no scraping) |
-| GET | `/brands` | List brands by clerkOrgId |
+| POST | `/brands` | Upsert brand by orgId + URL (no scraping) |
+| GET | `/brands` | List brands by orgId |
 | GET | `/brands/:id` | Get brand by ID |
 | GET | `/brands/:id/runs` | List extraction runs with costs (via runs-service) |
 
@@ -69,19 +69,19 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 |--------|------|-------------|
 | POST | `/sales-profile` | Get or create sales profile (optional: `urgency`, `scarcity`, `riskReversal`, `socialProof` user hints) |
 | GET | `/sales-profiles` | List all sales profiles for org |
-| GET | `/sales-profile/:clerkOrgId` | Most recent profile by org |
+| GET | `/sales-profile/:orgId` | Most recent profile by org |
 | GET | `/brands/:brandId/sales-profile` | Get existing profile for brand |
 
 ### Organizations
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/clerk-ids` | All clerk org IDs |
-| GET | `/by-clerk-id/:clerkOrgId` | Get org by clerk ID |
+| GET | `/org-ids` | All org IDs |
+| GET | `/by-org-id/:orgId` | Get org by ID |
 | PUT | `/set-url` | Set org URL |
 | GET | `/by-url` | Get org by URL |
 | GET | `/relations` | Get org relations by URL |
-| PUT | `/organizations` | Upsert org by clerk ID |
+| PUT | `/organizations` | Upsert org by organization ID |
 | POST | `/organizations` | Upsert org (alias) |
 | GET | `/organizations/:id/targets` | Target organizations |
 | GET | `/organizations/:id/individuals` | Org individuals + content |
@@ -142,7 +142,7 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 |--------|------|-------------|
 | POST | `/trigger-intake-form-generation` | Trigger form generation |
 | POST | `/intake-forms` | Upsert intake form |
-| GET | `/intake-forms/organization/:clerkOrgId` | Get form by org |
+| GET | `/intake-forms/organization/:organizationId` | Get form by org |
 
 ### Public Information
 
@@ -155,8 +155,8 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/email-data/public-info/:clerkOrgId` | Public info for email |
-| GET | `/email-data/theses/:clerkOrgId` | Theses for email |
+| GET | `/email-data/public-info/:orgId` | Public info for email |
+| GET | `/email-data/theses/:orgId` | Theses for email |
 
 ### Client Info
 
@@ -169,15 +169,15 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/users/list` | List all users |
-| DELETE | `/users/:clerkUserId` | Delete user |
+| DELETE | `/users/:userId` | Delete user |
 
 ## Database
 
 Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 
-- `orgs` — multi-tenant orgs keyed by `(app_id, clerk_org_id)`
+- `orgs` — multi-tenant orgs keyed by `(app_id, org_id)`
 - `users` — users linked to an org via `org_id` FK
-- `brands` — linked to `orgs` via `org_id` (NOT NULL FK), no direct `clerk_org_id`
+- `brands` — linked to `orgs` via `org_id` (NOT NULL FK)
 - `brand_sales_profiles` — AI-extracted profiles with leadership, funding, awards, revenue milestones, rich testimonials
 - `brand_linkedin_posts`
 - `individuals`, `brand_individuals`, `individuals_pdl_enrichment`

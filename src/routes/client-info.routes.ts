@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, brands } from '../db';
-import { getOrganizationIdByClerkId } from '../services/organizationUpsertService';
+import { getOrganizationIdByOrgId } from '../services/organizationUpsertService';
 import { TriggerWorkflowRequestSchema } from '../schemas';
 
 const router = Router();
@@ -17,11 +17,11 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { clerk_organization_id } = parsed.data;
+  const { organization_id } = parsed.data;
 
   try {
     // Get or create the brand (upsert pattern)
-    const brandId = await getOrganizationIdByClerkId(clerk_organization_id);
+    const brandId = await getOrganizationIdByOrgId(organization_id);
 
     // Get brand details
     const brandResult = await db
@@ -47,12 +47,12 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
     const payload = [
       {
         signature: webhookSecret,
-        clerk_organization_id: clerk_organization_id,
+        organization_id: organization_id,
         external_organization_id: externalOrganizationId,
       },
     ];
 
-    console.log(`[${new Date().toISOString()}] Triggering n8n workflow for organization ${clerk_organization_id}`);
+    console.log(`[${new Date().toISOString()}] Triggering n8n workflow for organization ${organization_id}`);
 
     fetch(webhookUrl, {
       method: 'POST',
@@ -64,7 +64,7 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
 
     return res.status(200).json({
       message: 'Client information workflow initiated successfully.',
-      clerk_organization_id: clerk_organization_id,
+      organization_id: organization_id,
       status: 'generating',
       generating_started_at: new Date().toISOString(),
     });

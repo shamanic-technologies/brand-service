@@ -14,7 +14,7 @@ const app = createTestApp();
 
 describe('GET /brands/:id/runs - Integration Tests', () => {
   let testBrandId: string;
-  const testClerkOrgId = `org_test_runs_${Date.now()}`;
+  const testOrgId = `org_test_runs_${Date.now()}`;
 
   beforeAll(async () => {
     // Create a test org first, then a brand
@@ -22,7 +22,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
       .insert(orgs)
       .values({
         appId: 'mcpfactory',
-        clerkOrgId: testClerkOrgId,
+        orgId: testOrgId,
       })
       .returning();
 
@@ -42,13 +42,13 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
       const testOrgs = await db
         .select({ id: orgs.id })
         .from(orgs)
-        .where(like(orgs.clerkOrgId, 'org_test_runs_%'));
+        .where(like(orgs.orgId, 'org_test_runs_%'));
 
       if (testOrgs.length > 0) {
         const orgIds = testOrgs.map(o => o.id);
         await db.delete(brands).where(inArray(brands.orgId, orgIds));
       }
-      await db.delete(orgs).where(like(orgs.clerkOrgId, 'org_test_runs_%'));
+      await db.delete(orgs).where(like(orgs.orgId, 'org_test_runs_%'));
     } catch (e) {
       console.error('Cleanup error:', e);
     }
@@ -90,7 +90,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
     expect(response.status).toBe(200);
     expect(listRuns).toHaveBeenCalledWith(
       expect.objectContaining({
-        clerkOrgId: testClerkOrgId,
+        orgId: testOrgId,
         appId: 'mcpfactory',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',

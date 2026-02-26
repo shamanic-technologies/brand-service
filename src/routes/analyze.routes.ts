@@ -9,14 +9,14 @@ import { AnalyzeRequestSchema } from '../schemas';
 const router = Router();
 
 /**
- * Helper to get brand ID from clerk_organization_id
+ * Helper to get brand ID from organization_id
  */
-async function getBrandFromClerkId(clerkOrganizationId: string): Promise<{ id: string; externalId: string | null }> {
+async function getBrandFromOrgId(organizationId: string): Promise<{ id: string; externalId: string | null }> {
   const result = await db
     .select({ id: brands.id, externalId: brands.externalOrganizationId })
     .from(brands)
     .innerJoin(orgs, eq(brands.orgId, orgs.id))
-    .where(eq(orgs.clerkOrgId, clerkOrganizationId))
+    .where(eq(orgs.orgId, organizationId))
     .limit(1);
 
   if (result.length === 0) {
@@ -37,12 +37,12 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
     console.error(`❌ [ENDPOINT] Invalid request`);
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { clerk_organization_id } = parsed.data;
+  const { organization_id } = parsed.data;
 
   try {
     console.log(`🔎 [ENDPOINT] Looking up asset in database...`);
 
-    const { id: brandId, externalId: externalOrganizationId } = await getBrandFromClerkId(clerk_organization_id);
+    const { id: brandId, externalId: externalOrganizationId } = await getBrandFromOrgId(organization_id);
 
     // Get media asset details with join
     const assetResult = await db
@@ -123,12 +123,12 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
     console.error(`❌ [BATCH ANALYZE] Invalid request`);
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { clerk_organization_id } = parsed.data;
+  const { organization_id } = parsed.data;
 
-  console.log(`📥 [BATCH ANALYZE] Processing for clerk org ${clerk_organization_id}`);
+  console.log(`📥 [BATCH ANALYZE] Processing for org ${organization_id}`);
 
   try {
-    const { id: brandId, externalId: externalOrganizationId } = await getBrandFromClerkId(clerk_organization_id);
+    const { id: brandId, externalId: externalOrganizationId } = await getBrandFromOrgId(organization_id);
 
     // Get all images without caption for this brand
     const assets = await db

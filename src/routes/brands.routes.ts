@@ -12,7 +12,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 /**
  * POST /brands
- * Upsert a brand by clerkOrgId + URL. Lightweight — no scraping or AI.
+ * Upsert a brand by orgId + URL. Lightweight — no scraping or AI.
  * Returns { brandId, domain, name, created }
  */
 router.post('/brands', async (req: Request, res: Response) => {
@@ -21,7 +21,7 @@ router.post('/brands', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { appId, clerkOrgId, url, clerkUserId } = parsed.data;
+    const { appId, orgId: inputOrgId, url, userId: inputUserId } = parsed.data;
 
     // Extract domain to check if brand already exists
     let domain: string;
@@ -33,14 +33,14 @@ router.post('/brands', async (req: Request, res: Response) => {
     }
 
     // Resolve org to check if brand exists by orgId + domain
-    const org = await resolveOrCreateOrg(appId, clerkOrgId);
+    const org = await resolveOrCreateOrg(appId, inputOrgId);
     const existing = await db
       .select({ id: brands.id })
       .from(brands)
       .where(and(eq(brands.orgId, org.id), eq(brands.domain, domain)))
       .limit(1);
 
-    const brand = await getOrCreateBrand(clerkOrgId, url, { appId, clerkUserId });
+    const brand = await getOrCreateBrand(inputOrgId, url, { appId, userId: inputUserId });
 
     res.json({
       brandId: brand.id,
@@ -56,10 +56,10 @@ router.post('/brands', async (req: Request, res: Response) => {
 
 /**
  * GET /brands
- * List all brands for an organization by clerkOrgId
+ * List all brands for an organization by orgId
  *
  * Query params:
- * - clerkOrgId: required
+ * - orgId: required
  */
 router.get('/brands', async (req: Request, res: Response) => {
   try {
@@ -67,9 +67,9 @@ router.get('/brands', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { clerkOrgId } = parsed.data;
+    const { orgId: inputOrgId } = parsed.data;
 
-    const orgId = await resolveOrgIdOptional(clerkOrgId);
+    const orgId = await resolveOrgIdOptional(inputOrgId);
     if (!orgId) {
       return res.json({ brands: [] });
     }
@@ -160,9 +160,9 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
     const limit = parsed.data.limit ? parseInt(parsed.data.limit, 10) : undefined;
     const offset = parsed.data.offset ? parseInt(parsed.data.offset, 10) : undefined;
 
-    // Look up the brand and join to orgs to get clerkOrgId
+    // Look up the brand and join to orgs to get orgId
     const [brandRow] = await db
-      .select({ id: brands.id, clerkOrgId: orgs.clerkOrgId })
+      .select({ id: brands.id, orgId: orgs.orgId })
       .from(brands)
       .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .where(eq(brands.id, id))
@@ -173,7 +173,7 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
     }
 
     const result = await listRuns({
-      clerkOrgId: brandRow.clerkOrgId,
+      orgId: brandRow.orgId,
       appId: 'mcpfactory',
       serviceName: 'brand-service',
       taskName,

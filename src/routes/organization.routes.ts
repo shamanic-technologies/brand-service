@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getOrganizationRelationsByUrl } from '../services/organizationService';
-import { getOrganizationIdByClerkId } from '../services/organizationUpsertService';
+import { getOrganizationIdByOrgId } from '../services/organizationUpsertService';
 import { pool } from '../db/utils';
 import { SetUrlRequestSchema, UpsertOrganizationRequestSchema, AddIndividualRequestSchema, UpdateIndividualStatusRequestSchema, UpdateRelationStatusRequestSchema, UpdateThesisStatusRequestSchema, UpdateLogoRequestSchema, BulkDeleteOrgsRequestSchema } from '../schemas';
 
@@ -8,63 +8,67 @@ const router = Router();
 
 /**
  * Resolve a brand from an organizationId param that can be:
- * - clerk_organization_id (org_xxx) → lookup through orgs table
+ * - org_id (external org identifier) → lookup through orgs table
  * - internal UUID (brands.id) → direct lookup
+ *
+ * Tries orgs table first, then falls back to direct brands lookup.
  */
 async function lookupBrand(organizationId: string): Promise<{ id: string; external_organization_id: string | null } | null> {
-  if (organizationId.startsWith('org_')) {
-    const result = await pool.query(
-      `SELECT b.id, b.external_organization_id
-       FROM brands b
-       JOIN orgs o ON b.org_id = o.id
-       WHERE o.clerk_org_id = $1 AND o.app_id = 'mcpfactory'
-       LIMIT 1`,
-      [organizationId]
-    );
-    return result.rows[0] || null;
-  } else {
-    const result = await pool.query(
-      'SELECT id, external_organization_id FROM brands WHERE id = $1 LIMIT 1',
-      [organizationId]
-    );
-    return result.rows[0] || null;
+  // Try lookup via orgs table first
+  const orgResult = await pool.query(
+    `SELECT b.id, b.external_organization_id
+     FROM brands b
+     JOIN orgs o ON b.org_id = o.id
+     WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'
+     LIMIT 1`,
+    [organizationId]
+  );
+  if (orgResult.rows[0]) {
+    return orgResult.rows[0];
   }
+
+  // Fall back to direct brands lookup by UUID
+  const result = await pool.query(
+    'SELECT id, external_organization_id FROM brands WHERE id = $1 LIMIT 1',
+    [organizationId]
+  );
+  return result.rows[0] || null;
 }
 
-// GET all clerk_organization_ids (for bulk health checks)
-router.get('/clerk-ids', async (req: Request, res: Response) => {
+// GET all organization_ids (for bulk health checks)
+router.get('/org-ids', async (req: Request, res: Response) => {
   try {
     const result = await pool.query(`
-      SELECT DISTINCT o.clerk_org_id AS clerk_organization_id
+      SELECT DISTINCT o.org_id AS organization_id
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
     `);
 
-    const clerkOrgIds = result.rows.map(row => row.clerk_organization_id);
-    res.json({ clerk_organization_ids: clerkOrgIds, count: clerkOrgIds.length });
+    const orgIds = result.rows.map(row => row.organization_id);
+    res.json({ organization_ids: orgIds, count: orgIds.length });
   } catch (error) {
-    console.error('Error fetching clerk organization IDs:', error);
+    console.error('Error fetching organization IDs:', error);
     res.status(500).send({ error: 'An error occurred while fetching organization IDs.' });
   }
 });
 
-// GET organization by clerk_organization_id
-router.get('/by-clerk-id/:clerkOrgId', async (req: Request, res: Response) => {
-  const { clerkOrgId } = req.params;
+// GET organization by org_id
+router.get('/by-org-id/:orgId', async (req: Request, res: Response) => {
+  const { orgId } = req.params;
 
-  if (!clerkOrgId) {
-    return res.status(400).send({ error: 'clerkOrgId parameter is required.' });
+  if (!orgId) {
+    return res.status(400).send({ error: 'orgId parameter is required.' });
   }
 
   try {
     const query = `
-      SELECT b.id, o.clerk_org_id AS clerk_organization_id, b.name, b.url, b.domain, b.logo_url, b.elevator_pitch, b.bio
+      SELECT b.id, o.org_id AS organization_id, b.name, b.url, b.domain, b.logo_url, b.elevator_pitch, b.bio
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
-      WHERE o.clerk_org_id = $1 AND o.app_id = 'mcpfactory'
+      WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'
       LIMIT 1;
     `;
-    const result = await pool.query(query, [clerkOrgId]);
+    const result = await pool.query(query, [orgId]);
 
     if (result.rows.length === 0) {
       return res.status(404).send({ error: 'Organization not found.' });
@@ -72,7 +76,7 @@ router.get('/by-clerk-id/:clerkOrgId', async (req: Request, res: Response) => {
 
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error fetching organization by clerk ID:', error);
+    console.error('Error fetching organization by org ID:', error);
     res.status(500).send({ error: 'An error occurred while fetching the organization.' });
   }
 });
@@ -83,32 +87,32 @@ router.put('/set-url', async (req: Request, res: Response) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { clerk_organization_id, url } = parsed.data;
+  const { organization_id, url } = parsed.data;
 
   try {
     // Check if org + brand exists
     const existingQuery = `
-      SELECT b.id, o.clerk_org_id AS clerk_organization_id, b.name, b.url
+      SELECT b.id, o.org_id AS organization_id, b.name, b.url
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
-      WHERE o.clerk_org_id = $1 AND o.app_id = 'mcpfactory'
+      WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'
       LIMIT 1;
     `;
-    const existing = await pool.query(existingQuery, [clerk_organization_id]);
+    const existing = await pool.query(existingQuery, [organization_id]);
 
     if (existing.rows.length === 0) {
       // Organization doesn't exist - create via upsert service
-      const brandId = await getOrganizationIdByClerkId(clerk_organization_id, undefined, url);
+      const brandId = await getOrganizationIdByOrgId(organization_id, undefined, url);
 
       const fetchQuery = `
-        SELECT b.id, o.clerk_org_id AS clerk_organization_id, b.name, b.url
+        SELECT b.id, o.org_id AS organization_id, b.name, b.url
         FROM brands b
         JOIN orgs o ON b.org_id = o.id
         WHERE b.id = $1
         LIMIT 1;
       `;
       const result = await pool.query(fetchQuery, [brandId]);
-      console.log(`[set-url] Created organization ${clerk_organization_id} with URL ${url}`);
+      console.log(`[set-url] Created organization ${organization_id} with URL ${url}`);
       return res.json(result.rows[0]);
     }
 
@@ -134,14 +138,14 @@ router.put('/set-url', async (req: Request, res: Response) => {
 
     // Fetch full data for response
     const fetchQuery = `
-      SELECT b.id, o.clerk_org_id AS clerk_organization_id, b.name, b.url
+      SELECT b.id, o.org_id AS organization_id, b.name, b.url
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
       WHERE b.id = $1;
     `;
     const result = await pool.query(fetchQuery, [org.id]);
 
-    console.log(`[set-url] Set URL for ${clerk_organization_id}: ${url}`);
+    console.log(`[set-url] Set URL for ${organization_id}: ${url}`);
     res.json(result.rows[0]);
   } catch (error) {
     console.error('Error setting organization URL:', error);
@@ -159,7 +163,7 @@ router.get('/by-url', async (req: Request, res: Response) => {
 
   try {
     const query = `
-      SELECT b.id, o.clerk_org_id AS clerk_organization_id, b.name, b.url, b.logo_url
+      SELECT b.id, o.org_id AS organization_id, b.name, b.url, b.logo_url
       FROM brands b
       LEFT JOIN orgs o ON b.org_id = o.id
       WHERE b.url = $1
@@ -197,26 +201,26 @@ router.get('/relations', async (req: Request, res: Response) => {
   }
 });
 
-// PUT/POST upsert organization by Clerk organization ID
+// PUT/POST upsert organization by organization ID
 router.put('/organizations', async (req: Request, res: Response) => {
   const parsed = UpsertOrganizationRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { clerk_organization_id, external_organization_id, name, url } = parsed.data;
+  const { organization_id, external_organization_id, name, url } = parsed.data;
 
   try {
-    console.log(`Upserting organization: ${clerk_organization_id}, external_id: ${external_organization_id}`);
+    console.log(`Upserting organization: ${organization_id}, external_id: ${external_organization_id}`);
 
-    const organizationId = await getOrganizationIdByClerkId(
-      clerk_organization_id,
+    const organizationId = await getOrganizationIdByOrgId(
+      organization_id,
       name,
       url,
       external_organization_id
     );
 
     const fetchQuery = `
-      SELECT b.*, o.clerk_org_id AS clerk_organization_id
+      SELECT b.*, o.org_id AS organization_id
       FROM brands b
       LEFT JOIN orgs o ON b.org_id = o.id
       WHERE b.id = $1;
@@ -245,20 +249,20 @@ router.post('/organizations', async (req: Request, res: Response) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { clerk_organization_id, external_organization_id, name, url } = parsed.data;
+  const { organization_id, external_organization_id, name, url } = parsed.data;
 
   try {
-    console.log(`Upserting organization: ${clerk_organization_id}, external_id: ${external_organization_id}`);
+    console.log(`Upserting organization: ${organization_id}, external_id: ${external_organization_id}`);
 
-    const organizationId = await getOrganizationIdByClerkId(
-      clerk_organization_id,
+    const organizationId = await getOrganizationIdByOrgId(
+      organization_id,
       name,
       url,
       external_organization_id
     );
 
     const fetchQuery = `
-      SELECT b.*, o.clerk_org_id AS clerk_organization_id
+      SELECT b.*, o.org_id AS organization_id
       FROM brands b
       LEFT JOIN orgs o ON b.org_id = o.id
       WHERE b.id = $1;
@@ -281,25 +285,29 @@ router.post('/organizations', async (req: Request, res: Response) => {
   }
 });
 
-// GET target organizations by Clerk organization ID
-router.get('/organizations/:clerkOrganizationId/targets', async (req: Request, res: Response) => {
-  const { clerkOrganizationId } = req.params;
+// GET target organizations by organization ID
+router.get('/organizations/:organizationId/targets', async (req: Request, res: Response) => {
+  const { organizationId } = req.params;
 
-  if (!clerkOrganizationId) {
-    return res.status(400).json({ error: 'clerkOrganizationId parameter is required.' });
+  if (!organizationId) {
+    return res.status(400).json({ error: 'organizationId parameter is required.' });
   }
 
   try {
-    console.log(`Fetching target organizations for: ${clerkOrganizationId}`);
+    console.log(`Fetching target organizations for: ${organizationId}`);
+
+    const brand = await lookupBrand(organizationId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Organization not found.' });
+    }
 
     const query = `
       SELECT vto.* FROM v_target_organizations vto
       JOIN brands b ON vto.source_external_organization_id = b.external_organization_id
-      JOIN orgs o ON b.org_id = o.id
-      WHERE o.clerk_org_id = $1 AND o.app_id = 'mcpfactory';
+      WHERE b.id = $1;
     `;
 
-    const result = await pool.query(query, [clerkOrganizationId]);
+    const result = await pool.query(query, [brand.id]);
 
     res.json({
       success: true,
@@ -994,7 +1002,7 @@ router.get('/admin/organizations', async (req: Request, res: Response) => {
     let query = `
       SELECT
         b.id,
-        o.clerk_org_id AS clerk_organization_id,
+        o.org_id AS organization_id,
         b.name,
         b.url,
         b.domain,
@@ -1011,7 +1019,7 @@ router.get('/admin/organizations', async (req: Request, res: Response) => {
 
     if (filter) {
       queryParams.push(`%${filter}%`);
-      query += ` WHERE b.name ILIKE $1 OR b.url ILIKE $1 OR b.domain ILIKE $1 OR o.clerk_org_id ILIKE $1`;
+      query += ` WHERE b.name ILIKE $1 OR b.url ILIKE $1 OR b.domain ILIKE $1 OR o.org_id ILIKE $1`;
     }
 
     query += ` ORDER BY b.updated_at DESC`;
@@ -1035,7 +1043,7 @@ router.get('/admin/organizations-descriptions', async (req: Request, res: Respon
     let query = `
       SELECT
         b.id,
-        o.clerk_org_id AS clerk_organization_id,
+        o.org_id AS organization_id,
         b.external_organization_id,
         b.name,
         b.url,
@@ -1066,7 +1074,7 @@ router.get('/admin/organizations-descriptions', async (req: Request, res: Respon
 
     if (filter) {
       queryParams.push(`%${filter}%`);
-      query += ` WHERE b.name ILIKE $1 OR b.url ILIKE $1 OR b.domain ILIKE $1 OR o.clerk_org_id ILIKE $1 OR b.elevator_pitch ILIKE $1 OR b.bio ILIKE $1`;
+      query += ` WHERE b.name ILIKE $1 OR b.url ILIKE $1 OR b.domain ILIKE $1 OR o.org_id ILIKE $1 OR b.elevator_pitch ILIKE $1 OR b.bio ILIKE $1`;
     }
 
     query += ` ORDER BY b.updated_at DESC`;
@@ -1090,13 +1098,13 @@ router.get('/admin/organization-relations', async (req: Request, res: Response) 
     let query = `
       SELECT
         source_org.id AS source_org_id,
-        so.clerk_org_id AS source_clerk_org_id,
+        so.org_id AS source_organization_id,
         source_org.name AS source_org_name,
         source_org.url AS source_org_url,
         source_org.domain AS source_org_domain,
         source_org.logo_url AS source_org_logo_url,
         target_org.id AS target_org_id,
-        to2.clerk_org_id AS target_clerk_org_id,
+        to2.org_id AS target_organization_id,
         target_org.name AS target_org_name,
         target_org.url AS target_org_url,
         target_org.domain AS target_org_domain,
@@ -1117,7 +1125,7 @@ router.get('/admin/organization-relations', async (req: Request, res: Response) 
       JOIN brands target_org ON rel.target_brand_id = target_org.id
       LEFT JOIN orgs so ON source_org.org_id = so.id
       LEFT JOIN orgs to2 ON target_org.org_id = to2.id
-      WHERE so.clerk_org_id IS NOT NULL
+      WHERE so.org_id IS NOT NULL
     `;
     const queryParams: string[] = [];
 
@@ -1153,7 +1161,7 @@ router.get('/admin/organization-individuals', async (req: Request, res: Response
     let query = `
       SELECT
         b.id AS source_org_id,
-        o.clerk_org_id AS source_clerk_org_id,
+        o.org_id AS source_organization_id,
         b.name AS source_org_name,
         b.url AS source_org_url,
         b.domain AS source_org_domain,
@@ -1258,7 +1266,7 @@ router.get('/admin/organization-individuals', async (req: Request, res: Response
       LEFT JOIN
         individuals_pdl_enrichment pdl ON i.id = pdl.individual_id
       WHERE
-        o.clerk_org_id IS NOT NULL
+        o.org_id IS NOT NULL
     `;
     const queryParams: string[] = [];
 
@@ -1344,7 +1352,7 @@ router.delete('/admin/organizations/:id', async (req: Request, res: Response) =>
 
   try {
     const brandResult = await pool.query(
-      `SELECT b.id, o.clerk_org_id AS clerk_organization_id, b.name, b.external_organization_id
+      `SELECT b.id, o.org_id AS organization_id, b.name, b.external_organization_id
        FROM brands b
        LEFT JOIN orgs o ON b.org_id = o.id
        WHERE b.id = $1`,
@@ -1388,7 +1396,7 @@ router.delete('/admin/organizations/:id', async (req: Request, res: Response) =>
     await pool.query('DELETE FROM brands WHERE id = $1', [id]);
     deletionCounts.organizations = 1;
 
-    console.log(`[DELETE /admin/organizations/${id}] Deleted organization ${brand.name} (${brand.clerk_organization_id}):`, deletionCounts);
+    console.log(`[DELETE /admin/organizations/${id}] Deleted organization ${brand.name} (${brand.organization_id}):`, deletionCounts);
 
     return res.status(200).json({
       success: true,
@@ -1406,31 +1414,31 @@ router.delete('/admin/organizations/:id', async (req: Request, res: Response) =>
 
 /**
  * GET /organizations/exists
- * Check if organizations exist by clerk_organization_id.
+ * Check if organizations exist by organization_id.
  */
 router.get('/organizations/exists', async (req: Request, res: Response) => {
-  const clerkOrgIdsParam = req.query.clerkOrgIds as string | undefined;
+  const orgIdsParam = req.query.orgIds as string | undefined;
 
-  if (!clerkOrgIdsParam) {
-    return res.status(400).json({ error: 'clerkOrgIds query parameter is required' });
+  if (!orgIdsParam) {
+    return res.status(400).json({ error: 'orgIds query parameter is required' });
   }
 
-  const clerkOrgIds = clerkOrgIdsParam.split(',').filter(Boolean);
+  const orgIds = orgIdsParam.split(',').filter(Boolean);
 
-  if (clerkOrgIds.length === 0) {
+  if (orgIds.length === 0) {
     return res.status(200).json({ organizations: [] });
   }
 
   try {
-    const placeholders = clerkOrgIds.map((_, i) => `$${i + 1}`).join(',');
+    const placeholders = orgIds.map((_, i) => `$${i + 1}`).join(',');
     const query = `
-      SELECT o.clerk_org_id AS clerk_organization_id, b.updated_at
+      SELECT o.org_id AS organization_id, b.updated_at
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
-      WHERE o.clerk_org_id IN (${placeholders})
+      WHERE o.org_id IN (${placeholders})
     `;
 
-    const result = await pool.query(query, clerkOrgIds);
+    const result = await pool.query(query, orgIds);
 
     return res.status(200).json({ organizations: result.rows });
   } catch (error) {
@@ -1440,14 +1448,14 @@ router.get('/organizations/exists', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /email-data/public-info/:clerkOrgId
+ * GET /email-data/public-info/:orgId
  * Returns public information formatted for lifecycle email.
  */
-router.get('/email-data/public-info/:clerkOrgId', async (req: Request, res: Response) => {
-  const { clerkOrgId } = req.params;
+router.get('/email-data/public-info/:orgId', async (req: Request, res: Response) => {
+  const { orgId } = req.params;
 
-  if (!clerkOrgId) {
-    return res.status(400).json({ error: 'clerkOrgId is required' });
+  if (!orgId) {
+    return res.status(400).json({ error: 'orgId is required' });
   }
 
   try {
@@ -1470,13 +1478,13 @@ router.get('/email-data/public-info/:clerkOrgId', async (req: Request, res: Resp
         b.domain
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
-      WHERE o.clerk_org_id = $1 AND o.app_id = 'mcpfactory'
+      WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'
     `;
 
-    const result = await pool.query(query, [clerkOrgId]);
+    const result = await pool.query(query, [orgId]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Organization not found', clerkOrgId });
+      return res.status(404).json({ error: 'Organization not found', orgId });
     }
 
     const org = result.rows[0];
@@ -1546,14 +1554,14 @@ router.get('/email-data/public-info/:clerkOrgId', async (req: Request, res: Resp
 });
 
 /**
- * GET /email-data/theses/:clerkOrgId
+ * GET /email-data/theses/:orgId
  * Returns theses formatted for lifecycle email.
  */
-router.get('/email-data/theses/:clerkOrgId', async (req: Request, res: Response) => {
-  const { clerkOrgId } = req.params;
+router.get('/email-data/theses/:orgId', async (req: Request, res: Response) => {
+  const { orgId } = req.params;
 
-  if (!clerkOrgId) {
-    return res.status(400).json({ error: 'clerkOrgId is required' });
+  if (!orgId) {
+    return res.status(400).json({ error: 'orgId is required' });
   }
 
   try {
@@ -1561,12 +1569,12 @@ router.get('/email-data/theses/:clerkOrgId', async (req: Request, res: Response)
       `SELECT b.id, b.name
        FROM brands b
        JOIN orgs o ON b.org_id = o.id
-       WHERE o.clerk_org_id = $1 AND o.app_id = 'mcpfactory'`,
-      [clerkOrgId]
+       WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'`,
+      [orgId]
     );
 
     if (orgQuery.rows.length === 0) {
-      return res.status(404).json({ error: 'Organization not found', clerkOrgId });
+      return res.status(404).json({ error: 'Organization not found', orgId });
     }
 
     const brandId = orgQuery.rows[0].id;
