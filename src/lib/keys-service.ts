@@ -26,13 +26,13 @@ export interface CallerContext {
  *
  * @param orgId - The organization ID
  * @param provider - The provider (e.g., "anthropic", "openai")
- * @param keyType - "byok" for user's key, "platform" for our key
+ * @param keyType - "byok" for user's key, "app" for client app key, "platform" for platform key
  * @param caller - The caller context (HTTP method + path) for key-service audit headers
  */
 export async function getKeyForOrg(
   orgId: string,
   provider: string,
-  keyType: "byok" | "platform",
+  keyType: "platform" | "app" | "byok",
   caller: CallerContext,
 ): Promise<string | null> {
   // Platform key - use our own

@@ -70,6 +70,21 @@ describe('Zod Schemas', () => {
       expect(result.success).toBe(false);
     });
 
+    it('should accept keyType app', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'mcpfactory',
+        orgId: 'org_123',
+        url: 'https://example.com',
+        userId: 'user_123',
+        parentRunId: 'run_1',
+        keyType: 'app',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.keyType).toBe('app');
+      }
+    });
+
     it('should reject invalid keyType', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'mcpfactory',
