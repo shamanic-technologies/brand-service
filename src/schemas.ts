@@ -154,7 +154,7 @@ export const CreateSalesProfileRequestSchema = z
     orgId: z.string(),
     url: z.string(),
     userId: z.string(),
-    keyType: z.enum(['byok', 'platform']).default('byok'),
+    keyType: z.enum(['platform', 'app', 'byok']).default('byok'),
     skipCache: z.boolean().optional(),
     parentRunId: z.string(),
     workflowName: z.string().optional(),
