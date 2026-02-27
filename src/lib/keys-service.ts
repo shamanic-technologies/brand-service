@@ -2,7 +2,6 @@ import axios from 'axios';
 
 const KEY_SERVICE_URL = process.env.KEY_SERVICE_URL || 'https://key.mcpfactory.org';
 const KEY_SERVICE_API_KEY = process.env.KEY_SERVICE_API_KEY;
-const PLATFORM_ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
 const TRANSIENT_ERROR_CODES = new Set(['ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN']);
 const MAX_RETRIES = 2;
@@ -22,36 +21,61 @@ export interface CallerContext {
 }
 
 /**
- * Get API key for an organization via key-service
+ * Resolve the key-service decrypt URL and query params for a given keyType.
+ *
+ * - "platform" → /internal/platform-keys/{provider}/decrypt (no ID params)
+ * - "app"      → /internal/app-keys/{provider}/decrypt?appId=...
+ * - "byok"     → /internal/keys/{provider}/decrypt?orgId=...
+ */
+function resolveKeyEndpoint(
+  provider: string,
+  keyType: "platform" | "app" | "byok",
+  orgId: string,
+  appId?: string,
+): { url: string; params: Record<string, string> } {
+  switch (keyType) {
+    case "platform":
+      return {
+        url: `${KEY_SERVICE_URL}/internal/platform-keys/${provider}/decrypt`,
+        params: {},
+      };
+    case "app":
+      if (!appId) throw new Error("appId is required for keyType 'app'");
+      return {
+        url: `${KEY_SERVICE_URL}/internal/app-keys/${provider}/decrypt`,
+        params: { appId },
+      };
+    case "byok":
+      return {
+        url: `${KEY_SERVICE_URL}/internal/keys/${provider}/decrypt`,
+        params: { orgId },
+      };
+  }
+}
+
+/**
+ * Get API key via key-service
  *
  * @param orgId - The organization ID
  * @param provider - The provider (e.g., "anthropic", "openai")
  * @param keyType - "byok" for user's key, "app" for client app key, "platform" for platform key
  * @param caller - The caller context (HTTP method + path) for key-service audit headers
+ * @param appId - Required when keyType is "app"
  */
 export async function getKeyForOrg(
   orgId: string,
   provider: string,
   keyType: "platform" | "app" | "byok",
   caller: CallerContext,
+  appId?: string,
 ): Promise<string | null> {
-  // Platform key - use our own
-  if (keyType === "platform") {
-    if (provider === "anthropic") {
-      return PLATFORM_ANTHROPIC_KEY || null;
-    }
-    console.warn(`No platform key configured for provider: ${provider}`);
-    return null;
-  }
-
-  // BYOK - fetch via key-service with retries for transient errors
-  const url = `${KEY_SERVICE_URL}/internal/keys/${provider}/decrypt`;
+  const { url, params } = resolveKeyEndpoint(provider, keyType, orgId, appId);
   let lastError: any;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const response = await axios.get(url, {
-        params: { orgId },
+        params,
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': KEY_SERVICE_API_KEY,
@@ -67,7 +91,7 @@ export async function getKeyForOrg(
       lastError = error;
 
       if (error.response?.status === 404) {
-        console.log(`No BYOK key found for org ${orgId}, provider ${provider}`);
+        console.log(`No ${keyType} key found for provider ${provider}`);
         return null;
       }
 

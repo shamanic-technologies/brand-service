@@ -7,7 +7,6 @@ const mockedAxios = vi.mocked(axios);
 // Set env vars before import
 process.env.KEY_SERVICE_URL = 'https://key-test.example.com';
 process.env.KEY_SERVICE_API_KEY = 'test-key-service-key';
-process.env.ANTHROPIC_API_KEY = 'platform-key-123';
 
 const testCaller = { method: 'POST', path: '/sales-profile' };
 
@@ -25,15 +24,69 @@ describe('keys-service', () => {
   }
 
   describe('getKeyForOrg - platform keys', () => {
-    it('should return platform anthropic key', async () => {
+    it('should call platform-keys decrypt endpoint', async () => {
+      mockedAxios.get.mockResolvedValueOnce({ data: { key: 'platform-key-abc' } });
+
       const { getKeyForOrg } = await importModule();
       const key = await getKeyForOrg('org_123', 'anthropic', 'platform', testCaller);
-      expect(key).toBe('platform-key-123');
+
+      expect(key).toBe('platform-key-abc');
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        'https://key-test.example.com/internal/platform-keys/anthropic/decrypt',
+        expect.objectContaining({
+          params: {},
+          headers: expect.objectContaining({
+            'X-Caller-Service': 'brand',
+            'X-Caller-Method': 'POST',
+            'X-Caller-Path': '/sales-profile',
+          }),
+        }),
+      );
     });
 
-    it('should return null for unsupported platform provider', async () => {
+    it('should return null when platform key not found (404)', async () => {
+      const error = new Error('Not found') as any;
+      error.response = { status: 404 };
+      mockedAxios.get.mockRejectedValueOnce(error);
+
       const { getKeyForOrg } = await importModule();
       const key = await getKeyForOrg('org_123', 'openai', 'platform', testCaller);
+      expect(key).toBeNull();
+    });
+  });
+
+  describe('getKeyForOrg - app keys', () => {
+    it('should call app-keys decrypt endpoint with appId', async () => {
+      mockedAxios.get.mockResolvedValueOnce({ data: { key: 'app-key-xyz' } });
+
+      const { getKeyForOrg } = await importModule();
+      const key = await getKeyForOrg('org_123', 'anthropic', 'app', testCaller, 'mcpfactory');
+
+      expect(key).toBe('app-key-xyz');
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        'https://key-test.example.com/internal/app-keys/anthropic/decrypt',
+        expect.objectContaining({
+          params: { appId: 'mcpfactory' },
+          headers: expect.objectContaining({
+            'X-Caller-Service': 'brand',
+          }),
+        }),
+      );
+    });
+
+    it('should throw when appId missing for keyType app', async () => {
+      const { getKeyForOrg } = await importModule();
+      await expect(getKeyForOrg('org_123', 'anthropic', 'app', testCaller))
+        .rejects.toThrow("appId is required for keyType 'app'");
+    });
+
+    it('should return null when app key not found (404)', async () => {
+      const error = new Error('Not found') as any;
+      error.response = { status: 404 };
+      mockedAxios.get.mockRejectedValueOnce(error);
+
+      const { getKeyForOrg } = await importModule();
+      const key = await getKeyForOrg('org_123', 'anthropic', 'app', testCaller, 'mcpfactory');
       expect(key).toBeNull();
     });
   });
