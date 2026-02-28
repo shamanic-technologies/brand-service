@@ -20,11 +20,11 @@ router.post('/trigger-thesis-generation', async (req: Request, res: Response) =>
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { organization_id } = parsed.data;
+  const { organization_id, appId } = parsed.data;
 
   try {
     // Resolve org, then get brand
-    const orgId = await resolveOrgIdOptional(organization_id);
+    const orgId = await resolveOrgIdOptional(organization_id, appId);
     if (!orgId) {
       return res.status(404).json({ error: 'Organization not found' });
     }

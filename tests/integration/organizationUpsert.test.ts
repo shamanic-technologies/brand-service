@@ -29,11 +29,11 @@ describe('getOrganizationIdByOrgId - cross-org isolation', () => {
     const sharedUrl = 'https://shared-upsert.example.com';
 
     // Org A creates a brand with this URL
-    const brandIdA = await getOrganizationIdByOrgId(orgIdA, 'Brand A', sharedUrl);
+    const brandIdA = await getOrganizationIdByOrgId(orgIdA, 'Brand A', sharedUrl, undefined, 'test-app');
     expect(brandIdA).toBeDefined();
 
     // Org B upserts with the same URL
-    const brandIdB = await getOrganizationIdByOrgId(orgIdB, 'Brand B', sharedUrl);
+    const brandIdB = await getOrganizationIdByOrgId(orgIdB, 'Brand B', sharedUrl, undefined, 'test-app');
     expect(brandIdB).toBeDefined();
 
     // They must be DIFFERENT brand IDs
@@ -41,9 +41,9 @@ describe('getOrganizationIdByOrgId - cross-org isolation', () => {
 
     // Verify each brand belongs to the correct org
     const [orgA] = await db.select().from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgIdA)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgIdA)));
     const [orgB] = await db.select().from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgIdB)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgIdB)));
 
     const [brandA] = await db.select().from(brands).where(eq(brands.id, brandIdA));
     const [brandB] = await db.select().from(brands).where(eq(brands.id, brandIdB));
@@ -56,11 +56,11 @@ describe('getOrganizationIdByOrgId - cross-org isolation', () => {
     const testOrgId = `${testPrefix}${Date.now()}_mergetest`;
 
     // First call: no URL → creates skeleton brand
-    const brandId1 = await getOrganizationIdByOrgId(testOrgId, 'Skeleton Brand');
+    const brandId1 = await getOrganizationIdByOrgId(testOrgId, 'Skeleton Brand', undefined, undefined, 'test-app');
     expect(brandId1).toBeDefined();
 
     // Second call: with URL → should update the skeleton brand, not create a new one
-    const brandId2 = await getOrganizationIdByOrgId(testOrgId, 'Full Brand', 'https://merge-test.example.com');
+    const brandId2 = await getOrganizationIdByOrgId(testOrgId, 'Full Brand', 'https://merge-test.example.com', undefined, 'test-app');
     expect(brandId2).toBe(brandId1);
 
     // Verify the brand now has the domain

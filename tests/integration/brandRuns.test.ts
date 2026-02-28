@@ -21,7 +21,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
     const [org] = await db
       .insert(orgs)
       .values({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: testOrgId,
       })
       .returning();
@@ -91,7 +91,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
     expect(listRuns).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: testOrgId,
-        appId: 'mcpfactory',
+        appId: 'test-app',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
         limit: 10,

@@ -60,13 +60,13 @@ describe('keys-service', () => {
       mockedAxios.get.mockResolvedValueOnce({ data: { key: 'app-key-xyz' } });
 
       const { getKeyForOrg } = await importModule();
-      const key = await getKeyForOrg('org_123', 'anthropic', 'app', testCaller, 'mcpfactory');
+      const key = await getKeyForOrg('org_123', 'anthropic', 'app', testCaller, 'test-app');
 
       expect(key).toBe('app-key-xyz');
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://key-test.example.com/internal/app-keys/anthropic/decrypt',
         expect.objectContaining({
-          params: { appId: 'mcpfactory' },
+          params: { appId: 'test-app' },
           headers: expect.objectContaining({
             'X-Caller-Service': 'brand',
           }),
@@ -86,7 +86,7 @@ describe('keys-service', () => {
       mockedAxios.get.mockRejectedValueOnce(error);
 
       const { getKeyForOrg } = await importModule();
-      const key = await getKeyForOrg('org_123', 'anthropic', 'app', testCaller, 'mcpfactory');
+      const key = await getKeyForOrg('org_123', 'anthropic', 'app', testCaller, 'test-app');
       expect(key).toBeNull();
     });
   });

@@ -45,7 +45,7 @@ describe('getOrCreateBrand - CRITICAL', () => {
     expect(orgBefore.length).toBe(0);
 
     // Call getOrCreateBrand
-    const result = await getOrCreateBrand(orgId, url);
+    const result = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
 
     // Verify brand was created
     expect(result).toBeDefined();
@@ -57,7 +57,7 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     expect(org).toBeDefined();
 
     const after = await db
@@ -76,12 +76,12 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const url = 'https://existing-brand.example.com';
 
     // First call creates the brand
-    const first = await getOrCreateBrand(orgId, url);
+    const first = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
     expect(first).toBeDefined();
     expect(first.id).toBeDefined();
 
     // Second call should return the same brand
-    const second = await getOrCreateBrand(orgId, url);
+    const second = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
     expect(second).toBeDefined();
     expect(second.id).toBe(first.id);
 
@@ -89,7 +89,7 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     const allBrands = await db
       .select()
       .from(brands)
@@ -104,11 +104,11 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const newUrl = 'https://update-test.example.com/new-path';
 
     // Create brand with original URL
-    const first = await getOrCreateBrand(orgId, originalUrl);
+    const first = await getOrCreateBrand(orgId, originalUrl, { appId: 'test-app' });
     expect(first.url).toBe(originalUrl);
 
     // Update with new URL (same domain)
-    const second = await getOrCreateBrand(orgId, newUrl);
+    const second = await getOrCreateBrand(orgId, newUrl, { appId: 'test-app' });
     expect(second.id).toBe(first.id); // Same brand
     expect(second.url).toBe(newUrl); // URL updated
   }, 10000);
@@ -127,22 +127,22 @@ describe('getOrCreateBrand - CRITICAL', () => {
       const { url, expectedDomain } = testCases[i];
       const orgId = `${testPrefix}${Date.now()}_domain_${i}`;
 
-      const result = await getOrCreateBrand(orgId, url);
+      const result = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
       expect(result.domain).toBe(expectedDomain);
     }
   }, 30000);
 
   it('should CREATE a second brand when same org uses a different domain', async () => {
     const orgId = `${testPrefix}${Date.now()}_multi`;
-    const url1 = 'https://mcpfactory.example.com';
+    const url1 = 'https://brandone.example.com';
     const url2 = 'https://growthservice.example.com';
 
     // Create first brand
-    const brand1 = await getOrCreateBrand(orgId, url1);
-    expect(brand1.domain).toBe('mcpfactory.example.com');
+    const brand1 = await getOrCreateBrand(orgId, url1, { appId: 'test-app' });
+    expect(brand1.domain).toBe('brandone.example.com');
 
     // Create second brand with different domain, same org
-    const brand2 = await getOrCreateBrand(orgId, url2);
+    const brand2 = await getOrCreateBrand(orgId, url2, { appId: 'test-app' });
     expect(brand2.domain).toBe('growthservice.example.com');
 
     // They should be DIFFERENT brands
@@ -151,14 +151,14 @@ describe('getOrCreateBrand - CRITICAL', () => {
     // Verify first brand is NOT overwritten
     const brand1Check = await getBrand(brand1.id);
     expect(brand1Check).not.toBeNull();
-    expect(brand1Check!.domain).toBe('mcpfactory.example.com');
+    expect(brand1Check!.domain).toBe('brandone.example.com');
     expect(brand1Check!.url).toBe(url1);
 
     // Verify both brands exist in DB for this org
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     const allBrands = await db
       .select()
       .from(brands)
@@ -170,8 +170,8 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const orgId = `${testPrefix}${Date.now()}_same`;
     const url = 'https://same-domain.example.com';
 
-    const brand1 = await getOrCreateBrand(orgId, url);
-    const brand2 = await getOrCreateBrand(orgId, url);
+    const brand1 = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
+    const brand2 = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
 
     // Should be the same brand (CASE 1)
     expect(brand2.id).toBe(brand1.id);
@@ -182,7 +182,7 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const url = 'https://concurrent-test.example.com';
 
     // Call getOrCreateBrand multiple times concurrently
-    const promises = Array(5).fill(null).map(() => getOrCreateBrand(orgId, url));
+    const promises = Array(5).fill(null).map(() => getOrCreateBrand(orgId, url, { appId: 'test-app' }));
     const results = await Promise.all(promises);
 
     // All results should have the same brand ID
@@ -195,7 +195,7 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     const allBrands = await db
       .select()
       .from(brands)
@@ -211,12 +211,12 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const expectedDomain = 'shared-domain.example.com';
 
     // Org A creates a brand
-    const brandA = await getOrCreateBrand(orgId1, url);
+    const brandA = await getOrCreateBrand(orgId1, url, { appId: 'test-app' });
     expect(brandA).toBeDefined();
     expect(brandA.domain).toBe(expectedDomain);
 
     // Org B creates a brand with the same domain
-    const brandB = await getOrCreateBrand(orgId2, url);
+    const brandB = await getOrCreateBrand(orgId2, url, { appId: 'test-app' });
     expect(brandB).toBeDefined();
     expect(brandB.domain).toBe(expectedDomain);
 
@@ -227,11 +227,11 @@ describe('getOrCreateBrand - CRITICAL', () => {
     const [orgA] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId1)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId1)));
     const [orgB] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId2)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId2)));
 
     const brandsA = await db.select().from(brands).where(eq(brands.orgId, orgA.id));
     const brandsB = await db.select().from(brands).where(eq(brands.orgId, orgB.id));
@@ -269,7 +269,7 @@ describe('getBrand - CRITICAL', () => {
     const url = 'https://getbrand-test.example.com';
 
     // Create a brand first
-    const created = await getOrCreateBrand(orgId, url);
+    const created = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
 
     // Get the brand by ID
     const result = await getBrand(created.id);
@@ -311,7 +311,7 @@ describe('getExistingSalesProfile - CRITICAL', () => {
     const url = 'https://no-profile.example.com';
 
     // Create brand
-    const brand = await getOrCreateBrand(orgId, url);
+    const brand = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
 
     // Get profile (should be null)
     const result = await getExistingSalesProfile(brand.id);
@@ -345,7 +345,7 @@ describe('Full Flow Integration - CRITICAL', () => {
 
   it('should create brand and it should be queryable immediately', async () => {
     const orgId = `${testPrefix}${Date.now()}_fullflow`;
-    const url = 'https://fullflow-test.mcpfactory.org';
+    const url = 'https://fullflow-test.distribute.org';
 
     // Step 1: Verify no org exists yet
     const orgsBefore = await db
@@ -355,7 +355,7 @@ describe('Full Flow Integration - CRITICAL', () => {
     expect(orgsBefore.length).toBe(0);
 
     // Step 2: Create brand via getOrCreateBrand
-    const created = await getOrCreateBrand(orgId, url);
+    const created = await getOrCreateBrand(orgId, url, { appId: 'test-app' });
     expect(created).toBeDefined();
     expect(created.id).toBeDefined();
     expect(typeof created.id).toBe('string');
@@ -370,7 +370,7 @@ describe('Full Flow Integration - CRITICAL', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     const byOrgId = await db
       .select()
       .from(brands)
@@ -382,7 +382,7 @@ describe('Full Flow Integration - CRITICAL', () => {
     const byDomain = await db
       .select()
       .from(brands)
-      .where(eq(brands.domain, 'fullflow-test.mcpfactory.org'));
+      .where(eq(brands.domain, 'fullflow-test.distribute.org'));
     expect(byDomain.length).toBe(1);
     expect(byDomain[0].id).toBe(created.id);
   }, 15000);

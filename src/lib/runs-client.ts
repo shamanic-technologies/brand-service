@@ -1,10 +1,10 @@
 /**
  * HTTP client for runs-service
- * Vendored from @mcpfactory/runs-client
+ * Vendored from @distribute/runs-client
  */
 
 const RUNS_SERVICE_URL =
-  process.env.RUNS_SERVICE_URL || "https://runs.mcpfactory.org";
+  process.env.RUNS_SERVICE_URL || "https://runs.distribute.org";
 const RUNS_SERVICE_API_KEY = process.env.RUNS_SERVICE_API_KEY || "";
 
 // ─── Types ───────────────────────────────────────────────────────────────────

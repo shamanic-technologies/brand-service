@@ -38,7 +38,7 @@ describe('runs-client', () => {
         parentRunId: null,
         organizationId: 'org-1',
         userId: null,
-        appId: 'mcpfactory',
+        appId: 'test-app',
         brandId: null,
         campaignId: null,
         serviceName: 'brand-service',
@@ -53,14 +53,14 @@ describe('runs-client', () => {
 
       const result = await createRun({
         orgId: 'org_1',
-        appId: 'mcpfactory',
+        appId: 'test-app',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
       });
 
       expect(result.id).toBe('run-1');
       expect(result.serviceName).toBe('brand-service');
-      expect(result.appId).toBe('mcpfactory');
+      expect(result.appId).toBe('test-app');
       expect(mockFetch).toHaveBeenCalledWith(
         'https://runs-test.example.com/v1/runs',
         expect.objectContaining({ method: 'POST' })
@@ -68,7 +68,7 @@ describe('runs-client', () => {
 
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(callBody.orgId).toBe('org_1');
-      expect(callBody.appId).toBe('mcpfactory');
+      expect(callBody.appId).toBe('test-app');
     });
 
     it('should pass parentRunId and brandId when provided', async () => {
@@ -77,7 +77,7 @@ describe('runs-client', () => {
 
       await createRun({
         orgId: 'org_1',
-        appId: 'mcpfactory',
+        appId: 'test-app',
         brandId: 'brand-123',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
@@ -95,7 +95,7 @@ describe('runs-client', () => {
 
       await createRun({
         orgId: 'org_1',
-        appId: 'mcpfactory',
+        appId: 'test-app',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
         workflowName: 'cold-email-outreach',
@@ -192,12 +192,12 @@ describe('runs-client', () => {
 
       await listRuns({
         orgId: 'org_1',
-        appId: 'mcpfactory',
+        appId: 'test-app',
         brandId: 'brand-123',
       });
 
       const calledUrl = mockFetch.mock.calls[0][0] as string;
-      expect(calledUrl).toContain('appId=mcpfactory');
+      expect(calledUrl).toContain('appId=test-app');
       expect(calledUrl).toContain('brandId=brand-123');
     });
 
@@ -221,7 +221,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse('Not found', 404));
 
       await expect(
-        createRun({ orgId: 'org_1', appId: 'mcpfactory', serviceName: 'test', taskName: 'test' })
+        createRun({ orgId: 'org_1', appId: 'test-app', serviceName: 'test', taskName: 'test' })
       ).rejects.toThrow('runs-service POST /v1/runs failed: 404');
     });
 
@@ -229,7 +229,7 @@ describe('runs-client', () => {
       const { createRun } = await importClient();
       mockFetch.mockResolvedValueOnce(mockResponse({ id: 'run-1' }));
 
-      await createRun({ orgId: 'org_1', appId: 'mcpfactory', serviceName: 'test', taskName: 'test' });
+      await createRun({ orgId: 'org_1', appId: 'test-app', serviceName: 'test', taskName: 'test' });
 
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers['X-API-Key']).toBe('test-api-key');

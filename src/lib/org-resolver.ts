@@ -5,7 +5,7 @@ import { db, orgs } from '../db';
  * Resolve an org UUID from orgId + appId.
  * Throws if the org doesn't exist.
  */
-export async function resolveOrgId(orgId: string, appId = 'mcpfactory'): Promise<string> {
+export async function resolveOrgId(orgId: string, appId: string): Promise<string> {
   const [org] = await db
     .select({ id: orgs.id })
     .from(orgs)
@@ -23,7 +23,7 @@ export async function resolveOrgId(orgId: string, appId = 'mcpfactory'): Promise
  * Resolve an org UUID from orgId + appId.
  * Returns null if the org doesn't exist.
  */
-export async function resolveOrgIdOptional(orgId: string, appId = 'mcpfactory'): Promise<string | null> {
+export async function resolveOrgIdOptional(orgId: string, appId: string): Promise<string | null> {
   const [org] = await db
     .select({ id: orgs.id })
     .from(orgs)

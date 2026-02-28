@@ -31,7 +31,7 @@ describe('POST /brands - Upsert Brand', () => {
   it('should return 401 without authentication', async () => {
     const response = await request(app)
       .post('/brands')
-      .send({ appId: 'mcpfactory', orgId: 'org_123', url: 'https://example.com', userId: 'user_123' });
+      .send({ appId: 'test-app', orgId: 'org_123', url: 'https://example.com', userId: 'user_123' });
 
     expect(response.status).toBe(401);
   });
@@ -40,7 +40,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', url: 'https://example.com', userId: 'user_123' });
+      .send({ appId: 'test-app', url: 'https://example.com', userId: 'user_123' });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Invalid request');
@@ -50,7 +50,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId: 'org_123', userId: 'user_123' });
+      .send({ appId: 'test-app', orgId: 'org_123', userId: 'user_123' });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Invalid request');
@@ -70,7 +70,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId: 'org_123', url: 'https://example.com' });
+      .send({ appId: 'test-app', orgId: 'org_123', url: 'https://example.com' });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Invalid request');
@@ -83,7 +83,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: 'test-app', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
 
     expect(response.status).toBe(200);
     expect(response.body.brandId).toBeDefined();
@@ -94,7 +94,7 @@ describe('POST /brands - Upsert Brand', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     expect(org).toBeDefined();
 
     const dbBrands = await db
@@ -114,7 +114,7 @@ describe('POST /brands - Upsert Brand', () => {
     const first = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url, userId });
+      .send({ appId: 'test-app', orgId, url, userId });
 
     expect(first.status).toBe(200);
     expect(first.body.created).toBe(true);
@@ -122,7 +122,7 @@ describe('POST /brands - Upsert Brand', () => {
     const second = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url, userId });
+      .send({ appId: 'test-app', orgId, url, userId });
 
     expect(second.status).toBe(200);
     expect(second.body.brandId).toBe(first.body.brandId);
@@ -131,7 +131,7 @@ describe('POST /brands - Upsert Brand', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     const dbBrands = await db
       .select()
       .from(brands)
@@ -148,12 +148,12 @@ describe('POST /brands - Upsert Brand', () => {
     const first = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url: url1, userId });
+      .send({ appId: 'test-app', orgId, url: url1, userId });
 
     const second = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url: url2, userId });
+      .send({ appId: 'test-app', orgId, url: url2, userId });
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -164,7 +164,7 @@ describe('POST /brands - Upsert Brand', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     const dbBrands = await db
       .select()
       .from(brands)
@@ -179,7 +179,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: 'test-app', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
 
     expect(response.status).toBe(200);
     expect(response.body.domain).toBe('strip-www-test.example.com');
@@ -192,7 +192,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: 'test-app', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
 
     expect(response.status).toBe(200);
     expect(response.body.domain).toBe('no-protocol-test.example.com');
@@ -201,22 +201,22 @@ describe('POST /brands - Upsert Brand', () => {
 
   // --- Tests for appId / userId / org resolution ---
 
-  it('should create org row with appId=mcpfactory', async () => {
+  it('should create org row with the specified appId', async () => {
     const orgId = `${testPrefix}${Date.now()}_defaultapp`;
     const url = 'https://default-app-test.example.com';
 
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: 'test-app', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
 
     expect(response.status).toBe(200);
 
-    // Verify org was created with appId=mcpfactory
+    // Verify org was created with the specified appId
     const dbOrgs = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     expect(dbOrgs.length).toBe(1);
 
     // Verify brand has org_id set
@@ -256,12 +256,12 @@ describe('POST /brands - Upsert Brand', () => {
     await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url: url1, userId });
+      .send({ appId: 'test-app', orgId, url: url1, userId });
 
     await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url: url2, userId });
+      .send({ appId: 'test-app', orgId, url: url2, userId });
 
     // Should still be only one org
     const dbOrgs = await db
@@ -279,7 +279,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId, url, userId });
+      .send({ appId: 'test-app', orgId, url, userId });
 
     expect(response.status).toBe(200);
 
@@ -295,7 +295,7 @@ describe('POST /brands - Upsert Brand', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, orgId)));
+      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
     const dbBrands = await db
       .select()
       .from(brands)
@@ -311,7 +311,7 @@ describe('POST /brands - Upsert Brand', () => {
     const first = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId: orgId1, url, userId: `${testPrefix}${Date.now()}_userA` });
+      .send({ appId: 'test-app', orgId: orgId1, url, userId: `${testPrefix}${Date.now()}_userA` });
 
     expect(first.status).toBe(200);
     expect(first.body.created).toBe(true);
@@ -319,7 +319,7 @@ describe('POST /brands - Upsert Brand', () => {
     const second = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'mcpfactory', orgId: orgId2, url, userId: `${testPrefix}${Date.now()}_userB` });
+      .send({ appId: 'test-app', orgId: orgId2, url, userId: `${testPrefix}${Date.now()}_userB` });
 
     expect(second.status).toBe(200);
     expect(second.body.created).toBe(true);

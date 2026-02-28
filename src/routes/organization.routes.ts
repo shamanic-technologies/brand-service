@@ -7,21 +7,29 @@ import { SetUrlRequestSchema, UpsertOrganizationRequestSchema, AddIndividualRequ
 const router = Router();
 
 /**
+ * Extract appId from request (query param, body, or x-app-id header).
+ * Returns null if not found.
+ */
+function getAppId(req: Request): string | null {
+  return (req.query.appId as string) || req.body?.appId || (req.headers['x-app-id'] as string) || null;
+}
+
+/**
  * Resolve a brand from an organizationId param that can be:
  * - org_id (external org identifier) → lookup through orgs table
  * - internal UUID (brands.id) → direct lookup
  *
  * Tries orgs table first, then falls back to direct brands lookup.
  */
-async function lookupBrand(organizationId: string): Promise<{ id: string; external_organization_id: string | null } | null> {
+async function lookupBrand(organizationId: string, appId: string): Promise<{ id: string; external_organization_id: string | null } | null> {
   // Try lookup via orgs table first
   const orgResult = await pool.query(
     `SELECT b.id, b.external_organization_id
      FROM brands b
      JOIN orgs o ON b.org_id = o.id
-     WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'
+     WHERE o.org_id = $1 AND o.app_id = $2
      LIMIT 1`,
-    [organizationId]
+    [organizationId, appId]
   );
   if (orgResult.rows[0]) {
     return orgResult.rows[0];
@@ -61,14 +69,19 @@ router.get('/by-org-id/:orgId', async (req: Request, res: Response) => {
   }
 
   try {
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+
     const query = `
       SELECT b.id, o.org_id AS organization_id, b.name, b.url, b.domain, b.logo_url, b.elevator_pitch, b.bio
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
-      WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'
+      WHERE o.org_id = $1 AND o.app_id = $2
       LIMIT 1;
     `;
-    const result = await pool.query(query, [orgId]);
+    const result = await pool.query(query, [orgId, appId]);
 
     if (result.rows.length === 0) {
       return res.status(404).send({ error: 'Organization not found.' });
@@ -89,20 +102,25 @@ router.put('/set-url', async (req: Request, res: Response) => {
   }
   const { organization_id, url } = parsed.data;
 
+  const appId = getAppId(req);
+  if (!appId) {
+    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+  }
+
   try {
     // Check if org + brand exists
     const existingQuery = `
       SELECT b.id, o.org_id AS organization_id, b.name, b.url
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
-      WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'
+      WHERE o.org_id = $1 AND o.app_id = $2
       LIMIT 1;
     `;
-    const existing = await pool.query(existingQuery, [organization_id]);
+    const existing = await pool.query(existingQuery, [organization_id, appId]);
 
     if (existing.rows.length === 0) {
       // Organization doesn't exist - create via upsert service
-      const brandId = await getOrganizationIdByOrgId(organization_id, undefined, url);
+      const brandId = await getOrganizationIdByOrgId(organization_id, undefined, url, undefined, appId);
 
       const fetchQuery = `
         SELECT b.id, o.org_id AS organization_id, b.name, b.url
@@ -209,6 +227,11 @@ router.put('/organizations', async (req: Request, res: Response) => {
   }
   const { organization_id, external_organization_id, name, url } = parsed.data;
 
+  const appId = getAppId(req);
+  if (!appId) {
+    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+  }
+
   try {
     console.log(`Upserting organization: ${organization_id}, external_id: ${external_organization_id}`);
 
@@ -216,7 +239,8 @@ router.put('/organizations', async (req: Request, res: Response) => {
       organization_id,
       name,
       url,
-      external_organization_id
+      external_organization_id,
+      appId
     );
 
     const fetchQuery = `
@@ -251,6 +275,11 @@ router.post('/organizations', async (req: Request, res: Response) => {
   }
   const { organization_id, external_organization_id, name, url } = parsed.data;
 
+  const appId = getAppId(req);
+  if (!appId) {
+    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+  }
+
   try {
     console.log(`Upserting organization: ${organization_id}, external_id: ${external_organization_id}`);
 
@@ -258,7 +287,8 @@ router.post('/organizations', async (req: Request, res: Response) => {
       organization_id,
       name,
       url,
-      external_organization_id
+      external_organization_id,
+      appId
     );
 
     const fetchQuery = `
@@ -296,7 +326,11 @@ router.get('/organizations/:organizationId/targets', async (req: Request, res: R
   try {
     console.log(`Fetching target organizations for: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -336,7 +370,11 @@ router.get('/organizations/:organizationId/individuals', async (req: Request, re
   try {
     console.log(`Fetching all individuals and content for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -408,7 +446,11 @@ router.get('/organizations/:organizationId/content', async (req: Request, res: R
   try {
     console.log(`Fetching all content for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -493,7 +535,11 @@ router.post('/organizations/:organizationId/individuals', async (req: Request, r
   try {
     console.log(`Adding/updating individual ${first_name} ${last_name} for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -567,7 +613,11 @@ router.patch('/organizations/:organizationId/individuals/:individualId/status', 
   try {
     console.log(`Updating individual ${individualId} status to ${status} for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -622,7 +672,11 @@ router.get('/organizations/:organizationId/thesis', async (req: Request, res: Re
   try {
     console.log(`Fetching thesis for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -685,9 +739,13 @@ router.patch('/organizations/:sourceOrgId/relations/:targetOrgId/status', async 
   try {
     console.log(`Updating organization relation status to ${status} between ${sourceOrgId} and ${targetOrgId}`);
 
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
     const [sourceBrand, targetBrand] = await Promise.all([
-      lookupBrand(sourceOrgId),
-      lookupBrand(targetOrgId),
+      lookupBrand(sourceOrgId, appId),
+      lookupBrand(targetOrgId, appId),
     ]);
 
     if (!sourceBrand) {
@@ -749,7 +807,11 @@ router.get('/organizations/:organizationId/theses-for-llm', async (req: Request,
   try {
     console.log(`Fetching theses for LLM for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.json({ theses: [] });
     }
@@ -789,7 +851,11 @@ router.get('/organizations/:organizationId/theses', async (req: Request, res: Re
   try {
     console.log(`Fetching theses for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.json({ success: true, theses: [] });
     }
@@ -847,7 +913,11 @@ router.patch('/organizations/:organizationId/theses/:thesisId/status', async (re
   try {
     console.log(`Updating thesis ${thesisId} status to ${status} for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.status(404).json({ success: false, error: 'Organization not found.' });
     }
@@ -896,7 +966,11 @@ router.delete('/organizations/:organizationId/theses', async (req: Request, res:
   try {
     console.log(`Deleting all theses for organization: ${organizationId}`);
 
-    const brand = await lookupBrand(organizationId);
+    const appId = getAppId(req);
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+    }
+    const brand = await lookupBrand(organizationId, appId);
     if (!brand) {
       return res.status(404).json({ success: false, error: 'Organization not found.' });
     }
@@ -1458,6 +1532,11 @@ router.get('/email-data/public-info/:orgId', async (req: Request, res: Response)
     return res.status(400).json({ error: 'orgId is required' });
   }
 
+  const appId = getAppId(req);
+  if (!appId) {
+    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+  }
+
   try {
     const query = `
       SELECT
@@ -1478,10 +1557,10 @@ router.get('/email-data/public-info/:orgId', async (req: Request, res: Response)
         b.domain
       FROM brands b
       JOIN orgs o ON b.org_id = o.id
-      WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'
+      WHERE o.org_id = $1 AND o.app_id = $2
     `;
 
-    const result = await pool.query(query, [orgId]);
+    const result = await pool.query(query, [orgId, appId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Organization not found', orgId });
@@ -1564,13 +1643,18 @@ router.get('/email-data/theses/:orgId', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'orgId is required' });
   }
 
+  const appId = getAppId(req);
+  if (!appId) {
+    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
+  }
+
   try {
     const orgQuery = await pool.query(
       `SELECT b.id, b.name
        FROM brands b
        JOIN orgs o ON b.org_id = o.id
-       WHERE o.org_id = $1 AND o.app_id = 'mcpfactory'`,
-      [orgId]
+       WHERE o.org_id = $1 AND o.app_id = $2`,
+      [orgId, appId]
     );
 
     if (orgQuery.rows.length === 0) {

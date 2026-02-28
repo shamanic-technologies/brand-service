@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const KEY_SERVICE_URL = process.env.KEY_SERVICE_URL || 'https://key.mcpfactory.org';
+const KEY_SERVICE_URL = process.env.KEY_SERVICE_URL || 'https://key.distribute.org';
 const KEY_SERVICE_API_KEY = process.env.KEY_SERVICE_API_KEY;
 
 const TRANSIENT_ERROR_CODES = new Set(['ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN']);

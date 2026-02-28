@@ -46,7 +46,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)
         .post('/sales-profile')
-        .send({ appId: 'mcpfactory', orgId: testOrgId, url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
+        .send({ appId: 'test-app', orgId: testOrgId, url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(401);
     });
@@ -55,7 +55,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', orgId: testOrgId, url: testUrl, userId: 'user_test' });
+        .send({ appId: 'test-app', orgId: testOrgId, url: testUrl, userId: 'user_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -65,7 +65,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
+        .send({ appId: 'test-app', url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -75,7 +75,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', orgId: testOrgId, userId: 'user_test', parentRunId: 'run_test' });
+        .send({ appId: 'test-app', orgId: testOrgId, userId: 'user_test', parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -95,7 +95,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders())
-        .send({ appId: 'mcpfactory', orgId: testOrgId, url: testUrl, parentRunId: 'run_test' });
+        .send({ appId: 'test-app', orgId: testOrgId, url: testUrl, parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -110,7 +110,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const existingOrg = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)))
+        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)))
         .limit(1);
 
       expect(existingOrg.length).toBe(0);
@@ -120,7 +120,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
@@ -132,7 +132,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
+        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       expect(org).toBeDefined();
 
       const createdBrand = await db
@@ -156,7 +156,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId,
@@ -168,7 +168,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
+        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const brandsAfterFirst = await db
         .select()
         .from(brands)
@@ -181,7 +181,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId,
@@ -208,7 +208,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: originalUrl,
           userId,
@@ -220,7 +220,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
+        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const brand = await db
         .select()
         .from(brands)
@@ -246,7 +246,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           .post('/sales-profile')
           .set(getAuthHeaders())
           .send({
-            appId: 'mcpfactory',
+            appId: 'test-app',
             orgId: uniqueOrgId,
             url: testCase.url,
             userId: `user_test_${timestamp}_${i}`,
@@ -257,7 +257,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         const [org] = await db
           .select()
           .from(orgs)
-          .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
+          .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
         const brand = await db
           .select()
           .from(brands)
@@ -279,7 +279,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
@@ -302,7 +302,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
@@ -321,7 +321,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
@@ -387,7 +387,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
@@ -398,7 +398,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
+        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const [brand] = await db
         .select()
         .from(brands)
@@ -489,7 +489,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
@@ -500,7 +500,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
+        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const [brand] = await db
         .select()
         .from(brands)
@@ -561,7 +561,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .post('/sales-profile')
         .set(getAuthHeaders())
         .send({
-          appId: 'mcpfactory',
+          appId: 'test-app',
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
@@ -573,7 +573,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const [org] = await db
         .select()
         .from(orgs)
-        .where(and(eq(orgs.appId, 'mcpfactory'), eq(orgs.orgId, uniqueOrgId)));
+        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const brand = await db
         .select()
         .from(brands)
