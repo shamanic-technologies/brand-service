@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CreateSalesProfileRequestSchema,
+  UpsertBrandRequestSchema,
+  SetUrlRequestSchema,
   ImportFromGDriveRequestSchema,
   PublicInfoContentRequestSchema,
   TriggerWorkflowRequestSchema,
@@ -151,6 +153,68 @@ describe('Zod Schemas', () => {
         expect(result.data.riskReversal).toBeUndefined();
         expect(result.data.socialProof).toBeUndefined();
       }
+    });
+
+    it('should reject bare domain without protocol', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'test-app',
+        orgId: 'org_123',
+        url: 'pressbeat.io',
+        userId: 'user_123',
+        parentRunId: 'run_1',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject domain with path but no protocol', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'test-app',
+        orgId: 'org_123',
+        url: 'example.com/about',
+        userId: 'user_123',
+        parentRunId: 'run_1',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('UpsertBrandRequestSchema', () => {
+    it('should accept valid URL with protocol', () => {
+      const result = UpsertBrandRequestSchema.safeParse({
+        appId: 'test-app',
+        orgId: 'org_123',
+        url: 'https://pressbeat.io',
+        userId: 'user_123',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject bare domain without protocol', () => {
+      const result = UpsertBrandRequestSchema.safeParse({
+        appId: 'test-app',
+        orgId: 'org_123',
+        url: 'pressbeat.io',
+        userId: 'user_123',
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('SetUrlRequestSchema', () => {
+    it('should accept valid URL with protocol', () => {
+      const result = SetUrlRequestSchema.safeParse({
+        organization_id: 'org_123',
+        url: 'https://example.com',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject bare domain without protocol', () => {
+      const result = SetUrlRequestSchema.safeParse({
+        organization_id: 'org_123',
+        url: 'example.com',
+      });
+      expect(result.success).toBe(false);
     });
   });
 
