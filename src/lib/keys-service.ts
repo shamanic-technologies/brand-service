@@ -21,7 +21,7 @@ export interface CallerContext {
 }
 
 /**
- * Resolve the key-service decrypt URL and query params for a given keyType.
+ * Resolve the key-service decrypt URL and query params for a given keySource.
  *
  * - "platform" → /internal/platform-keys/{provider}/decrypt (no ID params)
  * - "app"      → /internal/app-keys/{provider}/decrypt?appId=...
@@ -29,18 +29,18 @@ export interface CallerContext {
  */
 function resolveKeyEndpoint(
   provider: string,
-  keyType: "platform" | "app" | "byok",
+  keySource: "platform" | "app" | "byok",
   orgId: string,
   appId?: string,
 ): { url: string; params: Record<string, string> } {
-  switch (keyType) {
+  switch (keySource) {
     case "platform":
       return {
         url: `${KEY_SERVICE_URL}/internal/platform-keys/${provider}/decrypt`,
         params: {},
       };
     case "app":
-      if (!appId) throw new Error("appId is required for keyType 'app'");
+      if (!appId) throw new Error("appId is required for keySource 'app'");
       return {
         url: `${KEY_SERVICE_URL}/internal/app-keys/${provider}/decrypt`,
         params: { appId },
@@ -58,18 +58,18 @@ function resolveKeyEndpoint(
  *
  * @param orgId - The organization ID
  * @param provider - The provider (e.g., "anthropic", "openai")
- * @param keyType - "byok" for user's key, "app" for client app key, "platform" for platform key
+ * @param keySource - "byok" for user's key, "app" for client app key, "platform" for platform key
  * @param caller - The caller context (HTTP method + path) for key-service audit headers
- * @param appId - Required when keyType is "app"
+ * @param appId - Required when keySource is "app"
  */
 export async function getKeyForOrg(
   orgId: string,
   provider: string,
-  keyType: "platform" | "app" | "byok",
+  keySource: "platform" | "app" | "byok",
   caller: CallerContext,
   appId?: string,
 ): Promise<string | null> {
-  const { url, params } = resolveKeyEndpoint(provider, keyType, orgId, appId);
+  const { url, params } = resolveKeyEndpoint(provider, keySource, orgId, appId);
   let lastError: any;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -91,7 +91,7 @@ export async function getKeyForOrg(
       lastError = error;
 
       if (error.response?.status === 404) {
-        console.log(`No ${keyType} key found for provider ${provider}`);
+        console.log(`No ${keySource} key found for provider ${provider}`);
         return null;
       }
 
