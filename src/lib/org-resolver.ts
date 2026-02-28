@@ -21,13 +21,18 @@ export async function resolveOrgId(orgId: string, appId: string): Promise<string
 
 /**
  * Resolve an org UUID from orgId + appId.
+ * When appId is omitted, looks up by orgId alone.
  * Returns null if the org doesn't exist.
  */
-export async function resolveOrgIdOptional(orgId: string, appId: string): Promise<string | null> {
+export async function resolveOrgIdOptional(orgId: string, appId?: string): Promise<string | null> {
+  const condition = appId
+    ? and(eq(orgs.appId, appId), eq(orgs.orgId, orgId))
+    : eq(orgs.orgId, orgId);
+
   const [org] = await db
     .select({ id: orgs.id })
     .from(orgs)
-    .where(and(eq(orgs.appId, appId), eq(orgs.orgId, orgId)))
+    .where(condition)
     .limit(1);
 
   return org?.id ?? null;

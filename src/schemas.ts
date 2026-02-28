@@ -25,7 +25,7 @@ export const SuccessResponseSchema = z
 // ============================================================
 
 export const ListBrandsQuerySchema = z
-  .object({ orgId: z.string(), appId: z.string() })
+  .object({ orgId: z.string(), appId: z.string().optional() })
   .openapi('ListBrandsQuery');
 
 export const BrandSummarySchema = z

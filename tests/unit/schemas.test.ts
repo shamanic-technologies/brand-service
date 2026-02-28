@@ -203,8 +203,13 @@ describe('Zod Schemas', () => {
   });
 
   describe('ListBrandsQuerySchema', () => {
-    it('should accept valid query', () => {
+    it('should accept valid query with orgId and appId', () => {
       const result = ListBrandsQuerySchema.safeParse({ orgId: 'org_123', appId: 'test-app' });
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept query with orgId only (appId optional)', () => {
+      const result = ListBrandsQuerySchema.safeParse({ orgId: 'org_123' });
       expect(result.success).toBe(true);
     });
 
