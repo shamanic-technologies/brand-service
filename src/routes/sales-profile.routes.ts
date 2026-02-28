@@ -27,7 +27,7 @@ function sanitizeProfileForExternal(profile: any) {
  * Body: { orgId, url, keySource }
  * - orgId: required
  * - url: required (brand website URL)
- * - keySource: "byok" (user's key), "app" (app key), or "platform" (our key) - default "byok"
+ * - keySource: "byok" (user's key), "app" (app key), or "platform" (our key) - REQUIRED
  * 
  * Returns existing profile if available, otherwise extracts new one
  */
