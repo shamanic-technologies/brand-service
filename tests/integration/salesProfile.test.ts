@@ -101,6 +101,16 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       expect(response.body.error).toBe('Invalid request');
     });
 
+    it('should return 400 if keySource is missing', async () => {
+      const response = await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders())
+        .send({ appId: 'test-app', orgId: testOrgId, url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Invalid request');
+    });
+
     it('should create brand in database when calling POST /sales-profile for first time', async () => {
       const uniqueOrgId = `org_test_brand_create_${Date.now()}`;
       const uniqueUrl = `https://unique-test-${Date.now()}.example.com`;
@@ -283,6 +293,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
+          keySource: 'byok',
           parentRunId: 'run_test_hints',
           urgency: 'Offer expires March 1st',
           scarcity: 'Only 10 enterprise spots left',
@@ -306,6 +317,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
+          keySource: 'byok',
           parentRunId: 'run_test_hints_partial',
           urgency: 'Limited time offer',
         });
@@ -325,6 +337,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
+          keySource: 'byok',
           parentRunId: 'run_test_hints_none',
         });
 

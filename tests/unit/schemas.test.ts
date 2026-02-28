@@ -15,7 +15,7 @@ import {
 
 describe('Zod Schemas', () => {
   describe('CreateSalesProfileRequestSchema', () => {
-    it('should accept valid request', () => {
+    it('should reject missing keySource', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'test-app',
         orgId: 'org_123',
@@ -23,10 +23,19 @@ describe('Zod Schemas', () => {
         userId: 'user_123',
         parentRunId: 'run_parent_123',
       });
+      expect(result.success).toBe(false);
+    });
+
+    it('should accept valid request with keySource', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        appId: 'test-app',
+        orgId: 'org_123',
+        url: 'https://example.com',
+        userId: 'user_123',
+        keySource: 'byok',
+        parentRunId: 'run_parent_123',
+      });
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.keySource).toBe('byok'); // default
-      }
     });
 
     it('should accept all fields', () => {
@@ -105,6 +114,7 @@ describe('Zod Schemas', () => {
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
+        keySource: 'byok',
         parentRunId: 'run_1',
         urgency: 'Offer expires March 1st',
         scarcity: 'Only 10 enterprise spots left',
@@ -126,6 +136,7 @@ describe('Zod Schemas', () => {
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
+        keySource: 'byok',
         parentRunId: 'run_1',
         urgency: 'Limited time offer',
       });
@@ -144,6 +155,7 @@ describe('Zod Schemas', () => {
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
+        keySource: 'platform',
         parentRunId: 'run_1',
       });
       expect(result.success).toBe(true);
