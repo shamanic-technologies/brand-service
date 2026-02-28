@@ -15,7 +15,7 @@ describe('Zod Schemas', () => {
   describe('CreateSalesProfileRequestSchema', () => {
     it('should accept valid request', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
@@ -29,7 +29,7 @@ describe('Zod Schemas', () => {
 
     it('should accept all fields', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
@@ -42,7 +42,7 @@ describe('Zod Schemas', () => {
 
     it('should reject missing parentRunId', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
@@ -51,12 +51,12 @@ describe('Zod Schemas', () => {
     });
 
     it('should reject missing orgId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', url: 'https://example.com', userId: 'user_123', parentRunId: 'run_1' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'test-app', url: 'https://example.com', userId: 'user_123', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
     it('should reject missing url', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', orgId: 'org_123', userId: 'user_123', parentRunId: 'run_1' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'test-app', orgId: 'org_123', userId: 'user_123', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
@@ -66,13 +66,13 @@ describe('Zod Schemas', () => {
     });
 
     it('should reject missing userId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'mcpfactory', orgId: 'org_123', url: 'https://example.com', parentRunId: 'run_1' });
+      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'test-app', orgId: 'org_123', url: 'https://example.com', parentRunId: 'run_1' });
       expect(result.success).toBe(false);
     });
 
     it('should accept keyType app', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
@@ -87,7 +87,7 @@ describe('Zod Schemas', () => {
 
     it('should reject invalid keyType', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
@@ -99,7 +99,7 @@ describe('Zod Schemas', () => {
 
     it('should accept optional user hint fields', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
@@ -120,7 +120,7 @@ describe('Zod Schemas', () => {
 
     it('should accept request with some user hint fields omitted', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
@@ -138,7 +138,7 @@ describe('Zod Schemas', () => {
 
     it('should accept request with no user hint fields', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'mcpfactory',
+        appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
@@ -192,7 +192,7 @@ describe('Zod Schemas', () => {
 
   describe('TriggerWorkflowRequestSchema', () => {
     it('should accept valid request', () => {
-      const result = TriggerWorkflowRequestSchema.safeParse({ organization_id: 'org_123' });
+      const result = TriggerWorkflowRequestSchema.safeParse({ organization_id: 'org_123', appId: 'test-app' });
       expect(result.success).toBe(true);
     });
 
@@ -204,7 +204,7 @@ describe('Zod Schemas', () => {
 
   describe('ListBrandsQuerySchema', () => {
     it('should accept valid query', () => {
-      const result = ListBrandsQuerySchema.safeParse({ orgId: 'org_123' });
+      const result = ListBrandsQuerySchema.safeParse({ orgId: 'org_123', appId: 'test-app' });
       expect(result.success).toBe(true);
     });
 

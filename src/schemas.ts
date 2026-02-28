@@ -25,7 +25,7 @@ export const SuccessResponseSchema = z
 // ============================================================
 
 export const ListBrandsQuerySchema = z
-  .object({ orgId: z.string() })
+  .object({ orgId: z.string(), appId: z.string() })
   .openapi('ListBrandsQuery');
 
 export const BrandSummarySchema = z
@@ -914,6 +914,7 @@ registry.registerPath({
 export const TriggerWorkflowRequestSchema = z
   .object({
     organization_id: z.string(),
+    appId: z.string(),
   })
   .openapi('TriggerWorkflowRequest');
 
@@ -1021,7 +1022,7 @@ registry.registerPath({
 // ============================================================
 
 export const PublicInfoMapQuerySchema = z
-  .object({ orgId: z.string() })
+  .object({ orgId: z.string(), appId: z.string() })
   .openapi('PublicInfoMapQuery');
 
 export const PublicInfoContentRequestSchema = z

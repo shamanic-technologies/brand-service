@@ -512,9 +512,9 @@ export async function resolveOrCreateUser(userId: string, orgId: string): Promis
 export async function getOrCreateBrand(
   orgId: string,
   url: string,
-  options?: { appId?: string; userId?: string }
+  options: { appId: string; userId?: string }
 ): Promise<Brand> {
-  const appId = options?.appId ?? 'mcpfactory';
+  const { appId } = options;
 
   // Resolve or create org
   const org = await resolveOrCreateOrg(appId, orgId);
@@ -678,7 +678,7 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean; orgId: string; userId?: string; parentRunId: string; workflowName?: string; userHints?: UserHints }
+  options: { skipCache?: boolean; forceRescrape?: boolean; orgId: string; appId: string; userId?: string; parentRunId: string; workflowName?: string; userHints?: UserHints }
 ): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
@@ -699,7 +699,7 @@ export async function extractBrandSalesProfile(
   const run = await createRun({
     orgId,
     userId: options.userId,
-    appId: "mcpfactory",
+    appId: options.appId,
     brandId,
     serviceName: "brand-service",
     taskName: "sales-profile-extraction",

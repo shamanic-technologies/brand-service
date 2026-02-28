@@ -51,7 +51,7 @@ export async function insertTestOrg(data?: {
   const result = await db
     .insert(orgs)
     .values({
-      appId: data?.appId || 'mcpfactory',
+      appId: data?.appId || 'test-app',
       orgId: data?.orgId || `test-org-${Date.now()}`,
     })
     .returning();

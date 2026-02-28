@@ -23,14 +23,18 @@ export const getOrganizationIdByOrgId = async (
   organizationId: string,
   organizationName?: string,
   organizationUrl?: string,
-  externalOrganizationId?: string
+  externalOrganizationId?: string,
+  appId?: string
 ): Promise<string> => {
+  if (!appId) {
+    throw new Error('appId is required');
+  }
   try {
     console.log(`[BRAND UPSERT] Starting upsert for org_id: ${organizationId}`);
     console.log(`[BRAND UPSERT] Params: name=${organizationName}, url=${organizationUrl}`);
 
     // Resolve or create org
-    const org = await resolveOrCreateOrg('mcpfactory', organizationId);
+    const org = await resolveOrCreateOrg(appId, organizationId);
 
     // Check if brand exists by orgId
     const existingByOrg = await db
@@ -145,8 +149,12 @@ export const getOrganizationIdByOrgId = async (
 export const getOrganizationIdByExternalId = async (
   externalOrganizationId: string,
   organizationName?: string,
-  organizationUrl?: string
+  organizationUrl?: string,
+  appId?: string
 ): Promise<string> => {
+  if (!appId) {
+    throw new Error('appId is required');
+  }
   try {
     console.log(`[BRAND UPSERT] [DEPRECATED] Starting upsert for external_org_id: ${externalOrganizationId}`);
 
@@ -176,7 +184,7 @@ export const getOrganizationIdByExternalId = async (
     }
 
     // Create new — use a system org for unowned brands
-    const systemOrg = await resolveOrCreateOrg('mcpfactory', 'system');
+    const systemOrg = await resolveOrCreateOrg(appId, 'system');
 
     const result = await db
       .insert(brands)

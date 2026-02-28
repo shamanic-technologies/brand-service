@@ -67,9 +67,9 @@ router.get('/brands', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { orgId: inputOrgId } = parsed.data;
+    const { orgId: inputOrgId, appId } = parsed.data;
 
-    const orgId = await resolveOrgIdOptional(inputOrgId);
+    const orgId = await resolveOrgIdOptional(inputOrgId, appId);
     if (!orgId) {
       return res.json({ brands: [] });
     }
@@ -160,9 +160,9 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
     const limit = parsed.data.limit ? parseInt(parsed.data.limit, 10) : undefined;
     const offset = parsed.data.offset ? parseInt(parsed.data.offset, 10) : undefined;
 
-    // Look up the brand and join to orgs to get orgId
+    // Look up the brand and join to orgs to get orgId + appId
     const [brandRow] = await db
-      .select({ id: brands.id, orgId: orgs.orgId })
+      .select({ id: brands.id, orgId: orgs.orgId, appId: orgs.appId })
       .from(brands)
       .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .where(eq(brands.id, id))
@@ -174,7 +174,7 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
 
     const result = await listRuns({
       orgId: brandRow.orgId,
-      appId: 'mcpfactory',
+      appId: brandRow.appId,
       serviceName: 'brand-service',
       taskName,
       limit,
