@@ -124,7 +124,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
-          keyType: 'byok',
+          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
@@ -160,7 +160,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId,
-          keyType: 'byok',
+          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
@@ -185,7 +185,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId,
-          keyType: 'byok',
+          keySource: 'byok',
           parentRunId: 'run_test_parent_2',
         });
 
@@ -212,7 +212,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: originalUrl,
           userId,
-          keyType: 'byok',
+          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
@@ -250,7 +250,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
             orgId: uniqueOrgId,
             url: testCase.url,
             userId: `user_test_${timestamp}_${i}`,
-            keyType: 'byok',
+            keySource: 'byok',
             parentRunId: 'run_test_parent',
           });
 
@@ -391,7 +391,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
-          keyType: 'byok',
+          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
@@ -493,7 +493,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
-          keyType: 'byok',
+          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
@@ -565,7 +565,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           orgId: uniqueOrgId,
           url: uniqueUrl,
           userId: `user_test_${Date.now()}`,
-          keyType: 'byok',
+          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 

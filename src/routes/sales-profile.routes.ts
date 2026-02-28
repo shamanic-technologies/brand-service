@@ -24,10 +24,10 @@ function sanitizeProfileForExternal(profile: any) {
  * POST /sales-profile
  * Get or create sales profile for a brand by orgId + URL
  *
- * Body: { orgId, url, keyType }
+ * Body: { orgId, url, keySource }
  * - orgId: required
  * - url: required (brand website URL)
- * - keyType: "byok" (user's key) or "platform" (our key) - default "byok"
+ * - keySource: "byok" (user's key), "app" (app key), or "platform" (our key) - default "byok"
  * 
  * Returns existing profile if available, otherwise extracts new one
  */
@@ -37,7 +37,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { appId, orgId: inputOrgId, url, userId: inputUserId, keyType, skipCache, parentRunId, workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
+    const { appId, orgId: inputOrgId, url, userId: inputUserId, keySource, skipCache, parentRunId, workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
 
     // Get or create brand by orgId + URL (domain is the unique key per org)
     const brand = await getOrCreateBrand(inputOrgId, url, { appId, userId: inputUserId });
@@ -55,7 +55,7 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     // Get API key from keys-service
     let anthropicApiKey: string | null;
     try {
-      anthropicApiKey = await getKeyForOrg(inputOrgId, "anthropic", keyType, { method: "POST", path: "/sales-profile" }, appId);
+      anthropicApiKey = await getKeyForOrg(inputOrgId, "anthropic", keySource, { method: "POST", path: "/sales-profile" }, appId);
     } catch (keyError: any) {
       console.error('[sales-profile] key-service error:', keyError.message);
       return res.status(502).json({
@@ -65,8 +65,8 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     }
     if (!anthropicApiKey) {
       return res.status(400).json({
-        error: `No Anthropic API key found (keyType: ${keyType})`,
-        hint: keyType === "byok"
+        error: `No Anthropic API key found (keySource: ${keySource})`,
+        hint: keySource === "byok"
           ? 'User needs to configure their Anthropic API key'
           : 'Platform Anthropic key not configured'
       });

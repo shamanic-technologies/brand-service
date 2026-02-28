@@ -74,10 +74,10 @@ describe('keys-service', () => {
       );
     });
 
-    it('should throw when appId missing for keyType app', async () => {
+    it('should throw when appId missing for keySource app', async () => {
       const { getKeyForOrg } = await importModule();
       await expect(getKeyForOrg('org_123', 'anthropic', 'app', testCaller))
-        .rejects.toThrow("appId is required for keyType 'app'");
+        .rejects.toThrow("appId is required for keySource 'app'");
     });
 
     it('should return null when app key not found (404)', async () => {

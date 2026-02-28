@@ -25,7 +25,7 @@ describe('Zod Schemas', () => {
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.keyType).toBe('byok'); // default
+        expect(result.data.keySource).toBe('byok'); // default
       }
     });
 
@@ -35,7 +35,7 @@ describe('Zod Schemas', () => {
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
-        keyType: 'platform',
+        keySource: 'platform',
         skipCache: true,
         parentRunId: 'run_abc',
       });
@@ -72,29 +72,29 @@ describe('Zod Schemas', () => {
       expect(result.success).toBe(false);
     });
 
-    it('should accept keyType app', () => {
+    it('should accept keySource app', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
         parentRunId: 'run_1',
-        keyType: 'app',
+        keySource: 'app',
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.keyType).toBe('app');
+        expect(result.data.keySource).toBe('app');
       }
     });
 
-    it('should reject invalid keyType', () => {
+    it('should reject invalid keySource', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
         appId: 'test-app',
         orgId: 'org_123',
         url: 'https://example.com',
         userId: 'user_123',
         parentRunId: 'run_1',
-        keyType: 'invalid',
+        keySource: 'invalid',
       });
       expect(result.success).toBe(false);
     });
