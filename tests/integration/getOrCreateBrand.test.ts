@@ -345,7 +345,7 @@ describe('Full Flow Integration - CRITICAL', () => {
 
   it('should create brand and it should be queryable immediately', async () => {
     const orgId = `${testPrefix}${Date.now()}_fullflow`;
-    const url = 'https://fullflow-test.distribute.org';
+    const url = 'https://fullflow-test.distribute.you';
 
     // Step 1: Verify no org exists yet
     const orgsBefore = await db
@@ -382,7 +382,7 @@ describe('Full Flow Integration - CRITICAL', () => {
     const byDomain = await db
       .select()
       .from(brands)
-      .where(eq(brands.domain, 'fullflow-test.distribute.org'));
+      .where(eq(brands.domain, 'fullflow-test.distribute.you'));
     expect(byDomain.length).toBe(1);
     expect(byDomain[0].id).toBe(created.id);
   }, 15000);
