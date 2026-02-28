@@ -82,7 +82,7 @@ export const UpsertBrandRequestSchema = z
   .object({
     appId: z.string(),
     orgId: z.string(),
-    url: z.string(),
+    url: z.string().url(),
     userId: z.string(),
   })
   .openapi('UpsertBrandRequest');
@@ -152,7 +152,7 @@ export const CreateSalesProfileRequestSchema = z
   .object({
     appId: z.string(),
     orgId: z.string(),
-    url: z.string(),
+    url: z.string().url(),
     userId: z.string(),
     keyType: z.enum(['platform', 'app', 'byok']).default('byok'),
     skipCache: z.boolean().optional(),
@@ -331,7 +331,7 @@ registry.registerPath({
 export const SetUrlRequestSchema = z
   .object({
     organization_id: z.string(),
-    url: z.string(),
+    url: z.string().url(),
   })
   .openapi('SetUrlRequest');
 

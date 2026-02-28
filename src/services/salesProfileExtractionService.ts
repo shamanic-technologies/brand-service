@@ -439,7 +439,7 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
 
 function extractDomainFromUrl(url: string): string {
   try {
-    const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`);
+    const urlObj = new URL(url);
     return urlObj.hostname.replace(/^www\./, '').toLowerCase();
   } catch {
     return url.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
