@@ -76,7 +76,7 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/org-ids` | All org IDs |
+| GET | `/org-ids` | All org IDs (UUID-only, optional `?appId=` filter) |
 | GET | `/by-org-id/:orgId` | Get org by ID |
 | PUT | `/set-url` | Set org URL |
 | GET | `/by-url` | Get org by URL |
