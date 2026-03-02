@@ -43,16 +43,30 @@ async function lookupBrand(organizationId: string, appId: string): Promise<{ id:
   return result.rows[0] || null;
 }
 
-// GET all organization_ids (for bulk health checks)
+// UUID v4 regex for filtering results
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// GET all organization_ids (only valid UUIDs, for cross-service compatibility)
 router.get('/org-ids', async (req: Request, res: Response) => {
   try {
-    const result = await pool.query(`
-      SELECT DISTINCT o.org_id AS organization_id
-      FROM brands b
-      JOIN orgs o ON b.org_id = o.id
-    `);
+    const appId = req.query.appId as string | undefined;
 
-    const orgIds = result.rows.map(row => row.organization_id);
+    const query = appId
+      ? `SELECT DISTINCT o.org_id AS organization_id
+         FROM brands b
+         JOIN orgs o ON b.org_id = o.id
+         WHERE o.app_id = $1`
+      : `SELECT DISTINCT o.org_id AS organization_id
+         FROM brands b
+         JOIN orgs o ON b.org_id = o.id`;
+
+    const result = await pool.query(query, appId ? [appId] : []);
+
+    // Filter to only valid UUIDs (exclude legacy Clerk IDs, "system", etc.)
+    const orgIds = result.rows
+      .map(row => row.organization_id)
+      .filter((id: string) => UUID_REGEX.test(id));
+
     res.json({ organization_ids: orgIds, count: orgIds.length });
   } catch (error) {
     console.error('Error fetching organization IDs:', error);

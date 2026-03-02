@@ -1,21 +1,24 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
 import { brands, orgs, users } from '../../src/db/schema';
-import { eq, like, and, inArray } from 'drizzle-orm';
+import { eq, like, inArray } from 'drizzle-orm';
 
 const app = createTestApp();
 
 describe('POST /brands - Upsert Brand', () => {
-  const testPrefix = 'test_upsert_';
+  // Use a unique appId prefix for test cleanup (orgId is now UUID, can't use prefix)
+  const testAppPrefix = 'test_upsert_';
+  const testApp = `${testAppPrefix}default`;
 
   afterEach(async () => {
-    // Find test orgs
+    // Find test orgs by appId prefix
     const testOrgs = await db
       .select({ id: orgs.id })
       .from(orgs)
-      .where(like(orgs.orgId, `${testPrefix}%`));
+      .where(like(orgs.appId, `${testAppPrefix}%`));
 
     if (testOrgs.length > 0) {
       const orgIds = testOrgs.map(o => o.id);
@@ -25,13 +28,13 @@ describe('POST /brands - Upsert Brand', () => {
       await db.delete(users).where(inArray(users.orgId, orgIds));
     }
     // Delete orgs
-    await db.delete(orgs).where(like(orgs.orgId, `${testPrefix}%`));
+    await db.delete(orgs).where(like(orgs.appId, `${testAppPrefix}%`));
   });
 
   it('should return 401 without authentication', async () => {
     const response = await request(app)
       .post('/brands')
-      .send({ appId: 'test-app', orgId: 'org_123', url: 'https://example.com', userId: 'user_123' });
+      .send({ appId: testApp, orgId: randomUUID(), url: 'https://example.com', userId: 'user_123' });
 
     expect(response.status).toBe(401);
   });
@@ -40,7 +43,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', url: 'https://example.com', userId: 'user_123' });
+      .send({ appId: testApp, url: 'https://example.com', userId: 'user_123' });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Invalid request');
@@ -50,7 +53,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId: 'org_123', userId: 'user_123' });
+      .send({ appId: testApp, orgId: randomUUID(), userId: 'user_123' });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Invalid request');
@@ -60,7 +63,7 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ orgId: 'org_123', url: 'https://example.com', userId: 'user_123' });
+      .send({ orgId: randomUUID(), url: 'https://example.com', userId: 'user_123' });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Invalid request');
@@ -70,20 +73,30 @@ describe('POST /brands - Upsert Brand', () => {
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId: 'org_123', url: 'https://example.com' });
+      .send({ appId: testApp, orgId: randomUUID(), url: 'https://example.com' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('Invalid request');
+  });
+
+  it('should return 400 if orgId is not a valid UUID', async () => {
+    const response = await request(app)
+      .post('/brands')
+      .set(getAuthHeaders())
+      .send({ appId: testApp, orgId: 'org_38y0ZSEvK2Pj1', url: 'https://example.com', userId: 'user_123' });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Invalid request');
   });
 
   it('should create a new brand and return created=true', async () => {
-    const orgId = `${testPrefix}${Date.now()}_new`;
+    const orgId = randomUUID();
     const url = 'https://new-upsert-test.example.com';
 
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: testApp, orgId, url, userId: `test_user_${Date.now()}` });
 
     expect(response.status).toBe(200);
     expect(response.body.brandId).toBeDefined();
@@ -94,7 +107,7 @@ describe('POST /brands - Upsert Brand', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
+      .where(eq(orgs.orgId, orgId));
     expect(org).toBeDefined();
 
     const dbBrands = await db
@@ -107,14 +120,14 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should return existing brand with created=false on second call', async () => {
-    const orgId = `${testPrefix}${Date.now()}_existing`;
+    const orgId = randomUUID();
     const url = 'https://existing-upsert-test.example.com';
-    const userId = `${testPrefix}${Date.now()}_user`;
+    const userId = `test_user_${Date.now()}`;
 
     const first = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url, userId });
+      .send({ appId: testApp, orgId, url, userId });
 
     expect(first.status).toBe(200);
     expect(first.body.created).toBe(true);
@@ -122,7 +135,7 @@ describe('POST /brands - Upsert Brand', () => {
     const second = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url, userId });
+      .send({ appId: testApp, orgId, url, userId });
 
     expect(second.status).toBe(200);
     expect(second.body.brandId).toBe(first.body.brandId);
@@ -131,7 +144,7 @@ describe('POST /brands - Upsert Brand', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
+      .where(eq(orgs.orgId, orgId));
     const dbBrands = await db
       .select()
       .from(brands)
@@ -140,20 +153,20 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should create separate brands for different domains under same org', async () => {
-    const orgId = `${testPrefix}${Date.now()}_multi`;
-    const userId = `${testPrefix}${Date.now()}_user`;
+    const orgId = randomUUID();
+    const userId = `test_user_${Date.now()}`;
     const url1 = 'https://brand-one.example.com';
     const url2 = 'https://brand-two.example.com';
 
     const first = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url: url1, userId });
+      .send({ appId: testApp, orgId, url: url1, userId });
 
     const second = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url: url2, userId });
+      .send({ appId: testApp, orgId, url: url2, userId });
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -164,7 +177,7 @@ describe('POST /brands - Upsert Brand', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
+      .where(eq(orgs.orgId, orgId));
     const dbBrands = await db
       .select()
       .from(brands)
@@ -173,26 +186,26 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should strip www. from domain', async () => {
-    const orgId = `${testPrefix}${Date.now()}_www`;
+    const orgId = randomUUID();
     const url = 'https://www.strip-www-test.example.com';
 
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: testApp, orgId, url, userId: `test_user_${Date.now()}` });
 
     expect(response.status).toBe(200);
     expect(response.body.domain).toBe('strip-www-test.example.com');
   }, 10000);
 
   it('should handle URLs without protocol', async () => {
-    const orgId = `${testPrefix}${Date.now()}_noprotocol`;
+    const orgId = randomUUID();
     const url = 'no-protocol-test.example.com';
 
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: testApp, orgId, url, userId: `test_user_${Date.now()}` });
 
     expect(response.status).toBe(200);
     expect(response.body.domain).toBe('no-protocol-test.example.com');
@@ -202,13 +215,13 @@ describe('POST /brands - Upsert Brand', () => {
   // --- Tests for appId / userId / org resolution ---
 
   it('should create org row with the specified appId', async () => {
-    const orgId = `${testPrefix}${Date.now()}_defaultapp`;
+    const orgId = randomUUID();
     const url = 'https://default-app-test.example.com';
 
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: testApp, orgId, url, userId: `test_user_${Date.now()}` });
 
     expect(response.status).toBe(200);
 
@@ -216,8 +229,9 @@ describe('POST /brands - Upsert Brand', () => {
     const dbOrgs = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
+      .where(eq(orgs.orgId, orgId));
     expect(dbOrgs.length).toBe(1);
+    expect(dbOrgs[0].appId).toBe(testApp);
 
     // Verify brand has org_id set
     const dbBrands = await db
@@ -229,39 +243,40 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should create org row with custom appId', async () => {
-    const orgId = `${testPrefix}${Date.now()}_customapp`;
+    const orgId = randomUUID();
     const url = 'https://custom-app-test.example.com';
 
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'pressbeat', orgId, url, userId: `${testPrefix}${Date.now()}_user` });
+      .send({ appId: `${testAppPrefix}pressbeat`, orgId, url, userId: `test_user_${Date.now()}` });
 
     expect(response.status).toBe(200);
 
-    // Verify org was created with appId=pressbeat
+    // Verify org was created with the custom appId
     const dbOrgs = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'pressbeat'), eq(orgs.orgId, orgId)));
+      .where(eq(orgs.orgId, orgId));
     expect(dbOrgs.length).toBe(1);
+    expect(dbOrgs[0].appId).toBe(`${testAppPrefix}pressbeat`);
   }, 10000);
 
   it('should reuse existing org on second call', async () => {
-    const orgId = `${testPrefix}${Date.now()}_reuseorg`;
-    const userId = `${testPrefix}${Date.now()}_user`;
+    const orgId = randomUUID();
+    const userId = `test_user_${Date.now()}`;
     const url1 = 'https://reuse-org-one.example.com';
     const url2 = 'https://reuse-org-two.example.com';
 
     await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url: url1, userId });
+      .send({ appId: testApp, orgId, url: url1, userId });
 
     await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url: url2, userId });
+      .send({ appId: testApp, orgId, url: url2, userId });
 
     // Should still be only one org
     const dbOrgs = await db
@@ -272,14 +287,14 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should create user when userId is provided', async () => {
-    const orgId = `${testPrefix}${Date.now()}_withuser`;
-    const userId = `${testPrefix}${Date.now()}_user`;
+    const orgId = randomUUID();
+    const userId = `test_user_${Date.now()}`;
     const url = 'https://with-user-test.example.com';
 
     const response = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId, url, userId });
+      .send({ appId: testApp, orgId, url, userId });
 
     expect(response.status).toBe(200);
 
@@ -295,7 +310,7 @@ describe('POST /brands - Upsert Brand', () => {
     const [org] = await db
       .select()
       .from(orgs)
-      .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, orgId)));
+      .where(eq(orgs.orgId, orgId));
     const dbBrands = await db
       .select()
       .from(brands)
@@ -304,14 +319,14 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should allow two different orgs to upsert brands with the same domain', async () => {
-    const orgId1 = `${testPrefix}${Date.now()}_orgA`;
-    const orgId2 = `${testPrefix}${Date.now()}_orgB`;
+    const orgId1 = randomUUID();
+    const orgId2 = randomUUID();
     const url = 'https://shared-upsert-domain.example.com';
 
     const first = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId: orgId1, url, userId: `${testPrefix}${Date.now()}_userA` });
+      .send({ appId: testApp, orgId: orgId1, url, userId: `test_user_${Date.now()}_A` });
 
     expect(first.status).toBe(200);
     expect(first.body.created).toBe(true);
@@ -319,7 +334,7 @@ describe('POST /brands - Upsert Brand', () => {
     const second = await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'test-app', orgId: orgId2, url, userId: `${testPrefix}${Date.now()}_userB` });
+      .send({ appId: testApp, orgId: orgId2, url, userId: `test_user_${Date.now()}_B` });
 
     expect(second.status).toBe(200);
     expect(second.body.created).toBe(true);
@@ -328,19 +343,19 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should allow same orgId with different appIds', async () => {
-    const orgId = `${testPrefix}${Date.now()}_multiapp`;
+    const orgId = randomUUID();
     const url1 = 'https://multi-app-one.example.com';
     const url2 = 'https://multi-app-two.example.com';
 
     await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'app-one', orgId, url: url1, userId: `${testPrefix}${Date.now()}_user1` });
+      .send({ appId: `${testAppPrefix}app_one`, orgId, url: url1, userId: `test_user_${Date.now()}_1` });
 
     await request(app)
       .post('/brands')
       .set(getAuthHeaders())
-      .send({ appId: 'app-two', orgId, url: url2, userId: `${testPrefix}${Date.now()}_user2` });
+      .send({ appId: `${testAppPrefix}app_two`, orgId, url: url2, userId: `test_user_${Date.now()}_2` });
 
     // Should have two separate orgs
     const dbOrgs = await db
@@ -348,6 +363,6 @@ describe('POST /brands - Upsert Brand', () => {
       .from(orgs)
       .where(eq(orgs.orgId, orgId));
     expect(dbOrgs.length).toBe(2);
-    expect(dbOrgs.map(o => o.appId).sort()).toEqual(['app-one', 'app-two']);
+    expect(dbOrgs.map(o => o.appId).sort()).toEqual([`${testAppPrefix}app_one`, `${testAppPrefix}app_two`]);
   }, 10000);
 });

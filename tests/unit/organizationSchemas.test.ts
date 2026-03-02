@@ -10,11 +10,14 @@ import {
   BulkDeleteOrgsRequestSchema,
 } from '../../src/schemas';
 
+// Valid UUID v4 for creation schema tests (organization_id now requires .uuid())
+const TEST_UUID = '550e8400-e29b-41d4-a716-446655440000';
+
 describe('Organization route schemas - safeParse validation', () => {
   describe('SetUrlRequestSchema', () => {
     it('should accept valid input', () => {
       const result = SetUrlRequestSchema.safeParse({
-        organization_id: 'org_123',
+        organization_id: TEST_UUID,
         url: 'https://example.com',
       });
       expect(result.success).toBe(true);
@@ -26,7 +29,7 @@ describe('Organization route schemas - safeParse validation', () => {
     });
 
     it('should reject missing url', () => {
-      const result = SetUrlRequestSchema.safeParse({ organization_id: 'org_123' });
+      const result = SetUrlRequestSchema.safeParse({ organization_id: TEST_UUID });
       expect(result.success).toBe(false);
     });
 
@@ -39,14 +42,14 @@ describe('Organization route schemas - safeParse validation', () => {
   describe('UpsertOrganizationRequestSchema', () => {
     it('should accept organization_id only', () => {
       const result = UpsertOrganizationRequestSchema.safeParse({
-        organization_id: 'org_123',
+        organization_id: TEST_UUID,
       });
       expect(result.success).toBe(true);
     });
 
     it('should accept all fields', () => {
       const result = UpsertOrganizationRequestSchema.safeParse({
-        organization_id: 'org_123',
+        organization_id: TEST_UUID,
         external_organization_id: 'ext_456',
         name: 'Test Org',
         url: 'https://example.com',

@@ -81,7 +81,7 @@ export const BrandRunsQuerySchema = z
 export const UpsertBrandRequestSchema = z
   .object({
     appId: z.string(),
-    orgId: z.string(),
+    orgId: z.string().uuid(),
     url: z.string().url(),
     userId: z.string(),
   })
@@ -151,7 +151,7 @@ registry.registerPath({
 export const CreateSalesProfileRequestSchema = z
   .object({
     appId: z.string(),
-    orgId: z.string(),
+    orgId: z.string().uuid(),
     url: z.string().url(),
     userId: z.string(),
     keySource: z.enum(['platform', 'app', 'byok']),
@@ -330,14 +330,14 @@ registry.registerPath({
 
 export const SetUrlRequestSchema = z
   .object({
-    organization_id: z.string(),
+    organization_id: z.string().uuid(),
     url: z.string().url(),
   })
   .openapi('SetUrlRequest');
 
 export const UpsertOrganizationRequestSchema = z
   .object({
-    organization_id: z.string(),
+    organization_id: z.string().uuid(),
     external_organization_id: z.string().optional(),
     name: z.string().optional(),
     url: z.string().optional(),
@@ -397,12 +397,17 @@ export const OrgIdsQuerySchema = z
   .object({ orgIds: z.string() })
   .openapi('OrgIdsQuery');
 
+export const OrgIdsFilterQuerySchema = z
+  .object({ appId: z.string().optional() })
+  .openapi('OrgIdsFilterQuery');
+
 registry.registerPath({
   method: 'get',
   path: '/org-ids',
-  summary: 'Get all organization IDs',
+  summary: 'Get all organization IDs (only valid UUIDs)',
+  request: { query: OrgIdsFilterQuerySchema },
   responses: {
-    200: { description: 'List of org IDs' },
+    200: { description: 'List of org IDs (filtered to valid UUIDs only)' },
     500: { description: 'Internal server error' },
   },
 });
@@ -833,7 +838,7 @@ registry.registerPath({
 
 export const AnalyzeRequestSchema = z
   .object({
-    organization_id: z.string(),
+    organization_id: z.string().uuid(),
   })
   .openapi('AnalyzeRequest');
 
@@ -913,7 +918,7 @@ registry.registerPath({
 
 export const TriggerWorkflowRequestSchema = z
   .object({
-    organization_id: z.string(),
+    organization_id: z.string().uuid(),
     appId: z.string(),
   })
   .openapi('TriggerWorkflowRequest');
@@ -936,7 +941,7 @@ registry.registerPath({
 
 export const IntakeFormUpsertRequestSchema = z
   .object({
-    organization_id: z.string(),
+    organization_id: z.string().uuid(),
   })
   .passthrough()
   .openapi('IntakeFormUpsertRequest');
