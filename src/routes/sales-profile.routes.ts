@@ -24,8 +24,8 @@ function sanitizeProfileForExternal(profile: any) {
  * POST /sales-profile
  * Get or create sales profile for a brand by orgId + URL
  *
- * Body: { url, skipCache?, parentRunId, workflowName?, urgency?, scarcity?, riskReversal?, socialProof? }
- * Headers: x-org-id, x-user-id
+ * Body: { url, skipCache?, workflowName?, urgency?, scarcity?, riskReversal?, socialProof? }
+ * Headers: x-org-id, x-user-id, x-run-id
  *
  * Returns existing profile if available, otherwise extracts new one
  */
@@ -35,9 +35,10 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { url, skipCache, parentRunId, workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
+    const { url, skipCache, workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
     const orgId = req.orgId;
     const userId = req.userId;
+    const parentRunId = req.runId;
 
     // Get or create brand by orgId + URL (domain is the unique key per org)
     const brand = await getOrCreateBrand(orgId, url);

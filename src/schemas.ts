@@ -149,7 +149,6 @@ export const CreateSalesProfileRequestSchema = z
   .object({
     url: z.string().url(),
     skipCache: z.boolean().optional(),
-    parentRunId: z.string(),
     workflowName: z.string().optional(),
     urgency: z.string().optional(),
     scarcity: z.string().optional(),

@@ -49,6 +49,7 @@ All endpoints require service-to-service auth via `X-API-Key` header. Public end
 Every authenticated request must include identity headers:
 - `X-Org-Id` — internal org UUID from client-service
 - `X-User-Id` — internal user UUID from client-service
+- `X-Run-Id` — caller's run ID (used as parentRunId when creating child runs in runs-service)
 
 ## API Endpoints
 

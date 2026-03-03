@@ -54,11 +54,12 @@ export function createTestApp() {
  * Get auth headers for authenticated requests.
  * Includes x-org-id and x-user-id (required by combinedAuth middleware).
  */
-export function getAuthHeaders(orgId = 'test-org-uuid', userId = 'test-user-uuid') {
+export function getAuthHeaders(orgId = 'test-org-uuid', userId = 'test-user-uuid', runId = 'test-run-uuid') {
   return {
     'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
     'X-Org-Id': orgId,
     'X-User-Id': userId,
+    'X-Run-Id': runId,
     'Content-Type': 'application/json',
   };
 }

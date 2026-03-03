@@ -36,16 +36,18 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   // Extract and validate identity headers
   const orgId = req.headers['x-org-id'] as string | undefined;
   const userId = req.headers['x-user-id'] as string | undefined;
+  const runId = req.headers['x-run-id'] as string | undefined;
 
-  if (!orgId || !userId) {
+  if (!orgId || !userId || !runId) {
     return res.status(400).json({
       error: 'Missing required headers',
-      message: 'x-org-id and x-user-id headers are required',
+      message: 'x-org-id, x-user-id, and x-run-id headers are required',
     });
   }
 
   req.orgId = orgId;
   req.userId = userId;
+  req.runId = runId;
 
   return next();
 }

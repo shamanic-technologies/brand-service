@@ -29,13 +29,14 @@ describe('Authentication', () => {
     }, 10000);
   });
 
-  describe('Identity headers (x-org-id, x-user-id)', () => {
+  describe('Identity headers (x-org-id, x-user-id, x-run-id)', () => {
     it('should reject requests missing x-org-id header', async () => {
       const response = await request(app)
         .get('/org-ids')
         .set({
           'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
           'X-User-Id': 'test-user-uuid',
+          'X-Run-Id': 'test-run-uuid',
           'Content-Type': 'application/json',
         });
 
@@ -50,6 +51,7 @@ describe('Authentication', () => {
         .set({
           'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
           'X-Org-Id': 'test-org-uuid',
+          'X-Run-Id': 'test-run-uuid',
           'Content-Type': 'application/json',
         });
 
@@ -58,7 +60,22 @@ describe('Authentication', () => {
       expect(response.body.message).toContain('x-user-id');
     });
 
-    it('should reject requests missing both x-org-id and x-user-id headers', async () => {
+    it('should reject requests missing x-run-id header', async () => {
+      const response = await request(app)
+        .get('/org-ids')
+        .set({
+          'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
+          'X-Org-Id': 'test-org-uuid',
+          'X-User-Id': 'test-user-uuid',
+          'Content-Type': 'application/json',
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Missing required headers');
+      expect(response.body.message).toContain('x-run-id');
+    });
+
+    it('should reject requests missing all identity headers', async () => {
       const response = await request(app)
         .get('/org-ids')
         .set({
@@ -70,7 +87,7 @@ describe('Authentication', () => {
       expect(response.body.error).toBe('Missing required headers');
     });
 
-    it('should accept requests with both x-org-id and x-user-id headers', async () => {
+    it('should accept requests with all required headers', async () => {
       const response = await request(app)
         .get('/org-ids')
         .set(getAuthHeaders('test-org-id', 'test-user-id'));
