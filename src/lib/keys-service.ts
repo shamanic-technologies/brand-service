@@ -20,56 +20,26 @@ export interface CallerContext {
   path: string;
 }
 
-/**
- * Resolve the key-service decrypt URL and query params for a given keySource.
- *
- * - "platform" → /internal/platform-keys/{provider}/decrypt (no ID params)
- * - "app"      → /internal/app-keys/{provider}/decrypt?appId=...
- * - "byok"     → /internal/keys/{provider}/decrypt?orgId=...
- */
-function resolveKeyEndpoint(
-  provider: string,
-  keySource: "platform" | "app" | "byok",
-  orgId: string,
-  appId?: string,
-): { url: string; params: Record<string, string> } {
-  switch (keySource) {
-    case "platform":
-      return {
-        url: `${KEY_SERVICE_URL}/internal/platform-keys/${provider}/decrypt`,
-        params: {},
-      };
-    case "app":
-      if (!appId) throw new Error("appId is required for keySource 'app'");
-      return {
-        url: `${KEY_SERVICE_URL}/internal/app-keys/${provider}/decrypt`,
-        params: { appId },
-      };
-    case "byok":
-      return {
-        url: `${KEY_SERVICE_URL}/internal/keys/${provider}/decrypt`,
-        params: { orgId },
-      };
-  }
+export interface KeyResolution {
+  key: string | null;
+  keySource: 'platform' | 'org' | null;
 }
 
 /**
- * Get API key via key-service
+ * Resolve an API key via key-service using the unified decrypt endpoint.
  *
- * @param orgId - The organization ID
- * @param provider - The provider (e.g., "anthropic", "openai")
- * @param keySource - "byok" for user's key, "app" for client app key, "platform" for platform key
- * @param caller - The caller context (HTTP method + path) for key-service audit headers
- * @param appId - Required when keySource is "app"
+ * GET /keys/:provider/decrypt?orgId=...&userId=...
+ *
+ * Returns both the key and the keySource ("platform" or "org") for cost reporting.
  */
 export async function getKeyForOrg(
   orgId: string,
+  userId: string,
   provider: string,
-  keySource: "platform" | "app" | "byok",
   caller: CallerContext,
-  appId?: string,
-): Promise<string | null> {
-  const { url, params } = resolveKeyEndpoint(provider, keySource, orgId, appId);
+): Promise<KeyResolution> {
+  const url = `${KEY_SERVICE_URL}/keys/${provider}/decrypt`;
+  const params = { orgId, userId };
   let lastError: any;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -86,13 +56,15 @@ export async function getKeyForOrg(
         timeout: 10000,
       });
 
-      return response.data?.key || null;
+      const key = response.data?.key || null;
+      const keySource = response.data?.keySource || null;
+      return { key, keySource };
     } catch (error: any) {
       lastError = error;
 
       if (error.response?.status === 404) {
-        console.log(`No ${keySource} key found for provider ${provider}`);
-        return null;
+        console.log(`No key found for provider ${provider}, orgId=${orgId}`);
+        return { key: null, keySource: null };
       }
 
       // Retry on transient network errors

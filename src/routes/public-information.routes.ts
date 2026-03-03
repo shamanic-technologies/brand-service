@@ -1,8 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq, sql } from 'drizzle-orm';
-import { db, brands, orgs, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
-import { resolveOrgIdOptional } from '../lib/org-resolver';
-import { PublicInfoMapQuerySchema, PublicInfoContentRequestSchema } from '../schemas';
+import { db, brands, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
+import { PublicInfoContentRequestSchema } from '../schemas';
 
 const router = Router();
 
@@ -11,19 +10,9 @@ const router = Router();
  * Light version of public information that only returns URLs and short descriptions.
  */
 router.get('/public-information-map', async (req: Request, res: Response) => {
-  const parsed = PublicInfoMapQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
-  }
-  const { orgId: inputOrgId, appId } = parsed.data;
+  const orgId = req.orgId;
 
   try {
-    // Resolve org
-    const orgId = await resolveOrgIdOptional(inputOrgId, appId);
-    if (!orgId) {
-      return res.status(404).json({ error: 'Organization not found' });
-    }
-
     // Get main brand basic info
     const mainBrandResult = await db
       .select({ id: brands.id, name: brands.name, url: brands.url })

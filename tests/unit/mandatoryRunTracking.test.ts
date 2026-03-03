@@ -43,8 +43,6 @@ vi.mock('../../src/db', () => {
     db: chainable(),
     brands: { id: 'brands.id', orgId: 'brands.orgId', name: 'brands.name', url: 'brands.url', domain: 'brands.domain' },
     brandSalesProfiles: { brandId: 'bsp.brandId' },
-    orgs: { id: 'orgs.id', orgId: 'orgs.orgId', appId: 'orgs.appId' },
-    users: { id: 'users.id', userId: 'users.userId', orgId: 'users.orgId' },
   };
 });
 

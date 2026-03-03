@@ -15,7 +15,6 @@ import clientInfoRoutes from './routes/client-info.routes';
 import intakeFormRoutes from './routes/intake-form.routes';
 import thesisRoutes from './routes/thesis.routes';
 import publicInformationRoutes from './routes/public-information.routes';
-import usersRoutes from './routes/users.routes';
 import salesProfileRoutes from './routes/sales-profile.routes';
 import brandsRoutes from './routes/brands.routes';
 
@@ -28,7 +27,7 @@ app.use(cors({
   origin: true, // Allow all origins - auth is via BRAND_SERVICE_API_KEY
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-External-Organization-Id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-External-Organization-Id', 'X-Org-Id', 'X-User-Id'],
 }));
 
 app.use(express.json());
@@ -64,7 +63,6 @@ app.use('/', clientInfoRoutes);
 app.use('/', intakeFormRoutes);
 app.use('/', thesisRoutes);
 app.use('/', publicInformationRoutes);
-app.use('/users', usersRoutes);
 app.use('/', salesProfileRoutes);
 app.use('/', brandsRoutes);
 

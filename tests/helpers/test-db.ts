@@ -1,5 +1,5 @@
-import { db, brands, mediaAssets, intakeForms, orgs } from '../../src/db';
-import { eq, like, or, sql, inArray } from 'drizzle-orm';
+import { db, brands, mediaAssets, intakeForms } from '../../src/db';
+import { eq, like, sql } from 'drizzle-orm';
 
 /**
  * Clean test data from database
@@ -17,24 +17,15 @@ export async function cleanTestData() {
       like(intakeForms.brandId, 'test-%')
     );
 
-    // Find test orgs and delete brands via orgId
-    const testOrgs = await db
-      .select({ id: orgs.id })
-      .from(orgs)
-      .where(like(orgs.orgId, 'test-%'));
-
-    if (testOrgs.length > 0) {
-      const orgIds = testOrgs.map(o => o.id);
-      await db.delete(brands).where(inArray(brands.orgId, orgIds));
-    }
+    // Clean brands with test prefix org IDs
+    await db.delete(brands).where(
+      like(brands.orgId, 'test-%')
+    );
 
     // Clean brands with test prefix external org ids (legacy)
     await db.delete(brands).where(
       like(brands.externalOrganizationId, 'test-%')
     );
-
-    // Clean test orgs
-    await db.delete(orgs).where(like(orgs.orgId, 'test-%'));
   } catch (error) {
     // Table might not exist or connection issue, ignore in tests
     console.log('cleanTestData: ignoring error (table may not exist or DB unavailable)');
@@ -42,25 +33,7 @@ export async function cleanTestData() {
 }
 
 /**
- * Insert a test org and return its id
- */
-export async function insertTestOrg(data?: {
-  appId?: string;
-  orgId?: string;
-}) {
-  const result = await db
-    .insert(orgs)
-    .values({
-      appId: data?.appId || 'test-app',
-      orgId: data?.orgId || `test-org-${Date.now()}`,
-    })
-    .returning();
-
-  return result[0];
-}
-
-/**
- * Insert a test brand (requires an orgId)
+ * Insert a test brand directly (orgId is now client-service UUID, no orgs table indirection)
  */
 export async function insertTestBrand(data: {
   orgId: string;

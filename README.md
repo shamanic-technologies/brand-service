@@ -44,7 +44,11 @@ pnpm dev              # starts on PORT (default 3008)
 
 ## Authentication
 
-All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secret` header. Public endpoints (`/`, `/health`, `/openapi.json`) are exempt.
+All endpoints require service-to-service auth via `X-API-Key` header. Public endpoints (`/`, `/health`, `/openapi.json`) are exempt.
+
+Every authenticated request must include identity headers:
+- `X-Org-Id` — internal org UUID from client-service
+- `X-User-Id` — internal user UUID from client-service
 
 ## API Endpoints
 
@@ -76,7 +80,7 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/org-ids` | All org IDs (UUID-only, optional `?appId=` filter) |
+| GET | `/org-ids` | All org IDs (UUID-only) |
 | GET | `/by-org-id/:orgId` | Get org by ID |
 | PUT | `/set-url` | Set org URL |
 | GET | `/by-url` | Get org by URL |
@@ -164,20 +168,11 @@ All endpoints require service-to-service auth via `X-API-Key` or `X-Service-Secr
 |--------|------|-------------|
 | POST | `/trigger-client-info-workflow` | Trigger client info workflow |
 
-### Users
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/users/list` | List all users |
-| DELETE | `/users/:userId` | Delete user |
-
 ## Database
 
 Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 
-- `orgs` — multi-tenant orgs keyed by `(app_id, org_id)`
-- `users` — users linked to an org via `org_id` FK
-- `brands` — linked to `orgs` via `org_id` (NOT NULL FK)
+- `brands` — keyed by `org_id` (client-service UUID, NOT NULL)
 - `brand_sales_profiles` — AI-extracted profiles with leadership, funding, awards, revenue milestones, rich testimonials
 - `brand_linkedin_posts`
 - `individuals`, `brand_individuals`, `individuals_pdl_enrichment`

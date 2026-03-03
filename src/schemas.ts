@@ -25,7 +25,7 @@ export const SuccessResponseSchema = z
 // ============================================================
 
 export const ListBrandsQuerySchema = z
-  .object({ orgId: z.string(), appId: z.string().optional() })
+  .object({})
   .openapi('ListBrandsQuery');
 
 export const BrandSummarySchema = z
@@ -80,10 +80,7 @@ export const BrandRunsQuerySchema = z
 
 export const UpsertBrandRequestSchema = z
   .object({
-    appId: z.string(),
-    orgId: z.string().uuid(),
     url: z.string().url(),
-    userId: z.string(),
   })
   .openapi('UpsertBrandRequest');
 
@@ -150,11 +147,7 @@ registry.registerPath({
 
 export const CreateSalesProfileRequestSchema = z
   .object({
-    appId: z.string(),
-    orgId: z.string().uuid(),
     url: z.string().url(),
-    userId: z.string(),
-    keySource: z.enum(['platform', 'app', 'byok']),
     skipCache: z.boolean().optional(),
     parentRunId: z.string(),
     workflowName: z.string().optional(),
@@ -274,7 +267,7 @@ export const SalesProfileResponseSchema = z
   .openapi('SalesProfileResponse');
 
 export const ListSalesProfilesQuerySchema = z
-  .object({ orgId: z.string() })
+  .object({})
   .openapi('ListSalesProfilesQuery');
 
 registry.registerPath({
@@ -398,7 +391,7 @@ export const OrgIdsQuerySchema = z
   .openapi('OrgIdsQuery');
 
 export const OrgIdsFilterQuerySchema = z
-  .object({ appId: z.string().optional() })
+  .object({})
   .openapi('OrgIdsFilterQuery');
 
 registry.registerPath({
@@ -919,7 +912,6 @@ registry.registerPath({
 export const TriggerWorkflowRequestSchema = z
   .object({
     organization_id: z.string().uuid(),
-    appId: z.string(),
   })
   .openapi('TriggerWorkflowRequest');
 
@@ -1027,7 +1019,7 @@ registry.registerPath({
 // ============================================================
 
 export const PublicInfoMapQuerySchema = z
-  .object({ orgId: z.string(), appId: z.string() })
+  .object({})
   .openapi('PublicInfoMapQuery');
 
 export const PublicInfoContentRequestSchema = z
@@ -1062,32 +1054,6 @@ registry.registerPath({
   responses: {
     200: { description: 'Content for selected URLs' },
     400: { description: 'Missing selected_urls' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-// ============================================================
-// Users
-// ============================================================
-
-registry.registerPath({
-  method: 'get',
-  path: '/users/list',
-  summary: 'List all users',
-  responses: {
-    200: { description: 'Users list' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'delete',
-  path: '/users/{userId}',
-  summary: 'Delete a user by user ID',
-  responses: {
-    200: { description: 'User deleted' },
-    400: { description: 'Missing user ID' },
-    404: { description: 'User not found' },
     500: { description: 'Internal server error' },
   },
 });

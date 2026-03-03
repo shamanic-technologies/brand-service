@@ -1,8 +1,7 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { eq, sql } from 'drizzle-orm';
-import { db, brands, orgs, brandThesis } from '../db';
-import { resolveOrgIdOptional } from '../lib/org-resolver';
+import { db, brands, brandThesis } from '../db';
 import { TriggerWorkflowRequestSchema } from '../schemas';
 
 const router = Router();
@@ -20,19 +19,14 @@ router.post('/trigger-thesis-generation', async (req: Request, res: Response) =>
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
   }
-  const { organization_id, appId } = parsed.data;
+  const { organization_id } = parsed.data;
 
   try {
-    // Resolve org, then get brand
-    const orgId = await resolveOrgIdOptional(organization_id, appId);
-    if (!orgId) {
-      return res.status(404).json({ error: 'Organization not found' });
-    }
-
+    // Look up brand by organization_id directly (org_id in brands table)
     const brandResult = await db
       .select({ id: brands.id, externalOrganizationId: brands.externalOrganizationId })
       .from(brands)
-      .where(eq(brands.orgId, orgId))
+      .where(eq(brands.orgId, organization_id))
       .limit(1);
 
     if (brandResult.length === 0) {
@@ -91,17 +85,16 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
   const filter = req.query.filter as string | undefined;
 
   try {
-    // Get thesis data from brand-service database (join through orgs for orgId)
+    // Get thesis data from brand-service database
     const thesisData = await db
       .select({
-        orgId: orgs.orgId,
+        orgId: brands.orgId,
         lastThesisUpdate: sql<string>`MAX(${brandThesis.updatedAt})`,
         thesisCount: sql<number>`COUNT(${brandThesis.id})::integer`,
       })
       .from(brands)
-      .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .leftJoin(brandThesis, eq(brands.id, brandThesis.brandId))
-      .groupBy(orgs.orgId);
+      .groupBy(brands.orgId);
 
     // Create thesis lookup map
     const thesisMap = new Map(
@@ -257,7 +250,7 @@ router.get('/theses-setup', async (req: Request, res: Response) => {
   try {
     const result = await db
       .select({
-        orgId: orgs.orgId,
+        orgId: brands.orgId,
         organizationName: brands.name,
         validatedCount: sql<number>`COUNT(${brandThesis.id}) FILTER (WHERE ${brandThesis.status} = 'validated')::integer`,
         userValidatedCount: sql<number>`COUNT(${brandThesis.id}) FILTER (WHERE ${brandThesis.status} = 'validated' AND ${brandThesis.statusChangedByType} = 'user')::integer`,
@@ -266,9 +259,8 @@ router.get('/theses-setup', async (req: Request, res: Response) => {
         lastUpdatedAt: sql<string>`MAX(${brandThesis.updatedAt})`,
       })
       .from(brands)
-      .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .leftJoin(brandThesis, eq(brands.id, brandThesis.brandId))
-      .groupBy(orgs.orgId, brands.name)
+      .groupBy(brands.orgId, brands.name)
       .orderBy(sql`MAX(${brandThesis.updatedAt}) DESC NULLS LAST`);
 
     const organizations = result.map((row) => {

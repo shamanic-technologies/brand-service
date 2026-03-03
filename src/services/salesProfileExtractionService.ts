@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
 import { eq, and, gt, desc, sql } from 'drizzle-orm';
-import { db, brands, brandSalesProfiles, orgs, users } from '../db';
+import { db, brands, brandSalesProfiles } from '../db';
 import { createRun, updateRun, addCosts } from '../lib/runs-client';
 
 const SCRAPING_SERVICE_URL = process.env.SCRAPING_SERVICE_URL || 'http://localhost:3010';
@@ -446,84 +446,10 @@ function extractDomainFromUrl(url: string): string {
   }
 }
 
-export async function resolveOrCreateOrg(appId: string, orgId: string): Promise<{ id: string }> {
-  const existing = await db
-    .select({ id: orgs.id })
-    .from(orgs)
-    .where(and(eq(orgs.appId, appId), eq(orgs.orgId, orgId)))
-    .limit(1);
-
-  if (existing.length > 0) return existing[0];
-
-  const [created] = await db
-    .insert(orgs)
-    .values({ appId, orgId })
-    .onConflictDoNothing()
-    .returning({ id: orgs.id });
-
-  // Handle race condition: if conflict, re-fetch
-  if (!created) {
-    const [refetched] = await db
-      .select({ id: orgs.id })
-      .from(orgs)
-      .where(and(eq(orgs.appId, appId), eq(orgs.orgId, orgId)))
-      .limit(1);
-    return refetched;
-  }
-
-  return created;
-}
-
-export async function resolveOrCreateUser(userId: string, orgId: string): Promise<{ id: string }> {
-  const existing = await db
-    .select({ id: users.id, orgId: users.orgId })
-    .from(users)
-    .where(eq(users.userId, userId))
-    .limit(1);
-
-  if (existing.length > 0) {
-    // Update orgId if not set
-    if (!existing[0].orgId) {
-      await db.update(users)
-        .set({ orgId, updatedAt: sql`NOW()` })
-        .where(eq(users.id, existing[0].id));
-    }
-    return { id: existing[0].id };
-  }
-
-  const [created] = await db
-    .insert(users)
-    .values({ userId, orgId })
-    .onConflictDoNothing()
-    .returning({ id: users.id });
-
-  if (!created) {
-    const [refetched] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.userId, userId))
-      .limit(1);
-    return refetched;
-  }
-
-  return created;
-}
-
 export async function getOrCreateBrand(
   orgId: string,
   url: string,
-  options: { appId: string; userId?: string }
 ): Promise<Brand> {
-  const { appId } = options;
-
-  // Resolve or create org
-  const org = await resolveOrCreateOrg(appId, orgId);
-
-  // Optionally resolve or create user
-  if (options?.userId) {
-    await resolveOrCreateUser(options.userId, org.id);
-  }
-
   const domain = extractDomainFromUrl(url);
 
   // CASE 1: Find existing brand by orgId + domain
@@ -535,7 +461,7 @@ export async function getOrCreateBrand(
       domain: brands.domain,
     })
     .from(brands)
-    .where(and(eq(brands.orgId, org.id), eq(brands.domain, domain)))
+    .where(and(eq(brands.orgId, orgId), eq(brands.domain, domain)))
     .limit(1);
 
   if (existingByBoth.length > 0) {
@@ -551,7 +477,7 @@ export async function getOrCreateBrand(
   // CASE 2: Create new brand
   const inserted = await db
     .insert(brands)
-    .values({ url, domain, orgId: org.id })
+    .values({ url, domain, orgId })
     .onConflictDoNothing()
     .returning({
       id: brands.id,
@@ -561,7 +487,7 @@ export async function getOrCreateBrand(
     });
 
   if (inserted.length > 0) {
-    console.log(`[brand] Created NEW brand for org ${org.id} with domain ${domain}: ${inserted[0].id}`);
+    console.log(`[brand] Created NEW brand for org ${orgId} with domain ${domain}: ${inserted[0].id}`);
     return inserted[0];
   }
 
@@ -569,10 +495,10 @@ export async function getOrCreateBrand(
   const [refetched] = await db
     .select({ id: brands.id, url: brands.url, name: brands.name, domain: brands.domain })
     .from(brands)
-    .where(and(eq(brands.orgId, org.id), eq(brands.domain, domain)))
+    .where(and(eq(brands.orgId, orgId), eq(brands.domain, domain)))
     .limit(1);
 
-  console.log(`[brand] Re-fetched brand after conflict for org ${org.id}: ${refetched.id}`);
+  console.log(`[brand] Re-fetched brand after conflict for org ${orgId}: ${refetched.id}`);
   return refetched;
 }
 
@@ -581,8 +507,7 @@ export async function getSalesProfileByOrgId(orgId: string): Promise<SalesProfil
     .select()
     .from(brandSalesProfiles)
     .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
-    .innerJoin(orgs, eq(brands.orgId, orgs.id))
-    .where(and(eq(orgs.orgId, orgId), gt(brandSalesProfiles.expiresAt, sql`NOW()`)))
+    .where(and(eq(brands.orgId, orgId), gt(brandSalesProfiles.expiresAt, sql`NOW()`)))
     .orderBy(desc(brandSalesProfiles.extractedAt))
     .limit(1);
 
@@ -596,8 +521,7 @@ export async function getAllSalesProfilesByOrgId(
     .select()
     .from(brandSalesProfiles)
     .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
-    .innerJoin(orgs, eq(brands.orgId, orgs.id))
-    .where(eq(orgs.orgId, orgId))
+    .where(eq(brands.orgId, orgId))
     .orderBy(desc(brandSalesProfiles.extractedAt));
 
   return result.map(row => ({
@@ -678,7 +602,7 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean; orgId: string; appId: string; userId?: string; parentRunId: string; workflowName?: string; userHints?: UserHints }
+  options: { skipCache?: boolean; forceRescrape?: boolean; orgId: string; userId?: string; parentRunId: string; workflowName?: string; userHints?: UserHints; costSource?: "platform" | "org" }
 ): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
@@ -695,11 +619,12 @@ export async function extractBrandSalesProfile(
     throw new Error('[sales-profile] orgId is required for run/cost tracking');
   }
 
+  const costSource = options.costSource || "platform";
+
   // Create run in runs-service
   const run = await createRun({
     orgId,
     userId: options.userId,
-    appId: options.appId,
     brandId,
     serviceName: "brand-service",
     taskName: "sales-profile-extraction",
@@ -757,9 +682,9 @@ export async function extractBrandSalesProfile(
     console.log(`[${brandId}] Sales profile extracted and saved`);
 
     // Record costs and complete run — must succeed
-    const costItems = [];
-    if (inputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens });
-    if (outputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-output", quantity: outputTokens });
+    const costItems: { costName: string; quantity: number; costSource: "platform" | "org" }[] = [];
+    if (inputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens, costSource });
+    if (outputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-output", quantity: outputTokens, costSource });
     if (costItems.length > 0) await addCosts(runId, costItems);
     await updateRun(runId, "completed");
 
