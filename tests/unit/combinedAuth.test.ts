@@ -79,7 +79,7 @@ describe('combinedAuth middleware', () => {
 
   describe('reject missing identity headers', () => {
     it('should reject with 400 when x-org-id is missing', () => {
-      mockReq.headers = { 'x-api-key': 'test-valid-key', 'x-user-id': 'user-1' };
+      mockReq.headers = { 'x-api-key': 'test-valid-key', 'x-user-id': 'user-1', 'x-run-id': 'run-1' };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
@@ -91,7 +91,7 @@ describe('combinedAuth middleware', () => {
     });
 
     it('should reject with 400 when x-user-id is missing', () => {
-      mockReq.headers = { 'x-api-key': 'test-valid-key', 'x-org-id': 'org-1' };
+      mockReq.headers = { 'x-api-key': 'test-valid-key', 'x-org-id': 'org-1', 'x-run-id': 'run-1' };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
@@ -102,7 +102,19 @@ describe('combinedAuth middleware', () => {
       expect(mockNext).not.toHaveBeenCalled();
     });
 
-    it('should reject with 400 when both identity headers missing', () => {
+    it('should reject with 400 when x-run-id is missing', () => {
+      mockReq.headers = { 'x-api-key': 'test-valid-key', 'x-org-id': 'org-1', 'x-user-id': 'user-1' };
+
+      combinedAuth(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'Missing required headers' })
+      );
+      expect(mockNext).not.toHaveBeenCalled();
+    });
+
+    it('should reject with 400 when all identity headers missing', () => {
       mockReq.headers = { 'x-api-key': 'test-valid-key' };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
@@ -119,6 +131,7 @@ describe('combinedAuth middleware', () => {
         'x-api-key': 'test-brand-key',
         'x-org-id': 'org-uuid-1',
         'x-user-id': 'user-uuid-1',
+        'x-run-id': 'run-uuid-1',
       };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
@@ -127,6 +140,7 @@ describe('combinedAuth middleware', () => {
       expect(mockRes.status).not.toHaveBeenCalled();
       expect((mockReq as any).orgId).toBe('org-uuid-1');
       expect((mockReq as any).userId).toBe('user-uuid-1');
+      expect((mockReq as any).runId).toBe('run-uuid-1');
     });
 
     it('should accept valid X-API-Key with COMPANY_SERVICE_API_KEY (legacy)', () => {
@@ -136,6 +150,7 @@ describe('combinedAuth middleware', () => {
         'x-api-key': 'test-company-key',
         'x-org-id': 'org-1',
         'x-user-id': 'user-1',
+        'x-run-id': 'run-1',
       };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
@@ -152,6 +167,7 @@ describe('combinedAuth middleware', () => {
         'x-api-key': 'legacy-api-key',
         'x-org-id': 'org-1',
         'x-user-id': 'user-1',
+        'x-run-id': 'run-1',
       };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
@@ -167,6 +183,7 @@ describe('combinedAuth middleware', () => {
         'x-api-key': 'brand-key',
         'x-org-id': 'org-1',
         'x-user-id': 'user-1',
+        'x-run-id': 'run-1',
       };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);

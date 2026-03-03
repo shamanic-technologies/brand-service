@@ -5,6 +5,7 @@ declare global {
     interface Request {
       orgId: string;
       userId: string;
+      runId: string;
     }
   }
 }

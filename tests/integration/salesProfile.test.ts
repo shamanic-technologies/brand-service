@@ -37,26 +37,16 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)
         .post('/sales-profile')
-        .send({ url: testUrl, parentRunId: 'run_test' });
-
-      expect(response.status).toBe(401);
-    });
-
-    it('should return 400 if parentRunId is missing', async () => {
-      const response = await request(app)
-        .post('/sales-profile')
-        .set(getAuthHeaders(testOrgId, testUserId))
         .send({ url: testUrl });
 
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
+      expect(response.status).toBe(401);
     });
 
     it('should return 400 if url is missing', async () => {
       const response = await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders(testOrgId, testUserId))
-        .send({ parentRunId: 'run_test' });
+        .send({});
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -83,7 +73,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_parent',
+
         });
 
       // Verify brand was created in database
@@ -109,7 +99,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_parent',
+
         });
 
       // Get brand count after first call
@@ -126,7 +116,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_parent_2',
+
         });
 
       // Verify no duplicate brands created
@@ -149,7 +139,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: originalUrl,
-          parentRunId: 'run_test_parent',
+
         });
 
       // Verify original URL stored
@@ -180,7 +170,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
           .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
           .send({
             url: testCase.url,
-            parentRunId: 'run_test_parent',
+  
           });
 
         const brand = await db
@@ -206,7 +196,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_hints',
+
           urgency: 'Offer expires March 1st',
           scarcity: 'Only 10 enterprise spots left',
           riskReversal: '30-day money-back guarantee',
@@ -227,7 +217,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_hints_partial',
+
           urgency: 'Limited time offer',
         });
 
@@ -244,7 +234,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_hints_none',
+
         });
 
       expect(response.status).not.toBe(400);
@@ -298,7 +288,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_parent',
+
         });
 
       const [brand] = await db
@@ -393,7 +383,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_parent',
+
         });
 
       const [brand] = await db
@@ -458,7 +448,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
           url: uniqueUrl,
-          parentRunId: 'run_test_parent',
+
         });
 
       // Get the brand ID
