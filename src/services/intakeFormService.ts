@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, brands, intakeForms, orgs } from '../db';
+import { db, brands, intakeForms } from '../db';
 
 export interface IntakeFormData {
   organization_id: string;
@@ -46,8 +46,7 @@ async function getBrandIdFromOrgId(organizationId: string): Promise<string> {
   const result = await db
     .select({ id: brands.id })
     .from(brands)
-    .innerJoin(orgs, eq(brands.orgId, orgs.id))
-    .where(eq(orgs.orgId, organizationId))
+    .where(eq(brands.orgId, organizationId))
     .limit(1);
 
   if (result.length === 0) {

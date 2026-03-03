@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands, orgs } from '../../src/db/schema';
-import { eq, like, inArray } from 'drizzle-orm';
+import { brands } from '../../src/db/schema';
+import { eq, like } from 'drizzle-orm';
 
 // Mock runs-client to avoid calling real runs-service in tests
 vi.mock('../../src/lib/runs-client', () => ({
@@ -14,22 +14,14 @@ const app = createTestApp();
 
 describe('GET /brands/:id/runs - Integration Tests', () => {
   let testBrandId: string;
-  const testOrgId = `org_test_runs_${Date.now()}`;
+  const testOrgId = `test-runs-${Date.now()}`;
 
   beforeAll(async () => {
-    // Create a test org first, then a brand
-    const [org] = await db
-      .insert(orgs)
-      .values({
-        appId: 'test-app',
-        orgId: testOrgId,
-      })
-      .returning();
-
+    // Create a test brand directly (orgId stored directly in brands table)
     const [brand] = await db
       .insert(brands)
       .values({
-        orgId: org.id,
+        orgId: testOrgId,
         url: `https://runs-test-${Date.now()}.example.com`,
         domain: `runs-test-${Date.now()}.example.com`,
       })
@@ -39,16 +31,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
 
   afterAll(async () => {
     try {
-      const testOrgs = await db
-        .select({ id: orgs.id })
-        .from(orgs)
-        .where(like(orgs.orgId, 'org_test_runs_%'));
-
-      if (testOrgs.length > 0) {
-        const orgIds = testOrgs.map(o => o.id);
-        await db.delete(brands).where(inArray(brands.orgId, orgIds));
-      }
-      await db.delete(orgs).where(like(orgs.orgId, 'org_test_runs_%'));
+      await db.delete(brands).where(like(brands.orgId, 'test-runs-%'));
     } catch (e) {
       console.error('Cleanup error:', e);
     }
@@ -91,7 +74,6 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
     expect(listRuns).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: testOrgId,
-        appId: 'test-app',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
         limit: 10,

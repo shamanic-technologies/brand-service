@@ -15,23 +15,6 @@ export const pgmigrations = pgTable("pgmigrations", {
 	runOn: timestamp("run_on", { mode: 'string' }).notNull(),
 });
 
-export const users = pgTable("users", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	userId: text("user_id").notNull(),
-	orgId: uuid("org_id"),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index().using("btree", table.userId.asc().nullsLast().op("text_ops")),
-	unique("users_user_id_key").on(table.userId),
-	index("idx_users_org_id").using("btree", table.orgId.asc().nullsLast().op("uuid_ops")),
-	foreignKey({
-		columns: [table.orgId],
-		foreignColumns: [orgs.id],
-		name: "users_org_id_fkey"
-	}).onDelete("cascade"),
-]);
-
 export const brands = pgTable("brands", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	name: text(),
@@ -65,11 +48,6 @@ export const brands = pgTable("brands", {
 	index("idx_organizations_categories").using("btree", table.categories.asc().nullsLast().op("text_ops")).where(sql`(categories IS NOT NULL)`),
 	index("organizations_logo_url_index").using("btree", table.logoUrl.asc().nullsLast().op("text_ops")).where(sql`(logo_url IS NOT NULL)`),
 	index("organizations_status_index").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status IS NOT NULL)`),
-	foreignKey({
-			columns: [table.orgId],
-			foreignColumns: [orgs.id],
-			name: "brands_org_id_fkey"
-		}).onDelete("cascade"),
 	unique("organizations_external_organization_id_key").on(table.externalOrganizationId),
 	check("organizations_status_check", sql`(status IS NULL) OR (status = 'generating'::text)`),
 ]);
@@ -462,15 +440,6 @@ export const organizationIdeas = pgTable("organization_ideas", {
 	organizationContrarianIdeas: json("organization_contrarian_ideas"),
 });
 
-export const orgs = pgTable("orgs", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	appId: text("app_id").notNull(),
-	orgId: text("org_id").notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	uniqueIndex("idx_orgs_app_org_id").using("btree", table.appId.asc().nullsLast().op("text_ops"), table.orgId.asc().nullsLast().op("text_ops")),
-]);
 
 export const intakeForms = pgTable("intake_forms", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -546,11 +515,6 @@ export const brandThesis = pgTable("brand_thesis", {
 			foreignColumns: [brands.id],
 			name: "organizations_individuals_aied_thesis_organization_id_fkey"
 		}).onDelete("cascade"),
-	foreignKey({
-			columns: [table.statusChangedByUserId],
-			foreignColumns: [users.id],
-			name: "organizations_aied_thesis_status_changed_by_user_id_fkey"
-		}).onDelete("set null"),
 	foreignKey({
 			columns: [table.brandId],
 			foreignColumns: [brands.id],

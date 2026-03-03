@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock fetch globally before importing the module
 const mockFetch = vi.fn();
@@ -31,14 +31,13 @@ describe('runs-client', () => {
   }
 
   describe('createRun', () => {
-    it('should POST to /v1/runs with orgId and appId', async () => {
+    it('should POST to /v1/runs with orgId (no appId)', async () => {
       const { createRun } = await importClient();
       const runResponse = {
         id: 'run-1',
         parentRunId: null,
         organizationId: 'org-1',
         userId: null,
-        appId: 'test-app',
         brandId: null,
         campaignId: null,
         serviceName: 'brand-service',
@@ -53,14 +52,12 @@ describe('runs-client', () => {
 
       const result = await createRun({
         orgId: 'org_1',
-        appId: 'test-app',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
       });
 
       expect(result.id).toBe('run-1');
       expect(result.serviceName).toBe('brand-service');
-      expect(result.appId).toBe('test-app');
       expect(mockFetch).toHaveBeenCalledWith(
         'https://runs-test.example.com/v1/runs',
         expect.objectContaining({ method: 'POST' })
@@ -68,7 +65,7 @@ describe('runs-client', () => {
 
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(callBody.orgId).toBe('org_1');
-      expect(callBody.appId).toBe('test-app');
+      expect(callBody).not.toHaveProperty('appId');
     });
 
     it('should pass parentRunId and brandId when provided', async () => {
@@ -77,7 +74,6 @@ describe('runs-client', () => {
 
       await createRun({
         orgId: 'org_1',
-        appId: 'test-app',
         brandId: 'brand-123',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
@@ -95,7 +91,6 @@ describe('runs-client', () => {
 
       await createRun({
         orgId: 'org_1',
-        appId: 'test-app',
         serviceName: 'brand-service',
         taskName: 'sales-profile-extraction',
         workflowName: 'cold-email-outreach',
@@ -133,7 +128,7 @@ describe('runs-client', () => {
   });
 
   describe('addCosts', () => {
-    it('should POST cost items to /v1/runs/:id/costs', async () => {
+    it('should POST cost items with costSource to /v1/runs/:id/costs', async () => {
       const { addCosts } = await importClient();
       const costResponse = {
         costs: [
@@ -144,14 +139,16 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse(costResponse));
 
       const result = await addCosts('run-1', [
-        { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 5000 },
-        { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 1000 },
+        { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 5000, costSource: 'platform' },
+        { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 1000, costSource: 'org' },
       ]);
 
       expect(result.costs).toHaveLength(2);
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(callBody.items).toHaveLength(2);
       expect(callBody.items[0].costName).toBe('anthropic-sonnet-4.6-tokens-input');
+      expect(callBody.items[0].costSource).toBe('platform');
+      expect(callBody.items[1].costSource).toBe('org');
     });
   });
 
@@ -186,19 +183,18 @@ describe('runs-client', () => {
       expect(calledUrl).not.toContain('taskName');
     });
 
-    it('should pass appId and brandId filters', async () => {
+    it('should pass brandId filter (no appId)', async () => {
       const { listRuns } = await importClient();
       mockFetch.mockResolvedValueOnce(mockResponse({ runs: [], limit: 50, offset: 0 }));
 
       await listRuns({
         orgId: 'org_1',
-        appId: 'test-app',
         brandId: 'brand-123',
       });
 
       const calledUrl = mockFetch.mock.calls[0][0] as string;
-      expect(calledUrl).toContain('appId=test-app');
       expect(calledUrl).toContain('brandId=brand-123');
+      expect(calledUrl).not.toContain('appId');
     });
 
     it('should pass workflowName filter when provided', async () => {
@@ -221,7 +217,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse('Not found', 404));
 
       await expect(
-        createRun({ orgId: 'org_1', appId: 'test-app', serviceName: 'test', taskName: 'test' })
+        createRun({ orgId: 'org_1', serviceName: 'test', taskName: 'test' })
       ).rejects.toThrow('runs-service POST /v1/runs failed: 404');
     });
 
@@ -229,7 +225,7 @@ describe('runs-client', () => {
       const { createRun } = await importClient();
       mockFetch.mockResolvedValueOnce(mockResponse({ id: 'run-1' }));
 
-      await createRun({ orgId: 'org_1', appId: 'test-app', serviceName: 'test', taskName: 'test' });
+      await createRun({ orgId: 'org_1', serviceName: 'test', taskName: 'test' });
 
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers['X-API-Key']).toBe('test-api-key');

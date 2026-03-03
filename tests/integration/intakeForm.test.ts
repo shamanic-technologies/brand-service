@@ -27,7 +27,7 @@ describe('Intake Form Endpoints', () => {
       const response = await request(app)
         .post('/trigger-intake-form-generation')
         .set(getAuthHeaders())
-        .send({ organization_id: TEST_UUID, appId: 'test-app' });
+        .send({ organization_id: TEST_UUID });
 
       // Not auth error (may be 404 or 500 if org not found)
       expect(response.status).not.toBe(401);
@@ -37,7 +37,7 @@ describe('Intake Form Endpoints', () => {
     it('should reject unauthenticated requests', async () => {
       const response = await request(app)
         .post('/trigger-intake-form-generation')
-        .send({ organization_id: TEST_UUID, appId: 'test-app' });
+        .send({ organization_id: TEST_UUID });
 
       expect(response.status).toBe(401);
     });

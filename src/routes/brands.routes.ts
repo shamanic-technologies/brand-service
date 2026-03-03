@@ -1,9 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
-import { db, brands, orgs } from '../db';
+import { db, brands } from '../db';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, resolveOrCreateOrg } from '../services/salesProfileExtractionService';
-import { resolveOrgId, resolveOrgIdOptional } from '../lib/org-resolver';
+import { getOrCreateBrand } from '../services/salesProfileExtractionService';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema } from '../schemas';
 
 const router = Router();
@@ -21,7 +20,8 @@ router.post('/brands', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { appId, orgId: inputOrgId, url, userId: inputUserId } = parsed.data;
+    const { url } = parsed.data;
+    const orgId = req.orgId;
 
     // Extract domain to check if brand already exists
     let domain: string;
@@ -32,15 +32,14 @@ router.post('/brands', async (req: Request, res: Response) => {
       domain = url.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
     }
 
-    // Resolve org to check if brand exists by orgId + domain
-    const org = await resolveOrCreateOrg(appId, inputOrgId);
+    // Check if brand already exists by orgId + domain
     const existing = await db
       .select({ id: brands.id })
       .from(brands)
-      .where(and(eq(brands.orgId, org.id), eq(brands.domain, domain)))
+      .where(and(eq(brands.orgId, orgId), eq(brands.domain, domain)))
       .limit(1);
 
-    const brand = await getOrCreateBrand(inputOrgId, url, { appId, userId: inputUserId });
+    const brand = await getOrCreateBrand(orgId, url);
 
     res.json({
       brandId: brand.id,
@@ -56,23 +55,11 @@ router.post('/brands', async (req: Request, res: Response) => {
 
 /**
  * GET /brands
- * List all brands for an organization by orgId
- *
- * Query params:
- * - orgId: required
+ * List all brands for an organization by orgId (from header)
  */
 router.get('/brands', async (req: Request, res: Response) => {
   try {
-    const parsed = ListBrandsQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
-    }
-    const { orgId: inputOrgId, appId } = parsed.data;
-
-    const orgId = await resolveOrgIdOptional(inputOrgId, appId);
-    if (!orgId) {
-      return res.json({ brands: [] });
-    }
+    const orgId = req.orgId;
 
     // Get all brands for this org
     const orgBrands = await db
@@ -160,21 +147,19 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
     const limit = parsed.data.limit ? parseInt(parsed.data.limit, 10) : undefined;
     const offset = parsed.data.offset ? parseInt(parsed.data.offset, 10) : undefined;
 
-    // Look up the brand and join to orgs to get orgId + appId
-    const [brandRow] = await db
-      .select({ id: brands.id, orgId: orgs.orgId, appId: orgs.appId })
+    // Look up the brand directly
+    const [brand] = await db
+      .select({ id: brands.id, orgId: brands.orgId })
       .from(brands)
-      .innerJoin(orgs, eq(brands.orgId, orgs.id))
       .where(eq(brands.id, id))
       .limit(1);
 
-    if (!brandRow) {
+    if (!brand) {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
     const result = await listRuns({
-      orgId: brandRow.orgId,
-      appId: brandRow.appId,
+      orgId: brand.orgId,
       serviceName: 'brand-service',
       taskName,
       limit,

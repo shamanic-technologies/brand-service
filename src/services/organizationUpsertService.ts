@@ -1,6 +1,5 @@
 import { eq, and, sql } from 'drizzle-orm';
-import { db, brands, orgs } from '../db';
-import { resolveOrCreateOrg } from './salesProfileExtractionService';
+import { db, brands } from '../db';
 
 /**
  * Extracts domain from URL using JavaScript (matches SQL extract_domain_from_url)
@@ -17,30 +16,23 @@ function extractDomainFromUrl(url: string): string | null {
 
 /**
  * Gets or creates a brand by organization ID and returns its internal UUID.
- * Resolves org first, then queries brands by orgId.
+ * Uses orgId directly as brands.org_id (no orgs table indirection).
  */
 export const getOrganizationIdByOrgId = async (
   organizationId: string,
   organizationName?: string,
   organizationUrl?: string,
   externalOrganizationId?: string,
-  appId?: string
 ): Promise<string> => {
-  if (!appId) {
-    throw new Error('appId is required');
-  }
   try {
     console.log(`[BRAND UPSERT] Starting upsert for org_id: ${organizationId}`);
     console.log(`[BRAND UPSERT] Params: name=${organizationName}, url=${organizationUrl}`);
-
-    // Resolve or create org
-    const org = await resolveOrCreateOrg(appId, organizationId);
 
     // Check if brand exists by orgId
     const existingByOrg = await db
       .select({ id: brands.id, domain: brands.domain })
       .from(brands)
-      .where(eq(brands.orgId, org.id))
+      .where(eq(brands.orgId, organizationId))
       .limit(1);
 
     // Check if brand exists by domain
@@ -51,7 +43,7 @@ export const getOrganizationIdByOrgId = async (
       const domainResult = await db
         .select({ id: brands.id, orgId: brands.orgId })
         .from(brands)
-        .where(and(eq(brands.domain, domain), eq(brands.orgId, org.id)))
+        .where(and(eq(brands.domain, domain), eq(brands.orgId, organizationId)))
         .limit(1);
       if (domainResult.length > 0) {
         existingByDomain = domainResult[0];
@@ -72,7 +64,7 @@ export const getOrganizationIdByOrgId = async (
       const result = await db
         .update(brands)
         .set({
-          orgId: org.id,
+          orgId: organizationId,
           externalOrganizationId: externalOrganizationId || sql`${brands.externalOrganizationId}`,
           name: organizationName || sql`${brands.name}`,
           url: organizationUrl || sql`${brands.url}`,
@@ -108,7 +100,7 @@ export const getOrganizationIdByOrgId = async (
       const result = await db
         .update(brands)
         .set({
-          orgId: org.id,
+          orgId: organizationId,
           externalOrganizationId: externalOrganizationId || sql`${brands.externalOrganizationId}`,
           name: organizationName || sql`${brands.name}`,
           url: organizationUrl || sql`${brands.url}`,
@@ -125,7 +117,7 @@ export const getOrganizationIdByOrgId = async (
     const result = await db
       .insert(brands)
       .values({
-        orgId: org.id,
+        orgId: organizationId,
         externalOrganizationId: externalOrganizationId || null,
         name: organizationName || null,
         url: organizationUrl || null,
@@ -144,17 +136,13 @@ export const getOrganizationIdByOrgId = async (
 /**
  * @deprecated Use getOrganizationIdByOrgId instead.
  * Gets or creates a brand by external ID (press-funnel UUID).
- * Note: This creates brands without an org link — caller should ensure org exists.
+ * Note: This creates brands without an org link -- caller should ensure org exists.
  */
 export const getOrganizationIdByExternalId = async (
   externalOrganizationId: string,
   organizationName?: string,
   organizationUrl?: string,
-  appId?: string
 ): Promise<string> => {
-  if (!appId) {
-    throw new Error('appId is required');
-  }
   try {
     console.log(`[BRAND UPSERT] [DEPRECATED] Starting upsert for external_org_id: ${externalOrganizationId}`);
 
@@ -183,13 +171,11 @@ export const getOrganizationIdByExternalId = async (
       return result[0].id;
     }
 
-    // Create new — use a system org for unowned brands
-    const systemOrg = await resolveOrCreateOrg(appId, 'system');
-
+    // Create new — use a placeholder orgId for unowned brands
     const result = await db
       .insert(brands)
       .values({
-        orgId: systemOrg.id,
+        orgId: 'system',
         externalOrganizationId,
         name: organizationName || null,
         url: organizationUrl || null,

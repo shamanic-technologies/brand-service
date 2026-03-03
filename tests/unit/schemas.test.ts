@@ -15,169 +15,56 @@ import {
   registry,
 } from '../../src/schemas';
 
-// Valid UUID v4 for creation schema tests (orgId/organization_id now require .uuid())
+// Valid UUID v4 for creation schema tests (organization_id fields require .uuid())
 const TEST_UUID = '550e8400-e29b-41d4-a716-446655440000';
 
 describe('Zod Schemas', () => {
   describe('CreateSalesProfileRequestSchema', () => {
-    it('should reject missing keySource', () => {
+    it('should accept valid request with url and parentRunId', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
         url: 'https://example.com',
-        userId: 'user_123',
-        parentRunId: 'run_parent_123',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('should accept valid request with keySource', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
-        url: 'https://example.com',
-        userId: 'user_123',
-        keySource: 'byok',
         parentRunId: 'run_parent_123',
       });
       expect(result.success).toBe(true);
     });
 
-    it('should accept all fields', () => {
+    it('should accept all fields including user hints', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
         url: 'https://example.com',
-        userId: 'user_123',
-        keySource: 'platform',
         skipCache: true,
         parentRunId: 'run_abc',
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('should reject missing parentRunId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
-        url: 'https://example.com',
-        userId: 'user_123',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('should reject missing orgId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'test-app', url: 'https://example.com', userId: 'user_123', parentRunId: 'run_1' });
-      expect(result.success).toBe(false);
-    });
-
-    it('should reject missing url', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'test-app', orgId: TEST_UUID, userId: 'user_123', parentRunId: 'run_1' });
-      expect(result.success).toBe(false);
-    });
-
-    it('should reject missing appId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ orgId: TEST_UUID, url: 'https://example.com', userId: 'user_123', parentRunId: 'run_1' });
-      expect(result.success).toBe(false);
-    });
-
-    it('should reject missing userId', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({ appId: 'test-app', orgId: TEST_UUID, url: 'https://example.com', parentRunId: 'run_1' });
-      expect(result.success).toBe(false);
-    });
-
-    it('should accept keySource app', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
-        url: 'https://example.com',
-        userId: 'user_123',
-        parentRunId: 'run_1',
-        keySource: 'app',
-      });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.keySource).toBe('app');
-      }
-    });
-
-    it('should reject invalid keySource', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
-        url: 'https://example.com',
-        userId: 'user_123',
-        parentRunId: 'run_1',
-        keySource: 'invalid',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('should accept optional user hint fields', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
-        url: 'https://example.com',
-        userId: 'user_123',
-        keySource: 'byok',
-        parentRunId: 'run_1',
+        workflowName: 'cold-email',
         urgency: 'Offer expires March 1st',
-        scarcity: 'Only 10 enterprise spots left',
+        scarcity: 'Only 10 spots left',
         riskReversal: '30-day money-back guarantee',
         socialProof: 'Trusted by 500+ SaaS companies',
       });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.urgency).toBe('Offer expires March 1st');
-        expect(result.data.scarcity).toBe('Only 10 enterprise spots left');
+        expect(result.data.scarcity).toBe('Only 10 spots left');
         expect(result.data.riskReversal).toBe('30-day money-back guarantee');
         expect(result.data.socialProof).toBe('Trusted by 500+ SaaS companies');
       }
     });
 
-    it('should accept request with some user hint fields omitted', () => {
+    it('should reject missing parentRunId', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
         url: 'https://example.com',
-        userId: 'user_123',
-        keySource: 'byok',
-        parentRunId: 'run_1',
-        urgency: 'Limited time offer',
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.urgency).toBe('Limited time offer');
-        expect(result.data.scarcity).toBeUndefined();
-        expect(result.data.riskReversal).toBeUndefined();
-        expect(result.data.socialProof).toBeUndefined();
-      }
+      expect(result.success).toBe(false);
     });
 
-    it('should accept request with no user hint fields', () => {
+    it('should reject missing url', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
-        url: 'https://example.com',
-        userId: 'user_123',
-        keySource: 'platform',
         parentRunId: 'run_1',
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.urgency).toBeUndefined();
-        expect(result.data.scarcity).toBeUndefined();
-        expect(result.data.riskReversal).toBeUndefined();
-        expect(result.data.socialProof).toBeUndefined();
-      }
+      expect(result.success).toBe(false);
     });
 
     it('should reject bare domain without protocol', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
         url: 'pressbeat.io',
-        userId: 'user_123',
         parentRunId: 'run_1',
       });
       expect(result.success).toBe(false);
@@ -185,35 +72,86 @@ describe('Zod Schemas', () => {
 
     it('should reject domain with path but no protocol', () => {
       const result = CreateSalesProfileRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
         url: 'example.com/about',
-        userId: 'user_123',
         parentRunId: 'run_1',
       });
       expect(result.success).toBe(false);
+    });
+
+    it('should accept request with some user hint fields omitted', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        url: 'https://example.com',
+        parentRunId: 'run_1',
+        urgency: 'Limited time offer',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.urgency).toBe('Limited time offer');
+        expect(result.data.scarcity).toBeUndefined();
+      }
+    });
+
+    it('should not have appId, orgId, userId, or keySource fields', () => {
+      const result = CreateSalesProfileRequestSchema.safeParse({
+        url: 'https://example.com',
+        parentRunId: 'run_1',
+        appId: 'test-app',
+        orgId: TEST_UUID,
+        userId: 'user-1',
+        keySource: 'byok',
+      });
+      // Should succeed — extra fields are just ignored by Zod strict or stripped
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // These fields should not be in the parsed output
+        expect((result.data as any).appId).toBeUndefined();
+        expect((result.data as any).orgId).toBeUndefined();
+        expect((result.data as any).userId).toBeUndefined();
+        expect((result.data as any).keySource).toBeUndefined();
+      }
     });
   });
 
   describe('UpsertBrandRequestSchema', () => {
     it('should accept valid URL with protocol', () => {
       const result = UpsertBrandRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
         url: 'https://pressbeat.io',
-        userId: 'user_123',
       });
       expect(result.success).toBe(true);
     });
 
     it('should reject bare domain without protocol', () => {
       const result = UpsertBrandRequestSchema.safeParse({
-        appId: 'test-app',
-        orgId: TEST_UUID,
         url: 'pressbeat.io',
-        userId: 'user_123',
       });
       expect(result.success).toBe(false);
+    });
+
+    it('should not have appId, orgId, or userId fields', () => {
+      const result = UpsertBrandRequestSchema.safeParse({
+        url: 'https://example.com',
+        appId: 'test-app',
+        orgId: TEST_UUID,
+        userId: 'user-1',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data as any).appId).toBeUndefined();
+        expect((result.data as any).orgId).toBeUndefined();
+        expect((result.data as any).userId).toBeUndefined();
+      }
+    });
+  });
+
+  describe('ListBrandsQuerySchema', () => {
+    it('should accept empty query (orgId from header)', () => {
+      const result = ListBrandsQuerySchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept and strip unknown properties', () => {
+      const result = ListBrandsQuerySchema.safeParse({ orgId: 'org_123', appId: 'test' });
+      expect(result.success).toBe(true);
     });
   });
 
@@ -272,30 +210,13 @@ describe('Zod Schemas', () => {
   });
 
   describe('TriggerWorkflowRequestSchema', () => {
-    it('should accept valid request', () => {
-      const result = TriggerWorkflowRequestSchema.safeParse({ organization_id: TEST_UUID, appId: 'test-app' });
+    it('should accept valid request with organization_id', () => {
+      const result = TriggerWorkflowRequestSchema.safeParse({ organization_id: TEST_UUID });
       expect(result.success).toBe(true);
     });
 
     it('should reject empty body', () => {
       const result = TriggerWorkflowRequestSchema.safeParse({});
-      expect(result.success).toBe(false);
-    });
-  });
-
-  describe('ListBrandsQuerySchema', () => {
-    it('should accept valid query with orgId and appId', () => {
-      const result = ListBrandsQuerySchema.safeParse({ orgId: 'org_123', appId: 'test-app' });
-      expect(result.success).toBe(true);
-    });
-
-    it('should accept query with orgId only (appId optional)', () => {
-      const result = ListBrandsQuerySchema.safeParse({ orgId: 'org_123' });
-      expect(result.success).toBe(true);
-    });
-
-    it('should reject missing orgId', () => {
-      const result = ListBrandsQuerySchema.safeParse({});
       expect(result.success).toBe(false);
     });
   });
@@ -352,22 +273,8 @@ describe('UUID validation on creation schemas', () => {
   const clerkId = 'org_38y0ZSEvK2Pj1';
   const systemId = 'system';
 
+  // Only schemas that still have a UUID field (organization_id)
   const creationSchemas = [
-    {
-      name: 'UpsertBrandRequestSchema',
-      schema: UpsertBrandRequestSchema,
-      validPayload: (orgId: string) => ({
-        appId: 'test-app', orgId, url: 'https://example.com', userId: 'user-1',
-      }),
-    },
-    {
-      name: 'CreateSalesProfileRequestSchema',
-      schema: CreateSalesProfileRequestSchema,
-      validPayload: (orgId: string) => ({
-        appId: 'test-app', orgId, url: 'https://example.com', userId: 'user-1',
-        keySource: 'byok' as const, parentRunId: 'run-1',
-      }),
-    },
     {
       name: 'UpsertOrganizationRequestSchema',
       schema: UpsertOrganizationRequestSchema,
@@ -384,7 +291,7 @@ describe('UUID validation on creation schemas', () => {
       name: 'TriggerWorkflowRequestSchema',
       schema: TriggerWorkflowRequestSchema,
       validPayload: (orgId: string) => ({
-        organization_id: orgId, appId: 'test-app',
+        organization_id: orgId,
       }),
     },
     {
@@ -418,14 +325,4 @@ describe('UUID validation on creation schemas', () => {
       });
     });
   }
-
-  describe('Read schemas should NOT require UUID', () => {
-    it('ListBrandsQuerySchema should accept Clerk-style orgId', () => {
-      expect(ListBrandsQuerySchema.safeParse({ orgId: clerkId }).success).toBe(true);
-    });
-
-    it('ListBrandsQuerySchema should accept UUID orgId', () => {
-      expect(ListBrandsQuerySchema.safeParse({ orgId: validUuid }).success).toBe(true);
-    });
-  });
 });

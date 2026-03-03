@@ -10,18 +10,10 @@ describe('Public Information Endpoints', () => {
   const app = createTestApp();
 
   describe('GET /public-information-map', () => {
-    it('should require orgId query param', async () => {
-      const response = await request(app).get('/public-information-map').set(getAuthHeaders());
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
-    });
-
-    it('should accept authenticated requests with query param', async () => {
+    it('should accept authenticated requests (orgId from header)', async () => {
       const response = await request(app)
         .get('/public-information-map')
-        .query({ orgId: 'org_test123' })
-        .set(getAuthHeaders());
+        .set(getAuthHeaders('org_test123', 'user_test123'));
 
       // Not auth error (may be 404 if org not found)
       expect(response.status).not.toBe(401);
@@ -30,8 +22,7 @@ describe('Public Information Endpoints', () => {
 
     it('should reject unauthenticated requests', async () => {
       const response = await request(app)
-        .get('/public-information-map')
-        .query({ orgId: 'org_test123' });
+        .get('/public-information-map');
 
       expect(response.status).toBe(401);
     });

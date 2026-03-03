@@ -7,40 +7,28 @@ import { SetUrlRequestSchema, UpsertOrganizationRequestSchema, AddIndividualRequ
 const router = Router();
 
 /**
- * Extract appId from request (query param, body, or x-app-id header).
- * Returns null if not found.
- */
-function getAppId(req: Request): string | null {
-  return (req.query.appId as string) || req.body?.appId || (req.headers['x-app-id'] as string) || null;
-}
-
-/**
  * Resolve a brand from an organizationId param that can be:
- * - org_id (external org identifier) → lookup through orgs table
- * - internal UUID (brands.id) → direct lookup
+ * - direct brand UUID (brands.id)
+ * - org_id stored in brands.org_id
  *
- * Tries orgs table first, then falls back to direct brands lookup.
+ * Tries direct UUID lookup first, then falls back to org_id lookup.
  */
-async function lookupBrand(organizationId: string, appId: string): Promise<{ id: string; external_organization_id: string | null } | null> {
-  // Try lookup via orgs table first
-  const orgResult = await pool.query(
-    `SELECT b.id, b.external_organization_id
-     FROM brands b
-     JOIN orgs o ON b.org_id = o.id
-     WHERE o.org_id = $1 AND o.app_id = $2
-     LIMIT 1`,
-    [organizationId, appId]
-  );
-  if (orgResult.rows[0]) {
-    return orgResult.rows[0];
-  }
-
-  // Fall back to direct brands lookup by UUID
+async function lookupBrand(organizationId: string): Promise<{ id: string; external_organization_id: string | null } | null> {
+  // Try direct brand UUID lookup first
   const result = await pool.query(
     'SELECT id, external_organization_id FROM brands WHERE id = $1 LIMIT 1',
     [organizationId]
   );
-  return result.rows[0] || null;
+  if (result.rows[0]) {
+    return result.rows[0];
+  }
+
+  // Fallback: lookup by org_id
+  const orgResult = await pool.query(
+    'SELECT id, external_organization_id FROM brands WHERE org_id = $1 LIMIT 1',
+    [organizationId]
+  );
+  return orgResult.rows[0] || null;
 }
 
 // UUID v4 regex for filtering results
@@ -49,18 +37,9 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // GET all organization_ids (only valid UUIDs, for cross-service compatibility)
 router.get('/org-ids', async (req: Request, res: Response) => {
   try {
-    const appId = req.query.appId as string | undefined;
-
-    const query = appId
-      ? `SELECT DISTINCT o.org_id AS organization_id
-         FROM brands b
-         JOIN orgs o ON b.org_id = o.id
-         WHERE o.app_id = $1`
-      : `SELECT DISTINCT o.org_id AS organization_id
-         FROM brands b
-         JOIN orgs o ON b.org_id = o.id`;
-
-    const result = await pool.query(query, appId ? [appId] : []);
+    const result = await pool.query(
+      `SELECT DISTINCT org_id AS organization_id FROM brands`
+    );
 
     // Filter to only valid UUIDs (exclude legacy Clerk IDs, "system", etc.)
     const orgIds = result.rows
@@ -83,19 +62,13 @@ router.get('/by-org-id/:orgId', async (req: Request, res: Response) => {
   }
 
   try {
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-
     const query = `
-      SELECT b.id, o.org_id AS organization_id, b.name, b.url, b.domain, b.logo_url, b.elevator_pitch, b.bio
+      SELECT b.id, b.org_id AS organization_id, b.name, b.url, b.domain, b.logo_url, b.elevator_pitch, b.bio
       FROM brands b
-      JOIN orgs o ON b.org_id = o.id
-      WHERE o.org_id = $1 AND o.app_id = $2
+      WHERE b.org_id = $1
       LIMIT 1;
     `;
-    const result = await pool.query(query, [orgId, appId]);
+    const result = await pool.query(query, [orgId]);
 
     if (result.rows.length === 0) {
       return res.status(404).send({ error: 'Organization not found.' });
@@ -116,30 +89,23 @@ router.put('/set-url', async (req: Request, res: Response) => {
   }
   const { organization_id, url } = parsed.data;
 
-  const appId = getAppId(req);
-  if (!appId) {
-    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-  }
-
   try {
-    // Check if org + brand exists
+    // Check if brand exists for this org_id
     const existingQuery = `
-      SELECT b.id, o.org_id AS organization_id, b.name, b.url
+      SELECT b.id, b.org_id AS organization_id, b.name, b.url
       FROM brands b
-      JOIN orgs o ON b.org_id = o.id
-      WHERE o.org_id = $1 AND o.app_id = $2
+      WHERE b.org_id = $1
       LIMIT 1;
     `;
-    const existing = await pool.query(existingQuery, [organization_id, appId]);
+    const existing = await pool.query(existingQuery, [organization_id]);
 
     if (existing.rows.length === 0) {
       // Organization doesn't exist - create via upsert service
-      const brandId = await getOrganizationIdByOrgId(organization_id, undefined, url, undefined, appId);
+      const brandId = await getOrganizationIdByOrgId(organization_id, undefined, url);
 
       const fetchQuery = `
-        SELECT b.id, o.org_id AS organization_id, b.name, b.url
+        SELECT b.id, b.org_id AS organization_id, b.name, b.url
         FROM brands b
-        JOIN orgs o ON b.org_id = o.id
         WHERE b.id = $1
         LIMIT 1;
       `;
@@ -170,9 +136,8 @@ router.put('/set-url', async (req: Request, res: Response) => {
 
     // Fetch full data for response
     const fetchQuery = `
-      SELECT b.id, o.org_id AS organization_id, b.name, b.url
+      SELECT b.id, b.org_id AS organization_id, b.name, b.url
       FROM brands b
-      JOIN orgs o ON b.org_id = o.id
       WHERE b.id = $1;
     `;
     const result = await pool.query(fetchQuery, [org.id]);
@@ -195,9 +160,8 @@ router.get('/by-url', async (req: Request, res: Response) => {
 
   try {
     const query = `
-      SELECT b.id, o.org_id AS organization_id, b.name, b.url, b.logo_url
+      SELECT b.id, b.org_id AS organization_id, b.name, b.url, b.logo_url
       FROM brands b
-      LEFT JOIN orgs o ON b.org_id = o.id
       WHERE b.url = $1
       LIMIT 1;
     `;
@@ -241,11 +205,6 @@ router.put('/organizations', async (req: Request, res: Response) => {
   }
   const { organization_id, external_organization_id, name, url } = parsed.data;
 
-  const appId = getAppId(req);
-  if (!appId) {
-    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-  }
-
   try {
     console.log(`Upserting organization: ${organization_id}, external_id: ${external_organization_id}`);
 
@@ -253,14 +212,12 @@ router.put('/organizations', async (req: Request, res: Response) => {
       organization_id,
       name,
       url,
-      external_organization_id,
-      appId
+      external_organization_id
     );
 
     const fetchQuery = `
-      SELECT b.*, o.org_id AS organization_id
+      SELECT b.*, b.org_id AS organization_id
       FROM brands b
-      LEFT JOIN orgs o ON b.org_id = o.id
       WHERE b.id = $1;
     `;
 
@@ -289,11 +246,6 @@ router.post('/organizations', async (req: Request, res: Response) => {
   }
   const { organization_id, external_organization_id, name, url } = parsed.data;
 
-  const appId = getAppId(req);
-  if (!appId) {
-    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-  }
-
   try {
     console.log(`Upserting organization: ${organization_id}, external_id: ${external_organization_id}`);
 
@@ -301,14 +253,12 @@ router.post('/organizations', async (req: Request, res: Response) => {
       organization_id,
       name,
       url,
-      external_organization_id,
-      appId
+      external_organization_id
     );
 
     const fetchQuery = `
-      SELECT b.*, o.org_id AS organization_id
+      SELECT b.*, b.org_id AS organization_id
       FROM brands b
-      LEFT JOIN orgs o ON b.org_id = o.id
       WHERE b.id = $1;
     `;
 
@@ -340,11 +290,7 @@ router.get('/organizations/:organizationId/targets', async (req: Request, res: R
   try {
     console.log(`Fetching target organizations for: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -384,11 +330,7 @@ router.get('/organizations/:organizationId/individuals', async (req: Request, re
   try {
     console.log(`Fetching all individuals and content for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -460,11 +402,7 @@ router.get('/organizations/:organizationId/content', async (req: Request, res: R
   try {
     console.log(`Fetching all content for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -549,11 +487,7 @@ router.post('/organizations/:organizationId/individuals', async (req: Request, r
   try {
     console.log(`Adding/updating individual ${first_name} ${last_name} for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -627,11 +561,7 @@ router.patch('/organizations/:organizationId/individuals/:individualId/status', 
   try {
     console.log(`Updating individual ${individualId} status to ${status} for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -686,11 +616,7 @@ router.get('/organizations/:organizationId/thesis', async (req: Request, res: Re
   try {
     console.log(`Fetching thesis for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.status(404).json({ error: 'Organization not found.' });
     }
@@ -753,13 +679,9 @@ router.patch('/organizations/:sourceOrgId/relations/:targetOrgId/status', async 
   try {
     console.log(`Updating organization relation status to ${status} between ${sourceOrgId} and ${targetOrgId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
     const [sourceBrand, targetBrand] = await Promise.all([
-      lookupBrand(sourceOrgId, appId),
-      lookupBrand(targetOrgId, appId),
+      lookupBrand(sourceOrgId),
+      lookupBrand(targetOrgId),
     ]);
 
     if (!sourceBrand) {
@@ -821,11 +743,7 @@ router.get('/organizations/:organizationId/theses-for-llm', async (req: Request,
   try {
     console.log(`Fetching theses for LLM for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.json({ theses: [] });
     }
@@ -865,11 +783,7 @@ router.get('/organizations/:organizationId/theses', async (req: Request, res: Re
   try {
     console.log(`Fetching theses for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.json({ success: true, theses: [] });
     }
@@ -927,11 +841,7 @@ router.patch('/organizations/:organizationId/theses/:thesisId/status', async (re
   try {
     console.log(`Updating thesis ${thesisId} status to ${status} for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.status(404).json({ success: false, error: 'Organization not found.' });
     }
@@ -980,11 +890,7 @@ router.delete('/organizations/:organizationId/theses', async (req: Request, res:
   try {
     console.log(`Deleting all theses for organization: ${organizationId}`);
 
-    const appId = getAppId(req);
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-    }
-    const brand = await lookupBrand(organizationId, appId);
+    const brand = await lookupBrand(organizationId);
     if (!brand) {
       return res.status(404).json({ success: false, error: 'Organization not found.' });
     }
@@ -1090,7 +996,7 @@ router.get('/admin/organizations', async (req: Request, res: Response) => {
     let query = `
       SELECT
         b.id,
-        o.org_id AS organization_id,
+        b.org_id AS organization_id,
         b.name,
         b.url,
         b.domain,
@@ -1101,13 +1007,12 @@ router.get('/admin/organizations', async (req: Request, res: Response) => {
         b.created_at,
         b.updated_at
       FROM brands b
-      LEFT JOIN orgs o ON b.org_id = o.id
     `;
     const queryParams: string[] = [];
 
     if (filter) {
       queryParams.push(`%${filter}%`);
-      query += ` WHERE b.name ILIKE $1 OR b.url ILIKE $1 OR b.domain ILIKE $1 OR o.org_id ILIKE $1`;
+      query += ` WHERE b.name ILIKE $1 OR b.url ILIKE $1 OR b.domain ILIKE $1 OR b.org_id::text ILIKE $1`;
     }
 
     query += ` ORDER BY b.updated_at DESC`;
@@ -1131,7 +1036,7 @@ router.get('/admin/organizations-descriptions', async (req: Request, res: Respon
     let query = `
       SELECT
         b.id,
-        o.org_id AS organization_id,
+        b.org_id AS organization_id,
         b.external_organization_id,
         b.name,
         b.url,
@@ -1156,13 +1061,12 @@ router.get('/admin/organizations-descriptions', async (req: Request, res: Respon
         b.created_at,
         b.updated_at
       FROM brands b
-      LEFT JOIN orgs o ON b.org_id = o.id
     `;
     const queryParams: string[] = [];
 
     if (filter) {
       queryParams.push(`%${filter}%`);
-      query += ` WHERE b.name ILIKE $1 OR b.url ILIKE $1 OR b.domain ILIKE $1 OR o.org_id ILIKE $1 OR b.elevator_pitch ILIKE $1 OR b.bio ILIKE $1`;
+      query += ` WHERE b.name ILIKE $1 OR b.url ILIKE $1 OR b.domain ILIKE $1 OR b.org_id::text ILIKE $1 OR b.elevator_pitch ILIKE $1 OR b.bio ILIKE $1`;
     }
 
     query += ` ORDER BY b.updated_at DESC`;
@@ -1186,13 +1090,13 @@ router.get('/admin/organization-relations', async (req: Request, res: Response) 
     let query = `
       SELECT
         source_org.id AS source_org_id,
-        so.org_id AS source_organization_id,
+        source_org.org_id AS source_organization_id,
         source_org.name AS source_org_name,
         source_org.url AS source_org_url,
         source_org.domain AS source_org_domain,
         source_org.logo_url AS source_org_logo_url,
         target_org.id AS target_org_id,
-        to2.org_id AS target_organization_id,
+        target_org.org_id AS target_organization_id,
         target_org.name AS target_org_name,
         target_org.url AS target_org_url,
         target_org.domain AS target_org_domain,
@@ -1211,9 +1115,7 @@ router.get('/admin/organization-relations', async (req: Request, res: Response) 
       FROM brand_relations rel
       JOIN brands source_org ON rel.source_brand_id = source_org.id
       JOIN brands target_org ON rel.target_brand_id = target_org.id
-      LEFT JOIN orgs so ON source_org.org_id = so.id
-      LEFT JOIN orgs to2 ON target_org.org_id = to2.id
-      WHERE so.org_id IS NOT NULL
+      WHERE source_org.org_id IS NOT NULL
     `;
     const queryParams: string[] = [];
 
@@ -1249,7 +1151,7 @@ router.get('/admin/organization-individuals', async (req: Request, res: Response
     let query = `
       SELECT
         b.id AS source_org_id,
-        o.org_id AS source_organization_id,
+        b.org_id AS source_organization_id,
         b.name AS source_org_name,
         b.url AS source_org_url,
         b.domain AS source_org_domain,
@@ -1345,8 +1247,6 @@ router.get('/admin/organization-individuals', async (req: Request, res: Response
         GREATEST(bi.updated_at, i.updated_at, COALESCE(pdl.updated_at, '1970-01-01'::timestamptz)) AS max_updated_at
       FROM
         brands b
-      LEFT JOIN
-        orgs o ON b.org_id = o.id
       INNER JOIN
         brand_individuals bi ON b.id = bi.brand_id
       INNER JOIN
@@ -1354,7 +1254,7 @@ router.get('/admin/organization-individuals', async (req: Request, res: Response
       LEFT JOIN
         individuals_pdl_enrichment pdl ON i.id = pdl.individual_id
       WHERE
-        o.org_id IS NOT NULL
+        b.org_id IS NOT NULL
     `;
     const queryParams: string[] = [];
 
@@ -1440,9 +1340,8 @@ router.delete('/admin/organizations/:id', async (req: Request, res: Response) =>
 
   try {
     const brandResult = await pool.query(
-      `SELECT b.id, o.org_id AS organization_id, b.name, b.external_organization_id
+      `SELECT b.id, b.org_id AS organization_id, b.name, b.external_organization_id
        FROM brands b
-       LEFT JOIN orgs o ON b.org_id = o.id
        WHERE b.id = $1`,
       [id]
     );
@@ -1502,7 +1401,7 @@ router.delete('/admin/organizations/:id', async (req: Request, res: Response) =>
 
 /**
  * GET /organizations/exists
- * Check if organizations exist by organization_id.
+ * Check if organizations exist by organization_id (org_id in brands).
  */
 router.get('/organizations/exists', async (req: Request, res: Response) => {
   const orgIdsParam = req.query.orgIds as string | undefined;
@@ -1520,10 +1419,9 @@ router.get('/organizations/exists', async (req: Request, res: Response) => {
   try {
     const placeholders = orgIds.map((_, i) => `$${i + 1}`).join(',');
     const query = `
-      SELECT o.org_id AS organization_id, b.updated_at
+      SELECT b.org_id AS organization_id, b.updated_at
       FROM brands b
-      JOIN orgs o ON b.org_id = o.id
-      WHERE o.org_id IN (${placeholders})
+      WHERE b.org_id IN (${placeholders})
     `;
 
     const result = await pool.query(query, orgIds);
@@ -1546,11 +1444,6 @@ router.get('/email-data/public-info/:orgId', async (req: Request, res: Response)
     return res.status(400).json({ error: 'orgId is required' });
   }
 
-  const appId = getAppId(req);
-  if (!appId) {
-    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-  }
-
   try {
     const query = `
       SELECT
@@ -1570,11 +1463,10 @@ router.get('/email-data/public-info/:orgId', async (req: Request, res: Response)
         b.organization_linkedin_url,
         b.domain
       FROM brands b
-      JOIN orgs o ON b.org_id = o.id
-      WHERE o.org_id = $1 AND o.app_id = $2
+      WHERE b.org_id = $1
     `;
 
-    const result = await pool.query(query, [orgId, appId]);
+    const result = await pool.query(query, [orgId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Organization not found', orgId });
@@ -1657,18 +1549,12 @@ router.get('/email-data/theses/:orgId', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'orgId is required' });
   }
 
-  const appId = getAppId(req);
-  if (!appId) {
-    return res.status(400).json({ error: 'appId is required (query param, body, or x-app-id header)' });
-  }
-
   try {
     const orgQuery = await pool.query(
       `SELECT b.id, b.name
        FROM brands b
-       JOIN orgs o ON b.org_id = o.id
-       WHERE o.org_id = $1 AND o.app_id = $2`,
-      [orgId, appId]
+       WHERE b.org_id = $1`,
+      [orgId]
     );
 
     if (orgQuery.rows.length === 0) {

@@ -2,41 +2,32 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands, brandSalesProfiles, orgs } from '../../src/db/schema';
+import { brands, brandSalesProfiles } from '../../src/db/schema';
 import { eq, and, like, inArray } from 'drizzle-orm';
 
 const app = createTestApp();
 
 describe('Sales Profile API - Complete Integration Tests', () => {
-  const testOrgId = `org_test_${Date.now()}`;
+  const testOrgId = `test-org-${Date.now()}`;
+  const testUserId = `test-user-${Date.now()}`;
   const testUrl = 'https://test-brand-integration.example.com';
   const testDomain = 'test-brand-integration.example.com';
 
   // Clean up test data after all tests
   afterAll(async () => {
     try {
-      // Find test orgs
-      const testOrgs = await db
-        .select({ id: orgs.id })
-        .from(orgs)
-        .where(like(orgs.orgId, 'org_test_%'));
+      // Delete sales profiles for test brands first (foreign key)
+      const testBrands = await db
+        .select({ id: brands.id })
+        .from(brands)
+        .where(like(brands.orgId, 'test-%'));
 
-      if (testOrgs.length > 0) {
-        const orgIds = testOrgs.map(o => o.id);
-        // Delete sales profiles for test brands first (foreign key)
-        const testBrands = await db
-          .select({ id: brands.id })
-          .from(brands)
-          .where(inArray(brands.orgId, orgIds));
-
-        for (const brand of testBrands) {
-          await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
-        }
-
-        // Delete test brands, then orgs
-        await db.delete(brands).where(inArray(brands.orgId, orgIds));
+      for (const brand of testBrands) {
+        await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
       }
-      await db.delete(orgs).where(like(orgs.orgId, 'org_test_%'));
+
+      // Delete test brands
+      await db.delete(brands).where(like(brands.orgId, 'test-%'));
     } catch (e) {
       console.error('Cleanup error:', e);
     }
@@ -46,7 +37,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)
         .post('/sales-profile')
-        .send({ appId: 'test-app', orgId: testOrgId, url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
+        .send({ url: testUrl, parentRunId: 'run_test' });
 
       expect(response.status).toBe(401);
     });
@@ -54,18 +45,8 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return 400 if parentRunId is missing', async () => {
       const response = await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
-        .send({ appId: 'test-app', orgId: testOrgId, url: testUrl, userId: 'user_test' });
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
-    });
-
-    it('should return 400 if orgId is missing', async () => {
-      const response = await request(app)
-        .post('/sales-profile')
-        .set(getAuthHeaders())
-        .send({ appId: 'test-app', url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
+        .set(getAuthHeaders(testOrgId, testUserId))
+        .send({ url: testUrl });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -74,81 +55,42 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     it('should return 400 if url is missing', async () => {
       const response = await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
-        .send({ appId: 'test-app', orgId: testOrgId, userId: 'user_test', parentRunId: 'run_test' });
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
-    });
-
-    it('should return 400 if appId is missing', async () => {
-      const response = await request(app)
-        .post('/sales-profile')
-        .set(getAuthHeaders())
-        .send({ orgId: testOrgId, url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
-    });
-
-    it('should return 400 if userId is missing', async () => {
-      const response = await request(app)
-        .post('/sales-profile')
-        .set(getAuthHeaders())
-        .send({ appId: 'test-app', orgId: testOrgId, url: testUrl, parentRunId: 'run_test' });
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
-    });
-
-    it('should return 400 if keySource is missing', async () => {
-      const response = await request(app)
-        .post('/sales-profile')
-        .set(getAuthHeaders())
-        .send({ appId: 'test-app', orgId: testOrgId, url: testUrl, userId: 'user_test', parentRunId: 'run_test' });
+        .set(getAuthHeaders(testOrgId, testUserId))
+        .send({ parentRunId: 'run_test' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
     });
 
     it('should create brand in database when calling POST /sales-profile for first time', async () => {
-      const uniqueOrgId = `org_test_brand_create_${Date.now()}`;
+      const uniqueOrgId = `test-brand-create-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const uniqueUrl = `https://unique-test-${Date.now()}.example.com`;
       const uniqueDomain = uniqueUrl.replace('https://', '');
 
-      // Verify no org exists before the call
-      const existingOrg = await db
+      // Verify no brand exists before the call
+      const existingBrand = await db
         .select()
-        .from(orgs)
-        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)))
+        .from(brands)
+        .where(eq(brands.orgId, uniqueOrgId))
         .limit(1);
 
-      expect(existingOrg.length).toBe(0);
+      expect(existingBrand.length).toBe(0);
 
       // Call the endpoint (will fail on Anthropic key but should still create brand)
       await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId: `user_test_${Date.now()}`,
-          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
-      // Verify org and brand were created in database
-      const [org] = await db
-        .select()
-        .from(orgs)
-        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
-      expect(org).toBeDefined();
-
+      // Verify brand was created in database
       const createdBrand = await db
         .select()
         .from(brands)
-        .where(and(eq(brands.orgId, org.id), eq(brands.domain, uniqueDomain)))
+        .where(and(eq(brands.orgId, uniqueOrgId), eq(brands.domain, uniqueDomain)))
         .limit(1);
 
       expect(createdBrand.length).toBe(1);
@@ -157,45 +99,33 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should not create duplicate brands on subsequent calls', async () => {
-      const uniqueOrgId = `org_test_no_dup_${Date.now()}`;
+      const uniqueOrgId = `test-no-dup-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const uniqueUrl = `https://no-dup-test-${Date.now()}.example.com`;
-      const userId = `user_test_${Date.now()}`;
 
       // First call creates brand
       await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId,
-          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
       // Get brand count after first call
-      const [org] = await db
-        .select()
-        .from(orgs)
-        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const brandsAfterFirst = await db
         .select()
         .from(brands)
-        .where(eq(brands.orgId, org.id));
+        .where(eq(brands.orgId, uniqueOrgId));
 
       expect(brandsAfterFirst.length).toBe(1);
 
       // Second call should not create duplicate
       await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId,
-          keySource: 'byok',
           parentRunId: 'run_test_parent_2',
         });
 
@@ -203,38 +133,30 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       const brandsAfterSecond = await db
         .select()
         .from(brands)
-        .where(eq(brands.orgId, org.id));
+        .where(eq(brands.orgId, uniqueOrgId));
 
       expect(brandsAfterSecond.length).toBe(brandsAfterFirst.length);
     }, 15000);
 
     it('should update URL if brand exists with different URL', async () => {
-      const uniqueOrgId = `org_test_url_update_${Date.now()}`;
+      const uniqueOrgId = `test-url-update-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const originalUrl = `https://original-${Date.now()}.example.com`;
-      const userId = `user_test_${Date.now()}`;
 
       // First call with original URL
       await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: originalUrl,
-          userId,
-          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
       // Verify original URL stored
-      const [org] = await db
-        .select()
-        .from(orgs)
-        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const brand = await db
         .select()
         .from(brands)
-        .where(eq(brands.orgId, org.id))
+        .where(eq(brands.orgId, uniqueOrgId))
         .limit(1);
 
       expect(brand[0].url).toBe(originalUrl);
@@ -250,28 +172,21 @@ describe('Sales Profile API - Complete Integration Tests', () => {
 
       for (let i = 0; i < testCases.length; i++) {
         const testCase = testCases[i];
-        const uniqueOrgId = `org_test_domain_${timestamp}_${i}`;
+        const uniqueOrgId = `test-domain-${timestamp}-${i}`;
+        const uniqueUserId = `test-user-${timestamp}-${i}`;
 
         await request(app)
           .post('/sales-profile')
-          .set(getAuthHeaders())
+          .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
           .send({
-            appId: 'test-app',
-            orgId: uniqueOrgId,
             url: testCase.url,
-            userId: `user_test_${timestamp}_${i}`,
-            keySource: 'byok',
             parentRunId: 'run_test_parent',
           });
 
-        const [org] = await db
-          .select()
-          .from(orgs)
-          .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
         const brand = await db
           .select()
           .from(brands)
-          .where(eq(brands.orgId, org.id))
+          .where(eq(brands.orgId, uniqueOrgId))
           .limit(1);
 
         expect(brand.length).toBe(1);
@@ -282,18 +197,15 @@ describe('Sales Profile API - Complete Integration Tests', () => {
 
   describe('POST /sales-profile - User hints (urgency, scarcity, riskReversal, socialProof)', () => {
     it('should accept request with all 4 user hint fields', async () => {
-      const uniqueOrgId = `org_test_hints_all_${Date.now()}`;
+      const uniqueOrgId = `test-hints-all-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const uniqueUrl = `https://hints-all-${Date.now()}.example.com`;
 
       const response = await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId: `user_test_${Date.now()}`,
-          keySource: 'byok',
           parentRunId: 'run_test_hints',
           urgency: 'Offer expires March 1st',
           scarcity: 'Only 10 enterprise spots left',
@@ -306,18 +218,15 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should accept request with partial user hint fields', async () => {
-      const uniqueOrgId = `org_test_hints_partial_${Date.now()}`;
+      const uniqueOrgId = `test-hints-partial-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const uniqueUrl = `https://hints-partial-${Date.now()}.example.com`;
 
       const response = await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId: `user_test_${Date.now()}`,
-          keySource: 'byok',
           parentRunId: 'run_test_hints_partial',
           urgency: 'Limited time offer',
         });
@@ -326,18 +235,15 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should accept request with no user hint fields (backward compatible)', async () => {
-      const uniqueOrgId = `org_test_hints_none_${Date.now()}`;
+      const uniqueOrgId = `test-hints-none-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const uniqueUrl = `https://hints-none-${Date.now()}.example.com`;
 
       const response = await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId: `user_test_${Date.now()}`,
-          keySource: 'byok',
           parentRunId: 'run_test_hints_none',
         });
 
@@ -370,20 +276,10 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       expect(response.status).toBe(401);
     });
 
-    it('should return 400 if orgId query param is missing', async () => {
-      const response = await request(app)
-        .get('/sales-profiles')
-        .set(getAuthHeaders());
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
-    });
-
     it('should return empty array for org with no profiles', async () => {
       const response = await request(app)
         .get('/sales-profiles')
-        .query({ orgId: 'org_no_profiles_test' })
-        .set(getAuthHeaders());
+        .set(getAuthHeaders('org_no_profiles_test', 'user_test'));
 
       expect(response.status).toBe(200);
       expect(response.body.profiles).toEqual([]);
@@ -392,30 +288,23 @@ describe('Sales Profile API - Complete Integration Tests', () => {
 
   describe('New fields roundtrip (leadership, funding, awards, milestones)', () => {
     it('should return new fields from a stored profile via GET /brands/:brandId/sales-profile', async () => {
-      const uniqueOrgId = `org_test_newfields_${Date.now()}`;
+      const uniqueOrgId = `test-newfields-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const uniqueUrl = `https://newfields-test-${Date.now()}.example.com`;
 
-      // Create org + brand via API
+      // Create brand via API
       await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId: `user_test_${Date.now()}`,
-          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
-      const [org] = await db
-        .select()
-        .from(orgs)
-        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const [brand] = await db
         .select()
         .from(brands)
-        .where(eq(brands.orgId, org.id));
+        .where(eq(brands.orgId, uniqueOrgId));
 
       // Insert profile with new fields directly
       await db.insert(brandSalesProfiles).values({
@@ -495,29 +384,22 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
 
     it('should return empty arrays/null for new fields when absent in DB', async () => {
-      const uniqueOrgId = `org_test_nullfields_${Date.now()}`;
+      const uniqueOrgId = `test-nullfields-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const uniqueUrl = `https://nullfields-test-${Date.now()}.example.com`;
 
       await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId: `user_test_${Date.now()}`,
-          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
-      const [org] = await db
-        .select()
-        .from(orgs)
-        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
       const [brand] = await db
         .select()
         .from(brands)
-        .where(eq(brands.orgId, org.id));
+        .where(eq(brands.orgId, uniqueOrgId));
 
       // Insert profile WITHOUT new fields (simulating pre-migration data)
       await db.insert(brandSalesProfiles).values({
@@ -567,30 +449,23 @@ describe('Sales Profile API - Complete Integration Tests', () => {
 
     it('should return 404 for brand with no profile', async () => {
       // First create a brand
-      const uniqueOrgId = `org_test_no_profile_${Date.now()}`;
+      const uniqueOrgId = `test-no-profile-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
       const uniqueUrl = `https://no-profile-${Date.now()}.example.com`;
 
       await request(app)
         .post('/sales-profile')
-        .set(getAuthHeaders())
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
         .send({
-          appId: 'test-app',
-          orgId: uniqueOrgId,
           url: uniqueUrl,
-          userId: `user_test_${Date.now()}`,
-          keySource: 'byok',
           parentRunId: 'run_test_parent',
         });
 
-      // Get the brand ID via org
-      const [org] = await db
-        .select()
-        .from(orgs)
-        .where(and(eq(orgs.appId, 'test-app'), eq(orgs.orgId, uniqueOrgId)));
+      // Get the brand ID
       const brand = await db
         .select()
         .from(brands)
-        .where(eq(brands.orgId, org.id))
+        .where(eq(brands.orgId, uniqueOrgId))
         .limit(1);
 
       expect(brand.length).toBe(1);
