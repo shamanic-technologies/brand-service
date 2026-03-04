@@ -40,6 +40,10 @@ router.post('/sales-profile', async (req: Request, res: Response) => {
     const userId = req.userId;
     const parentRunId = req.runId;
 
+    if (!parentRunId) {
+      return res.status(400).json({ error: 'Missing x-run-id header', message: 'x-run-id is required for sales profile extraction' });
+    }
+
     // Get or create brand by orgId + URL (domain is the unique key per org)
     const brand = await getOrCreateBrand(orgId, url);
 
