@@ -127,9 +127,6 @@ export function getAnthropicClient(apiKey: string): Anthropic {
 
 interface ScrapingTrackingContext {
   brandId: string;
-  sourceOrgId: string;
-  parentRunId: string;
-  userId?: string;
   workflowName?: string;
 }
 
@@ -142,9 +139,6 @@ export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContex
         limit: 100,
         ...(tracking && {
           brandId: tracking.brandId,
-          sourceOrgId: tracking.sourceOrgId,
-          parentRunId: tracking.parentRunId,
-          userId: tracking.userId,
           workflowName: tracking.workflowName,
         }),
       },
@@ -175,11 +169,8 @@ export async function scrapeUrl(url: string, tracking?: ScrapingTrackingContext)
       {
         url,
         sourceService: 'brand-service',
-        sourceOrgId: tracking?.sourceOrgId || '',
         ...(tracking && {
           brandId: tracking.brandId,
-          parentRunId: tracking.parentRunId,
-          userId: tracking.userId,
           workflowName: tracking.workflowName,
         }),
       },
@@ -622,9 +613,6 @@ export async function extractBrandSalesProfile(
   // Tracking context for child service calls (scraping-service)
   const scrapingTracking: ScrapingTrackingContext = {
     brandId,
-    sourceOrgId: orgId,
-    parentRunId: runId,
-    userId: options.userId,
     workflowName: options.workflowName,
   };
 
