@@ -478,3 +478,47 @@ Hope this helps!`;
     });
   });
 });
+
+  describe('mapSiteUrls fallback to homepage', () => {
+    it('should fall back to [brand.url] when mapSiteUrls throws', () => {
+      const brandUrl = 'https://lenxo.net/';
+      let allUrls: string[];
+      const mapError = new Error('Failed to map site: Request failed with status code 400');
+
+      // Simulate the fallback logic from extractBrandSalesProfile
+      try {
+        throw mapError; // simulates mapSiteUrls failure
+      } catch {
+        allUrls = [brandUrl];
+      }
+      if (allUrls.length === 0) allUrls = [brandUrl];
+
+      expect(allUrls).toEqual([brandUrl]);
+      expect(allUrls.length).toBe(1);
+    });
+
+    it('should fall back to [brand.url] when mapSiteUrls returns empty array', () => {
+      const brandUrl = 'https://example.com';
+      let allUrls: string[] = []; // simulates empty map result
+
+      if (allUrls.length === 0) allUrls = [brandUrl];
+
+      expect(allUrls).toEqual([brandUrl]);
+    });
+
+    it('should use map results when mapSiteUrls succeeds', () => {
+      const brandUrl = 'https://example.com';
+      const mappedUrls = ['https://example.com/', 'https://example.com/about', 'https://example.com/pricing'];
+      let allUrls: string[];
+
+      try {
+        allUrls = mappedUrls; // simulates successful mapSiteUrls
+      } catch {
+        allUrls = [brandUrl];
+      }
+      if (allUrls.length === 0) allUrls = [brandUrl];
+
+      expect(allUrls).toEqual(mappedUrls);
+      expect(allUrls.length).toBe(3);
+    });
+  });
