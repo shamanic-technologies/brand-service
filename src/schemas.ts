@@ -265,17 +265,30 @@ export const SalesProfileResponseSchema = z
   })
   .openapi('SalesProfileResponse');
 
+export const GetSalesProfileResponseSchema = z
+  .object({
+    profile: SalesProfileSchema,
+  })
+  .openapi('GetSalesProfileResponse');
+
 export const ListSalesProfilesQuerySchema = z
   .object({})
   .openapi('ListSalesProfilesQuery');
 
+export const ListSalesProfilesResponseSchema = z
+  .object({
+    profiles: z.array(SalesProfileSchema),
+  })
+  .openapi('ListSalesProfilesResponse');
+
 registry.registerPath({
   method: 'post',
   path: '/sales-profile',
-  summary: 'Get or create sales profile for a brand',
+  summary: 'Extract or retrieve a sales profile for a brand URL',
+  description: 'Main entry point for obtaining a sales profile. Pass a brand URL — if a cached profile exists it is returned immediately, otherwise AI extraction runs (scrapes the site + analyzes with Claude). Returns the profile along with brandId for future GET lookups. Use skipCache: true to force re-extraction.',
   request: { body: { content: { 'application/json': { schema: CreateSalesProfileRequestSchema } } } },
   responses: {
-    200: { description: 'Sales profile', content: { 'application/json': { schema: SalesProfileResponseSchema } } },
+    200: { description: 'Sales profile (cached or freshly extracted)', content: { 'application/json': { schema: SalesProfileResponseSchema } } },
     400: { description: 'Missing required fields or API key' },
     500: { description: 'Internal server error' },
     502: { description: 'Failed to fetch API key' },
@@ -285,11 +298,11 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/sales-profiles',
-  summary: 'List all sales profiles for an organization',
+  summary: 'List all sales profiles for the caller organization',
+  description: 'Returns all non-expired sales profiles owned by the org identified in the x-org-id header.',
   request: { query: ListSalesProfilesQuerySchema },
   responses: {
-    200: { description: 'List of sales profiles' },
-    400: { description: 'Missing orgId' },
+    200: { description: 'List of sales profiles', content: { 'application/json': { schema: ListSalesProfilesResponseSchema } } },
     500: { description: 'Internal server error' },
   },
 });
@@ -297,10 +310,11 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/sales-profile/{orgId}',
-  summary: 'Get most recent sales profile by orgId',
+  summary: 'Get the most recent sales profile by orgId',
+  description: 'Looks up the most recent non-expired sales profile for the given org. Returns 404 if no profile has been extracted yet — call POST /sales-profile first to create one.',
   responses: {
-    200: { description: 'Sales profile' },
-    404: { description: 'Sales profile not found' },
+    200: { description: 'Sales profile', content: { 'application/json': { schema: GetSalesProfileResponseSchema } } },
+    404: { description: 'No sales profile exists for this org. Use POST /sales-profile to create one.' },
     500: { description: 'Internal server error' },
   },
 });
@@ -308,10 +322,11 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/brands/{brandId}/sales-profile',
-  summary: 'Get existing sales profile for a brand',
+  summary: 'Get existing sales profile for a brand by brandId',
+  description: 'Returns the non-expired sales profile for the given brandId. Returns 404 if no profile has been extracted yet — call POST /sales-profile with the brand URL to create one.',
   responses: {
-    200: { description: 'Sales profile' },
-    404: { description: 'Sales profile not found' },
+    200: { description: 'Sales profile', content: { 'application/json': { schema: GetSalesProfileResponseSchema } } },
+    404: { description: 'No sales profile exists for this brand. Use POST /sales-profile to create one.' },
     500: { description: 'Internal server error' },
   },
 });

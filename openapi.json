@@ -1,0 +1,2321 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Brand Service API",
+    "description": "Microservice for managing brand information, sales profiles, media assets, organization data, and AI-powered content analysis.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3005"
+    }
+  ],
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "components": {
+    "schemas": {
+      "UpsertBrandResponse": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "brandId",
+          "domain",
+          "name",
+          "created"
+        ]
+      },
+      "UpsertBrandRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "ListBrandsResponse": {
+        "type": "object",
+        "properties": {
+          "brands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BrandSummary"
+            }
+          }
+        },
+        "required": [
+          "brands"
+        ]
+      },
+      "BrandSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "brandUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "logoUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "elevatorPitch": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "domain",
+          "name",
+          "brandUrl",
+          "createdAt",
+          "updatedAt",
+          "logoUrl",
+          "elevatorPitch"
+        ]
+      },
+      "GetBrandResponse": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "$ref": "#/components/schemas/BrandDetail"
+          }
+        },
+        "required": [
+          "brand"
+        ]
+      },
+      "BrandDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "brandUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "logoUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "elevatorPitch": {
+            "type": "string",
+            "nullable": true
+          },
+          "bio": {
+            "type": "string",
+            "nullable": true
+          },
+          "mission": {
+            "type": "string",
+            "nullable": true
+          },
+          "location": {
+            "type": "string",
+            "nullable": true
+          },
+          "categories": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "domain",
+          "name",
+          "brandUrl",
+          "createdAt",
+          "updatedAt",
+          "logoUrl",
+          "elevatorPitch",
+          "bio",
+          "mission",
+          "location",
+          "categories"
+        ]
+      },
+      "SalesProfileResponse": {
+        "type": "object",
+        "properties": {
+          "cached": {
+            "type": "boolean"
+          },
+          "brandId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/SalesProfile"
+          }
+        },
+        "required": [
+          "cached",
+          "brandId",
+          "profile"
+        ]
+      },
+      "SalesProfile": {
+        "type": "object",
+        "properties": {
+          "valueProposition": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerPainPoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "callToAction": {
+            "type": "string",
+            "nullable": true
+          },
+          "socialProof": {
+            "type": "object",
+            "properties": {
+              "caseStudies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "testimonials": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Testimonial"
+                }
+              },
+              "results": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "caseStudies",
+              "testimonials",
+              "results"
+            ]
+          },
+          "companyOverview": {
+            "type": "string",
+            "nullable": true
+          },
+          "additionalContext": {
+            "type": "string",
+            "nullable": true
+          },
+          "competitors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "productDifferentiators": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "targetAudience": {
+            "type": "string",
+            "nullable": true
+          },
+          "keyFeatures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "leadership": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeadershipMember"
+            }
+          },
+          "funding": {
+            "$ref": "#/components/schemas/FundingInfo"
+          },
+          "awardsAndRecognition": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Award"
+            }
+          },
+          "revenueMilestones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueMilestone"
+            }
+          },
+          "urgency": {
+            "$ref": "#/components/schemas/Urgency"
+          },
+          "scarcity": {
+            "$ref": "#/components/schemas/Scarcity"
+          },
+          "riskReversal": {
+            "$ref": "#/components/schemas/RiskReversal"
+          },
+          "priceAnchoring": {
+            "$ref": "#/components/schemas/PriceAnchoring"
+          },
+          "valueStacking": {
+            "$ref": "#/components/schemas/ValueStacking"
+          },
+          "extractionModel": {
+            "type": "string",
+            "nullable": true
+          },
+          "extractedAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "valueProposition",
+          "customerPainPoints",
+          "callToAction",
+          "socialProof",
+          "companyOverview",
+          "additionalContext",
+          "competitors",
+          "productDifferentiators",
+          "targetAudience",
+          "keyFeatures",
+          "leadership",
+          "funding",
+          "awardsAndRecognition",
+          "revenueMilestones",
+          "urgency",
+          "scarcity",
+          "riskReversal",
+          "priceAnchoring",
+          "valueStacking",
+          "extractionModel",
+          "extractedAt",
+          "expiresAt"
+        ]
+      },
+      "Testimonial": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "quote": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "nullable": true
+              },
+              "role": {
+                "type": "string",
+                "nullable": true
+              },
+              "company": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "quote",
+              "name",
+              "role",
+              "company"
+            ]
+          }
+        ]
+      },
+      "LeadershipMember": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "bio": {
+            "type": "string",
+            "nullable": true
+          },
+          "notableBackground": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "name",
+          "role",
+          "bio",
+          "notableBackground"
+        ]
+      },
+      "FundingInfo": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "totalRaised": {
+            "type": "string",
+            "nullable": true
+          },
+          "rounds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FundingRound"
+            }
+          },
+          "notableBackers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "totalRaised",
+          "rounds",
+          "notableBackers"
+        ]
+      },
+      "FundingRound": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "nullable": true
+          },
+          "date": {
+            "type": "string",
+            "nullable": true
+          },
+          "notableInvestors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "amount",
+          "date",
+          "notableInvestors"
+        ]
+      },
+      "Award": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string",
+            "nullable": true
+          },
+          "year": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "title",
+          "issuer",
+          "year",
+          "description"
+        ]
+      },
+      "RevenueMilestone": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "nullable": true
+          },
+          "context": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "metric",
+          "value",
+          "date",
+          "context"
+        ]
+      },
+      "Urgency": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "elements",
+          "summary"
+        ]
+      },
+      "Scarcity": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "elements",
+          "summary"
+        ]
+      },
+      "RiskReversal": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "guarantees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "trialInfo": {
+            "type": "string",
+            "nullable": true
+          },
+          "refundPolicy": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "guarantees",
+          "trialInfo",
+          "refundPolicy"
+        ]
+      },
+      "PriceAnchoring": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "comparisonPoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "anchors",
+          "comparisonPoints"
+        ]
+      },
+      "ValueStacking": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "bundledValue": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "totalPerceivedValue": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "bundledValue",
+          "totalPerceivedValue"
+        ]
+      },
+      "CreateSalesProfileRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "skipCache": {
+            "type": "boolean"
+          },
+          "workflowName": {
+            "type": "string"
+          },
+          "urgency": {
+            "type": "string"
+          },
+          "scarcity": {
+            "type": "string"
+          },
+          "riskReversal": {
+            "type": "string"
+          },
+          "socialProof": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "ListSalesProfilesResponse": {
+        "type": "object",
+        "properties": {
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SalesProfile"
+            }
+          }
+        },
+        "required": [
+          "profiles"
+        ]
+      },
+      "GetSalesProfileResponse": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/SalesProfile"
+          }
+        },
+        "required": [
+          "profile"
+        ]
+      },
+      "SetUrlRequest": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": [
+          "organization_id",
+          "url"
+        ]
+      },
+      "UpsertOrganizationRequest": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "external_organization_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      },
+      "AddIndividualRequest": {
+        "type": "object",
+        "properties": {
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "organization_role": {
+            "type": "string"
+          },
+          "belonging_confidence_level": {
+            "type": "string",
+            "enum": [
+              "found_online",
+              "guessed",
+              "user_inputed"
+            ]
+          },
+          "belonging_confidence_rationale": {
+            "type": "string"
+          },
+          "linkedin_url": {
+            "type": "string"
+          },
+          "personal_website_url": {
+            "type": "string"
+          },
+          "joined_organization_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "first_name",
+          "last_name",
+          "organization_role",
+          "belonging_confidence_rationale"
+        ]
+      },
+      "UpdateIndividualStatusRequest": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "ended",
+              "hidden"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "UpdateRelationStatusRequest": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "ended",
+              "hidden",
+              "not_related"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "UpdateThesisStatusRequest": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "validated",
+              "denied"
+            ]
+          },
+          "status_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "UpdateLogoRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "logo_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "logo_url"
+        ]
+      },
+      "BulkDeleteOrgsRequest": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      },
+      "UpdateShareableRequest": {
+        "type": "object",
+        "properties": {
+          "external_organization_id": {
+            "type": "string"
+          },
+          "is_shareable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "external_organization_id",
+          "is_shareable"
+        ]
+      },
+      "UpdateMediaByUrlRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "caption": {
+            "type": "string"
+          },
+          "alt_text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "UpdateMediaCaptionRequest": {
+        "type": "object",
+        "properties": {
+          "caption": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "caption"
+        ]
+      },
+      "DeleteMediaAssetRequest": {
+        "type": "object",
+        "properties": {
+          "external_organization_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "external_organization_id"
+        ]
+      },
+      "AnalyzeRequest": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      },
+      "ImportFromGDriveRequest": {
+        "type": "object",
+        "properties": {
+          "external_organization_id": {
+            "type": "string"
+          },
+          "google_drive_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "external_organization_id",
+          "google_drive_url"
+        ]
+      },
+      "TriggerWorkflowRequest": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      },
+      "IntakeFormUpsertRequest": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "organization_id"
+        ],
+        "additionalProperties": {
+          "nullable": true
+        }
+      },
+      "PublicInfoContentRequest": {
+        "type": "object",
+        "properties": {
+          "selected_urls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "source_type": {
+                  "type": "string",
+                  "enum": [
+                    "scraped_page",
+                    "linkedin_post",
+                    "linkedin_article"
+                  ]
+                }
+              },
+              "required": [
+                "url",
+                "source_type"
+              ]
+            }
+          }
+        },
+        "required": [
+          "selected_urls"
+        ]
+      }
+    },
+    "parameters": {},
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Service-to-service API key"
+      }
+    }
+  },
+  "paths": {
+    "/brands": {
+      "post": {
+        "summary": "Upsert a brand by orgId + URL (no scraping)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertBrandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Brand found or created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpsertBrandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required fields"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "get": {
+        "summary": "List all brands for an organization",
+        "responses": {
+          "200": {
+            "description": "List of brands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListBrandsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing orgId"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/brands/{id}": {
+      "get": {
+        "summary": "Get a single brand by ID",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "orgId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Brand details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBrandResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/brands/{id}/runs": {
+      "get": {
+        "summary": "List runs-service runs for a brand",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "taskName",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "offset",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Runs list"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/sales-profile": {
+      "post": {
+        "summary": "Extract or retrieve a sales profile for a brand URL",
+        "description": "Main entry point for obtaining a sales profile. Pass a brand URL — if a cached profile exists it is returned immediately, otherwise AI extraction runs (scrapes the site + analyzes with Claude). Returns the profile along with brandId for future GET lookups. Use skipCache: true to force re-extraction.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSalesProfileRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sales profile (cached or freshly extracted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalesProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required fields or API key"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "502": {
+            "description": "Failed to fetch API key"
+          }
+        }
+      }
+    },
+    "/sales-profiles": {
+      "get": {
+        "summary": "List all sales profiles for the caller organization",
+        "description": "Returns all non-expired sales profiles owned by the org identified in the x-org-id header.",
+        "responses": {
+          "200": {
+            "description": "List of sales profiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSalesProfilesResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/sales-profile/{orgId}": {
+      "get": {
+        "summary": "Get the most recent sales profile by orgId",
+        "description": "Looks up the most recent non-expired sales profile for the given org. Returns 404 if no profile has been extracted yet — call POST /sales-profile first to create one.",
+        "responses": {
+          "200": {
+            "description": "Sales profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesProfileResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No sales profile exists for this org. Use POST /sales-profile to create one."
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/brands/{brandId}/sales-profile": {
+      "get": {
+        "summary": "Get existing sales profile for a brand by brandId",
+        "description": "Returns the non-expired sales profile for the given brandId. Returns 404 if no profile has been extracted yet — call POST /sales-profile with the brand URL to create one.",
+        "responses": {
+          "200": {
+            "description": "Sales profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesProfileResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No sales profile exists for this brand. Use POST /sales-profile to create one."
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/org-ids": {
+      "get": {
+        "summary": "Get all organization IDs (only valid UUIDs)",
+        "responses": {
+          "200": {
+            "description": "List of org IDs (filtered to valid UUIDs only)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/by-org-id/{orgId}": {
+      "get": {
+        "summary": "Get organization by organization ID",
+        "responses": {
+          "200": {
+            "description": "Organization details"
+          },
+          "400": {
+            "description": "Missing orgId"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/set-url": {
+      "put": {
+        "summary": "Set organization URL (only if not already set)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUrlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Organization updated"
+          },
+          "400": {
+            "description": "Missing required fields"
+          },
+          "409": {
+            "description": "URL already configured"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/by-url": {
+      "get": {
+        "summary": "Get organization by URL",
+        "responses": {
+          "200": {
+            "description": "Organization details"
+          },
+          "400": {
+            "description": "Missing URL"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/relations": {
+      "get": {
+        "summary": "Get organization relations by URL",
+        "responses": {
+          "200": {
+            "description": "Organization relations"
+          },
+          "400": {
+            "description": "Missing URL"
+          },
+          "404": {
+            "description": "No relations found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations": {
+      "put": {
+        "summary": "Upsert organization by organization ID",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertOrganizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Organization upserted"
+          },
+          "400": {
+            "description": "Missing organization_id"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "summary": "Upsert organization by organization ID (alias)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertOrganizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Organization upserted"
+          },
+          "400": {
+            "description": "Missing organization_id"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/targets": {
+      "get": {
+        "summary": "Get target organizations by organization ID",
+        "responses": {
+          "200": {
+            "description": "Target organizations"
+          },
+          "400": {
+            "description": "Missing organizationId"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/individuals": {
+      "get": {
+        "summary": "Get all individuals and their content for an organization",
+        "responses": {
+          "200": {
+            "description": "Individuals and content"
+          },
+          "400": {
+            "description": "Missing organizationId"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add or upsert individual to organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddIndividualRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Individual added/updated"
+          },
+          "400": {
+            "description": "Missing required fields"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/content": {
+      "get": {
+        "summary": "Get all content for an organization",
+        "responses": {
+          "200": {
+            "description": "Organization content"
+          },
+          "400": {
+            "description": "Missing organizationId"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/individuals/{individualId}/status": {
+      "patch": {
+        "summary": "Update individual status in organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIndividualStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Status updated"
+          },
+          "400": {
+            "description": "Invalid status"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/thesis": {
+      "get": {
+        "summary": "Get organization thesis/ideas",
+        "responses": {
+          "200": {
+            "description": "Organization thesis"
+          },
+          "400": {
+            "description": "Missing organizationId"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{sourceOrgId}/relations/{targetOrgId}/status": {
+      "patch": {
+        "summary": "Update organization relation status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRelationStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Relation status updated"
+          },
+          "400": {
+            "description": "Invalid status"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/theses-for-llm": {
+      "get": {
+        "summary": "Get theses for LLM pitch drafting",
+        "responses": {
+          "200": {
+            "description": "Validated theses for LLM context"
+          },
+          "400": {
+            "description": "Missing organizationId"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/theses": {
+      "get": {
+        "summary": "Get all theses for an organization",
+        "responses": {
+          "200": {
+            "description": "Organization theses"
+          },
+          "400": {
+            "description": "Missing organizationId"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete all theses for an organization",
+        "responses": {
+          "200": {
+            "description": "Theses deleted"
+          },
+          "400": {
+            "description": "Missing organizationId"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/{organizationId}/theses/{thesisId}/status": {
+      "patch": {
+        "summary": "Update thesis status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateThesisStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Thesis updated"
+          },
+          "400": {
+            "description": "Invalid status"
+          },
+          "404": {
+            "description": "Thesis not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/logo": {
+      "patch": {
+        "summary": "Update organization logo (deprecated)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLogoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logo updated or already set"
+          },
+          "400": {
+            "description": "Missing required fields"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/organizations": {
+      "get": {
+        "summary": "List all organizations (admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "filter",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organizations list"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/organizations-descriptions": {
+      "get": {
+        "summary": "List organizations with full descriptions (admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "filter",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organizations with descriptions"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/organization-relations": {
+      "get": {
+        "summary": "Get all organization relations (admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "filter",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization relations"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/organization-individuals": {
+      "get": {
+        "summary": "Get all organization individuals (admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "filter",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization individuals"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/admin/organizations-descriptions/bulk": {
+      "delete": {
+        "summary": "Bulk delete organizations (admin)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkDeleteOrgsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deletion results"
+          },
+          "400": {
+            "description": "Invalid ids array"
+          }
+        }
+      }
+    },
+    "/admin/organizations/{id}": {
+      "delete": {
+        "summary": "Delete an organization and related data (admin)",
+        "responses": {
+          "200": {
+            "description": "Organization deleted"
+          },
+          "400": {
+            "description": "Name confirmation mismatch"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/organizations/exists": {
+      "get": {
+        "summary": "Check if organizations exist by org IDs",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "orgIds",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Existence check result"
+          },
+          "400": {
+            "description": "Missing orgIds"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/email-data/public-info/{orgId}": {
+      "get": {
+        "summary": "Get public info formatted for lifecycle email",
+        "responses": {
+          "200": {
+            "description": "Email-formatted public info"
+          },
+          "400": {
+            "description": "Missing orgId"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/email-data/theses/{orgId}": {
+      "get": {
+        "summary": "Get theses formatted for lifecycle email",
+        "responses": {
+          "200": {
+            "description": "Email-formatted theses"
+          },
+          "400": {
+            "description": "Missing orgId"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/media-assets": {
+      "get": {
+        "summary": "Get all media assets for an organization",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "external_organization_id",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Media assets list"
+          },
+          "400": {
+            "description": "Missing external_organization_id"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/media-assets/{id}/shareable": {
+      "patch": {
+        "summary": "Update media asset shareable status",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateShareableRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shareable status updated"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Media asset not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/media-assets/by-url": {
+      "patch": {
+        "summary": "Update media asset by URL",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMediaByUrlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Media asset updated"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Media asset not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/media-assets/{id}": {
+      "patch": {
+        "summary": "Update media asset caption",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMediaCaptionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Caption updated"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "404": {
+            "description": "Media asset not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete media asset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteMediaAssetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Media asset deleted"
+          },
+          "400": {
+            "description": "Missing external_organization_id"
+          },
+          "404": {
+            "description": "Media asset not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/media-assets/{id}/analyze": {
+      "post": {
+        "summary": "Analyze single media asset with AI",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Analysis complete"
+          },
+          "400": {
+            "description": "Invalid request or unsupported media type"
+          },
+          "404": {
+            "description": "Media asset not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/media-assets/analyze-batch": {
+      "post": {
+        "summary": "Batch analyze media assets with AI",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch analysis results"
+          },
+          "400": {
+            "description": "Missing organization_id"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/import-from-google-drive": {
+      "post": {
+        "summary": "Import media from Google Drive (async)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportFromGDriveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Import job started"
+          },
+          "400": {
+            "description": "Missing required fields"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/import-jobs/{jobId}": {
+      "get": {
+        "summary": "Get import job progress",
+        "responses": {
+          "200": {
+            "description": "Job status"
+          },
+          "404": {
+            "description": "Job not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/upload-media": {
+      "post": {
+        "summary": "Upload media file",
+        "responses": {
+          "200": {
+            "description": "File uploaded"
+          },
+          "400": {
+            "description": "Missing required fields"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/trigger-client-info-workflow": {
+      "post": {
+        "summary": "Trigger n8n client info workflow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerWorkflowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Workflow initiated"
+          },
+          "400": {
+            "description": "Missing organization_id"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/trigger-intake-form-generation": {
+      "post": {
+        "summary": "Trigger intake form generation workflow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerWorkflowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generation initiated"
+          },
+          "400": {
+            "description": "Missing organization_id"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/intake-forms": {
+      "post": {
+        "summary": "Upsert intake form data (auto-save)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntakeFormUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Intake form saved"
+          },
+          "400": {
+            "description": "Missing organization_id"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/intake-forms/organization/{organizationId}": {
+      "get": {
+        "summary": "Get intake form by organization ID",
+        "responses": {
+          "200": {
+            "description": "Intake form data"
+          },
+          "400": {
+            "description": "Missing organizationId"
+          },
+          "404": {
+            "description": "Intake form not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/trigger-thesis-generation": {
+      "post": {
+        "summary": "Trigger thesis generation workflow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerWorkflowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generation initiated"
+          },
+          "400": {
+            "description": "Missing organization_id"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/clients-theses-need-update": {
+      "get": {
+        "summary": "Get clients that need thesis updates",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "filter",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organizations needing thesis updates"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/theses-setup": {
+      "get": {
+        "summary": "Get thesis setup status for all organizations",
+        "responses": {
+          "200": {
+            "description": "Thesis setup status"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/public-information-map": {
+      "get": {
+        "summary": "Get public information map (URLs and descriptions)",
+        "responses": {
+          "200": {
+            "description": "Public information map"
+          },
+          "400": {
+            "description": "Missing orgId"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/public-information-content": {
+      "post": {
+        "summary": "Fetch full content for selected URLs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicInfoContentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Content for selected URLs"
+          },
+          "400": {
+            "description": "Missing selected_urls"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Root endpoint",
+        "responses": {
+          "200": {
+            "description": "Service info"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service healthy"
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "OpenAPI specification",
+        "responses": {
+          "200": {
+            "description": "OpenAPI JSON spec"
+          },
+          "404": {
+            "description": "Spec not generated"
+          }
+        }
+      }
+    }
+  }
+}
