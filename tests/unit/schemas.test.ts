@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CreateSalesProfileRequestSchema,
+  CreateSalesProfileBodySchema,
   UpsertBrandRequestSchema,
   SetUrlRequestSchema,
   ImportFromGDriveRequestSchema,
@@ -19,18 +19,14 @@ import {
 const TEST_UUID = '550e8400-e29b-41d4-a716-446655440000';
 
 describe('Zod Schemas', () => {
-  describe('CreateSalesProfileRequestSchema', () => {
-    it('should accept valid request with url', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        url: 'https://example.com',
-      });
+  describe('CreateSalesProfileBodySchema', () => {
+    it('should accept empty body (all fields optional)', () => {
+      const result = CreateSalesProfileBodySchema.safeParse({});
       expect(result.success).toBe(true);
     });
 
-    it('should accept all fields including user hints', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        url: 'https://example.com',
-        skipCache: true,
+    it('should accept all user hint fields', () => {
+      const result = CreateSalesProfileBodySchema.safeParse({
         workflowName: 'cold-email',
         urgency: 'Offer expires March 1st',
         scarcity: 'Only 10 spots left',
@@ -46,28 +42,8 @@ describe('Zod Schemas', () => {
       }
     });
 
-    it('should reject missing url', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({});
-      expect(result.success).toBe(false);
-    });
-
-    it('should reject bare domain without protocol', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        url: 'pressbeat.io',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('should reject domain with path but no protocol', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        url: 'example.com/about',
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('should accept request with some user hint fields omitted', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        url: 'https://example.com',
+    it('should accept partial user hint fields', () => {
+      const result = CreateSalesProfileBodySchema.safeParse({
         urgency: 'Limited time offer',
       });
       expect(result.success).toBe(true);
@@ -77,33 +53,16 @@ describe('Zod Schemas', () => {
       }
     });
 
-    it('should not have appId, orgId, userId, or keySource fields', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
-        url: 'https://example.com',
+    it('should strip unknown fields', () => {
+      const result = CreateSalesProfileBodySchema.safeParse({
+        urgency: 'test',
         appId: 'test-app',
-        orgId: TEST_UUID,
-        userId: 'user-1',
-        keySource: 'byok',
-      });
-      // Should succeed — extra fields are just ignored by Zod strict or stripped
-      expect(result.success).toBe(true);
-      if (result.success) {
-        // These fields should not be in the parsed output
-        expect((result.data as any).appId).toBeUndefined();
-        expect((result.data as any).orgId).toBeUndefined();
-        expect((result.data as any).userId).toBeUndefined();
-        expect((result.data as any).keySource).toBeUndefined();
-      }
-    });
-
-    it('should not have parentRunId field (moved to x-run-id header)', () => {
-      const result = CreateSalesProfileRequestSchema.safeParse({
         url: 'https://example.com',
-        parentRunId: 'run_1',
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect((result.data as any).parentRunId).toBeUndefined();
+        expect((result.data as any).appId).toBeUndefined();
+        expect((result.data as any).url).toBeUndefined();
       }
     });
   });

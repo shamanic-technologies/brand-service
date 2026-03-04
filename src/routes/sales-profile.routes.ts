@@ -3,14 +3,13 @@ import {
   extractBrandSalesProfile,
   getBrand,
   getExistingSalesProfile,
-  getOrCreateBrand,
-  getSalesProfileByOrgId,
-  getAllSalesProfilesByOrgId,
 } from '../services/salesProfileExtractionService';
 import { getKeyForOrg } from '../lib/keys-service';
-import { CreateSalesProfileRequestSchema } from '../schemas';
+import { CreateSalesProfileBodySchema } from '../schemas';
 
 const router = Router();
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Remove internal IDs before sending to external services
@@ -22,203 +21,184 @@ function sanitizeProfileForExternal(profile: any) {
 }
 
 /**
- * POST /sales-profile
- * Get or create sales profile for a brand by orgId + URL
- *
- * Body: { url, skipCache?, workflowName?, urgency?, scarcity?, riskReversal?, socialProof? }
- * Headers: x-org-id, x-user-id, x-run-id
- *
- * Returns existing profile if available, otherwise extracts new one
+ * Resolve Anthropic API key and extract sales profile for a brand.
+ * Shared logic used by POST (create) and PUT (update).
  */
-router.post('/sales-profile', async (req: Request, res: Response) => {
+async function resolveKeyAndExtract(
+  brandId: string,
+  brandUrl: string,
+  req: Request,
+  res: Response,
+  options: { skipCache: boolean; userHints?: { urgency?: string; scarcity?: string; riskReversal?: string; socialProof?: string }; workflowName?: string }
+) {
+  const orgId = req.orgId;
+  const userId = req.userId;
+  const parentRunId = req.runId;
+
+  const caller = { method: req.method, path: `/brands/${brandId}/sales-profile` };
+  let keyResolution;
   try {
-    const parsed = CreateSalesProfileRequestSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    keyResolution = await getKeyForOrg(orgId, userId, 'anthropic', caller);
+  } catch (keyError: any) {
+    console.error('[sales-profile] key-service error:', keyError.message);
+    return res.status(502).json({
+      error: 'Failed to fetch API key from key service',
+      detail: keyError.message,
+    });
+  }
+  if (!keyResolution.key) {
+    return res.status(400).json({
+      error: 'No Anthropic API key found',
+      hint: 'Organization or platform Anthropic API key not configured',
+    });
+  }
+
+  const costSource = keyResolution.keySource || 'platform';
+  const result = await extractBrandSalesProfile(brandId, keyResolution.key, {
+    skipCache: options.skipCache,
+    orgId,
+    userId,
+    parentRunId: parentRunId!,
+    workflowName: options.workflowName,
+    userHints: options.userHints,
+    costSource,
+  });
+
+  return res.json({
+    cached: result.cached,
+    brandId,
+    runId: result.runId,
+    profile: sanitizeProfileForExternal(result.profile),
+  });
+}
+
+/**
+ * GET /brands/:brandId/sales-profile
+ * Pure read — returns cached profile or 404.
+ */
+router.get('/brands/:brandId/sales-profile', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brandId format: must be a UUID' });
     }
-    const { url, skipCache, workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
-    const orgId = req.orgId;
-    const userId = req.userId;
-    const parentRunId = req.runId;
 
-    // Get or create brand by orgId + URL (domain is the unique key per org)
-    const brand = await getOrCreateBrand(orgId, url);
-
-    // Check if we already have a sales profile for this brand
-    const existingProfile = await getExistingSalesProfile(brand.id);
-    if (existingProfile && !skipCache) {
-      return res.json({
-        cached: true,
-        brandId: brand.id,  // Include brandId for campaign-service to store
-        profile: sanitizeProfileForExternal(existingProfile)
+    const existing = await getExistingSalesProfile(brandId);
+    if (!existing) {
+      return res.status(404).json({
+        error: 'Sales profile not found',
+        hint: 'Use POST /brands/:brandId/sales-profile to create one.',
       });
     }
 
-    // Get API key from keys-service
-    const caller = { method: "POST", path: "/sales-profile" };
-    let keyResolution;
-    try {
-      keyResolution = await getKeyForOrg(orgId, userId, "anthropic", caller);
-    } catch (keyError: any) {
-      console.error('[sales-profile] key-service error:', keyError.message);
-      return res.status(502).json({
-        error: 'Failed to fetch API key from key service',
-        detail: keyError.message,
-      });
-    }
-    if (!keyResolution.key) {
-      return res.status(400).json({
-        error: 'No Anthropic API key found',
-        hint: 'Organization or platform Anthropic API key not configured'
-      });
-    }
-
-    // Extract sales profile
-    const userHints = { urgency, scarcity, riskReversal, socialProof };
-    const costSource = keyResolution.keySource || 'platform';
-    const result = await extractBrandSalesProfile(
-      brand.id,
-      keyResolution.key,
-      { skipCache: true, orgId, userId, parentRunId, workflowName, userHints, costSource }
-    );
-
-    // Sanitize before returning, include brandId for campaign-service
-    res.json({
-      cached: result.cached,
-      brandId: brand.id,  // Include brandId for campaign-service to store
-      runId: result.runId,
-      profile: sanitizeProfileForExternal(result.profile),
+    return res.json({
+      brandId,
+      profile: sanitizeProfileForExternal(existing),
     });
   } catch (error: any) {
-    console.error('Sales profile error:', error);
-    res.status(500).json({ error: error.message || 'Failed to get/extract sales profile' });
-  }
-});
-
-/**
- * GET /sales-profiles
- * List all sales profiles (brands) for an organization
- */
-router.get('/sales-profiles', async (req: Request, res: Response) => {
-  try {
-    const orgId = req.orgId;
-
-    const profiles = await getAllSalesProfilesByOrgId(orgId);
-
-    // Sanitize before returning
-    const sanitizedProfiles = profiles.map(sanitizeProfileForExternal);
-
-    res.json({ profiles: sanitizedProfiles });
-  } catch (error: any) {
-    console.error('List sales profiles error:', error);
-    res.status(500).json({ error: error.message || 'Failed to list sales profiles' });
-  }
-});
-
-/**
- * GET /sales-profile/:orgId
- * Get most recent sales profile by orgId (no extraction)
- */
-router.get('/sales-profile/:orgId', async (req: Request, res: Response) => {
-  try {
-    const { orgId } = req.params;
-
-    if (!orgId) {
-      return res.status(400).json({ error: 'orgId is required' });
-    }
-
-    const profile = await getSalesProfileByOrgId(orgId);
-
-    if (!profile) {
-      return res.status(404).json({ error: 'Sales profile not found for this organization' });
-    }
-
-    res.json({ profile: sanitizeProfileForExternal(profile) });
-  } catch (error: any) {
-    console.error('Get sales profile by orgId error:', error);
+    console.error('Get sales profile error:', error);
     res.status(500).json({ error: error.message || 'Failed to get sales profile' });
   }
 });
 
 /**
- * GET /brands/:brandId/sales-profile
- * Get or create sales profile for a brand.
- * Returns cached profile if available, otherwise triggers AI extraction automatically.
+ * POST /brands/:brandId/sales-profile
+ * Create sales profile via AI extraction.
+ * Returns 409 if a non-expired profile already exists.
+ *
+ * Body: { workflowName?, urgency?, scarcity?, riskReversal?, socialProof? }
  */
-router.get(
-  '/brands/:brandId/sales-profile',
-  async (req: Request, res: Response) => {
-    try {
-      const { brandId } = req.params;
-
-      if (!brandId) {
-        return res.status(400).json({ error: 'brandId is required' });
-      }
-
-      // 1. Return cached profile if available
-      const existing = await getExistingSalesProfile(brandId);
-      if (existing) {
-        return res.json({
-          cached: true,
-          brandId,
-          profile: sanitizeProfileForExternal(existing),
-        });
-      }
-
-      // 2. No cached profile — look up brand to get its URL for extraction
-      const brand = await getBrand(brandId);
-      if (!brand) {
-        return res.status(404).json({ error: 'Brand not found' });
-      }
-      if (!brand.url) {
-        return res.status(400).json({
-          error: 'Brand has no URL',
-          message: 'Cannot extract sales profile: brand has no URL. Use POST /sales-profile with a URL instead.',
-        });
-      }
-
-      // 3. Resolve API key via key-service
-      const orgId = req.orgId;
-      const userId = req.userId;
-      const parentRunId = req.runId;
-
-      const caller = { method: 'GET', path: `/brands/${brandId}/sales-profile` };
-      let keyResolution;
-      try {
-        keyResolution = await getKeyForOrg(orgId, userId, 'anthropic', caller);
-      } catch (keyError: any) {
-        console.error('[sales-profile] key-service error:', keyError.message);
-        return res.status(502).json({
-          error: 'Failed to fetch API key from key service',
-          detail: keyError.message,
-        });
-      }
-      if (!keyResolution.key) {
-        return res.status(400).json({
-          error: 'No Anthropic API key found',
-          hint: 'Organization or platform Anthropic API key not configured',
-        });
-      }
-
-      // 4. Extract sales profile (scrape + AI analysis)
-      const costSource = keyResolution.keySource || 'platform';
-      const result = await extractBrandSalesProfile(
-        brandId,
-        keyResolution.key,
-        { skipCache: true, orgId, userId, parentRunId: parentRunId!, costSource }
-      );
-
-      res.json({
-        cached: result.cached,
-        brandId,
-        runId: result.runId,
-        profile: sanitizeProfileForExternal(result.profile),
-      });
-    } catch (error: any) {
-      console.error('Get sales profile error:', error);
-      res.status(500).json({ error: error.message || 'Failed to get sales profile' });
+router.post('/brands/:brandId/sales-profile', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brandId format: must be a UUID' });
     }
+
+    // Validate optional body
+    const parsed = CreateSalesProfileBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    // Check brand exists and has a URL
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+    if (!brand.url) {
+      return res.status(400).json({
+        error: 'Brand has no URL',
+        hint: 'Use POST /brands to register a brand with a URL first.',
+      });
+    }
+
+    // 409 if profile already exists
+    const existing = await getExistingSalesProfile(brandId);
+    if (existing) {
+      return res.status(409).json({
+        error: 'Sales profile already exists',
+        hint: 'Use GET /brands/:brandId/sales-profile to read it, or PUT to re-extract.',
+      });
+    }
+
+    const { workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
+    const userHints = { urgency, scarcity, riskReversal, socialProof };
+
+    return await resolveKeyAndExtract(brandId, brand.url, req, res, {
+      skipCache: true,
+      userHints,
+      workflowName,
+    });
+  } catch (error: any) {
+    console.error('Create sales profile error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create sales profile' });
   }
-);
+});
+
+/**
+ * PUT /brands/:brandId/sales-profile
+ * Update (re-extract) sales profile. Always forces re-extraction.
+ *
+ * Body: { workflowName?, urgency?, scarcity?, riskReversal?, socialProof? }
+ */
+router.put('/brands/:brandId/sales-profile', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brandId format: must be a UUID' });
+    }
+
+    // Validate optional body
+    const parsed = CreateSalesProfileBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    // Check brand exists and has a URL
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+    if (!brand.url) {
+      return res.status(400).json({
+        error: 'Brand has no URL',
+        hint: 'Use POST /brands to register a brand with a URL first.',
+      });
+    }
+
+    const { workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
+    const userHints = { urgency, scarcity, riskReversal, socialProof };
+
+    return await resolveKeyAndExtract(brandId, brand.url, req, res, {
+      skipCache: true,
+      userHints,
+      workflowName,
+    });
+  } catch (error: any) {
+    console.error('Update sales profile error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update sales profile' });
+  }
+});
 
 export default router;

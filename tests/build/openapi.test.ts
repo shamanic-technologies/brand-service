@@ -40,13 +40,13 @@ describe('OpenAPI Spec', () => {
     const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
     const schemas = Object.keys(spec.components?.schemas || {});
     expect(schemas.length).toBeGreaterThan(10);
-    expect(schemas).toContain('CreateSalesProfileRequest');
+    expect(schemas).toContain('CreateSalesProfileBody');
     expect(schemas).toContain('ListBrandsResponse');
   });
 
   it('should have request body schemas on POST endpoints', () => {
     const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
-    const salesProfilePost = spec.paths['/sales-profile']?.post;
+    const salesProfilePost = spec.paths['/brands/{brandId}/sales-profile']?.post;
     expect(salesProfilePost?.requestBody?.content?.['application/json']?.schema).toBeDefined();
   });
 
