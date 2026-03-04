@@ -7,6 +7,14 @@ import { createRun, updateRun, addCosts } from '../lib/runs-client';
 const SCRAPING_SERVICE_URL = process.env.SCRAPING_SERVICE_URL || 'http://localhost:3010';
 const SCRAPING_SERVICE_API_KEY = process.env.SCRAPING_SERVICE_API_KEY || '';
 
+/** Thrown when the scraping service cannot map/crawl the brand's site (client-recoverable). */
+export class SiteMapError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SiteMapError';
+  }
+}
+
 // Cache duration: 30 days
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -148,7 +156,14 @@ export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContex
     if (!response.data.success) throw new Error(response.data.error || 'Map failed');
     return response.data.urls || [];
   } catch (error: any) {
-    console.error('Map site URLs error:', error.message);
+    console.error('Map site URLs error:', error.message, error.response?.data);
+    // Scraping service returned a client error (e.g. site unreachable, invalid URL)
+    if (error.response && error.response.status >= 400 && error.response.status < 500) {
+      const detail = error.response.data?.error
+        || (error.response.data?.details ? JSON.stringify(error.response.data.details) : null)
+        || error.message;
+      throw new SiteMapError(`Could not map site URLs: ${detail}`);
+    }
     throw new Error(`Failed to map site: ${error.message}`);
   }
 }

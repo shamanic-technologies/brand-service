@@ -3,6 +3,7 @@ import {
   extractBrandSalesProfile,
   getBrand,
   getExistingSalesProfile,
+  SiteMapError,
 } from '../services/salesProfileExtractionService';
 import { getKeyForOrg } from '../lib/keys-service';
 import { CreateSalesProfileBodySchema } from '../schemas';
@@ -152,6 +153,9 @@ router.post('/brands/:brandId/sales-profile', async (req: Request, res: Response
     });
   } catch (error: any) {
     console.error('Create sales profile error:', error);
+    if (error instanceof SiteMapError) {
+      return res.status(422).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message || 'Failed to create sales profile' });
   }
 });
@@ -197,6 +201,9 @@ router.put('/brands/:brandId/sales-profile', async (req: Request, res: Response)
     });
   } catch (error: any) {
     console.error('Update sales profile error:', error);
+    if (error instanceof SiteMapError) {
+      return res.status(422).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message || 'Failed to update sales profile' });
   }
 });

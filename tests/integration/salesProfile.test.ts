@@ -1,9 +1,10 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
 import { brands, brandSalesProfiles } from '../../src/db/schema';
 import { eq, like } from 'drizzle-orm';
+import { SiteMapError } from '../../src/services/salesProfileExtractionService';
 
 const app = createTestApp();
 
@@ -207,6 +208,34 @@ describe('Sales Profile API — Refactored Endpoints', () => {
 
       // In test env without key-service, expect 502 or 500
       expect([500, 502]).toContain(res.status);
+    }, 15000);
+
+    it('should return 422 when site mapping fails (SiteMapError)', async () => {
+      const { brandId, orgId, userId } = await createBrandWithProfile({ withProfile: false });
+
+      // Mock extractBrandSalesProfile to throw SiteMapError (simulates scraping-service 400)
+      const service = await import('../../src/services/salesProfileExtractionService');
+      const spy = vi.spyOn(service, 'extractBrandSalesProfile').mockRejectedValueOnce(
+        new SiteMapError('Could not map site URLs: Invalid URL or site unreachable')
+      );
+
+      // Also mock getKeyForOrg so we don't hit key-service
+      const keysLib = await import('../../src/lib/keys-service');
+      const keySpy = vi.spyOn(keysLib, 'getKeyForOrg').mockResolvedValueOnce({
+        key: 'fake-key',
+        keySource: 'platform',
+      });
+
+      const res = await request(app)
+        .post(`/brands/${brandId}/sales-profile`)
+        .set(getAuthHeaders(orgId, userId))
+        .send({});
+
+      expect(res.status).toBe(422);
+      expect(res.body.error).toContain('Could not map site URLs');
+
+      spy.mockRestore();
+      keySpy.mockRestore();
     }, 15000);
   });
 
