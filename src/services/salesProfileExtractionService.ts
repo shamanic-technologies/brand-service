@@ -127,6 +127,8 @@ export function getAnthropicClient(apiKey: string): Anthropic {
 
 interface ScrapingTrackingContext {
   brandId: string;
+  orgId: string;
+  userId?: string;
   workflowName?: string;
 }
 
@@ -143,7 +145,12 @@ export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContex
         }),
       },
       {
-        headers: { 'X-API-Key': SCRAPING_SERVICE_API_KEY, 'Content-Type': 'application/json' },
+        headers: {
+          'X-API-Key': SCRAPING_SERVICE_API_KEY,
+          'Content-Type': 'application/json',
+          ...(tracking?.orgId && { 'X-Org-Id': tracking.orgId }),
+          ...(tracking?.userId && { 'X-User-Id': tracking.userId }),
+        },
         timeout: 30000,
       }
     );
@@ -175,7 +182,12 @@ export async function scrapeUrl(url: string, tracking?: ScrapingTrackingContext)
         }),
       },
       {
-        headers: { 'X-API-Key': SCRAPING_SERVICE_API_KEY, 'Content-Type': 'application/json' },
+        headers: {
+          'X-API-Key': SCRAPING_SERVICE_API_KEY,
+          'Content-Type': 'application/json',
+          ...(tracking?.orgId && { 'X-Org-Id': tracking.orgId }),
+          ...(tracking?.userId && { 'X-User-Id': tracking.userId }),
+        },
         timeout: 60000,
       }
     );
@@ -613,6 +625,8 @@ export async function extractBrandSalesProfile(
   // Tracking context for child service calls (scraping-service)
   const scrapingTracking: ScrapingTrackingContext = {
     brandId,
+    orgId,
+    userId: options.userId,
     workflowName: options.workflowName,
   };
 
