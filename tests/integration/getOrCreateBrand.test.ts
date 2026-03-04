@@ -264,6 +264,36 @@ describe('getExistingSalesProfile - CRITICAL', () => {
   }, 10000);
 });
 
+describe('Regression: new org without orgs-table row', () => {
+  const testOrgId = 'b645207b-d8e9-40b0-9391-072b777cd9a9';
+
+  afterEach(async () => {
+    await db.delete(brands).where(eq(brands.orgId, testOrgId));
+  });
+
+  it('should create a brand for a UUID orgId that has no row in the legacy orgs table', async () => {
+    // This is the exact scenario reported: a new org calls POST /sales-profile
+    // but has never been registered in the legacy orgs table.
+    // Previously failed with: FK violation brands_org_id_fkey
+    const url = 'https://regression-test-new-org.example.com';
+
+    const brand = await getOrCreateBrand(testOrgId, url);
+
+    expect(brand).toBeDefined();
+    expect(brand.id).toBeDefined();
+    expect(brand.domain).toBe('regression-test-new-org.example.com');
+    expect(brand.url).toBe(url);
+
+    // Verify persisted correctly
+    const persisted = await db
+      .select()
+      .from(brands)
+      .where(eq(brands.orgId, testOrgId));
+    expect(persisted.length).toBe(1);
+    expect(persisted[0].id).toBe(brand.id);
+  }, 10000);
+});
+
 describe('Full Flow Integration - CRITICAL', () => {
   const testPrefix = 'test-fullflow-';
 
