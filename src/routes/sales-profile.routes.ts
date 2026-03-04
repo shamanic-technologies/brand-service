@@ -39,7 +39,7 @@ async function resolveKeyAndExtract(
   const caller = { method: req.method, path: `/brands/${brandId}/sales-profile` };
   let keyResolution;
   try {
-    keyResolution = await getKeyForOrg(orgId, userId, 'anthropic', caller);
+    keyResolution = await getKeyForOrg(orgId, userId, 'anthropic', caller, parentRunId);
   } catch (keyError: any) {
     console.error('[sales-profile] key-service error:', keyError.message);
     return res.status(502).json({

@@ -63,9 +63,11 @@ describe('runs-client', () => {
         expect.objectContaining({ method: 'POST' })
       );
 
+      // orgId/userId are sent as headers, not in the body (per runs-service OpenAPI spec)
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(callBody.orgId).toBe('org_1');
+      expect(callBody).not.toHaveProperty('orgId');
       expect(callBody).not.toHaveProperty('appId');
+      expect(callBody.serviceName).toBe('brand-service');
 
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers['x-org-id']).toBe('org_1');
@@ -87,7 +89,7 @@ describe('runs-client', () => {
       expect(headers['x-user-id']).toBe('user_1');
     });
 
-    it('should pass parentRunId and brandId when provided', async () => {
+    it('should send parentRunId as x-run-id header and brandId in body', async () => {
       const { createRun } = await importClient();
       mockFetch.mockResolvedValueOnce(mockResponse({ id: 'run-2' }));
 
@@ -99,9 +101,13 @@ describe('runs-client', () => {
         parentRunId: 'parent-run-1',
       });
 
+      // parentRunId is sent as x-run-id header, not in body
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(callBody.parentRunId).toBe('parent-run-1');
+      expect(callBody).not.toHaveProperty('parentRunId');
       expect(callBody.brandId).toBe('brand-123');
+
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers['x-run-id']).toBe('parent-run-1');
     });
 
     it('should include workflowName in body when provided', async () => {
@@ -117,6 +123,10 @@ describe('runs-client', () => {
 
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(callBody.workflowName).toBe('cold-email-outreach');
+      // orgId/userId/parentRunId should not be in body
+      expect(callBody).not.toHaveProperty('orgId');
+      expect(callBody).not.toHaveProperty('userId');
+      expect(callBody).not.toHaveProperty('parentRunId');
     });
   });
 
@@ -139,6 +149,16 @@ describe('runs-client', () => {
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers['x-org-id']).toBe('org_1');
       expect(headers['x-user-id']).toBe('user_1');
+    });
+
+    it('should forward x-run-id header when provided', async () => {
+      const { updateRun } = await importClient();
+      mockFetch.mockResolvedValueOnce(mockResponse({ id: 'run-1', status: 'completed' }));
+
+      await updateRun('run-1', 'completed', { orgId: 'org_1', userId: 'user_1', runId: 'run-1' });
+
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers['x-run-id']).toBe('run-1');
     });
 
     it('should handle failed status', async () => {
@@ -164,7 +184,7 @@ describe('runs-client', () => {
       const result = await addCosts('run-1', [
         { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 5000, costSource: 'platform' },
         { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 1000, costSource: 'org' },
-      ], { orgId: 'org_1', userId: 'user_1' });
+      ], { orgId: 'org_1', userId: 'user_1', runId: 'run-1' });
 
       expect(result.costs).toHaveLength(2);
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -176,6 +196,7 @@ describe('runs-client', () => {
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers['x-org-id']).toBe('org_1');
       expect(headers['x-user-id']).toBe('user_1');
+      expect(headers['x-run-id']).toBe('run-1');
     });
   });
 

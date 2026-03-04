@@ -94,7 +94,8 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
       imageBuffer,
       asset.mimeType,
       asset.caption || 'unknown',
-      externalOrganizationId || ''
+      externalOrganizationId || '',
+      { orgId: req.orgId, userId: req.userId, runId: req.runId }
     );
 
     console.log(`✅ [ENDPOINT] Analysis complete, sending response\n`);
@@ -179,7 +180,8 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
           imageBuffer,
           asset.mimeType,
           asset.fileName || 'unknown',
-          externalOrganizationId || ''
+          externalOrganizationId || '',
+          { orgId: req.orgId, userId: req.userId, runId: req.runId }
         );
 
         analyzed++;

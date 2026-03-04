@@ -91,15 +91,16 @@ export interface ListRunsParams {
   startedBefore?: string;
   limit?: number;
   offset?: number;
+  runId?: string;
 }
 
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; orgId?: string; userId?: string } = {}
+  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string } = {}
 ): Promise<T> {
-  const { method = "GET", body, orgId, userId } = options;
+  const { method = "GET", body, orgId, userId, runId } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -111,6 +112,9 @@ async function runsRequest<T>(
   }
   if (userId) {
     headers["x-user-id"] = userId;
+  }
+  if (runId) {
+    headers["x-run-id"] = runId;
   }
 
   const response = await fetch(`${RUNS_SERVICE_URL}${path}`, {
@@ -132,37 +136,41 @@ async function runsRequest<T>(
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export async function createRun(params: CreateRunParams): Promise<Run> {
+  const { orgId, userId, parentRunId, ...bodyFields } = params;
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
-    body: params,
-    orgId: params.orgId,
-    userId: params.userId,
+    body: bodyFields,
+    orgId,
+    userId,
+    runId: parentRunId,
   });
 }
 
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  identity?: { orgId: string; userId?: string }
+  identity?: { orgId: string; userId?: string; runId?: string }
 ): Promise<Run> {
   return runsRequest<Run>(`/v1/runs/${runId}`, {
     method: "PATCH",
     body: { status },
     orgId: identity?.orgId,
     userId: identity?.userId,
+    runId: identity?.runId,
   });
 }
 
 export async function addCosts(
   runId: string,
   items: CostItem[],
-  identity?: { orgId: string; userId?: string }
+  identity?: { orgId: string; userId?: string; runId?: string }
 ): Promise<{ costs: RunCost[] }> {
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
     body: { items },
     orgId: identity?.orgId,
     userId: identity?.userId,
+    runId: identity?.runId,
   });
 }
 
@@ -186,6 +194,6 @@ export async function listRuns(
 
   return runsRequest<{ runs: RunWithOwnCost[]; limit: number; offset: number }>(
     `/v1/runs?${searchParams.toString()}`,
-    { orgId: params.orgId, userId: params.userId }
+    { orgId: params.orgId, userId: params.userId, runId: params.runId }
   );
 }

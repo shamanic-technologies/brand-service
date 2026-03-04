@@ -105,12 +105,20 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
     );
 
     // Get public info status from press-funnel
+    // Forward identity headers to press-funnel calls
+    const pressFunnelHeaders: Record<string, string> = {
+      'X-API-Key': PRESS_FUNNEL_API_KEY,
+      ...(req.orgId && { 'x-org-id': req.orgId }),
+      ...(req.userId && { 'x-user-id': req.userId }),
+      ...(req.runId && { 'x-run-id': req.runId }),
+    };
+
     let pressFunnelData: any[] = [];
     try {
       const pressFunnelResponse = await axios.get(
         `${PRESS_FUNNEL_SERVICE_URL}/client-organizations/theses-status`,
         {
-          headers: { 'X-API-Key': PRESS_FUNNEL_API_KEY },
+          headers: pressFunnelHeaders,
           params: filter ? { filter } : {},
           timeout: 10000,
         }
@@ -127,7 +135,7 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
       const subscriptionResponse = await axios.get(
         `${PRESS_FUNNEL_SERVICE_URL}/subscriptions/active-status`,
         {
-          headers: { 'X-API-Key': PRESS_FUNNEL_API_KEY },
+          headers: pressFunnelHeaders,
           timeout: 10000,
         }
       );
@@ -150,7 +158,7 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
       const taskSetupResponse = await axios.get(
         `${PRESS_FUNNEL_SERVICE_URL}/client-organizations/theses-task-setup`,
         {
-          headers: { 'X-API-Key': PRESS_FUNNEL_API_KEY },
+          headers: pressFunnelHeaders,
           timeout: 10000,
         }
       );
