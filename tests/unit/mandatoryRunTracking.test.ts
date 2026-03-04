@@ -229,21 +229,29 @@ describe('Mandatory run/cost tracking', () => {
         workflowName: 'cold-email-outreach',
       });
 
-      // First axios call is /map — only sends fields accepted by scraping-service MapRequest
-      const mapBody = mockAxiosPost.mock.calls[0][1];
+      // First axios call is /map — body has only MapRequest fields, identity in headers
+      const mapCall = mockAxiosPost.mock.calls[0];
+      const mapBody = mapCall[1];
+      const mapConfig = mapCall[2];
       expect(mapBody.brandId).toBe('brand-1');
       expect(mapBody.workflowName).toBe('cold-email-outreach');
       expect(mapBody.sourceOrgId).toBeUndefined();
       expect(mapBody.parentRunId).toBeUndefined();
       expect(mapBody.userId).toBeUndefined();
+      expect(mapConfig.headers['X-Org-Id']).toBe('org_123');
+      expect(mapConfig.headers['X-User-Id']).toBe('user_456');
 
-      // Second axios call is /scrape — only sends fields accepted by scraping-service ScrapeRequest
-      const scrapeBody = mockAxiosPost.mock.calls[1][1];
+      // Second axios call is /scrape — body has only ScrapeRequest fields, identity in headers
+      const scrapeCall = mockAxiosPost.mock.calls[1];
+      const scrapeBody = scrapeCall[1];
+      const scrapeConfig = scrapeCall[2];
       expect(scrapeBody.brandId).toBe('brand-1');
       expect(scrapeBody.workflowName).toBe('cold-email-outreach');
       expect(scrapeBody.sourceOrgId).toBeUndefined();
       expect(scrapeBody.parentRunId).toBeUndefined();
       expect(scrapeBody.userId).toBeUndefined();
+      expect(scrapeConfig.headers['X-Org-Id']).toBe('org_123');
+      expect(scrapeConfig.headers['X-User-Id']).toBe('user_456');
     });
   });
 
