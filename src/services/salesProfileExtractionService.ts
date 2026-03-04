@@ -656,13 +656,14 @@ export async function extractBrandSalesProfile(
     const costItems: { costName: string; quantity: number; costSource: "platform" | "org" }[] = [];
     if (inputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens, costSource });
     if (outputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-output", quantity: outputTokens, costSource });
-    if (costItems.length > 0) await addCosts(runId, costItems);
-    await updateRun(runId, "completed");
+    const identity = { orgId, userId: options.userId };
+    if (costItems.length > 0) await addCosts(runId, costItems, identity);
+    await updateRun(runId, "completed", identity);
 
     return { cached: false, profile: savedProfile, runId };
   } catch (error) {
     // Mark run as failed (best-effort — original error takes priority)
-    try { await updateRun(runId, "failed"); } catch (err) {
+    try { await updateRun(runId, "failed", { orgId, userId: options.userId }); } catch (err) {
       console.warn("[sales-profile] Failed to mark run as failed:", err);
     }
     throw error;

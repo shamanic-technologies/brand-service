@@ -134,7 +134,7 @@ describe('Mandatory run/cost tracking', () => {
       ).rejects.toThrow('runs-service POST costs failed: 500');
 
       // Should still attempt to mark run as failed
-      expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'failed');
+      expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'failed', { orgId: 'org_123', userId: undefined });
     });
 
     it('should call createRun, addCosts, and updateRun on success', async () => {
@@ -155,8 +155,8 @@ describe('Mandatory run/cost tracking', () => {
         taskName: 'sales-profile-extraction',
         parentRunId: 'parent-run-1',
       }));
-      expect(mockAddCosts).toHaveBeenCalledWith('run-123', expect.any(Array));
-      expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'completed');
+      expect(mockAddCosts).toHaveBeenCalledWith('run-123', expect.any(Array), { orgId: 'org_123', userId: undefined });
+      expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'completed', { orgId: 'org_123', userId: undefined });
     });
 
     it('should pass workflowName to createRun when provided', async () => {

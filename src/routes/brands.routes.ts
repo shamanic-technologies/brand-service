@@ -160,6 +160,7 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
 
     const result = await listRuns({
       orgId: brand.orgId,
+      userId: req.userId,
       serviceName: 'brand-service',
       taskName,
       limit,
