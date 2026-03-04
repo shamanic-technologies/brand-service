@@ -46,10 +46,10 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   const userId = req.headers['x-user-id'] as string | undefined;
   const runId = req.headers['x-run-id'] as string | undefined;
 
-  if (!orgId || !userId || !runId) {
+  if (!orgId || !userId) {
     return res.status(400).json({
       error: 'Missing required headers',
-      message: 'x-org-id, x-user-id, and x-run-id headers are required',
+      message: 'x-org-id and x-user-id headers are required',
     });
   }
 
