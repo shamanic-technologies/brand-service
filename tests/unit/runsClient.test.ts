@@ -65,9 +65,11 @@ describe('runs-client', () => {
 
       // orgId/userId are sent as headers, not in the body (per runs-service OpenAPI spec)
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      // orgId should NOT be in body — only in x-org-id header per OpenAPI spec
       expect(callBody).not.toHaveProperty('orgId');
       expect(callBody).not.toHaveProperty('appId');
       expect(callBody.serviceName).toBe('brand-service');
+      expect(callBody.taskName).toBe('sales-profile-extraction');
 
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers['x-org-id']).toBe('org_1');
@@ -103,6 +105,7 @@ describe('runs-client', () => {
 
       // parentRunId is sent as x-run-id header, not in body
       const callBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      // parentRunId should be in x-run-id header, not body
       expect(callBody).not.toHaveProperty('parentRunId');
       expect(callBody.brandId).toBe('brand-123');
 
@@ -201,7 +204,7 @@ describe('runs-client', () => {
   });
 
   describe('listRuns', () => {
-    it('should GET /v1/runs with orgId query param and x-org-id header', async () => {
+    it('should GET /v1/runs with x-org-id header and filters as query params', async () => {
       const { listRuns } = await importClient();
       const runsResponse = { runs: [], limit: 50, offset: 0 };
       mockFetch.mockResolvedValueOnce(mockResponse(runsResponse));
@@ -215,7 +218,8 @@ describe('runs-client', () => {
 
       const calledUrl = mockFetch.mock.calls[0][0] as string;
       expect(calledUrl).toContain('/v1/runs?');
-      expect(calledUrl).toContain('orgId=org_1');
+      // orgId should NOT be in query params — only in x-org-id header
+      expect(calledUrl).not.toContain('orgId=');
       expect(calledUrl).toContain('serviceName=brand-service');
       expect(calledUrl).toContain('taskName=sales-profile-extraction');
 
@@ -231,9 +235,12 @@ describe('runs-client', () => {
       await listRuns({ orgId: 'org_1' });
 
       const calledUrl = mockFetch.mock.calls[0][0] as string;
-      expect(calledUrl).toContain('orgId=org_1');
+      expect(calledUrl).not.toContain('orgId=');
       expect(calledUrl).not.toContain('serviceName');
       expect(calledUrl).not.toContain('taskName');
+
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers['x-org-id']).toBe('org_1');
     });
 
     it('should pass brandId filter (no appId)', async () => {

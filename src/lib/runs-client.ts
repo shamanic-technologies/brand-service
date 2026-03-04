@@ -136,10 +136,12 @@ async function runsRequest<T>(
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export async function createRun(params: CreateRunParams): Promise<Run> {
-  const { orgId, userId, parentRunId, ...bodyFields } = params;
+  // Only send fields accepted by CreateRunRequest schema in the body.
+  // orgId/userId go in x-org-id/x-user-id headers, parentRunId in x-run-id header.
+  const { orgId, userId, parentRunId, ...body } = params;
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
-    body: bodyFields,
+    body,
     orgId,
     userId,
     runId: parentRunId,
@@ -178,7 +180,6 @@ export async function listRuns(
   params: ListRunsParams
 ): Promise<{ runs: RunWithOwnCost[]; limit: number; offset: number }> {
   const searchParams = new URLSearchParams();
-  searchParams.set("orgId", params.orgId);
   if (params.userId) searchParams.set("userId", params.userId);
   if (params.brandId) searchParams.set("brandId", params.brandId);
   if (params.campaignId) searchParams.set("campaignId", params.campaignId);
