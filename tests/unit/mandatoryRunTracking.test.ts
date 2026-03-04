@@ -229,21 +229,21 @@ describe('Mandatory run/cost tracking', () => {
         workflowName: 'cold-email-outreach',
       });
 
-      // First axios call is /map
+      // First axios call is /map — only sends fields accepted by scraping-service MapRequest
       const mapBody = mockAxiosPost.mock.calls[0][1];
       expect(mapBody.brandId).toBe('brand-1');
-      expect(mapBody.sourceOrgId).toBe('org_123');
-      expect(mapBody.parentRunId).toBe('run-123');
-      expect(mapBody.userId).toBe('user_456');
       expect(mapBody.workflowName).toBe('cold-email-outreach');
+      expect(mapBody.sourceOrgId).toBeUndefined();
+      expect(mapBody.parentRunId).toBeUndefined();
+      expect(mapBody.userId).toBeUndefined();
 
-      // Second axios call is /scrape
+      // Second axios call is /scrape — only sends fields accepted by scraping-service ScrapeRequest
       const scrapeBody = mockAxiosPost.mock.calls[1][1];
       expect(scrapeBody.brandId).toBe('brand-1');
-      expect(scrapeBody.sourceOrgId).toBe('org_123');
-      expect(scrapeBody.parentRunId).toBe('run-123');
-      expect(scrapeBody.userId).toBe('user_456');
       expect(scrapeBody.workflowName).toBe('cold-email-outreach');
+      expect(scrapeBody.sourceOrgId).toBeUndefined();
+      expect(scrapeBody.parentRunId).toBeUndefined();
+      expect(scrapeBody.userId).toBeUndefined();
     });
   });
 
