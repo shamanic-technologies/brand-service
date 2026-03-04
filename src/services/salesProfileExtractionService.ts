@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import axios from 'axios';
-import { eq, and, gt, desc, sql } from 'drizzle-orm';
+import { eq, and, gt, sql } from 'drizzle-orm';
 import { db, brands, brandSalesProfiles } from '../db';
 import { createRun, updateRun, addCosts } from '../lib/runs-client';
 
@@ -500,35 +500,6 @@ export async function getOrCreateBrand(
 
   console.log(`[brand] Re-fetched brand after conflict for org ${orgId}: ${refetched.id}`);
   return refetched;
-}
-
-export async function getSalesProfileByOrgId(orgId: string): Promise<SalesProfile | null> {
-  const result = await db
-    .select()
-    .from(brandSalesProfiles)
-    .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
-    .where(and(eq(brands.orgId, orgId), gt(brandSalesProfiles.expiresAt, sql`NOW()`)))
-    .orderBy(desc(brandSalesProfiles.extractedAt))
-    .limit(1);
-
-  return result.length > 0 ? formatProfileFromDb(result[0].brand_sales_profiles) : null;
-}
-
-export async function getAllSalesProfilesByOrgId(
-  orgId: string
-): Promise<(SalesProfile & { url: string | null; domain: string | null })[]> {
-  const result = await db
-    .select()
-    .from(brandSalesProfiles)
-    .innerJoin(brands, eq(brandSalesProfiles.brandId, brands.id))
-    .where(eq(brands.orgId, orgId))
-    .orderBy(desc(brandSalesProfiles.extractedAt));
-
-  return result.map(row => ({
-    ...formatProfileFromDb(row.brand_sales_profiles),
-    url: row.brands.url,
-    domain: row.brands.domain,
-  }));
 }
 
 async function upsertSalesProfile(

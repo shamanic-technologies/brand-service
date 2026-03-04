@@ -191,25 +191,14 @@
           "categories"
         ]
       },
-      "SalesProfileResponse": {
+      "GetSalesProfileResponse": {
         "type": "object",
         "properties": {
-          "cached": {
-            "type": "boolean"
-          },
-          "brandId": {
-            "type": "string"
-          },
-          "runId": {
-            "type": "string"
-          },
           "profile": {
             "$ref": "#/components/schemas/SalesProfile"
           }
         },
         "required": [
-          "cached",
-          "brandId",
           "profile"
         ]
       },
@@ -632,16 +621,31 @@
           "totalPerceivedValue"
         ]
       },
-      "CreateSalesProfileRequest": {
+      "SalesProfileResponse": {
         "type": "object",
         "properties": {
-          "url": {
-            "type": "string",
-            "format": "uri"
-          },
-          "skipCache": {
+          "cached": {
             "type": "boolean"
           },
+          "brandId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/SalesProfile"
+          }
+        },
+        "required": [
+          "cached",
+          "brandId",
+          "profile"
+        ]
+      },
+      "CreateSalesProfileBody": {
+        "type": "object",
+        "properties": {
           "workflowName": {
             "type": "string"
           },
@@ -657,35 +661,7 @@
           "socialProof": {
             "type": "string"
           }
-        },
-        "required": [
-          "url"
-        ]
-      },
-      "ListSalesProfilesResponse": {
-        "type": "object",
-        "properties": {
-          "profiles": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SalesProfile"
-            }
-          }
-        },
-        "required": [
-          "profiles"
-        ]
-      },
-      "GetSalesProfileResponse": {
-        "type": "object",
-        "properties": {
-          "profile": {
-            "$ref": "#/components/schemas/SalesProfile"
-          }
-        },
-        "required": [
-          "profile"
-        ]
+        }
       },
       "SetUrlRequest": {
         "type": "object",
@@ -1125,67 +1101,10 @@
         }
       }
     },
-    "/sales-profile": {
-      "post": {
-        "summary": "Extract or retrieve a sales profile for a brand URL",
-        "description": "Main entry point for obtaining a sales profile. Pass a brand URL — if a cached profile exists it is returned immediately, otherwise AI extraction runs (scrapes the site + analyzes with Claude). Returns the profile along with brandId for future GET lookups. Use skipCache: true to force re-extraction.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateSalesProfileRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Sales profile (cached or freshly extracted)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SalesProfileResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing required fields or API key"
-          },
-          "500": {
-            "description": "Internal server error"
-          },
-          "502": {
-            "description": "Failed to fetch API key"
-          }
-        }
-      }
-    },
-    "/sales-profiles": {
+    "/brands/{brandId}/sales-profile": {
       "get": {
-        "summary": "List all sales profiles for the caller organization",
-        "description": "Returns all non-expired sales profiles owned by the org identified in the x-org-id header.",
-        "responses": {
-          "200": {
-            "description": "List of sales profiles",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListSalesProfilesResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/sales-profile/{orgId}": {
-      "get": {
-        "summary": "Get the most recent sales profile by orgId",
-        "description": "Looks up the most recent non-expired sales profile for the given org. Returns 404 if no profile has been extracted yet — call POST /sales-profile first to create one.",
+        "summary": "Get sales profile for a brand",
+        "description": "Pure read — returns the cached sales profile for the given brandId, or 404 if none exists. Use POST to create one.",
         "responses": {
           "200": {
             "description": "Sales profile",
@@ -1197,22 +1116,72 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid brandId"
+          },
           "404": {
-            "description": "No sales profile exists for this org. Use POST /sales-profile to create one."
+            "description": "Sales profile not found"
           },
           "500": {
             "description": "Internal server error"
           }
         }
-      }
-    },
-    "/brands/{brandId}/sales-profile": {
-      "get": {
-        "summary": "Get or create sales profile for a brand by brandId",
-        "description": "Returns the sales profile for the given brandId. If a cached profile exists it is returned immediately (cached: true). If not, AI extraction runs automatically (scrapes the brand URL + analyzes with Claude) and returns the freshly created profile (cached: false). The client never needs to worry about whether the profile exists — this endpoint handles everything.",
+      },
+      "post": {
+        "summary": "Create sales profile for a brand via AI extraction",
+        "description": "Triggers AI extraction (scrapes the brand URL + analyzes with Claude) and creates a new sales profile. Returns 409 if a profile already exists — use PUT to re-extract.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSalesProfileBody"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Sales profile (cached or freshly extracted)",
+            "description": "Sales profile created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalesProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Brand has no URL or missing API key"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "409": {
+            "description": "Sales profile already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "502": {
+            "description": "Failed to fetch API key"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update (re-extract) sales profile for a brand",
+        "description": "Forces AI re-extraction of the sales profile, replacing any existing data. Use this to refresh stale profiles.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSalesProfileBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sales profile updated",
             "content": {
               "application/json": {
                 "schema": {
