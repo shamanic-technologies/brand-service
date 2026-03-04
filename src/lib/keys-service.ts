@@ -49,6 +49,8 @@ export async function getKeyForOrg(
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': KEY_SERVICE_API_KEY,
+          'x-org-id': orgId,
+          'x-user-id': userId,
           'X-Caller-Service': 'brand',
           'X-Caller-Method': caller.method,
           'X-Caller-Path': caller.path,

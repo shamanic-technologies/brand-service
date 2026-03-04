@@ -37,6 +37,8 @@ describe('keys-service', () => {
         expect.objectContaining({
           params: { orgId: 'org-uuid-1', userId: 'user-uuid-1' },
           headers: expect.objectContaining({
+            'x-org-id': 'org-uuid-1',
+            'x-user-id': 'user-uuid-1',
             'X-Caller-Service': 'brand',
             'X-Caller-Method': 'POST',
             'X-Caller-Path': '/sales-profile',
@@ -86,6 +88,8 @@ describe('keys-service', () => {
         expect.any(String),
         expect.objectContaining({
           headers: expect.objectContaining({
+            'x-org-id': 'org-1',
+            'x-user-id': 'user-1',
             'X-Caller-Service': 'brand',
             'X-Caller-Method': 'GET',
             'X-Caller-Path': '/brands/:brandId/keys',
