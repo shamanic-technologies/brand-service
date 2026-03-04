@@ -102,16 +102,16 @@ describe('combinedAuth middleware', () => {
       expect(mockNext).not.toHaveBeenCalled();
     });
 
-    it('should allow requests without x-run-id (optional header)', () => {
+    it('should reject with 400 when x-run-id is missing', () => {
       mockReq.headers = { 'x-api-key': 'test-valid-key', 'x-org-id': 'org-1', 'x-user-id': 'user-1' };
 
       combinedAuth(mockReq as Request, mockRes as Response, mockNext);
 
-      expect(mockNext).toHaveBeenCalled();
-      expect(mockRes.status).not.toHaveBeenCalled();
-      expect((mockReq as any).orgId).toBe('org-1');
-      expect((mockReq as any).userId).toBe('user-1');
-      expect((mockReq as any).runId).toBeUndefined();
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'Missing required headers' })
+      );
+      expect(mockNext).not.toHaveBeenCalled();
     });
 
     it('should reject with 400 when all identity headers missing', () => {
