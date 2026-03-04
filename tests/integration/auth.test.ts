@@ -29,7 +29,7 @@ describe('Authentication', () => {
     }, 10000);
   });
 
-  describe('Identity headers (x-org-id, x-user-id, x-run-id)', () => {
+  describe('Identity headers (x-org-id required, x-user-id and x-run-id optional)', () => {
     it('should reject requests missing x-org-id header', async () => {
       const response = await request(app)
         .get('/brands')
@@ -45,35 +45,20 @@ describe('Authentication', () => {
       expect(response.body.message).toContain('x-org-id');
     });
 
-    it('should reject requests missing x-user-id header', async () => {
+    it('should accept requests with only x-org-id (x-user-id and x-run-id optional)', async () => {
       const response = await request(app)
         .get('/brands')
         .set({
           'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
           'X-Org-Id': 'test-org-uuid',
-          'X-Run-Id': 'test-run-uuid',
           'Content-Type': 'application/json',
         });
 
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Missing required headers');
-      expect(response.body.message).toContain('x-user-id');
-    });
-
-    it('should reject requests missing x-run-id header', async () => {
-      const response = await request(app)
-        .get('/brands')
-        .set({
-          'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
-          'X-Org-Id': 'test-org-uuid',
-          'X-User-Id': 'test-user-uuid',
-          'Content-Type': 'application/json',
-        });
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Missing required headers');
-      expect(response.body.message).toContain('x-run-id');
-    });
+      // Should pass auth (may fail on DB, but not 400/401/403)
+      expect(response.status).not.toBe(400);
+      expect(response.status).not.toBe(401);
+      expect(response.status).not.toBe(403);
+    }, 10000);
 
     it('should reject requests missing all identity headers', async () => {
       const response = await request(app)
