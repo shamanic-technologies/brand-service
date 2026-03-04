@@ -97,14 +97,21 @@ export interface ListRunsParams {
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown } = {}
+  options: { method?: string; body?: unknown; orgId?: string; userId?: string } = {}
 ): Promise<T> {
-  const { method = "GET", body } = options;
+  const { method = "GET", body, orgId, userId } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "X-API-Key": RUNS_SERVICE_API_KEY,
   };
+
+  if (orgId) {
+    headers["x-org-id"] = orgId;
+  }
+  if (userId) {
+    headers["x-user-id"] = userId;
+  }
 
   const response = await fetch(`${RUNS_SERVICE_URL}${path}`, {
     method,
@@ -128,26 +135,34 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
     body: params,
+    orgId: params.orgId,
+    userId: params.userId,
   });
 }
 
 export async function updateRun(
   runId: string,
-  status: "completed" | "failed"
+  status: "completed" | "failed",
+  identity?: { orgId: string; userId?: string }
 ): Promise<Run> {
   return runsRequest<Run>(`/v1/runs/${runId}`, {
     method: "PATCH",
     body: { status },
+    orgId: identity?.orgId,
+    userId: identity?.userId,
   });
 }
 
 export async function addCosts(
   runId: string,
-  items: CostItem[]
+  items: CostItem[],
+  identity?: { orgId: string; userId?: string }
 ): Promise<{ costs: RunCost[] }> {
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
     body: { items },
+    orgId: identity?.orgId,
+    userId: identity?.userId,
   });
 }
 
@@ -170,6 +185,7 @@ export async function listRuns(
   if (params.offset) searchParams.set("offset", String(params.offset));
 
   return runsRequest<{ runs: RunWithOwnCost[]; limit: number; offset: number }>(
-    `/v1/runs?${searchParams.toString()}`
+    `/v1/runs?${searchParams.toString()}`,
+    { orgId: params.orgId, userId: params.userId }
   );
 }
