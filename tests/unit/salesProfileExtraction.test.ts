@@ -1,4 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import axios from 'axios';
+
+vi.mock('axios');
+vi.mock('../../src/db', () => ({ db: {}, brands: {}, brandSalesProfiles: {} }));
+vi.mock('../../src/lib/runs-client', () => ({ createRun: vi.fn(), updateRun: vi.fn(), addCosts: vi.fn() }));
+
+import { SiteMapError } from '../../src/services/salesProfileExtractionService';
 
 describe('Sales Profile Extraction', () => {
   describe('Cost calculation', () => {
@@ -399,6 +406,75 @@ Hope this helps!`;
       const parsed = JSON.parse(aiResponse);
       expect(parsed.socialProof.caseStudies).toHaveLength(2);
       expect(parsed.socialProof.testimonials).toHaveLength(1);
+    });
+  });
+
+  describe('mapSiteUrls error handling', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should throw SiteMapError when scraping service returns 400', async () => {
+      const { mapSiteUrls } = await import('../../src/services/salesProfileExtractionService');
+
+      const makeError = () => ({
+        message: 'Request failed with status code 400',
+        response: { status: 400, data: { error: 'Invalid URL or site unreachable' } },
+        isAxiosError: true,
+      });
+      vi.mocked(axios.post).mockRejectedValueOnce(makeError());
+      await expect(mapSiteUrls('https://unreachable-site.example')).rejects.toThrow(SiteMapError);
+
+      vi.mocked(axios.post).mockRejectedValueOnce(makeError());
+      await expect(mapSiteUrls('https://unreachable-site.example')).rejects.toThrow(/Could not map site URLs/);
+    });
+
+    it('should include upstream error message in SiteMapError', async () => {
+      const { mapSiteUrls } = await import('../../src/services/salesProfileExtractionService');
+
+      vi.mocked(axios.post).mockRejectedValueOnce({
+        message: 'Request failed with status code 400',
+        response: { status: 400, data: { error: 'Site returned DNS resolution failure' } },
+        isAxiosError: true,
+      });
+
+      await expect(mapSiteUrls('https://bad-dns.example')).rejects.toThrow('Site returned DNS resolution failure');
+    });
+
+    it('should throw generic Error for 5xx from scraping service', async () => {
+      const { mapSiteUrls } = await import('../../src/services/salesProfileExtractionService');
+
+      const makeError = () => ({
+        message: 'Request failed with status code 500',
+        response: { status: 500, data: { error: 'Internal scraping error' } },
+        isAxiosError: true,
+      });
+      vi.mocked(axios.post).mockRejectedValueOnce(makeError());
+      await expect(mapSiteUrls('https://example.com')).rejects.not.toThrow(SiteMapError);
+
+      vi.mocked(axios.post).mockRejectedValueOnce(makeError());
+      await expect(mapSiteUrls('https://example.com')).rejects.toThrow(/Failed to map site/);
+    });
+
+    it('should throw generic Error for network errors (no response)', async () => {
+      const { mapSiteUrls } = await import('../../src/services/salesProfileExtractionService');
+
+      const makeError = () => ({
+        message: 'connect ECONNREFUSED 127.0.0.1:3010',
+        isAxiosError: true,
+      });
+      vi.mocked(axios.post).mockRejectedValueOnce(makeError());
+      await expect(mapSiteUrls('https://example.com')).rejects.not.toThrow(SiteMapError);
+
+      vi.mocked(axios.post).mockRejectedValueOnce(makeError());
+      await expect(mapSiteUrls('https://example.com')).rejects.toThrow(/Failed to map site/);
+    });
+
+    it('SiteMapError should have correct name property', () => {
+      const err = new SiteMapError('test');
+      expect(err.name).toBe('SiteMapError');
+      expect(err).toBeInstanceOf(Error);
+      expect(err).toBeInstanceOf(SiteMapError);
     });
   });
 });
