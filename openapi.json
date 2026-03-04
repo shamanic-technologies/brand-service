@@ -1208,24 +1208,30 @@
     },
     "/brands/{brandId}/sales-profile": {
       "get": {
-        "summary": "Get existing sales profile for a brand by brandId",
-        "description": "Returns the non-expired sales profile for the given brandId. Returns 404 if no profile has been extracted yet — call POST /sales-profile with the brand URL to create one.",
+        "summary": "Get or create sales profile for a brand by brandId",
+        "description": "Returns the sales profile for the given brandId. If a cached profile exists it is returned immediately (cached: true). If not, AI extraction runs automatically (scrapes the brand URL + analyzes with Claude) and returns the freshly created profile (cached: false). The client never needs to worry about whether the profile exists — this endpoint handles everything.",
         "responses": {
           "200": {
-            "description": "Sales profile",
+            "description": "Sales profile (cached or freshly extracted)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetSalesProfileResponse"
+                  "$ref": "#/components/schemas/SalesProfileResponse"
                 }
               }
             }
           },
+          "400": {
+            "description": "Brand has no URL or missing API key"
+          },
           "404": {
-            "description": "No sales profile exists for this brand. Use POST /sales-profile to create one."
+            "description": "Brand not found"
           },
           "500": {
             "description": "Internal server error"
+          },
+          "502": {
+            "description": "Failed to fetch API key"
           }
         }
       }
