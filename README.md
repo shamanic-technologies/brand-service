@@ -75,7 +75,7 @@ Every authenticated request must include identity headers:
 | POST | `/sales-profile` | Get or create sales profile (optional: `urgency`, `scarcity`, `riskReversal`, `socialProof` user hints) |
 | GET | `/sales-profiles` | List all sales profiles for org |
 | GET | `/sales-profile/:orgId` | Most recent profile by org |
-| GET | `/brands/:brandId/sales-profile` | Get existing profile for brand |
+| GET | `/brands/:brandId/sales-profile` | Get or create profile for brand (auto-extracts if missing) |
 
 ### Organizations
 
