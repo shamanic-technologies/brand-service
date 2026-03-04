@@ -617,8 +617,15 @@ export async function extractBrandSalesProfile(
     const anthropicClient = getAnthropicClient(anthropicApiKey);
 
     console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
-    const allUrls = await mapSiteUrls(brand.url, scrapingTracking);
-    console.log(`[${brandId}] Found ${allUrls.length} URLs`);
+    let allUrls: string[];
+    try {
+      allUrls = await mapSiteUrls(brand.url, scrapingTracking);
+      console.log(`[${brandId}] Found ${allUrls.length} URLs`);
+    } catch (mapError: any) {
+      console.warn(`[${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
+      allUrls = [brand.url];
+    }
+    if (allUrls.length === 0) allUrls = [brand.url];
 
     console.log(`[${brandId}] Selecting relevant URLs...`);
     const selectedUrls = await selectRelevantUrls(allUrls, anthropicClient);
