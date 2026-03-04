@@ -93,20 +93,7 @@ describe('combinedAuth middleware', () => {
     });
   });
 
-  describe('Standard endpoints (require identity headers)', () => {
-    it('should reject when missing all identity headers', () => {
-      const req = createMockReq({
-        path: '/brands',
-        headers: { 'x-api-key': 'test-secret-key' },
-      });
-      const res = createMockRes();
-
-      combinedAuth(req, res, next);
-
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Missing required headers' }));
-    });
-
+  describe('Standard endpoints (require x-org-id, optional x-user-id and x-run-id)', () => {
     it('should reject when missing x-org-id', () => {
       const req = createMockReq({
         path: '/brands',
@@ -119,7 +106,35 @@ describe('combinedAuth middleware', () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it('should accept with all headers', () => {
+    it('should reject when no identity headers at all', () => {
+      const req = createMockReq({
+        path: '/brands',
+        headers: { 'x-api-key': 'test-secret-key' },
+      });
+      const res = createMockRes();
+
+      combinedAuth(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Missing required headers' }));
+    });
+
+    it('should accept with only x-org-id (x-user-id and x-run-id optional)', () => {
+      const req = createMockReq({
+        path: '/brands',
+        headers: { 'x-api-key': 'test-secret-key', 'x-org-id': 'o' },
+      });
+      const res = createMockRes();
+
+      combinedAuth(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+      expect((req as any).orgId).toBe('o');
+      expect((req as any).userId).toBeUndefined();
+      expect((req as any).runId).toBeUndefined();
+    });
+
+    it('should accept and attach all headers when all provided', () => {
       const req = createMockReq({
         path: '/brands',
         headers: { 'x-api-key': 'test-secret-key', 'x-org-id': 'o', 'x-user-id': 'u', 'x-run-id': 'r' },
