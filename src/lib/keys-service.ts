@@ -28,7 +28,7 @@ export interface KeyResolution {
 /**
  * Resolve an API key via key-service using the unified decrypt endpoint.
  *
- * GET /keys/:provider/decrypt?orgId=...&userId=...
+ * GET /keys/:provider/decrypt (orgId/userId via x-org-id/x-user-id headers)
  *
  * Returns both the key and the keySource ("platform" or "org") for cost reporting.
  */
@@ -39,13 +39,11 @@ export async function getKeyForOrg(
   caller: CallerContext,
 ): Promise<KeyResolution> {
   const url = `${KEY_SERVICE_URL}/keys/${provider}/decrypt`;
-  const params = { orgId, userId };
   let lastError: any;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const response = await axios.get(url, {
-        params,
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': KEY_SERVICE_API_KEY,
