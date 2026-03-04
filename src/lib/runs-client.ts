@@ -97,9 +97,9 @@ export interface ListRunsParams {
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; orgId?: string; userId?: string } = {}
+  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string } = {}
 ): Promise<T> {
-  const { method = "GET", body, orgId, userId } = options;
+  const { method = "GET", body, orgId, userId, runId } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -111,6 +111,9 @@ async function runsRequest<T>(
   }
   if (userId) {
     headers["x-user-id"] = userId;
+  }
+  if (runId) {
+    headers["x-run-id"] = runId;
   }
 
   const response = await fetch(`${RUNS_SERVICE_URL}${path}`, {
@@ -132,11 +135,15 @@ async function runsRequest<T>(
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export async function createRun(params: CreateRunParams): Promise<Run> {
+  // Only send fields accepted by CreateRunRequest schema in the body.
+  // orgId/userId go in x-org-id/x-user-id headers, parentRunId in x-run-id header.
+  const { orgId, userId, parentRunId, ...body } = params;
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
-    body: params,
-    orgId: params.orgId,
-    userId: params.userId,
+    body,
+    orgId,
+    userId,
+    runId: parentRunId,
   });
 }
 
@@ -170,7 +177,6 @@ export async function listRuns(
   params: ListRunsParams
 ): Promise<{ runs: RunWithOwnCost[]; limit: number; offset: number }> {
   const searchParams = new URLSearchParams();
-  searchParams.set("orgId", params.orgId);
   if (params.userId) searchParams.set("userId", params.userId);
   if (params.brandId) searchParams.set("brandId", params.brandId);
   if (params.campaignId) searchParams.set("campaignId", params.campaignId);

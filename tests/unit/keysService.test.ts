@@ -35,7 +35,6 @@ describe('keys-service', () => {
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://key-test.example.com/keys/anthropic/decrypt',
         expect.objectContaining({
-          params: { orgId: 'org-uuid-1', userId: 'user-uuid-1' },
           headers: expect.objectContaining({
             'x-org-id': 'org-uuid-1',
             'x-user-id': 'user-uuid-1',
@@ -45,6 +44,9 @@ describe('keys-service', () => {
           }),
         }),
       );
+      // orgId/userId should NOT be in query params — identity comes from headers
+      const callConfig = mockedAxios.get.mock.calls[0][1];
+      expect(callConfig).not.toHaveProperty('params');
     });
 
     it('should return keySource org when key-service says org', async () => {
