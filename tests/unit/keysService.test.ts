@@ -100,6 +100,32 @@ describe('keys-service', () => {
       );
     });
 
+    it('should forward x-run-id header when runId is provided', async () => {
+      mockedAxios.get.mockResolvedValueOnce({ data: { key: 'key-123', keySource: 'platform' } });
+
+      const { getKeyForOrg } = await importModule();
+      await getKeyForOrg('org-1', 'user-1', 'anthropic', testCaller, 'run-uuid-1');
+
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-run-id': 'run-uuid-1',
+          }),
+        }),
+      );
+    });
+
+    it('should not include x-run-id header when runId is not provided', async () => {
+      mockedAxios.get.mockResolvedValueOnce({ data: { key: 'key-123', keySource: 'platform' } });
+
+      const { getKeyForOrg } = await importModule();
+      await getKeyForOrg('org-1', 'user-1', 'anthropic', testCaller);
+
+      const callHeaders = mockedAxios.get.mock.calls[0][1]?.headers as Record<string, string>;
+      expect(callHeaders['x-run-id']).toBeUndefined();
+    });
+
     it('should throw on non-404 HTTP error with detail', async () => {
       const error = new Error('Internal Server Error') as any;
       error.response = { status: 500, data: { error: 'db connection failed' } };

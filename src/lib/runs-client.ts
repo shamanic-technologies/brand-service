@@ -91,6 +91,7 @@ export interface ListRunsParams {
   startedBefore?: string;
   limit?: number;
   offset?: number;
+  runId?: string;
 }
 
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
@@ -150,26 +151,28 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  identity?: { orgId: string; userId?: string }
+  identity?: { orgId: string; userId?: string; runId?: string }
 ): Promise<Run> {
   return runsRequest<Run>(`/v1/runs/${runId}`, {
     method: "PATCH",
     body: { status },
     orgId: identity?.orgId,
     userId: identity?.userId,
+    runId: identity?.runId,
   });
 }
 
 export async function addCosts(
   runId: string,
   items: CostItem[],
-  identity?: { orgId: string; userId?: string }
+  identity?: { orgId: string; userId?: string; runId?: string }
 ): Promise<{ costs: RunCost[] }> {
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
     body: { items },
     orgId: identity?.orgId,
     userId: identity?.userId,
+    runId: identity?.runId,
   });
 }
 
@@ -192,6 +195,6 @@ export async function listRuns(
 
   return runsRequest<{ runs: RunWithOwnCost[]; limit: number; offset: number }>(
     `/v1/runs?${searchParams.toString()}`,
-    { orgId: params.orgId, userId: params.userId }
+    { orgId: params.orgId, userId: params.userId, runId: params.runId }
   );
 }

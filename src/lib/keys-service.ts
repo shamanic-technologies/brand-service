@@ -37,14 +37,14 @@ export async function getKeyForOrg(
   userId: string,
   provider: string,
   caller: CallerContext,
+  runId?: string,
 ): Promise<KeyResolution> {
   const url = `${KEY_SERVICE_URL}/keys/${provider}/decrypt`;
   let lastError: any;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const response = await axios.get(url, {
-        headers: {
+      const headers: Record<string, string | undefined> = {
           'Content-Type': 'application/json',
           'x-api-key': KEY_SERVICE_API_KEY,
           'x-org-id': orgId,
@@ -52,7 +52,13 @@ export async function getKeyForOrg(
           'X-Caller-Service': 'brand',
           'X-Caller-Method': caller.method,
           'X-Caller-Path': caller.path,
-        },
+        };
+      if (runId) {
+        headers['x-run-id'] = runId;
+      }
+
+      const response = await axios.get(url, {
+        headers,
         timeout: 10000,
       });
 

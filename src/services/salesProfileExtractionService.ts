@@ -130,6 +130,7 @@ interface ScrapingTrackingContext {
   orgId: string;
   userId?: string;
   workflowName?: string;
+  runId?: string;
 }
 
 export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContext): Promise<string[]> {
@@ -150,6 +151,7 @@ export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContex
           'Content-Type': 'application/json',
           ...(tracking?.orgId && { 'X-Org-Id': tracking.orgId }),
           ...(tracking?.userId && { 'X-User-Id': tracking.userId }),
+          ...(tracking?.runId && { 'X-Run-Id': tracking.runId }),
         },
         timeout: 30000,
       }
@@ -187,6 +189,7 @@ export async function scrapeUrl(url: string, tracking?: ScrapingTrackingContext)
           'Content-Type': 'application/json',
           ...(tracking?.orgId && { 'X-Org-Id': tracking.orgId }),
           ...(tracking?.userId && { 'X-User-Id': tracking.userId }),
+          ...(tracking?.runId && { 'X-Run-Id': tracking.runId }),
         },
         timeout: 60000,
       }
@@ -623,11 +626,13 @@ export async function extractBrandSalesProfile(
   const runId = run.id;
 
   // Tracking context for child service calls (scraping-service)
+  // Use the newly created run.id so scraping-service sees it as its parent
   const scrapingTracking: ScrapingTrackingContext = {
     brandId,
     orgId,
     userId: options.userId,
     workflowName: options.workflowName,
+    runId,
   };
 
   try {
@@ -680,14 +685,14 @@ export async function extractBrandSalesProfile(
     const costItems: { costName: string; quantity: number; costSource: "platform" | "org" }[] = [];
     if (inputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens, costSource });
     if (outputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-output", quantity: outputTokens, costSource });
-    const identity = { orgId, userId: options.userId };
+    const identity = { orgId, userId: options.userId, runId };
     if (costItems.length > 0) await addCosts(runId, costItems, identity);
     await updateRun(runId, "completed", identity);
 
     return { cached: false, profile: savedProfile, runId };
   } catch (error) {
     // Mark run as failed (best-effort — original error takes priority)
-    try { await updateRun(runId, "failed", { orgId, userId: options.userId }); } catch (err) {
+    try { await updateRun(runId, "failed", { orgId, userId: options.userId, runId }); } catch (err) {
       console.warn("[sales-profile] Failed to mark run as failed:", err);
     }
     throw error;

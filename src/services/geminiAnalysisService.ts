@@ -23,12 +23,23 @@ interface OrganizationContext {
   private_information: string;
 }
 
-const getOrganizationContext = async (externalOrganizationId: string): Promise<OrganizationContext | null> => {
+interface IdentityHeaders {
+  orgId?: string;
+  userId?: string;
+  runId?: string;
+}
+
+const getOrganizationContext = async (externalOrganizationId: string, identity?: IdentityHeaders): Promise<OrganizationContext | null> => {
   try {
     const pressFunnelUrl = process.env.PRESS_FUNNEL_SERVICE_URL || 'http://localhost:3003';
     const pressFunnelApiKey = process.env.PRESS_FUNNEL_API_KEY || '';
+    const headers: Record<string, string> = { 'X-API-Key': pressFunnelApiKey };
+    if (identity?.orgId) headers['x-org-id'] = identity.orgId;
+    if (identity?.userId) headers['x-user-id'] = identity.userId;
+    if (identity?.runId) headers['x-run-id'] = identity.runId;
+
     const response = await axios.get(`${pressFunnelUrl}/organizations/${externalOrganizationId}/context`, {
-      headers: { 'X-API-Key': pressFunnelApiKey },
+      headers,
       timeout: 5000,
     });
     return response.data;
@@ -42,13 +53,14 @@ export const analyzeImageWithGemini = async (
   imageBuffer: Buffer,
   mimeType: string,
   originalFileName: string,
-  externalOrganizationId: string
+  externalOrganizationId: string,
+  identity?: IdentityHeaders
 ): Promise<GeminiAnalysisResult> => {
   try {
     const genAI = getGeminiClient();
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-    const orgContext = await getOrganizationContext(externalOrganizationId);
+    const orgContext = await getOrganizationContext(externalOrganizationId, identity);
     const base64Image = imageBuffer.toString('base64');
 
     let contextSection = '';
@@ -154,7 +166,8 @@ export const analyzeMediaAssetAsync = async (
   imageBuffer: Buffer,
   mimeType: string,
   originalFileName: string,
-  externalOrganizationId: string
+  externalOrganizationId: string,
+  identity?: IdentityHeaders
 ): Promise<void> => {
   try {
     console.log(`\n🔍 [${mediaAssetId}] Starting AI analysis for: ${originalFileName}`);
@@ -162,7 +175,7 @@ export const analyzeMediaAssetAsync = async (
     console.log(`   - File size: ${imageBuffer.length} bytes`);
     console.log(`   - MIME type: ${mimeType}`);
 
-    const analysis = await analyzeImageWithGemini(imageBuffer, mimeType, originalFileName, externalOrganizationId);
+    const analysis = await analyzeImageWithGemini(imageBuffer, mimeType, originalFileName, externalOrganizationId, identity);
 
     console.log(`📊 [${mediaAssetId}] Analysis results:`);
     console.log(`   - Caption: ${analysis.caption}`);
