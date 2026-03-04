@@ -2,6 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 
 const SKIP_PATHS = new Set(['/', '/health', '/openapi.json']);
 
+// Paths that require API key auth but NOT identity headers (cross-org admin endpoints)
+const SKIP_IDENTITY_PATHS = new Set(['/org-ids']);
+
 /**
  * Service-to-service authentication middleware
  * All services use X-API-Key header (standard)
@@ -31,6 +34,11 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(403).json({
       error: 'Invalid credentials',
     });
+  }
+
+  // Cross-org admin endpoints: API key is enough, no identity headers needed
+  if (SKIP_IDENTITY_PATHS.has(req.path)) {
+    return next();
   }
 
   // Extract and validate identity headers

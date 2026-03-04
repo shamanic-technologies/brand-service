@@ -18,10 +18,22 @@ describe('GET /org-ids', () => {
     await db.delete(brands).where(like(brands.orgId, 'org_CLERK_TEST_%'));
   });
 
-  it('should require authentication', async () => {
+  it('should require API key authentication', async () => {
     const response = await request(app).get('/org-ids');
     expect(response.status).toBe(401);
   });
+
+  it('should work with only API key (no identity headers)', async () => {
+    const response = await request(app)
+      .get('/org-ids')
+      .set({
+        'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
+      });
+
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body.organization_ids)).toBe(true);
+    expect(typeof response.body.count).toBe('number');
+  }, 10000);
 
   it('should return only valid UUID org_ids', async () => {
     // Insert a brand with a valid UUID org_id
