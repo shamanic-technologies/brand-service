@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import {
   extractBrandSalesProfile,
+  getBrand,
   getExistingSalesProfile,
   getOrCreateBrand,
   getSalesProfileByOrgId,
@@ -141,7 +142,8 @@ router.get('/sales-profile/:orgId', async (req: Request, res: Response) => {
 
 /**
  * GET /brands/:brandId/sales-profile
- * Get existing sales profile for a brand
+ * Get or create sales profile for a brand.
+ * Returns cached profile if available, otherwise triggers AI extraction automatically.
  */
 router.get(
   '/brands/:brandId/sales-profile',
@@ -153,13 +155,65 @@ router.get(
         return res.status(400).json({ error: 'brandId is required' });
       }
 
-      const profile = await getExistingSalesProfile(brandId);
-
-      if (!profile) {
-        return res.status(404).json({ error: 'Sales profile not found' });
+      // 1. Return cached profile if available
+      const existing = await getExistingSalesProfile(brandId);
+      if (existing) {
+        return res.json({
+          cached: true,
+          brandId,
+          profile: sanitizeProfileForExternal(existing),
+        });
       }
 
-      res.json({ profile: sanitizeProfileForExternal(profile) });
+      // 2. No cached profile — look up brand to get its URL for extraction
+      const brand = await getBrand(brandId);
+      if (!brand) {
+        return res.status(404).json({ error: 'Brand not found' });
+      }
+      if (!brand.url) {
+        return res.status(400).json({
+          error: 'Brand has no URL',
+          message: 'Cannot extract sales profile: brand has no URL. Use POST /sales-profile with a URL instead.',
+        });
+      }
+
+      // 3. Resolve API key via key-service
+      const orgId = req.orgId;
+      const userId = req.userId;
+      const parentRunId = req.runId;
+
+      const caller = { method: 'GET', path: `/brands/${brandId}/sales-profile` };
+      let keyResolution;
+      try {
+        keyResolution = await getKeyForOrg(orgId, userId, 'anthropic', caller);
+      } catch (keyError: any) {
+        console.error('[sales-profile] key-service error:', keyError.message);
+        return res.status(502).json({
+          error: 'Failed to fetch API key from key service',
+          detail: keyError.message,
+        });
+      }
+      if (!keyResolution.key) {
+        return res.status(400).json({
+          error: 'No Anthropic API key found',
+          hint: 'Organization or platform Anthropic API key not configured',
+        });
+      }
+
+      // 4. Extract sales profile (scrape + AI analysis)
+      const costSource = keyResolution.keySource || 'platform';
+      const result = await extractBrandSalesProfile(
+        brandId,
+        keyResolution.key,
+        { skipCache: true, orgId, userId, parentRunId: parentRunId!, costSource }
+      );
+
+      res.json({
+        cached: result.cached,
+        brandId,
+        runId: result.runId,
+        profile: sanitizeProfileForExternal(result.profile),
+      });
     } catch (error: any) {
       console.error('Get sales profile error:', error);
       res.status(500).json({ error: error.message || 'Failed to get sales profile' });

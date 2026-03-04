@@ -429,7 +429,7 @@ describe('Sales Profile API - Complete Integration Tests', () => {
     }, 15000);
   });
 
-  describe('GET /brands/:brandId/sales-profile', () => {
+  describe('GET /brands/:brandId/sales-profile (get-or-create)', () => {
     it('should return 401 without authentication', async () => {
       const response = await request(app)
         .get('/brands/some-brand-id/sales-profile');
@@ -437,35 +437,86 @@ describe('Sales Profile API - Complete Integration Tests', () => {
       expect(response.status).toBe(401);
     });
 
-    it('should return 404 for brand with no profile', async () => {
-      // First create a brand
-      const uniqueOrgId = `test-no-profile-${Date.now()}`;
+    it('should return 404 for non-existent brand', async () => {
+      const response = await request(app)
+        .get('/brands/00000000-0000-0000-0000-000000000000/sales-profile')
+        .set(getAuthHeaders());
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toBe('Brand not found');
+    });
+
+    it('should return cached profile with cached: true when profile exists', async () => {
+      const uniqueOrgId = `test-cached-get-${Date.now()}`;
       const uniqueUserId = `test-user-${Date.now()}`;
-      const uniqueUrl = `https://no-profile-${Date.now()}.example.com`;
+      const uniqueUrl = `https://cached-get-${Date.now()}.example.com`;
+
+      // Create brand
+      await request(app)
+        .post('/sales-profile')
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
+        .send({ url: uniqueUrl });
+
+      const [brand] = await db
+        .select()
+        .from(brands)
+        .where(eq(brands.orgId, uniqueOrgId));
+
+      // Insert a cached profile directly
+      await db.insert(brandSalesProfiles).values({
+        brandId: brand.id,
+        valueProposition: 'Test cached VP',
+        customerPainPoints: ['pain1'],
+        socialProof: { caseStudies: [], testimonials: [], results: [] },
+        extractionModel: 'claude-sonnet-4-6',
+        sourceScrapeIds: [],
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      }).onConflictDoUpdate({
+        target: brandSalesProfiles.brandId,
+        set: {
+          valueProposition: 'Test cached VP',
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      });
+
+      const response = await request(app)
+        .get(`/brands/${brand.id}/sales-profile`)
+        .set(getAuthHeaders());
+
+      expect(response.status).toBe(200);
+      expect(response.body.cached).toBe(true);
+      expect(response.body.brandId).toBe(brand.id);
+      expect(response.body.profile.valueProposition).toBe('Test cached VP');
+      // Should NOT include internal IDs
+      expect(response.body.profile.id).toBeUndefined();
+      expect(response.body.profile.brandId).toBeUndefined();
+    }, 15000);
+
+    it('should attempt extraction when no cached profile exists (fails gracefully in test env)', async () => {
+      // Create a brand with URL but no profile
+      const uniqueOrgId = `test-extract-get-${Date.now()}`;
+      const uniqueUserId = `test-user-${Date.now()}`;
+      const uniqueUrl = `https://extract-get-${Date.now()}.example.com`;
 
       await request(app)
         .post('/sales-profile')
         .set(getAuthHeaders(uniqueOrgId, uniqueUserId))
-        .send({
-          url: uniqueUrl,
+        .send({ url: uniqueUrl });
 
-        });
-
-      // Get the brand ID
-      const brand = await db
+      const [brand] = await db
         .select()
         .from(brands)
-        .where(eq(brands.orgId, uniqueOrgId))
-        .limit(1);
+        .where(eq(brands.orgId, uniqueOrgId));
 
-      expect(brand.length).toBe(1);
-
-      // Request profile (should be 404 since no profile extracted)
+      // GET should try to extract — will fail on key-service in test env (502 or 500)
       const response = await request(app)
-        .get(`/brands/${brand[0].id}/sales-profile`)
-        .set(getAuthHeaders());
+        .get(`/brands/${brand.id}/sales-profile`)
+        .set(getAuthHeaders(uniqueOrgId, uniqueUserId));
 
-      expect(response.status).toBe(404);
+      // Should NOT be 404 anymore — it attempts extraction instead
+      expect(response.status).not.toBe(404);
+      // In test env without key-service, expect 502 (key-service error) or 500
+      expect([400, 500, 502]).toContain(response.status);
     }, 15000);
   });
 });
