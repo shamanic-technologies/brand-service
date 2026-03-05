@@ -118,23 +118,54 @@ describe('Mandatory run/cost tracking', () => {
       ).rejects.toThrow('runs-service POST /v1/runs failed: 401');
     });
 
-    it('should throw when addCosts fails (not swallow the error)', async () => {
+    it('should return profile when addCosts fails (best-effort cost recording)', async () => {
       setDbSequence([
         [],          // no cached profile
         [brandRow],  // getBrand
-        // upsert uses .returning() not .limit()
       ]);
 
-      mockAddCosts.mockRejectedValue(new Error('runs-service POST costs failed: 500'));
+      mockAddCosts.mockRejectedValue(new Error('runs-service POST costs failed: 422 - Unknown cost'));
 
       const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      await expect(
-        extractBrandSalesProfile('brand-1', 'sk-test', { orgId: 'org_123', parentRunId: 'parent-run-1' })
-      ).rejects.toThrow('runs-service POST costs failed: 500');
+      const result = await extractBrandSalesProfile('brand-1', 'sk-test', { orgId: 'org_123', parentRunId: 'parent-run-1' });
 
-      // Should still attempt to mark run as failed
-      expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'failed', { orgId: 'org_123', userId: undefined, runId: 'run-123' });
+      expect(result.cached).toBe(false);
+      expect(result.profile).toBeDefined();
+      expect(result.runId).toBe('run-123');
+      expect(mockAddCosts).toHaveBeenCalled();
+      // Should still attempt to complete the run (not mark as failed)
+      expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'completed', { orgId: 'org_123', userId: undefined, runId: 'run-123' });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to record costs'),
+        expect.any(Error)
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('should return profile when updateRun(completed) fails (best-effort)', async () => {
+      setDbSequence([
+        [],          // no cached profile
+        [brandRow],  // getBrand
+      ]);
+
+      mockUpdateRun.mockRejectedValue(new Error('runs-service PATCH failed: 500'));
+
+      const { extractBrandSalesProfile } = await import('../../src/services/salesProfileExtractionService');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await extractBrandSalesProfile('brand-1', 'sk-test', { orgId: 'org_123', parentRunId: 'parent-run-1' });
+
+      expect(result.cached).toBe(false);
+      expect(result.profile).toBeDefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to complete run'),
+        expect.any(Error)
+      );
+
+      warnSpy.mockRestore();
     });
 
     it('should call createRun, addCosts, and updateRun on success', async () => {
