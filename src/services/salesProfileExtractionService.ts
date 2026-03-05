@@ -681,13 +681,22 @@ export async function extractBrandSalesProfile(
 
     console.log(`[${brandId}] Sales profile extracted and saved`);
 
-    // Record costs and complete run — must succeed
-    const costItems: { costName: string; quantity: number; costSource: "platform" | "org" }[] = [];
-    if (inputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens, costSource });
-    if (outputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-output", quantity: outputTokens, costSource });
+    // Record costs and complete run — best-effort so a costs-service outage
+    // doesn't mask a successful extraction with a 500
     const identity = { orgId, userId: options.userId, runId };
-    if (costItems.length > 0) await addCosts(runId, costItems, identity);
-    await updateRun(runId, "completed", identity);
+    try {
+      const costItems: { costName: string; quantity: number; costSource: "platform" | "org" }[] = [];
+      if (inputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens, costSource });
+      if (outputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-output", quantity: outputTokens, costSource });
+      if (costItems.length > 0) await addCosts(runId, costItems, identity);
+    } catch (err) {
+      console.warn(`[${brandId}] Failed to record costs (run ${runId}):`, err);
+    }
+    try {
+      await updateRun(runId, "completed", identity);
+    } catch (err) {
+      console.warn(`[${brandId}] Failed to complete run ${runId}:`, err);
+    }
 
     return { cached: false, profile: savedProfile, runId };
   } catch (error) {
