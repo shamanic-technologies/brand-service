@@ -98,9 +98,9 @@ export interface ListRunsParams {
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string } = {}
+  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; brandIdHeader?: string; workflowName?: string } = {}
 ): Promise<T> {
-  const { method = "GET", body, orgId, userId, runId } = options;
+  const { method = "GET", body, orgId, userId, runId, campaignId, brandIdHeader, workflowName } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -115,6 +115,15 @@ async function runsRequest<T>(
   }
   if (runId) {
     headers["x-run-id"] = runId;
+  }
+  if (campaignId) {
+    headers["x-campaign-id"] = campaignId;
+  }
+  if (brandIdHeader) {
+    headers["x-brand-id"] = brandIdHeader;
+  }
+  if (workflowName) {
+    headers["x-workflow-name"] = workflowName;
   }
 
   const response = await fetch(`${RUNS_SERVICE_URL}${path}`, {
@@ -151,7 +160,7 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  identity?: { orgId: string; userId?: string; runId?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; brandIdHeader?: string; workflowName?: string }
 ): Promise<Run> {
   return runsRequest<Run>(`/v1/runs/${runId}`, {
     method: "PATCH",
@@ -159,13 +168,16 @@ export async function updateRun(
     orgId: identity?.orgId,
     userId: identity?.userId,
     runId: identity?.runId,
+    campaignId: identity?.campaignId,
+    brandIdHeader: identity?.brandIdHeader,
+    workflowName: identity?.workflowName,
   });
 }
 
 export async function addCosts(
   runId: string,
   items: CostItem[],
-  identity?: { orgId: string; userId?: string; runId?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; brandIdHeader?: string; workflowName?: string }
 ): Promise<{ costs: RunCost[] }> {
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
@@ -173,6 +185,9 @@ export async function addCosts(
     orgId: identity?.orgId,
     userId: identity?.userId,
     runId: identity?.runId,
+    campaignId: identity?.campaignId,
+    brandIdHeader: identity?.brandIdHeader,
+    workflowName: identity?.workflowName,
   });
 }
 

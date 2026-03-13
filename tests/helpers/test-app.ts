@@ -65,6 +65,23 @@ export function getAuthHeaders(orgId = 'test-org-uuid', userId = 'test-user-uuid
 }
 
 /**
+ * Get auth headers with workflow tracking headers.
+ */
+export function getAuthHeadersWithTracking(
+  orgId = 'test-org-uuid',
+  userId = 'test-user-uuid',
+  runId = 'test-run-uuid',
+  tracking: { campaignId?: string; brandId?: string; workflowName?: string } = {}
+) {
+  return {
+    ...getAuthHeaders(orgId, userId, runId),
+    ...(tracking.campaignId && { 'X-Campaign-Id': tracking.campaignId }),
+    ...(tracking.brandId && { 'X-Brand-Id': tracking.brandId }),
+    ...(tracking.workflowName && { 'X-Workflow-Name': tracking.workflowName }),
+  };
+}
+
+/**
  * Get legacy auth headers (for backward compatibility tests)
  */
 export function getLegacyAuthHeaders() {

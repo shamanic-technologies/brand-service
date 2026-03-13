@@ -142,6 +142,37 @@ describe('combinedAuth middleware', () => {
       expect((mockReq as any).runId).toBe('run-uuid-1');
     });
 
+    it('should attach workflow tracking headers when provided', () => {
+      mockReq.headers = {
+        'x-api-key': 'test-valid-key',
+        'x-org-id': 'org-1',
+        'x-campaign-id': 'camp-1',
+        'x-brand-id': 'brand-1',
+        'x-workflow-name': 'test-workflow',
+      };
+
+      combinedAuth(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+      expect((mockReq as any).campaignId).toBe('camp-1');
+      expect((mockReq as any).brandIdHeader).toBe('brand-1');
+      expect((mockReq as any).workflowName).toBe('test-workflow');
+    });
+
+    it('should not set tracking properties when tracking headers absent', () => {
+      mockReq.headers = {
+        'x-api-key': 'test-valid-key',
+        'x-org-id': 'org-1',
+      };
+
+      combinedAuth(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+      expect((mockReq as any).campaignId).toBeUndefined();
+      expect((mockReq as any).brandIdHeader).toBeUndefined();
+      expect((mockReq as any).workflowName).toBeUndefined();
+    });
+
     it('should accept valid X-API-Key with COMPANY_SERVICE_API_KEY (legacy)', () => {
       delete process.env.BRAND_SERVICE_API_KEY;
       process.env.COMPANY_SERVICE_API_KEY = 'test-company-key';

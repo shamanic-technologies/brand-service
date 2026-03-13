@@ -95,7 +95,7 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
       asset.mimeType,
       asset.caption || 'unknown',
       externalOrganizationId || '',
-      { orgId: req.orgId, userId: req.userId, runId: req.runId }
+      { orgId: req.orgId, userId: req.userId, runId: req.runId, campaignId: req.campaignId, brandIdHeader: req.brandIdHeader, workflowName: req.workflowName }
     );
 
     console.log(`✅ [ENDPOINT] Analysis complete, sending response\n`);
@@ -181,7 +181,7 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
           asset.mimeType,
           asset.fileName || 'unknown',
           externalOrganizationId || '',
-          { orgId: req.orgId, userId: req.userId, runId: req.runId }
+          { orgId: req.orgId, userId: req.userId, runId: req.runId, campaignId: req.campaignId, brandIdHeader: req.brandIdHeader, workflowName: req.workflowName }
         );
 
         analyzed++;
