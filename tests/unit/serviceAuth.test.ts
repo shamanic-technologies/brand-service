@@ -149,4 +149,61 @@ describe('combinedAuth middleware', () => {
       expect((req as any).runId).toBe('r');
     });
   });
+
+  describe('Workflow tracking headers (x-campaign-id, x-brand-id, x-workflow-name)', () => {
+    it('should attach tracking headers when provided', () => {
+      const req = createMockReq({
+        path: '/brands',
+        headers: {
+          'x-api-key': 'test-secret-key',
+          'x-org-id': 'o',
+          'x-campaign-id': 'camp-123',
+          'x-brand-id': 'brand-456',
+          'x-workflow-name': 'sales-profile-wf',
+        },
+      });
+      const res = createMockRes();
+
+      combinedAuth(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+      expect((req as any).campaignId).toBe('camp-123');
+      expect((req as any).brandIdHeader).toBe('brand-456');
+      expect((req as any).workflowName).toBe('sales-profile-wf');
+    });
+
+    it('should not set tracking properties when headers are absent', () => {
+      const req = createMockReq({
+        path: '/brands',
+        headers: { 'x-api-key': 'test-secret-key', 'x-org-id': 'o' },
+      });
+      const res = createMockRes();
+
+      combinedAuth(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+      expect((req as any).campaignId).toBeUndefined();
+      expect((req as any).brandIdHeader).toBeUndefined();
+      expect((req as any).workflowName).toBeUndefined();
+    });
+
+    it('should attach partial tracking headers (only some present)', () => {
+      const req = createMockReq({
+        path: '/brands',
+        headers: {
+          'x-api-key': 'test-secret-key',
+          'x-org-id': 'o',
+          'x-campaign-id': 'camp-789',
+        },
+      });
+      const res = createMockRes();
+
+      combinedAuth(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+      expect((req as any).campaignId).toBe('camp-789');
+      expect((req as any).brandIdHeader).toBeUndefined();
+      expect((req as any).workflowName).toBeUndefined();
+    });
+  });
 });

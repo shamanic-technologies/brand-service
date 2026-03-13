@@ -131,6 +131,8 @@ interface ScrapingTrackingContext {
   userId?: string;
   workflowName?: string;
   runId?: string;
+  campaignId?: string;
+  brandIdHeader?: string;
 }
 
 export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContext): Promise<string[]> {
@@ -152,6 +154,9 @@ export async function mapSiteUrls(url: string, tracking?: ScrapingTrackingContex
           ...(tracking?.orgId && { 'X-Org-Id': tracking.orgId }),
           ...(tracking?.userId && { 'X-User-Id': tracking.userId }),
           ...(tracking?.runId && { 'X-Run-Id': tracking.runId }),
+          ...(tracking?.campaignId && { 'X-Campaign-Id': tracking.campaignId }),
+          ...(tracking?.brandIdHeader && { 'X-Brand-Id': tracking.brandIdHeader }),
+          ...(tracking?.workflowName && { 'X-Workflow-Name': tracking.workflowName }),
         },
         timeout: 30000,
       }
@@ -190,6 +195,9 @@ export async function scrapeUrl(url: string, tracking?: ScrapingTrackingContext)
           ...(tracking?.orgId && { 'X-Org-Id': tracking.orgId }),
           ...(tracking?.userId && { 'X-User-Id': tracking.userId }),
           ...(tracking?.runId && { 'X-Run-Id': tracking.runId }),
+          ...(tracking?.campaignId && { 'X-Campaign-Id': tracking.campaignId }),
+          ...(tracking?.brandIdHeader && { 'X-Brand-Id': tracking.brandIdHeader }),
+          ...(tracking?.workflowName && { 'X-Workflow-Name': tracking.workflowName }),
         },
         timeout: 60000,
       }
@@ -594,7 +602,7 @@ async function upsertSalesProfile(
 export async function extractBrandSalesProfile(
   brandId: string,
   anthropicApiKey: string,
-  options: { skipCache?: boolean; forceRescrape?: boolean; orgId: string; userId?: string; parentRunId: string; workflowName?: string; userHints?: UserHints; costSource?: "platform" | "org" }
+  options: { skipCache?: boolean; forceRescrape?: boolean; orgId: string; userId?: string; parentRunId: string; workflowName?: string; campaignId?: string; brandIdHeader?: string; userHints?: UserHints; costSource?: "platform" | "org" }
 ): Promise<{ cached: boolean; profile: SalesProfile; runId?: string }> {
   if (!options.skipCache) {
     const existing = await getExistingSalesProfile(brandId);
@@ -618,6 +626,7 @@ export async function extractBrandSalesProfile(
     orgId,
     userId: options.userId,
     brandId,
+    campaignId: options.campaignId,
     serviceName: "brand-service",
     taskName: "sales-profile-extraction",
     parentRunId: options.parentRunId,
@@ -632,6 +641,8 @@ export async function extractBrandSalesProfile(
     orgId,
     userId: options.userId,
     workflowName: options.workflowName,
+    campaignId: options.campaignId,
+    brandIdHeader: options.brandIdHeader,
     runId,
   };
 
@@ -683,7 +694,7 @@ export async function extractBrandSalesProfile(
 
     // Record costs and complete run — best-effort so a costs-service outage
     // doesn't mask a successful extraction with a 500
-    const identity = { orgId, userId: options.userId, runId };
+    const identity = { orgId, userId: options.userId, runId, campaignId: options.campaignId, brandIdHeader: options.brandIdHeader, workflowName: options.workflowName };
     try {
       const costItems: { costName: string; quantity: number; costSource: "platform" | "org" }[] = [];
       if (inputTokens) costItems.push({ costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens, costSource });
@@ -701,7 +712,7 @@ export async function extractBrandSalesProfile(
     return { cached: false, profile: savedProfile, runId };
   } catch (error) {
     // Mark run as failed (best-effort — original error takes priority)
-    try { await updateRun(runId, "failed", { orgId, userId: options.userId, runId }); } catch (err) {
+    try { await updateRun(runId, "failed", { orgId, userId: options.userId, runId, campaignId: options.campaignId, brandIdHeader: options.brandIdHeader, workflowName: options.workflowName }); } catch (err) {
       console.warn("[sales-profile] Failed to mark run as failed:", err);
     }
     throw error;

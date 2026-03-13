@@ -39,7 +39,12 @@ async function resolveKeyAndExtract(
   const caller = { method: req.method, path: `/brands/${brandId}/sales-profile` };
   let keyResolution;
   try {
-    keyResolution = await getKeyForOrg(orgId, userId, 'anthropic', caller, parentRunId);
+    const trackingHeaders = {
+      campaignId: req.campaignId,
+      brandIdHeader: req.brandIdHeader,
+      workflowName: req.workflowName,
+    };
+    keyResolution = await getKeyForOrg(orgId, userId, 'anthropic', caller, parentRunId, trackingHeaders);
   } catch (keyError: any) {
     console.error('[sales-profile] key-service error:', keyError.message);
     return res.status(502).json({
@@ -61,6 +66,8 @@ async function resolveKeyAndExtract(
     userId,
     parentRunId: parentRunId!,
     workflowName: options.workflowName,
+    campaignId: req.campaignId,
+    brandIdHeader: req.brandIdHeader,
     userHints: options.userHints,
     costSource,
   });

@@ -27,7 +27,7 @@ app.use(cors({
   origin: true, // Allow all origins - auth is via BRAND_SERVICE_API_KEY
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-External-Organization-Id', 'X-Org-Id', 'X-User-Id', 'X-Run-Id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-External-Organization-Id', 'X-Org-Id', 'X-User-Id', 'X-Run-Id', 'X-Campaign-Id', 'X-Brand-Id', 'X-Workflow-Name'],
 }));
 
 app.use(express.json());

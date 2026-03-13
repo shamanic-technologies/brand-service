@@ -27,6 +27,9 @@ interface IdentityHeaders {
   orgId?: string;
   userId?: string;
   runId?: string;
+  campaignId?: string;
+  brandIdHeader?: string;
+  workflowName?: string;
 }
 
 const getOrganizationContext = async (externalOrganizationId: string, identity?: IdentityHeaders): Promise<OrganizationContext | null> => {
@@ -37,6 +40,9 @@ const getOrganizationContext = async (externalOrganizationId: string, identity?:
     if (identity?.orgId) headers['x-org-id'] = identity.orgId;
     if (identity?.userId) headers['x-user-id'] = identity.userId;
     if (identity?.runId) headers['x-run-id'] = identity.runId;
+    if (identity?.campaignId) headers['x-campaign-id'] = identity.campaignId;
+    if (identity?.brandIdHeader) headers['x-brand-id'] = identity.brandIdHeader;
+    if (identity?.workflowName) headers['x-workflow-name'] = identity.workflowName;
 
     const response = await axios.get(`${pressFunnelUrl}/organizations/${externalOrganizationId}/context`, {
       headers,
