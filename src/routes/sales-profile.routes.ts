@@ -6,6 +6,7 @@ import {
   SiteMapError,
 } from '../services/salesProfileExtractionService';
 import { getKeyForOrg } from '../lib/keys-service';
+import { authorizeCredits } from '../lib/billing-client';
 import { CreateSalesProfileBodySchema } from '../schemas';
 
 const router = Router();
@@ -60,6 +61,39 @@ async function resolveKeyAndExtract(
   }
 
   const costSource = keyResolution.keySource || 'platform';
+
+  // Credit authorization — only for platform-paid operations
+  if (costSource === 'platform') {
+    // Estimate: sales profile extraction typically uses ~50k input + ~4k output tokens
+    // at ~$3/M input + $15/M output ≈ 21 cents. Use 25 cents as conservative estimate.
+    const estimatedCostCents = 25;
+    try {
+      const authResult = await authorizeCredits({
+        requiredCents: estimatedCostCents,
+        description: 'sales-profile-extraction — claude-sonnet-4-6',
+        orgId,
+        userId,
+        runId: parentRunId,
+        campaignId: req.campaignId,
+        brandId: req.brandIdHeader,
+        workflowName: req.workflowName,
+      });
+      if (!authResult.sufficient) {
+        return res.status(402).json({
+          error: 'Insufficient credits',
+          balance_cents: authResult.balance_cents,
+          required_cents: estimatedCostCents,
+        });
+      }
+    } catch (billingError: any) {
+      console.error('[sales-profile] billing-service error:', billingError.message);
+      return res.status(502).json({
+        error: 'Failed to authorize credits',
+        detail: billingError.message,
+      });
+    }
+  }
+
   const result = await extractBrandSalesProfile(brandId, keyResolution.key, {
     skipCache: options.skipCache,
     orgId,

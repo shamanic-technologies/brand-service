@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
 import { db, brands, mediaAssets, supabaseStorage } from '../db';
 import { AnalyzeRequestSchema } from '../schemas';
+import { authorizeCredits } from '../lib/billing-client';
 
 const router = Router();
 
@@ -88,6 +89,34 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
     const imageBuffer = Buffer.from(imageResponse.data);
     console.log(`✓ [ENDPOINT] Downloaded ${imageBuffer.length} bytes`);
 
+    // Credit authorization — Gemini analysis is always platform-paid
+    const estimatedCostCents = 1; // ~$0.01 per image analysis with Gemini Flash
+    try {
+      const authResult = await authorizeCredits({
+        requiredCents: estimatedCostCents,
+        description: 'image-analysis — gemini-2.5-flash',
+        orgId: req.orgId!,
+        userId: req.userId,
+        runId: req.runId,
+        campaignId: req.campaignId,
+        brandId: req.brandIdHeader,
+        workflowName: req.workflowName,
+      });
+      if (!authResult.sufficient) {
+        return res.status(402).json({
+          error: 'Insufficient credits',
+          balance_cents: authResult.balance_cents,
+          required_cents: estimatedCostCents,
+        });
+      }
+    } catch (billingError: any) {
+      console.error('[analyze] billing-service error:', billingError.message);
+      return res.status(502).json({
+        error: 'Failed to authorize credits',
+        detail: billingError.message,
+      });
+    }
+
     console.log(`🤖 [ENDPOINT] Starting Gemini analysis...`);
     await analyzeMediaAssetAsync(
       id,
@@ -151,6 +180,36 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
       .orderBy(mediaAssets.createdAt);
 
     console.log(`📊 [BATCH ANALYZE] Found ${assets.length} images to analyze`);
+
+    // Credit authorization for the full batch upfront
+    if (assets.length > 0) {
+      const estimatedCostCents = assets.length; // ~$0.01 per image
+      try {
+        const authResult = await authorizeCredits({
+          requiredCents: estimatedCostCents,
+          description: `batch-image-analysis — gemini-2.5-flash x${assets.length}`,
+          orgId: req.orgId!,
+          userId: req.userId,
+          runId: req.runId,
+          campaignId: req.campaignId,
+          brandId: req.brandIdHeader,
+          workflowName: req.workflowName,
+        });
+        if (!authResult.sufficient) {
+          return res.status(402).json({
+            error: 'Insufficient credits',
+            balance_cents: authResult.balance_cents,
+            required_cents: estimatedCostCents,
+          });
+        }
+      } catch (billingError: any) {
+        console.error('[batch-analyze] billing-service error:', billingError.message);
+        return res.status(502).json({
+          error: 'Failed to authorize credits',
+          detail: billingError.message,
+        });
+      }
+    }
 
     if (assets.length === 0) {
       return res.json({
