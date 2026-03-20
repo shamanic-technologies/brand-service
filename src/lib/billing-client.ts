@@ -9,8 +9,13 @@ const BILLING_SERVICE_URL =
   process.env.BILLING_SERVICE_URL || "https://billing.distribute.you";
 const BILLING_SERVICE_API_KEY = process.env.BILLING_SERVICE_API_KEY || "";
 
+export interface AuthorizeCreditItem {
+  costName: string;
+  quantity: number;
+}
+
 export interface AuthorizeCreditsParams {
-  requiredCents: number;
+  items: AuthorizeCreditItem[];
   description: string;
   orgId: string;
   userId?: string;
@@ -23,12 +28,14 @@ export interface AuthorizeCreditsParams {
 export interface AuthorizeCreditsResult {
   sufficient: boolean;
   balance_cents: number;
+  required_cents: number;
 }
 
 /**
  * Request credit authorization from billing-service.
  *
- * Returns `{ sufficient, balance_cents }`.
+ * Send costName + quantity items — billing-service resolves the price internally.
+ * Returns `{ sufficient, balance_cents, required_cents }`.
  * Throws on network / unexpected errors so the caller can 502.
  */
 export async function authorizeCredits(
@@ -50,7 +57,7 @@ export async function authorizeCredits(
     method: "POST",
     headers,
     body: JSON.stringify({
-      required_cents: params.requiredCents,
+      items: params.items,
       description: params.description,
     }),
   });

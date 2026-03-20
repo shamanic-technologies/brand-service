@@ -64,12 +64,12 @@ async function resolveKeyAndExtract(
 
   // Credit authorization — only for platform-paid operations
   if (costSource === 'platform') {
-    // Estimate: sales profile extraction typically uses ~50k input + ~4k output tokens
-    // at ~$3/M input + $15/M output ≈ 21 cents. Use 25 cents as conservative estimate.
-    const estimatedCostCents = 25;
     try {
       const authResult = await authorizeCredits({
-        requiredCents: estimatedCostCents,
+        items: [
+          { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 50000 },
+          { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 4000 },
+        ],
         description: 'sales-profile-extraction — claude-sonnet-4-6',
         orgId,
         userId,
@@ -82,7 +82,7 @@ async function resolveKeyAndExtract(
         return res.status(402).json({
           error: 'Insufficient credits',
           balance_cents: authResult.balance_cents,
-          required_cents: estimatedCostCents,
+          required_cents: authResult.required_cents,
         });
       }
     } catch (billingError: any) {
