@@ -90,10 +90,12 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
     console.log(`✓ [ENDPOINT] Downloaded ${imageBuffer.length} bytes`);
 
     // Credit authorization — Gemini analysis is always platform-paid
-    const estimatedCostCents = 1; // ~$0.01 per image analysis with Gemini Flash
     try {
       const authResult = await authorizeCredits({
-        requiredCents: estimatedCostCents,
+        items: [
+          { costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 },
+          { costName: 'gemini-2.5-flash-tokens-output', quantity: 500 },
+        ],
         description: 'image-analysis — gemini-2.5-flash',
         orgId: req.orgId!,
         userId: req.userId,
@@ -106,7 +108,7 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
         return res.status(402).json({
           error: 'Insufficient credits',
           balance_cents: authResult.balance_cents,
-          required_cents: estimatedCostCents,
+          required_cents: authResult.required_cents,
         });
       }
     } catch (billingError: any) {
@@ -183,10 +185,12 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
 
     // Credit authorization for the full batch upfront
     if (assets.length > 0) {
-      const estimatedCostCents = assets.length; // ~$0.01 per image
       try {
         const authResult = await authorizeCredits({
-          requiredCents: estimatedCostCents,
+          items: [
+            { costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 * assets.length },
+            { costName: 'gemini-2.5-flash-tokens-output', quantity: 500 * assets.length },
+          ],
           description: `batch-image-analysis — gemini-2.5-flash x${assets.length}`,
           orgId: req.orgId!,
           userId: req.userId,
@@ -199,7 +203,7 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
           return res.status(402).json({
             error: 'Insufficient credits',
             balance_cents: authResult.balance_cents,
-            required_cents: estimatedCostCents,
+            required_cents: authResult.required_cents,
           });
         }
       } catch (billingError: any) {

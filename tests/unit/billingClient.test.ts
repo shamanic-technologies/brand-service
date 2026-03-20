@@ -29,19 +29,22 @@ describe('billing-client', () => {
   }
 
   describe('authorizeCredits', () => {
-    it('should POST to /v1/credits/authorize with required fields', async () => {
+    it('should POST to /v1/credits/authorize with items array', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 5000 }));
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 5000, required_cents: 25 }));
 
       const result = await authorizeCredits({
-        requiredCents: 25,
+        items: [
+          { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 50000 },
+          { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 4000 },
+        ],
         description: 'sales-profile-extraction — claude-sonnet-4-6',
         orgId: 'org-1',
         userId: 'user-1',
         runId: 'run-1',
       });
 
-      expect(result).toEqual({ sufficient: true, balance_cents: 5000 });
+      expect(result).toEqual({ sufficient: true, balance_cents: 5000, required_cents: 25 });
       expect(mockFetch).toHaveBeenCalledWith(
         'https://billing-test.example.com/v1/credits/authorize',
         expect.objectContaining({
@@ -54,7 +57,10 @@ describe('billing-client', () => {
             'x-run-id': 'run-1',
           }),
           body: JSON.stringify({
-            required_cents: 25,
+            items: [
+              { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 50000 },
+              { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 4000 },
+            ],
             description: 'sales-profile-extraction — claude-sonnet-4-6',
           }),
         }),
@@ -63,24 +69,25 @@ describe('billing-client', () => {
 
     it('should return sufficient: false when balance is insufficient', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: false, balance_cents: 10 }));
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: false, balance_cents: 10, required_cents: 25 }));
 
       const result = await authorizeCredits({
-        requiredCents: 25,
+        items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
         description: 'test',
         orgId: 'org-1',
       });
 
       expect(result.sufficient).toBe(false);
       expect(result.balance_cents).toBe(10);
+      expect(result.required_cents).toBe(25);
     });
 
     it('should forward all tracking headers when provided', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 1000 }));
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 1000, required_cents: 1 }));
 
       await authorizeCredits({
-        requiredCents: 1,
+        items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
         description: 'test',
         orgId: 'org-1',
         userId: 'user-1',
@@ -102,10 +109,10 @@ describe('billing-client', () => {
 
     it('should omit optional headers when not provided', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 1000 }));
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 1000, required_cents: 0 }));
 
       await authorizeCredits({
-        requiredCents: 1,
+        items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
         description: 'test',
         orgId: 'org-1',
       });
@@ -125,7 +132,7 @@ describe('billing-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse('Internal Server Error', 500));
 
       await expect(
-        authorizeCredits({ requiredCents: 25, description: 'test', orgId: 'org-1' })
+        authorizeCredits({ items: [{ costName: 'test', quantity: 1 }], description: 'test', orgId: 'org-1' })
       ).rejects.toThrow('billing-service POST /v1/credits/authorize failed: 500');
     });
 
@@ -134,7 +141,7 @@ describe('billing-client', () => {
       mockFetch.mockRejectedValueOnce(new Error('fetch failed'));
 
       await expect(
-        authorizeCredits({ requiredCents: 25, description: 'test', orgId: 'org-1' })
+        authorizeCredits({ items: [{ costName: 'test', quantity: 1 }], description: 'test', orgId: 'org-1' })
       ).rejects.toThrow('fetch failed');
     });
   });
