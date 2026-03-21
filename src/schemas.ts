@@ -303,11 +303,20 @@ registry.registerPath({
   method: 'put',
   path: '/brands/{brandId}/sales-profile',
   summary: 'Update (re-extract) sales profile for a brand',
-  description: 'Returns the cached profile if still valid. Pass ?force=true to force AI re-extraction, replacing any existing data.',
-  request: { body: { content: { 'application/json': { schema: CreateSalesProfileBodySchema } } } },
+  description: 'Returns the cached profile if still valid (up to 30 days). Pass ?force=true to force AI re-extraction, replacing any existing data.',
+  request: {
+    params: z.object({
+      brandId: z.string().uuid(),
+    }),
+    query: z.object({
+      force: z.enum(['true']).optional().openapi({ description: 'Set to "true" to bypass the cache and force AI re-extraction' }),
+    }),
+    body: { content: { 'application/json': { schema: CreateSalesProfileBodySchema } } },
+  },
   responses: {
-    200: { description: 'Sales profile updated', content: { 'application/json': { schema: SalesProfileResponseSchema } } },
+    200: { description: 'Sales profile (cached or freshly extracted)', content: { 'application/json': { schema: SalesProfileResponseSchema } } },
     400: { description: 'Brand has no URL or missing API key' },
+    402: { description: 'Insufficient credits' },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
     502: { description: 'Failed to fetch API key' },
