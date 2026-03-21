@@ -303,7 +303,7 @@ registry.registerPath({
   method: 'put',
   path: '/brands/{brandId}/sales-profile',
   summary: 'Update (re-extract) sales profile for a brand',
-  description: 'Forces AI re-extraction of the sales profile, replacing any existing data. Use this to refresh stale profiles.',
+  description: 'Returns the cached profile if still valid. Pass ?force=true to force AI re-extraction, replacing any existing data.',
   request: { body: { content: { 'application/json': { schema: CreateSalesProfileBodySchema } } } },
   responses: {
     200: { description: 'Sales profile updated', content: { 'application/json': { schema: SalesProfileResponseSchema } } },
