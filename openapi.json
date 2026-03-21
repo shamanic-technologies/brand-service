@@ -1224,7 +1224,31 @@
       },
       "put": {
         "summary": "Update (re-extract) sales profile for a brand",
-        "description": "Returns the cached profile if still valid. Pass ?force=true to force AI re-extraction, replacing any existing data.",
+        "description": "Returns the cached profile if still valid (up to 30 days). Pass ?force=true to force AI re-extraction, replacing any existing data.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ],
+              "description": "Set to \"true\" to bypass the cache and force AI re-extraction"
+            },
+            "required": false,
+            "description": "Set to \"true\" to bypass the cache and force AI re-extraction",
+            "name": "force",
+            "in": "query"
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1236,7 +1260,7 @@
         },
         "responses": {
           "200": {
-            "description": "Sales profile updated",
+            "description": "Sales profile (cached or freshly extracted)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1247,6 +1271,9 @@
           },
           "400": {
             "description": "Brand has no URL or missing API key"
+          },
+          "402": {
+            "description": "Insufficient credits"
           },
           "404": {
             "description": "Brand not found"
