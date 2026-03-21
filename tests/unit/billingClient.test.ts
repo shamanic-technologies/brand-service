@@ -7,8 +7,6 @@ vi.stubGlobal('fetch', mockFetch);
 // Set env vars before import
 process.env.BILLING_SERVICE_URL = 'https://billing-test.example.com';
 process.env.BILLING_SERVICE_API_KEY = 'test-billing-key';
-process.env.COSTS_SERVICE_URL = 'https://costs-test.example.com';
-process.env.COSTS_SERVICE_API_KEY = 'test-costs-key';
 
 describe('billing-client', () => {
   beforeEach(() => {
@@ -21,7 +19,7 @@ describe('billing-client', () => {
     return import('../../src/lib/billing-client');
   }
 
-  function mockJsonResponse(data: unknown, status = 200) {
+  function mockResponse(data: unknown, status = 200) {
     return {
       ok: status >= 200 && status < 300,
       status,
@@ -30,52 +28,10 @@ describe('billing-client', () => {
     };
   }
 
-  /**
-   * Helper: mock costs-service price responses + billing-service balance response.
-   * priceMap: { costName → pricePerUnitInUsdCents }
-   */
-  function mockPricesAndBalance(
-    priceMap: Record<string, string>,
-    balance: { balance_cents: number; depleted: boolean }
-  ) {
-    mockFetch.mockImplementation((url: string) => {
-      const urlStr = String(url);
-      // costs-service price lookups
-      if (urlStr.includes('/v1/platform-prices/')) {
-        const name = urlStr.split('/v1/platform-prices/')[1];
-        const decodedName = decodeURIComponent(name);
-        if (priceMap[decodedName]) {
-          return Promise.resolve(
-            mockJsonResponse({
-              name: decodedName,
-              pricePerUnitInUsdCents: priceMap[decodedName],
-            })
-          );
-        }
-        return Promise.resolve(
-          mockJsonResponse({ error: `Price not found: ${decodedName}` }, 404)
-        );
-      }
-      // billing-service balance check
-      if (urlStr.includes('/v1/accounts/balance')) {
-        return Promise.resolve(mockJsonResponse(balance));
-      }
-      return Promise.resolve(
-        mockJsonResponse({ error: 'Unexpected request' }, 500)
-      );
-    });
-  }
-
   describe('authorizeCredits', () => {
-    it('should resolve prices from costs-service and check balance from billing-service', async () => {
+    it('should POST to /v1/credits/authorize with items array', async () => {
       const { authorizeCredits } = await importClient();
-      mockPricesAndBalance(
-        {
-          'anthropic-sonnet-4.6-tokens-input': '0.0003',
-          'anthropic-sonnet-4.6-tokens-output': '0.0015',
-        },
-        { balance_cents: 5000, depleted: false }
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 5000, required_cents: 25 }));
 
       const result = await authorizeCredits({
         items: [
@@ -88,35 +44,32 @@ describe('billing-client', () => {
         runId: 'run-1',
       });
 
-      // 50000 * 0.0003 = 15, 4000 * 0.0015 = 6 → total = 21
-      expect(result).toEqual({ sufficient: true, balance_cents: 5000, required_cents: 21 });
-
-      // Should have made 3 fetch calls: 2 price lookups + 1 balance check
-      expect(mockFetch).toHaveBeenCalledTimes(3);
-
-      // Verify costs-service calls include identity headers
-      const costsCall = mockFetch.mock.calls.find(
-        (c: any[]) => String(c[0]).includes('/v1/platform-prices/')
+      expect(result).toEqual({ sufficient: true, balance_cents: 5000, required_cents: 25 });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://billing-test.example.com/v1/credits/authorize',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'X-API-Key': 'test-billing-key',
+            'x-org-id': 'org-1',
+            'x-user-id': 'user-1',
+            'x-run-id': 'run-1',
+          }),
+          body: JSON.stringify({
+            items: [
+              { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 50000 },
+              { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 4000 },
+            ],
+            description: 'sales-profile-extraction — claude-sonnet-4-6',
+          }),
+        }),
       );
-      expect(costsCall).toBeDefined();
-      expect(costsCall![1].headers['x-org-id']).toBe('org-1');
-      expect(costsCall![1].headers['X-API-Key']).toBe('test-costs-key');
-
-      // Verify billing-service balance call
-      const balanceCall = mockFetch.mock.calls.find(
-        (c: any[]) => String(c[0]).includes('/v1/accounts/balance')
-      );
-      expect(balanceCall).toBeDefined();
-      expect(balanceCall![1].headers['x-org-id']).toBe('org-1');
-      expect(balanceCall![1].headers['X-API-Key']).toBe('test-billing-key');
     });
 
     it('should return sufficient: false when balance is insufficient', async () => {
       const { authorizeCredits } = await importClient();
-      mockPricesAndBalance(
-        { 'gemini-2.5-flash-tokens-input': '0.01' },
-        { balance_cents: 5, depleted: false }
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: false, balance_cents: 10, required_cents: 25 }));
 
       const result = await authorizeCredits({
         items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
@@ -124,18 +77,14 @@ describe('billing-client', () => {
         orgId: 'org-1',
       });
 
-      // 1000 * 0.01 = 10 cents required, only 5 available
       expect(result.sufficient).toBe(false);
-      expect(result.balance_cents).toBe(5);
-      expect(result.required_cents).toBe(10);
+      expect(result.balance_cents).toBe(10);
+      expect(result.required_cents).toBe(25);
     });
 
     it('should forward all tracking headers when provided', async () => {
       const { authorizeCredits } = await importClient();
-      mockPricesAndBalance(
-        { 'gemini-2.5-flash-tokens-input': '0.01' },
-        { balance_cents: 1000, depleted: false }
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 1000, required_cents: 1 }));
 
       await authorizeCredits({
         items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
@@ -148,35 +97,19 @@ describe('billing-client', () => {
         workflowName: 'test-workflow',
       });
 
-      // Check headers on costs-service call
-      const costsCall = mockFetch.mock.calls.find(
-        (c: any[]) => String(c[0]).includes('/v1/platform-prices/')
-      );
-      expect(costsCall![1].headers['x-org-id']).toBe('org-1');
-      expect(costsCall![1].headers['x-user-id']).toBe('user-1');
-      expect(costsCall![1].headers['x-run-id']).toBe('run-1');
-      expect(costsCall![1].headers['x-campaign-id']).toBe('campaign-1');
-      expect(costsCall![1].headers['x-brand-id']).toBe('brand-1');
-      expect(costsCall![1].headers['x-workflow-name']).toBe('test-workflow');
-
-      // Check headers on billing-service call
-      const balanceCall = mockFetch.mock.calls.find(
-        (c: any[]) => String(c[0]).includes('/v1/accounts/balance')
-      );
-      expect(balanceCall![1].headers['x-org-id']).toBe('org-1');
-      expect(balanceCall![1].headers['x-user-id']).toBe('user-1');
-      expect(balanceCall![1].headers['x-run-id']).toBe('run-1');
-      expect(balanceCall![1].headers['x-campaign-id']).toBe('campaign-1');
-      expect(balanceCall![1].headers['x-brand-id']).toBe('brand-1');
-      expect(balanceCall![1].headers['x-workflow-name']).toBe('test-workflow');
+      const callArgs = mockFetch.mock.calls[0];
+      const headers = callArgs[1].headers;
+      expect(headers['x-org-id']).toBe('org-1');
+      expect(headers['x-user-id']).toBe('user-1');
+      expect(headers['x-run-id']).toBe('run-1');
+      expect(headers['x-campaign-id']).toBe('campaign-1');
+      expect(headers['x-brand-id']).toBe('brand-1');
+      expect(headers['x-workflow-name']).toBe('test-workflow');
     });
 
     it('should omit optional headers when not provided', async () => {
       const { authorizeCredits } = await importClient();
-      mockPricesAndBalance(
-        { 'gemini-2.5-flash-tokens-input': '0.01' },
-        { balance_cents: 1000, depleted: false }
-      );
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 1000, required_cents: 0 }));
 
       await authorizeCredits({
         items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
@@ -184,93 +117,32 @@ describe('billing-client', () => {
         orgId: 'org-1',
       });
 
-      const costsCall = mockFetch.mock.calls.find(
-        (c: any[]) => String(c[0]).includes('/v1/platform-prices/')
-      );
-      expect(costsCall![1].headers['x-org-id']).toBe('org-1');
-      expect(costsCall![1].headers).not.toHaveProperty('x-user-id');
-      expect(costsCall![1].headers).not.toHaveProperty('x-run-id');
-      expect(costsCall![1].headers).not.toHaveProperty('x-campaign-id');
-      expect(costsCall![1].headers).not.toHaveProperty('x-brand-id');
-      expect(costsCall![1].headers).not.toHaveProperty('x-workflow-name');
+      const callArgs = mockFetch.mock.calls[0];
+      const headers = callArgs[1].headers;
+      expect(headers['x-org-id']).toBe('org-1');
+      expect(headers).not.toHaveProperty('x-user-id');
+      expect(headers).not.toHaveProperty('x-run-id');
+      expect(headers).not.toHaveProperty('x-campaign-id');
+      expect(headers).not.toHaveProperty('x-brand-id');
+      expect(headers).not.toHaveProperty('x-workflow-name');
     });
 
-    it('should throw when costs-service returns an error', async () => {
+    it('should throw on non-OK response', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockImplementation((url: string) => {
-        if (String(url).includes('/v1/platform-prices/')) {
-          return Promise.resolve(
-            mockJsonResponse({ error: 'Price not found' }, 404)
-          );
-        }
-        return Promise.resolve(
-          mockJsonResponse({ balance_cents: 1000, depleted: false })
-        );
-      });
+      mockFetch.mockResolvedValueOnce(mockResponse('Internal Server Error', 500));
 
       await expect(
-        authorizeCredits({
-          items: [{ costName: 'unknown-cost', quantity: 1 }],
-          description: 'test',
-          orgId: 'org-1',
-        })
-      ).rejects.toThrow('costs-service GET /v1/platform-prices/unknown-cost failed: 404');
-    });
-
-    it('should throw when billing-service balance check fails', async () => {
-      const { authorizeCredits } = await importClient();
-      mockFetch.mockImplementation((url: string) => {
-        if (String(url).includes('/v1/platform-prices/')) {
-          return Promise.resolve(
-            mockJsonResponse({ name: 'test', pricePerUnitInUsdCents: '0.01' })
-          );
-        }
-        if (String(url).includes('/v1/accounts/balance')) {
-          return Promise.resolve(
-            mockJsonResponse({ error: 'Unauthorized' }, 401)
-          );
-        }
-        return Promise.resolve(mockJsonResponse({ error: 'Unexpected' }, 500));
-      });
-
-      await expect(
-        authorizeCredits({
-          items: [{ costName: 'test', quantity: 1 }],
-          description: 'test',
-          orgId: 'org-1',
-        })
-      ).rejects.toThrow('billing-service GET /v1/accounts/balance failed: 401');
+        authorizeCredits({ items: [{ costName: 'test', quantity: 1 }], description: 'test', orgId: 'org-1' })
+      ).rejects.toThrow('billing-service POST /v1/credits/authorize failed: 500');
     });
 
     it('should throw on network error', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockRejectedValue(new Error('fetch failed'));
+      mockFetch.mockRejectedValueOnce(new Error('fetch failed'));
 
       await expect(
-        authorizeCredits({
-          items: [{ costName: 'test', quantity: 1 }],
-          description: 'test',
-          orgId: 'org-1',
-        })
+        authorizeCredits({ items: [{ costName: 'test', quantity: 1 }], description: 'test', orgId: 'org-1' })
       ).rejects.toThrow('fetch failed');
-    });
-
-    it('should ceil the total required_cents to avoid fractional cents', async () => {
-      const { authorizeCredits } = await importClient();
-      // 0.00033 * 100 = 0.033 → should ceil to 1
-      mockPricesAndBalance(
-        { 'tiny-cost': '0.00033' },
-        { balance_cents: 1, depleted: false }
-      );
-
-      const result = await authorizeCredits({
-        items: [{ costName: 'tiny-cost', quantity: 100 }],
-        description: 'test',
-        orgId: 'org-1',
-      });
-
-      expect(result.required_cents).toBe(1);
-      expect(result.sufficient).toBe(true);
     });
   });
 });
