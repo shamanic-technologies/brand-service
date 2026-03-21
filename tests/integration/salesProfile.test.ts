@@ -269,7 +269,20 @@ describe('Sales Profile API — Refactored Endpoints', () => {
       expect(res.body.error).toBe('Brand not found');
     });
 
-    it('should accept user hint fields', async () => {
+    it('should return cached profile when one exists (no ?force)', async () => {
+      const { brandId, orgId, userId } = await createBrandWithProfile({ withProfile: true });
+
+      const res = await request(app)
+        .put(`/brands/${brandId}/sales-profile`)
+        .set(getAuthHeaders(orgId, userId))
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body.cached).toBe(true);
+      expect(res.body.profile.valueProposition).toBe('Test VP');
+    }, 15000);
+
+    it('should return cached profile even when user hints are provided (no ?force)', async () => {
       const { brandId, orgId, userId } = await createBrandWithProfile({ withProfile: true });
 
       const res = await request(app)
@@ -280,20 +293,31 @@ describe('Sales Profile API — Refactored Endpoints', () => {
           socialProof: 'Used by Fortune 500',
         });
 
-      // Should not be a 400 (validation passed)
-      expect(res.status).not.toBe(400);
-      // In test env without key-service, expect 502 or 500
+      expect(res.status).toBe(200);
+      expect(res.body.cached).toBe(true);
+    }, 15000);
+
+    it('should force re-extraction with ?force=true (fails on key-service in test env)', async () => {
+      const { brandId, orgId, userId } = await createBrandWithProfile({ withProfile: true });
+
+      const res = await request(app)
+        .put(`/brands/${brandId}/sales-profile?force=true`)
+        .set(getAuthHeaders(orgId, userId))
+        .send({});
+
+      // With ?force=true, it attempts re-extraction which fails on key-service in test env
       expect([500, 502]).toContain(res.status);
     }, 15000);
 
-    it('should attempt re-extraction (fails on key-service in test env)', async () => {
-      const { brandId, orgId, userId } = await createBrandWithProfile({ withProfile: true });
+    it('should attempt extraction when no profile exists (fails on key-service in test env)', async () => {
+      const { brandId, orgId, userId } = await createBrandWithProfile({ withProfile: false });
 
       const res = await request(app)
         .put(`/brands/${brandId}/sales-profile`)
         .set(getAuthHeaders(orgId, userId))
         .send({});
 
+      // No cached profile, so it attempts extraction which fails on key-service
       expect([500, 502]).toContain(res.status);
     }, 15000);
   });

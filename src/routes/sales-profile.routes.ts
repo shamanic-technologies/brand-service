@@ -235,8 +235,11 @@ router.put('/brands/:brandId/sales-profile', async (req: Request, res: Response)
     const { workflowName, urgency, scarcity, riskReversal, socialProof } = parsed.data;
     const userHints = { urgency, scarcity, riskReversal, socialProof };
 
+    // Respect cache by default — only skip when ?force=true is explicit
+    const forceRefresh = req.query.force === 'true';
+
     return await resolveKeyAndExtract(brandId, brand.url, req, res, {
-      skipCache: true,
+      skipCache: forceRefresh,
       userHints,
       workflowName,
     });
