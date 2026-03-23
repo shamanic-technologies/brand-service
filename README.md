@@ -1,6 +1,6 @@
 # Brand Service
 
-Microservice for managing brand information, sales profiles, media assets, organization data, and AI-powered content analysis.
+Microservice for managing brand information, media assets, organization data, and AI-powered content extraction.
 
 ## Tech Stack
 
@@ -11,7 +11,7 @@ Microservice for managing brand information, sales profiles, media assets, organ
 - **Package Manager:** pnpm
 - **Testing:** Vitest + supertest
 - **Deployment:** Docker + Railway
-- **AI:** Anthropic Claude, Google Gemini
+- **AI:** Google Gemini, chat-service (LLM completions)
 - **Storage:** Supabase
 - **Validation:** Zod + @asteasolutions/zod-to-openapi (OpenAPI 3.0)
 - **External:** Firecrawl (web scraping), Google Drive, PDL (enrichment), runs-service (cost tracking)
@@ -68,13 +68,11 @@ Every authenticated request must include identity headers:
 | GET | `/brands/:id` | Get brand by ID |
 | GET | `/brands/:id/runs` | List extraction runs with costs (via runs-service) |
 
-### Sales Profiles
+### Field Extraction
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/brands/:brandId/sales-profile` | Get sales profile (pure read, 404 if none) |
-| POST | `/brands/:brandId/sales-profile` | Create profile via AI extraction (409 if exists) |
-| PUT | `/brands/:brandId/sales-profile` | Update profile (force re-extraction) |
+| POST | `/brands/:brandId/extract-fields` | Extract arbitrary fields from a brand via AI (cached per field, 30-day TTL) |
 
 ### Organizations
 
@@ -193,6 +191,7 @@ See `.env.example` for all required variables:
 - `GEMINI_API_KEY` - Google Gemini
 - `FIRECRAWL_API_KEY` - Web scraping
 - `SCRAPING_SERVICE_URL` / `SCRAPING_SERVICE_API_KEY` - Scraping service
+- `CHAT_SERVICE_URL` / `CHAT_SERVICE_API_KEY` - LLM completions (field extraction)
 - `RUNS_SERVICE_URL` / `RUNS_SERVICE_API_KEY` - Run tracking & cost management
 - `BILLING_SERVICE_URL` / `BILLING_SERVICE_API_KEY` - Credit authorization before paid ops
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage

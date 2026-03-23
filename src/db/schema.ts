@@ -298,6 +298,25 @@ export const brandSalesProfiles = pgTable("brand_sales_profiles", {
 	unique("organization_sales_profiles_organization_id_key").on(table.brandId),
 ]);
 
+export const brandExtractedFields = pgTable("brand_extracted_fields", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	fieldKey: text("field_key").notNull(),
+	fieldValue: jsonb("field_value"),
+	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_extracted_fields_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
+	foreignKey({
+			columns: [table.brandId],
+			foreignColumns: [brands.id],
+			name: "brand_extracted_fields_brand_id_fkey"
+		}).onDelete("cascade"),
+	unique("brand_extracted_fields_brand_id_field_key_key").on(table.brandId, table.fieldKey),
+]);
+
 export const scrapedUrlFirecrawl = pgTable("scraped_url_firecrawl", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),

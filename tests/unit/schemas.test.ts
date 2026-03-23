@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CreateSalesProfileBodySchema,
+  ExtractFieldsRequestSchema,
   UpsertBrandRequestSchema,
   SetUrlRequestSchema,
   ImportFromGDriveRequestSchema,
@@ -19,51 +19,50 @@ import {
 const TEST_UUID = '550e8400-e29b-41d4-a716-446655440000';
 
 describe('Zod Schemas', () => {
-  describe('CreateSalesProfileBodySchema', () => {
-    it('should accept empty body (all fields optional)', () => {
-      const result = CreateSalesProfileBodySchema.safeParse({});
-      expect(result.success).toBe(true);
-    });
-
-    it('should accept all user hint fields', () => {
-      const result = CreateSalesProfileBodySchema.safeParse({
-        workflowName: 'cold-email',
-        urgency: 'Offer expires March 1st',
-        scarcity: 'Only 10 spots left',
-        riskReversal: '30-day money-back guarantee',
-        socialProof: 'Trusted by 500+ SaaS companies',
+  describe('ExtractFieldsRequestSchema', () => {
+    it('should accept valid fields array', () => {
+      const result = ExtractFieldsRequestSchema.safeParse({
+        fields: [
+          { key: 'industry', description: 'The brand industry sector' },
+          { key: 'suggestedAngles', description: '3-5 PR angles' },
+        ],
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.urgency).toBe('Offer expires March 1st');
-        expect(result.data.scarcity).toBe('Only 10 spots left');
-        expect(result.data.riskReversal).toBe('30-day money-back guarantee');
-        expect(result.data.socialProof).toBe('Trusted by 500+ SaaS companies');
+        expect(result.data.fields).toHaveLength(2);
+        expect(result.data.fields[0].key).toBe('industry');
       }
     });
 
-    it('should accept partial user hint fields', () => {
-      const result = CreateSalesProfileBodySchema.safeParse({
-        urgency: 'Limited time offer',
-      });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.urgency).toBe('Limited time offer');
-        expect(result.data.scarcity).toBeUndefined();
-      }
+    it('should reject empty fields array', () => {
+      const result = ExtractFieldsRequestSchema.safeParse({ fields: [] });
+      expect(result.success).toBe(false);
     });
 
-    it('should strip unknown fields', () => {
-      const result = CreateSalesProfileBodySchema.safeParse({
-        urgency: 'test',
-        appId: 'test-app',
-        url: 'https://example.com',
+    it('should reject missing key', () => {
+      const result = ExtractFieldsRequestSchema.safeParse({
+        fields: [{ description: 'test' }],
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect((result.data as any).appId).toBeUndefined();
-        expect((result.data as any).url).toBeUndefined();
-      }
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject missing description', () => {
+      const result = ExtractFieldsRequestSchema.safeParse({
+        fields: [{ key: 'industry' }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject empty key string', () => {
+      const result = ExtractFieldsRequestSchema.safeParse({
+        fields: [{ key: '', description: 'test' }],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject missing fields property', () => {
+      const result = ExtractFieldsRequestSchema.safeParse({});
+      expect(result.success).toBe(false);
     });
   });
 

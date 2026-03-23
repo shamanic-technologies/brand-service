@@ -142,185 +142,54 @@ registry.registerPath({
 });
 
 // ============================================================
-// Sales Profiles
+// Extract Fields (generic field extraction)
 // ============================================================
 
-export const CreateSalesProfileBodySchema = z
+export const ExtractFieldItemSchema = z
   .object({
-    workflowName: z.string().optional(),
-    urgency: z.string().optional(),
-    scarcity: z.string().optional(),
-    riskReversal: z.string().optional(),
-    socialProof: z.string().optional(),
+    key: z.string().min(1),
+    description: z.string().min(1),
   })
-  .openapi('CreateSalesProfileBody');
+  .openapi('ExtractFieldItem');
 
-export const TestimonialSchema = z.union([
-  z.string(),
-  z.object({
-    quote: z.string(),
-    name: z.string().nullable(),
-    role: z.string().nullable(),
-    company: z.string().nullable(),
-  }),
-]).openapi('Testimonial');
-
-export const LeadershipMemberSchema = z.object({
-  name: z.string(),
-  role: z.string(),
-  bio: z.string().nullable(),
-  notableBackground: z.string().nullable(),
-}).openapi('LeadershipMember');
-
-export const FundingRoundSchema = z.object({
-  type: z.string(),
-  amount: z.string().nullable(),
-  date: z.string().nullable(),
-  notableInvestors: z.array(z.string()),
-}).openapi('FundingRound');
-
-export const FundingInfoSchema = z.object({
-  totalRaised: z.string().nullable(),
-  rounds: z.array(FundingRoundSchema),
-  notableBackers: z.array(z.string()),
-}).openapi('FundingInfo');
-
-export const AwardSchema = z.object({
-  title: z.string(),
-  issuer: z.string().nullable(),
-  year: z.string().nullable(),
-  description: z.string().nullable(),
-}).openapi('Award');
-
-export const RevenueMilestoneSchema = z.object({
-  metric: z.string(),
-  value: z.string(),
-  date: z.string().nullable(),
-  context: z.string().nullable(),
-}).openapi('RevenueMilestone');
-
-export const UrgencySchema = z.object({
-  elements: z.array(z.string()),
-  summary: z.string().nullable(),
-}).openapi('Urgency');
-
-export const ScarcitySchema = z.object({
-  elements: z.array(z.string()),
-  summary: z.string().nullable(),
-}).openapi('Scarcity');
-
-export const RiskReversalSchema = z.object({
-  guarantees: z.array(z.string()),
-  trialInfo: z.string().nullable(),
-  refundPolicy: z.string().nullable(),
-}).openapi('RiskReversal');
-
-export const PriceAnchoringSchema = z.object({
-  anchors: z.array(z.string()),
-  comparisonPoints: z.array(z.string()),
-}).openapi('PriceAnchoring');
-
-export const ValueStackingSchema = z.object({
-  bundledValue: z.array(z.string()),
-  totalPerceivedValue: z.string().nullable(),
-}).openapi('ValueStacking');
-
-export const SalesProfileSchema = z.object({
-  valueProposition: z.string().nullable(),
-  customerPainPoints: z.array(z.string()),
-  callToAction: z.string().nullable(),
-  socialProof: z.object({
-    caseStudies: z.array(z.string()),
-    testimonials: z.array(TestimonialSchema),
-    results: z.array(z.string()),
-  }),
-  companyOverview: z.string().nullable(),
-  additionalContext: z.string().nullable(),
-  competitors: z.array(z.string()),
-  productDifferentiators: z.array(z.string()),
-  targetAudience: z.string().nullable(),
-  keyFeatures: z.array(z.string()),
-  leadership: z.array(LeadershipMemberSchema),
-  funding: FundingInfoSchema.nullable(),
-  awardsAndRecognition: z.array(AwardSchema),
-  revenueMilestones: z.array(RevenueMilestoneSchema),
-  urgency: UrgencySchema.nullable(),
-  scarcity: ScarcitySchema.nullable(),
-  riskReversal: RiskReversalSchema.nullable(),
-  priceAnchoring: PriceAnchoringSchema.nullable(),
-  valueStacking: ValueStackingSchema.nullable(),
-  extractionModel: z.string().nullable(),
-  scrapedUrls: z.array(z.string()).describe('URLs that were scraped during extraction'),
-  extractedAt: z.string(),
-  expiresAt: z.string().nullable(),
-}).openapi('SalesProfile');
-
-export const SalesProfileResponseSchema = z
+export const ExtractFieldsRequestSchema = z
   .object({
+    fields: z.array(ExtractFieldItemSchema).min(1).max(50),
+  })
+  .openapi('ExtractFieldsRequest');
+
+export const ExtractedFieldResultSchema = z
+  .object({
+    key: z.string(),
+    value: z.unknown(),
     cached: z.boolean(),
-    brandId: z.string(),
-    runId: z.string().optional(),
-    profile: SalesProfileSchema,
+    extractedAt: z.string(),
+    expiresAt: z.string().nullable(),
   })
-  .openapi('SalesProfileResponse');
+  .openapi('ExtractedFieldResult');
 
-export const GetSalesProfileResponseSchema = z
+export const ExtractFieldsResponseSchema = z
   .object({
-    profile: SalesProfileSchema,
+    brandId: z.string(),
+    results: z.array(ExtractedFieldResultSchema),
   })
-  .openapi('GetSalesProfileResponse');
-
-
-registry.registerPath({
-  method: 'get',
-  path: '/brands/{brandId}/sales-profile',
-  summary: 'Get sales profile for a brand',
-  description: 'Pure read — returns the cached sales profile for the given brandId, or 404 if none exists. Use POST to create one.',
-  responses: {
-    200: { description: 'Sales profile', content: { 'application/json': { schema: GetSalesProfileResponseSchema } } },
-    400: { description: 'Invalid brandId' },
-    404: { description: 'Sales profile not found' },
-    500: { description: 'Internal server error' },
-  },
-});
+  .openapi('ExtractFieldsResponse');
 
 registry.registerPath({
   method: 'post',
-  path: '/brands/{brandId}/sales-profile',
-  summary: 'Create sales profile for a brand via AI extraction',
-  description: 'Triggers AI extraction (scrapes the brand URL + analyzes with Claude) and creates a new sales profile. Returns 409 if a profile already exists — use PUT to re-extract.',
-  request: { body: { content: { 'application/json': { schema: CreateSalesProfileBodySchema } } } },
-  responses: {
-    200: { description: 'Sales profile created', content: { 'application/json': { schema: SalesProfileResponseSchema } } },
-    400: { description: 'Brand has no URL or missing API key' },
-    404: { description: 'Brand not found' },
-    409: { description: 'Sales profile already exists' },
-    500: { description: 'Internal server error' },
-    502: { description: 'Failed to fetch API key' },
-  },
-});
-
-registry.registerPath({
-  method: 'put',
-  path: '/brands/{brandId}/sales-profile',
-  summary: 'Update (re-extract) sales profile for a brand',
-  description: 'Returns the cached profile if still valid (up to 30 days). Pass ?force=true to force AI re-extraction, replacing any existing data.',
+  path: '/brands/{brandId}/extract-fields',
+  summary: 'Extract arbitrary fields from a brand via AI',
+  description: 'Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days.',
   request: {
-    params: z.object({
-      brandId: z.string().uuid(),
-    }),
-    query: z.object({
-      force: z.enum(['true']).optional().openapi({ description: 'Set to "true" to bypass the cache and force AI re-extraction' }),
-    }),
-    body: { content: { 'application/json': { schema: CreateSalesProfileBodySchema } } },
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
   },
   responses: {
-    200: { description: 'Sales profile (cached or freshly extracted)', content: { 'application/json': { schema: SalesProfileResponseSchema } } },
-    400: { description: 'Brand has no URL or missing API key' },
-    402: { description: 'Insufficient credits' },
+    200: { description: 'Extracted fields', content: { 'application/json': { schema: ExtractFieldsResponseSchema } } },
+    400: { description: 'Invalid request or brand has no URL' },
     404: { description: 'Brand not found' },
+    422: { description: 'Site scraping failed' },
     500: { description: 'Internal server error' },
-    502: { description: 'Failed to fetch API key' },
   },
 });
 
