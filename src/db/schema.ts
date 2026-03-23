@@ -283,6 +283,7 @@ export const brandSalesProfiles = pgTable("brand_sales_profiles", {
 	valueStacking: jsonb("value_stacking"),
 	extractionModel: text("extraction_model"),
 	sourceScrapeIds: jsonb("source_scrape_ids"),
+	scrapedUrls: jsonb("scraped_urls"),
 	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
