@@ -99,6 +99,13 @@
       "when": 1774502400000,
       "tag": "0013_add_scraped_urls",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1774934400000,
+      "tag": "0014_add_brand_extracted_fields",
+      "breakpoints": true
     }
   ]
 }

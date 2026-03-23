@@ -1,6 +1,6 @@
 {
-  "id": "9d8c9731-8f3e-4f42-b128-a4d4db72b612",
-  "prevId": "7646f181-bcbe-4e3e-8cb4-b44dfa26cde0",
+  "id": "a705d7ee-ec01-4f95-bf89-acc7440b196b",
+  "prevId": "4c5414fc-a127-409f-b7e6-87d2599fa9c6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -980,6 +980,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "scraped_urls": {
+          "name": "scraped_urls",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -4273,6 +4279,112 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.brand_extracted_fields": {
+      "name": "brand_extracted_fields",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "brand_id": {
+          "name": "brand_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "field_key": {
+          "name": "field_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "field_value": {
+          "name": "field_value",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "extracted_at": {
+          "name": "extracted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_extracted_fields_expires": {
+          "name": "idx_extracted_fields_expires",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "timestamptz_ops"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "brand_extracted_fields_brand_id_fkey": {
+          "name": "brand_extracted_fields_brand_id_fkey",
+          "tableFrom": "brand_extracted_fields",
+          "tableTo": "brands",
+          "columnsFrom": [
+            "brand_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action",
+          "schemaTo": "public"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "brand_extracted_fields_brand_id_field_key_key": {
+          "name": "brand_extracted_fields_brand_id_field_key_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "brand_id",
+            "field_key"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
