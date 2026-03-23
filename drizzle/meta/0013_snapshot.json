@@ -1,6 +1,6 @@
 {
-  "id": "9d8c9731-8f3e-4f42-b128-a4d4db72b612",
-  "prevId": "7646f181-bcbe-4e3e-8cb4-b44dfa26cde0",
+  "id": "4c5414fc-a127-409f-b7e6-87d2599fa9c6",
+  "prevId": "a3b2c1d0-1234-5678-9abc-def012345678",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -980,6 +980,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "scraped_urls": {
+          "name": "scraped_urls",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
