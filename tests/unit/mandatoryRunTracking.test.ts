@@ -121,6 +121,7 @@ describe('Mandatory run tracking — extractFields', () => {
     expect(results).toHaveLength(1);
     expect(results[0].key).toBe('industry');
     expect(results[0].cached).toBe(false);
+    expect(results[0].sourceUrls).toEqual(['https://example.com']);
     expect(mockCreateRun).toHaveBeenCalledWith(expect.objectContaining({
       orgId: 'org_123',
       serviceName: 'brand-service',

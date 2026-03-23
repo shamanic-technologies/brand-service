@@ -165,6 +165,7 @@ export const ExtractedFieldResultSchema = z
     cached: z.boolean(),
     extractedAt: z.string(),
     expiresAt: z.string().nullable(),
+    sourceUrls: z.array(z.string()).nullable(),
   })
   .openapi('ExtractedFieldResult');
 
