@@ -219,4 +219,72 @@ describe('Mandatory run tracking — extractFields', () => {
       }),
     );
   });
+
+  it('should map both subdomain and root domain in parallel', async () => {
+    const subdomainBrand = { id: 'brand-1', url: 'https://bnb.sortes.fun/path', name: 'Test', domain: 'bnb.sortes.fun' };
+    setDbSequence([
+      [],              // no cached fields
+      [subdomainBrand], // getBrand
+    ]);
+
+    mockMapSiteUrls
+      .mockResolvedValueOnce(['https://bnb.sortes.fun/page1', 'https://bnb.sortes.fun/page2'])
+      .mockResolvedValueOnce(['https://sortes.fun/about', 'https://sortes.fun/team']);
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      orgId: 'org_123',
+      parentRunId: 'parent-run-1',
+    });
+
+    expect(mockMapSiteUrls).toHaveBeenCalledTimes(2);
+    expect(mockMapSiteUrls).toHaveBeenCalledWith('https://bnb.sortes.fun/path', expect.any(Object));
+    expect(mockMapSiteUrls).toHaveBeenCalledWith('https://sortes.fun', expect.any(Object));
+  });
+
+  it('should not double-map when URL is already a root domain', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand (example.com — root domain)
+    ]);
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      orgId: 'org_123',
+      parentRunId: 'parent-run-1',
+    });
+
+    expect(mockMapSiteUrls).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('getRootDomainUrl', () => {
+  it('should extract root domain from subdomain URL', async () => {
+    const { getRootDomainUrl } = await import('../../src/services/fieldExtractionService');
+    expect(getRootDomainUrl('https://bnb.sortes.fun/path')).toBe('https://sortes.fun');
+    expect(getRootDomainUrl('https://app.example.com')).toBe('https://example.com');
+    expect(getRootDomainUrl('https://deep.sub.example.com')).toBe('https://example.com');
+  });
+
+  it('should return null for root domains', async () => {
+    const { getRootDomainUrl } = await import('../../src/services/fieldExtractionService');
+    expect(getRootDomainUrl('https://example.com')).toBeNull();
+    expect(getRootDomainUrl('https://example.com/path')).toBeNull();
+  });
+
+  it('should return null for www (not a real subdomain)', async () => {
+    const { getRootDomainUrl } = await import('../../src/services/fieldExtractionService');
+    expect(getRootDomainUrl('https://www.example.com')).toBeNull();
+  });
+
+  it('should return null for invalid URLs', async () => {
+    const { getRootDomainUrl } = await import('../../src/services/fieldExtractionService');
+    expect(getRootDomainUrl('not-a-url')).toBeNull();
+  });
 });
