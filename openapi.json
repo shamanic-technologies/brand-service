@@ -227,13 +227,21 @@
           "expiresAt": {
             "type": "string",
             "nullable": true
+          },
+          "sourceUrls": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "key",
           "cached",
           "extractedAt",
-          "expiresAt"
+          "expiresAt",
+          "sourceUrls"
         ]
       },
       "ExtractFieldsRequest": {

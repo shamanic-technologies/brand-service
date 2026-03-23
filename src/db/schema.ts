@@ -303,6 +303,7 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 	brandId: uuid("brand_id").notNull(),
 	fieldKey: text("field_key").notNull(),
 	fieldValue: jsonb("field_value"),
+	sourceUrls: jsonb("source_urls"),
 	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),

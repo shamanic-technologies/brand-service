@@ -30,6 +30,7 @@ export interface ExtractedFieldResult {
   cached: boolean;
   extractedAt: string;
   expiresAt: string | null;
+  sourceUrls: string[] | null;
 }
 
 interface Brand {
@@ -44,7 +45,7 @@ interface Brand {
 async function getCachedFields(
   brandId: string,
   fieldKeys: string[],
-): Promise<Map<string, { value: unknown; extractedAt: string; expiresAt: string | null }>> {
+): Promise<Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>> {
   if (fieldKeys.length === 0) return new Map();
 
   const rows = await db
@@ -58,12 +59,13 @@ async function getCachedFields(
       ),
     );
 
-  const map = new Map<string, { value: unknown; extractedAt: string; expiresAt: string | null }>();
+  const map = new Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>();
   for (const row of rows) {
     map.set(row.fieldKey, {
       value: row.fieldValue,
       extractedAt: row.extractedAt,
       expiresAt: row.expiresAt,
+      sourceUrls: (row.sourceUrls as string[] | null) ?? null,
     });
   }
   return map;
@@ -145,6 +147,7 @@ async function extractFieldsFromContent(
 async function upsertExtractedFields(
   brandId: string,
   fields: Array<{ key: string; value: unknown }>,
+  sourceUrls: string[],
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
 
@@ -155,6 +158,7 @@ async function upsertExtractedFields(
         brandId,
         fieldKey: field.key,
         fieldValue: field.value,
+        sourceUrls,
         extractedAt: sql`NOW()`,
         expiresAt,
       })
@@ -162,6 +166,7 @@ async function upsertExtractedFields(
         target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey],
         set: {
           fieldValue: field.value,
+          sourceUrls,
           extractedAt: sql`NOW()`,
           expiresAt,
           updatedAt: sql`NOW()`,
@@ -219,6 +224,7 @@ export async function extractFields(
         cached: true,
         extractedAt: hit.extractedAt,
         expiresAt: hit.expiresAt,
+        sourceUrls: hit.sourceUrls,
       });
     } else {
       missingFields.push(field);
@@ -307,12 +313,13 @@ export async function extractFields(
       tracking,
     );
 
-    // 7. Store results
+    // 7. Store results (with the URLs that were actually scraped)
+    const scrapedSourceUrls = successfulScrapes.map((p) => p.url);
     const fieldsToStore = missingFields.map((f) => ({
       key: f.key,
       value: extracted[f.key] ?? null,
     }));
-    await upsertExtractedFields(brandId, fieldsToStore);
+    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls);
 
     // 8. Complete run
     try {
@@ -330,6 +337,7 @@ export async function extractFields(
       cached: false,
       extractedAt: now,
       expiresAt,
+      sourceUrls: scrapedSourceUrls,
     }));
 
     return [...cachedResults, ...freshResults];
