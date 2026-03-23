@@ -250,6 +250,7 @@ export const SalesProfileSchema = z.object({
   priceAnchoring: PriceAnchoringSchema.nullable(),
   valueStacking: ValueStackingSchema.nullable(),
   extractionModel: z.string().nullable(),
+  scrapedUrls: z.array(z.string()).describe('URLs that were scraped during extraction'),
   extractedAt: z.string(),
   expiresAt: z.string().nullable(),
 }).openapi('SalesProfile');

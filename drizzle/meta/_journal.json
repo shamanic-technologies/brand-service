@@ -92,6 +92,13 @@
       "when": 1772870400000,
       "tag": "0012_drop_orgs_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1774502400000,
+      "tag": "0013_add_scraped_urls",
+      "breakpoints": true
     }
   ]
 }
