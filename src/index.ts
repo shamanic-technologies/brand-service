@@ -3,7 +3,7 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-// force redeploy: drizzle migration records fixed in prod DB
+// force redeploy v2: previous deploy exhausted retries before DB fix applied
 import { combinedAuth } from './middleware/serviceAuth';
 import { db } from './db';
 
