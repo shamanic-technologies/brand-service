@@ -19,6 +19,25 @@ import { createRun, updateRun } from '../lib/runs-client';
 
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+/**
+ * If the URL is on a subdomain (e.g. bnb.sortes.fun), return the root domain URL (https://sortes.fun).
+ * Returns null if the URL is already a root domain or parsing fails.
+ */
+export function getRootDomainUrl(urlStr: string): string | null {
+  try {
+    const parsed = new URL(urlStr);
+    const parts = parsed.hostname.split('.');
+    // Need at least 3 parts for a subdomain (e.g. sub.example.com)
+    // Skip www as it's not a real subdomain
+    if (parts.length < 3) return null;
+    if (parts.length === 3 && parts[0] === 'www') return null;
+    const rootDomain = parts.slice(-2).join('.');
+    return `${parsed.protocol}//${rootDomain}`;
+  } catch {
+    return null;
+  }
+}
+
 export interface FieldSpec {
   key: string;
   description: string;
@@ -273,12 +292,27 @@ export async function extractFields(
   };
 
   try {
-    // 3. Map site URLs
+    // 3. Map site URLs (subdomain + root domain in parallel)
     console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
     let allUrls: string[];
     try {
-      allUrls = await mapSiteUrls(brand.url, scrapingTracking);
-      console.log(`[${brandId}] Found ${allUrls.length} URLs`);
+      const mapPromises: Promise<string[]>[] = [mapSiteUrls(brand.url, scrapingTracking)];
+
+      // If the brand URL is on a subdomain, also map the root domain
+      const rootDomainUrl = getRootDomainUrl(brand.url);
+      if (rootDomainUrl && rootDomainUrl !== brand.url) {
+        console.log(`[${brandId}] Also mapping root domain: ${rootDomainUrl}`);
+        mapPromises.push(
+          mapSiteUrls(rootDomainUrl, scrapingTracking).catch((err) => {
+            console.warn(`[${brandId}] Root domain mapping failed: ${err.message}`);
+            return [];
+          }),
+        );
+      }
+
+      const results = await Promise.all(mapPromises);
+      allUrls = [...new Set(results.flat())];
+      console.log(`[${brandId}] Found ${allUrls.length} unique URLs`);
     } catch (mapError: any) {
       console.warn(`[${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
       allUrls = [brand.url];
