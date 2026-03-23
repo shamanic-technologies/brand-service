@@ -161,7 +161,23 @@ export const ExtractFieldsRequestSchema = z
 export const ExtractedFieldResultSchema = z
   .object({
     key: z.string(),
-    value: z.unknown(),
+    value: z
+      .union([
+        z.string(),
+        z.array(z.unknown()),
+        z.record(z.string(), z.unknown()),
+        z.null(),
+      ])
+      .openapi({
+        description:
+          'Extracted value. Type depends on the field: string for simple values (e.g. companyOverview, valueProposition), array for list values (e.g. targetAudience, keyFeatures, customerPainPoints), object for structured values (e.g. socialProof with metrics/ecosystemSupport, funding with backers/investors), or null if not found on the site.',
+        examples: [
+          'SaaS platform for developer tools',
+          ['Enterprise developers', 'DevOps teams', 'CTOs'],
+          { metrics: { users: 1491 }, ecosystemSupport: ['Backed by Acme Corp'] },
+          null,
+        ],
+      }),
     cached: z.boolean(),
     extractedAt: z.string(),
     expiresAt: z.string().nullable(),
