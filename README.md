@@ -73,6 +73,7 @@ Every authenticated request must include identity headers:
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/brands/:brandId/extract-fields` | Extract arbitrary fields from a brand via AI (cached per field, 30-day TTL) |
+| GET | `/brands/:brandId/extracted-fields` | List all previously extracted and cached fields for a brand |
 
 ### Organizations
 

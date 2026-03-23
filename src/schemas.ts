@@ -192,6 +192,49 @@ export const ExtractFieldsResponseSchema = z
   })
   .openapi('ExtractFieldsResponse');
 
+export const ListExtractedFieldItemSchema = z
+  .object({
+    key: z.string(),
+    value: z
+      .union([
+        z.string(),
+        z.array(z.unknown()),
+        z.record(z.string(), z.unknown()),
+        z.null(),
+      ])
+      .openapi({
+        description:
+          'The extracted value. Type depends on the field: string, array, object, or null.',
+      }),
+    sourceUrls: z.array(z.string()).nullable(),
+    extractedAt: z.string(),
+    expiresAt: z.string().nullable(),
+  })
+  .openapi('ListExtractedFieldItem');
+
+export const ListExtractedFieldsResponseSchema = z
+  .object({
+    brandId: z.string(),
+    fields: z.array(ListExtractedFieldItemSchema),
+  })
+  .openapi('ListExtractedFieldsResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/brands/{brandId}/extracted-fields',
+  summary: 'List all previously extracted fields for a brand',
+  description: 'Returns every field that has been extracted and cached for this brand, with keys, values, source URLs, and timestamps. Use this to discover what data is already available before calling extract-fields.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+  },
+  responses: {
+    200: { description: 'Extracted fields list', content: { 'application/json': { schema: ListExtractedFieldsResponseSchema } } },
+    400: { description: 'Invalid brandId format' },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 registry.registerPath({
   method: 'post',
   path: '/brands/{brandId}/extract-fields',

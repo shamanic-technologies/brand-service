@@ -191,6 +191,76 @@
           "categories"
         ]
       },
+      "ListExtractedFieldsResponse": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListExtractedFieldItem"
+            }
+          }
+        },
+        "required": [
+          "brandId",
+          "fields"
+        ]
+      },
+      "ListExtractedFieldItem": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "nullable": true
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "nullable": true
+                }
+              },
+              {
+                "nullable": true
+              }
+            ],
+            "description": "The extracted value. Type depends on the field: string, array, object, or null."
+          },
+          "sourceUrls": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "extractedAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "sourceUrls",
+          "extractedAt",
+          "expiresAt"
+        ]
+      },
       "ExtractFieldsResponse": {
         "type": "object",
         "properties": {
@@ -798,6 +868,44 @@
         "responses": {
           "200": {
             "description": "Runs list"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/brands/{brandId}/extracted-fields": {
+      "get": {
+        "summary": "List all previously extracted fields for a brand",
+        "description": "Returns every field that has been extracted and cached for this brand, with keys, values, source URLs, and timestamps. Use this to discover what data is already available before calling extract-fields.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Extracted fields list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListExtractedFieldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brandId format"
           },
           "404": {
             "description": "Brand not found"

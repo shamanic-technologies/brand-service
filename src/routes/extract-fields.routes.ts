@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
+import { eq } from 'drizzle-orm';
 import { extractFields, getBrand } from '../services/fieldExtractionService';
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractFieldsRequestSchema } from '../schemas';
+import { db, brandExtractedFields } from '../db';
 
 const router = Router();
 
@@ -54,6 +56,42 @@ router.post('/brands/:brandId/extract-fields', async (req: Request, res: Respons
       return res.status(422).json({ error: error.message });
     }
     res.status(500).json({ error: error.message || 'Failed to extract fields' });
+  }
+});
+
+/**
+ * GET /brands/:brandId/extracted-fields
+ *
+ * List all previously extracted fields for a brand.
+ * Returns cached field keys, values, source URLs, and timestamps.
+ */
+router.get('/brands/:brandId/extracted-fields', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brandId format: must be a UUID' });
+    }
+
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const fields = await db
+      .select({
+        key: brandExtractedFields.fieldKey,
+        value: brandExtractedFields.fieldValue,
+        sourceUrls: brandExtractedFields.sourceUrls,
+        extractedAt: brandExtractedFields.extractedAt,
+        expiresAt: brandExtractedFields.expiresAt,
+      })
+      .from(brandExtractedFields)
+      .where(eq(brandExtractedFields.brandId, brandId));
+
+    return res.json({ brandId, fields });
+  } catch (error: any) {
+    console.error('List extracted fields error:', error);
+    res.status(500).json({ error: error.message || 'Failed to list extracted fields' });
   }
 });
 
