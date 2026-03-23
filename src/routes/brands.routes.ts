@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, brands } from '../db';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand } from '../services/salesProfileExtractionService';
+import { getOrCreateBrand } from '../services/brandService';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema } from '../schemas';
 
 const router = Router();

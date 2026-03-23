@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { db } from '../../src/db';
-import { brands, brandSalesProfiles } from '../../src/db/schema';
-import { eq, and, like, inArray } from 'drizzle-orm';
-import { getOrCreateBrand, getBrand, getExistingSalesProfile } from '../../src/services/salesProfileExtractionService';
+import { brands } from '../../src/db/schema';
+import { eq, like } from 'drizzle-orm';
+import { getOrCreateBrand, getBrand } from '../../src/services/brandService';
 
 /**
  * CRITICAL UNIT TESTS for getOrCreateBrand
@@ -235,35 +235,6 @@ describe('getBrand - CRITICAL', () => {
   }, 10000);
 });
 
-describe('getExistingSalesProfile - CRITICAL', () => {
-  const testPrefix = 'test-getprofile-';
-
-  afterEach(async () => {
-    // Clean up: delete profiles first, then brands
-    const testBrands = await db
-      .select({ id: brands.id })
-      .from(brands)
-      .where(like(brands.orgId, `${testPrefix}%`));
-
-    for (const brand of testBrands) {
-      await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
-    }
-    await db.delete(brands).where(like(brands.orgId, `${testPrefix}%`));
-  });
-
-  it('should return null for brand with no profile', async () => {
-    const orgId = `${testPrefix}${Date.now()}`;
-    const url = 'https://no-profile.example.com';
-
-    // Create brand
-    const brand = await getOrCreateBrand(orgId, url);
-
-    // Get profile (should be null)
-    const result = await getExistingSalesProfile(brand.id);
-    expect(result).toBeNull();
-  }, 10000);
-});
-
 describe('Regression: new org without orgs-table row', () => {
   const testOrgId = 'b645207b-d8e9-40b0-9391-072b777cd9a9';
 
@@ -298,14 +269,6 @@ describe('Full Flow Integration - CRITICAL', () => {
   const testPrefix = 'test-fullflow-';
 
   afterEach(async () => {
-    const testBrands = await db
-      .select({ id: brands.id })
-      .from(brands)
-      .where(like(brands.orgId, `${testPrefix}%`));
-
-    for (const brand of testBrands) {
-      await db.delete(brandSalesProfiles).where(eq(brandSalesProfiles.brandId, brand.id));
-    }
     await db.delete(brands).where(like(brands.orgId, `${testPrefix}%`));
   });
 

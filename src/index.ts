@@ -15,7 +15,7 @@ import clientInfoRoutes from './routes/client-info.routes';
 import intakeFormRoutes from './routes/intake-form.routes';
 import thesisRoutes from './routes/thesis.routes';
 import publicInformationRoutes from './routes/public-information.routes';
-import salesProfileRoutes from './routes/sales-profile.routes';
+import extractFieldsRoutes from './routes/extract-fields.routes';
 import brandsRoutes from './routes/brands.routes';
 
 const app = express();
@@ -63,7 +63,7 @@ app.use('/', clientInfoRoutes);
 app.use('/', intakeFormRoutes);
 app.use('/', thesisRoutes);
 app.use('/', publicInformationRoutes);
-app.use('/', salesProfileRoutes);
+app.use('/', extractFieldsRoutes);
 app.use('/', brandsRoutes);
 
 // Only start server if not in test environment

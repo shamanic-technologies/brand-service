@@ -7,7 +7,7 @@ import mediaAssetsRoutes from '../../src/routes/media-assets.routes';
 import analyzeRoutes from '../../src/routes/analyze.routes';
 import intakeFormRoutes from '../../src/routes/intake-form.routes';
 import publicInfoRoutes from '../../src/routes/public-information.routes';
-import salesProfileRoutes from '../../src/routes/sales-profile.routes';
+import extractFieldsRoutes from '../../src/routes/extract-fields.routes';
 import brandsRoutes from '../../src/routes/brands.routes';
 
 /**
@@ -44,7 +44,7 @@ export function createTestApp() {
   app.use('/analyze', analyzeRoutes);
   app.use('/', intakeFormRoutes);
   app.use('/', publicInfoRoutes);
-  app.use('/', salesProfileRoutes);
+  app.use('/', extractFieldsRoutes);
   app.use('/', brandsRoutes);
 
   return app;

@@ -26,7 +26,6 @@
   "license": "ISC",
   "packageManager": "pnpm@10.13.1",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.72.1",
     "@asteasolutions/zod-to-openapi": "^8.4.0",
     "@google/generative-ai": "^0.14.1",
     "@supabase/supabase-js": "^2.57.4",
