@@ -110,6 +110,7 @@ export interface SalesProfile {
   priceAnchoring: PriceAnchoring | null;
   valueStacking: ValueStacking | null;
   extractionModel: string | null;
+  scrapedUrls: string[];
   extractedAt: string;
   expiresAt: string | null;
 }
@@ -259,7 +260,7 @@ async function extractSalesProfileFromContent(
   userHints?: UserHints
 ): Promise<{
   brandName: string | null;
-  profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt'>;
+  profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt' | 'scrapedUrls'>;
   inputTokens: number;
   outputTokens: number;
 }> {
@@ -431,6 +432,7 @@ function formatProfileFromDb(row: typeof brandSalesProfiles.$inferSelect): Sales
     priceAnchoring: (row.priceAnchoring as PriceAnchoring) || null,
     valueStacking: (row.valueStacking as ValueStacking) || null,
     extractionModel: row.extractionModel,
+    scrapedUrls: (row.scrapedUrls as string[]) || [],
     extractedAt: row.extractedAt,
     expiresAt: row.expiresAt,
   };
@@ -533,8 +535,9 @@ export async function getOrCreateBrand(
 
 async function upsertSalesProfile(
   brandId: string,
-  profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt'>,
-  scrapeIds: string[]
+  profile: Omit<SalesProfile, 'id' | 'brandId' | 'extractedAt' | 'expiresAt' | 'scrapedUrls'>,
+  scrapeIds: string[],
+  scrapedUrls: string[]
 ): Promise<SalesProfile> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
 
@@ -563,6 +566,7 @@ async function upsertSalesProfile(
       valueStacking: profile.valueStacking,
       extractionModel: profile.extractionModel,
       sourceScrapeIds: scrapeIds,
+      scrapedUrls,
       expiresAt,
     })
     .onConflictDoUpdate({
@@ -589,6 +593,7 @@ async function upsertSalesProfile(
         valueStacking: profile.valueStacking,
         extractionModel: profile.extractionModel,
         sourceScrapeIds: scrapeIds,
+        scrapedUrls,
         extractedAt: sql`NOW()`,
         expiresAt,
         updatedAt: sql`NOW()`,
@@ -681,7 +686,8 @@ export async function extractBrandSalesProfile(
       options.userHints
     );
 
-    const savedProfile = await upsertSalesProfile(brandId, profile, []);
+    const scrapedUrls = successfulScrapes.map(s => s.url);
+    const savedProfile = await upsertSalesProfile(brandId, profile, [], scrapedUrls);
 
     // Backfill brands.name from AI-extracted brandName if not already set
     if (brandName) {

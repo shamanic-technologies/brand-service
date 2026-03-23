@@ -317,6 +317,13 @@
             "type": "string",
             "nullable": true
           },
+          "scrapedUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "URLs that were scraped during extraction"
+          },
           "extractedAt": {
             "type": "string"
           },
@@ -346,6 +353,7 @@
           "priceAnchoring",
           "valueStacking",
           "extractionModel",
+          "scrapedUrls",
           "extractedAt",
           "expiresAt"
         ]

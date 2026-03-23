@@ -479,6 +479,73 @@ Hope this helps!`;
   });
 });
 
+  describe('scrapedUrls tracking', () => {
+    it('should include scrapedUrls in profile structure', () => {
+      const profile = {
+        id: 'uuid',
+        brandId: 'brand-uuid',
+        valueProposition: 'Test value prop',
+        customerPainPoints: [],
+        callToAction: null,
+        socialProof: { caseStudies: [], testimonials: [], results: [] },
+        companyOverview: null,
+        additionalContext: null,
+        competitors: [],
+        productDifferentiators: [],
+        targetAudience: null,
+        keyFeatures: [],
+        leadership: [],
+        funding: null,
+        awardsAndRecognition: [],
+        revenueMilestones: [],
+        urgency: null,
+        scarcity: null,
+        riskReversal: null,
+        priceAnchoring: null,
+        valueStacking: null,
+        extractionModel: 'claude-sonnet-4-6',
+        scrapedUrls: [
+          'https://example.com/',
+          'https://example.com/about',
+          'https://example.com/pricing',
+        ],
+        extractedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+
+      expect(profile.scrapedUrls).toBeInstanceOf(Array);
+      expect(profile.scrapedUrls).toHaveLength(3);
+      expect(profile.scrapedUrls[0]).toBe('https://example.com/');
+      expect(profile.scrapedUrls[2]).toBe('https://example.com/pricing');
+    });
+
+    it('should default scrapedUrls to empty array when null in DB', () => {
+      const rawDbValue: string[] | null = null;
+      const scrapedUrls = (rawDbValue as string[]) || [];
+      expect(scrapedUrls).toEqual([]);
+    });
+
+    it('should only include successfully scraped URLs', () => {
+      // Simulate: 5 URLs selected, only 3 returned content
+      const pageContents = [
+        { url: 'https://example.com/', content: 'Home page content' },
+        { url: 'https://example.com/about', content: '' },
+        { url: 'https://example.com/pricing', content: 'Pricing info' },
+        { url: 'https://example.com/features', content: '' },
+        { url: 'https://example.com/customers', content: 'Customer stories' },
+      ];
+      const successfulScrapes = pageContents.filter(p => p.content);
+      const scrapedUrls = successfulScrapes.map(s => s.url);
+
+      expect(scrapedUrls).toEqual([
+        'https://example.com/',
+        'https://example.com/pricing',
+        'https://example.com/customers',
+      ]);
+      expect(scrapedUrls).toHaveLength(3);
+    });
+  });
+
   describe('mapSiteUrls fallback to homepage', () => {
     it('should fall back to [brand.url] when mapSiteUrls throws', () => {
       const brandUrl = 'https://lenxo.net/';
