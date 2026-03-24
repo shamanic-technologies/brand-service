@@ -32,6 +32,7 @@ export interface TrackingHeaders {
   userId?: string;
   runId?: string;
   campaignId?: string;
+  featureSlug?: string;
   brandId?: string;
   workflowName?: string;
 }
@@ -48,6 +49,7 @@ export async function chatComplete(
   if (tracking.userId) headers['x-user-id'] = tracking.userId;
   if (tracking.runId) headers['x-run-id'] = tracking.runId;
   if (tracking.campaignId) headers['x-campaign-id'] = tracking.campaignId;
+  if (tracking.featureSlug) headers['x-feature-slug'] = tracking.featureSlug;
   if (tracking.brandId) headers['x-brand-id'] = tracking.brandId;
   if (tracking.workflowName) headers['x-workflow-name'] = tracking.workflowName;
 

@@ -15,6 +15,7 @@ export interface ScrapingTrackingContext {
   workflowName?: string;
   runId?: string;
   campaignId?: string;
+  featureSlug?: string;
   brandIdHeader?: string;
 }
 
@@ -35,6 +36,7 @@ function buildHeaders(tracking?: ScrapingTrackingContext): Record<string, string
   if (tracking?.userId) headers['X-User-Id'] = tracking.userId;
   if (tracking?.runId) headers['X-Run-Id'] = tracking.runId;
   if (tracking?.campaignId) headers['X-Campaign-Id'] = tracking.campaignId;
+  if (tracking?.featureSlug) headers['X-Feature-Slug'] = tracking.featureSlug;
   if (tracking?.brandIdHeader) headers['X-Brand-Id'] = tracking.brandIdHeader;
   if (tracking?.workflowName) headers['X-Workflow-Name'] = tracking.workflowName;
   return headers;

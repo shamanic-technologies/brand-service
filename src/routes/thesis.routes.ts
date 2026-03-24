@@ -112,6 +112,7 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
       ...(req.userId && { 'x-user-id': req.userId }),
       ...(req.runId && { 'x-run-id': req.runId }),
       ...(req.campaignId && { 'x-campaign-id': req.campaignId }),
+      ...(req.featureSlug && { 'x-feature-slug': req.featureSlug }),
       ...(req.brandIdHeader && { 'x-brand-id': req.brandIdHeader }),
       ...(req.workflowName && { 'x-workflow-name': req.workflowName }),
     };

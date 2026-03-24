@@ -147,6 +147,7 @@ describe('combinedAuth middleware', () => {
         'x-api-key': 'test-valid-key',
         'x-org-id': 'org-1',
         'x-campaign-id': 'camp-1',
+        'x-feature-slug': 'my-feature',
         'x-brand-id': 'brand-1',
         'x-workflow-name': 'test-workflow',
       };
@@ -155,6 +156,7 @@ describe('combinedAuth middleware', () => {
 
       expect(mockNext).toHaveBeenCalled();
       expect((mockReq as any).campaignId).toBe('camp-1');
+      expect((mockReq as any).featureSlug).toBe('my-feature');
       expect((mockReq as any).brandIdHeader).toBe('brand-1');
       expect((mockReq as any).workflowName).toBe('test-workflow');
     });
@@ -169,6 +171,7 @@ describe('combinedAuth middleware', () => {
 
       expect(mockNext).toHaveBeenCalled();
       expect((mockReq as any).campaignId).toBeUndefined();
+      expect((mockReq as any).featureSlug).toBeUndefined();
       expect((mockReq as any).brandIdHeader).toBeUndefined();
       expect((mockReq as any).workflowName).toBeUndefined();
     });

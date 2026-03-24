@@ -218,6 +218,7 @@ export interface ExtractFieldsOptions {
   userId?: string;
   parentRunId: string;
   campaignId?: string;
+  featureSlug?: string;
   brandIdHeader?: string;
   workflowName?: string;
 }
@@ -225,7 +226,7 @@ export interface ExtractFieldsOptions {
 export async function extractFields(
   options: ExtractFieldsOptions,
 ): Promise<ExtractedFieldResult[]> {
-  const { brandId, fields, orgId, userId, parentRunId, campaignId, brandIdHeader, workflowName } = options;
+  const { brandId, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowName } = options;
 
   const fieldKeys = fields.map((f) => f.key);
 
@@ -277,6 +278,7 @@ export async function extractFields(
     userId,
     runId: run.id,
     campaignId,
+    featureSlug,
     brandId: brandIdHeader,
     workflowName,
   };
@@ -287,6 +289,7 @@ export async function extractFields(
     userId,
     workflowName,
     campaignId,
+    featureSlug,
     brandIdHeader,
     runId: run.id,
   };
@@ -357,7 +360,7 @@ export async function extractFields(
 
     // 8. Complete run
     try {
-      await updateRun(run.id, 'completed', { orgId, userId, runId: run.id, campaignId, brandIdHeader, workflowName });
+      await updateRun(run.id, 'completed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowName });
     } catch (err) {
       console.warn(`[${brandId}] Failed to complete run ${run.id}:`, err);
     }
@@ -377,7 +380,7 @@ export async function extractFields(
     return [...cachedResults, ...freshResults];
   } catch (error) {
     try {
-      await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, brandIdHeader, workflowName });
+      await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowName });
     } catch (err) {
       console.warn(`[${brandId}] Failed to mark run as failed:`, err);
     }
