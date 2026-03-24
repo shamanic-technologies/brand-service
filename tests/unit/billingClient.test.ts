@@ -93,6 +93,7 @@ describe('billing-client', () => {
         userId: 'user-1',
         runId: 'run-1',
         campaignId: 'campaign-1',
+        featureSlug: 'feature-1',
         brandId: 'brand-1',
         workflowName: 'test-workflow',
       });
@@ -103,6 +104,7 @@ describe('billing-client', () => {
       expect(headers['x-user-id']).toBe('user-1');
       expect(headers['x-run-id']).toBe('run-1');
       expect(headers['x-campaign-id']).toBe('campaign-1');
+      expect(headers['x-feature-slug']).toBe('feature-1');
       expect(headers['x-brand-id']).toBe('brand-1');
       expect(headers['x-workflow-name']).toBe('test-workflow');
     });
@@ -123,6 +125,7 @@ describe('billing-client', () => {
       expect(headers).not.toHaveProperty('x-user-id');
       expect(headers).not.toHaveProperty('x-run-id');
       expect(headers).not.toHaveProperty('x-campaign-id');
+      expect(headers).not.toHaveProperty('x-feature-slug');
       expect(headers).not.toHaveProperty('x-brand-id');
       expect(headers).not.toHaveProperty('x-workflow-name');
     });

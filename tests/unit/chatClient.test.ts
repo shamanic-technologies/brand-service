@@ -35,6 +35,7 @@ describe('chat-client', () => {
         userId: 'user_456',
         runId: 'run_789',
         campaignId: 'campaign_1',
+        featureSlug: 'feature_1',
         brandId: 'brand_1',
         workflowName: 'discovery',
       },
@@ -60,6 +61,7 @@ describe('chat-client', () => {
     expect(config.headers['x-user-id']).toBe('user_456');
     expect(config.headers['x-run-id']).toBe('run_789');
     expect(config.headers['x-campaign-id']).toBe('campaign_1');
+    expect(config.headers['x-feature-slug']).toBe('feature_1');
     expect(config.headers['x-brand-id']).toBe('brand_1');
     expect(config.headers['x-workflow-name']).toBe('discovery');
   });

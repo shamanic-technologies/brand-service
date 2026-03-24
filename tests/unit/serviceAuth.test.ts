@@ -150,7 +150,7 @@ describe('combinedAuth middleware', () => {
     });
   });
 
-  describe('Workflow tracking headers (x-campaign-id, x-brand-id, x-workflow-name)', () => {
+  describe('Workflow tracking headers (x-campaign-id, x-feature-slug, x-brand-id, x-workflow-name)', () => {
     it('should attach tracking headers when provided', () => {
       const req = createMockReq({
         path: '/brands',
@@ -158,6 +158,7 @@ describe('combinedAuth middleware', () => {
           'x-api-key': 'test-secret-key',
           'x-org-id': 'o',
           'x-campaign-id': 'camp-123',
+          'x-feature-slug': 'my-feature',
           'x-brand-id': 'brand-456',
           'x-workflow-name': 'sales-profile-wf',
         },
@@ -168,6 +169,7 @@ describe('combinedAuth middleware', () => {
 
       expect(next).toHaveBeenCalled();
       expect((req as any).campaignId).toBe('camp-123');
+      expect((req as any).featureSlug).toBe('my-feature');
       expect((req as any).brandIdHeader).toBe('brand-456');
       expect((req as any).workflowName).toBe('sales-profile-wf');
     });
@@ -183,6 +185,7 @@ describe('combinedAuth middleware', () => {
 
       expect(next).toHaveBeenCalled();
       expect((req as any).campaignId).toBeUndefined();
+      expect((req as any).featureSlug).toBeUndefined();
       expect((req as any).brandIdHeader).toBeUndefined();
       expect((req as any).workflowName).toBeUndefined();
     });
@@ -202,6 +205,7 @@ describe('combinedAuth middleware', () => {
 
       expect(next).toHaveBeenCalled();
       expect((req as any).campaignId).toBe('camp-789');
+      expect((req as any).featureSlug).toBeUndefined();
       expect((req as any).brandIdHeader).toBeUndefined();
       expect((req as any).workflowName).toBeUndefined();
     });

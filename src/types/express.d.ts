@@ -7,6 +7,7 @@ declare global {
       userId: string;
       runId: string;
       campaignId?: string;
+      featureSlug?: string;
       brandIdHeader?: string;
       workflowName?: string;
     }

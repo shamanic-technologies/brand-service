@@ -15,6 +15,7 @@ export interface Run {
   userId: string | null;
   brandId: string | null;
   campaignId: string | null;
+  featureSlug: string | null;
   workflowName: string | null;
   serviceName: string;
   taskName: string;
@@ -65,6 +66,7 @@ export interface CreateRunParams {
   userId?: string;
   brandId?: string;
   campaignId?: string;
+  featureSlug?: string;
   workflowName?: string;
   serviceName: string;
   taskName: string;
@@ -82,6 +84,7 @@ export interface ListRunsParams {
   userId?: string;
   brandId?: string;
   campaignId?: string;
+  featureSlug?: string;
   workflowName?: string;
   serviceName?: string;
   taskName?: string;
@@ -98,9 +101,9 @@ export interface ListRunsParams {
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; brandIdHeader?: string; workflowName?: string } = {}
+  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowName?: string } = {}
 ): Promise<T> {
-  const { method = "GET", body, orgId, userId, runId, campaignId, brandIdHeader, workflowName } = options;
+  const { method = "GET", body, orgId, userId, runId, campaignId, featureSlug, brandIdHeader, workflowName } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -118,6 +121,9 @@ async function runsRequest<T>(
   }
   if (campaignId) {
     headers["x-campaign-id"] = campaignId;
+  }
+  if (featureSlug) {
+    headers["x-feature-slug"] = featureSlug;
   }
   if (brandIdHeader) {
     headers["x-brand-id"] = brandIdHeader;
@@ -160,7 +166,7 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; brandIdHeader?: string; workflowName?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowName?: string }
 ): Promise<Run> {
   return runsRequest<Run>(`/v1/runs/${runId}`, {
     method: "PATCH",
@@ -169,6 +175,7 @@ export async function updateRun(
     userId: identity?.userId,
     runId: identity?.runId,
     campaignId: identity?.campaignId,
+    featureSlug: identity?.featureSlug,
     brandIdHeader: identity?.brandIdHeader,
     workflowName: identity?.workflowName,
   });
@@ -177,7 +184,7 @@ export async function updateRun(
 export async function addCosts(
   runId: string,
   items: CostItem[],
-  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; brandIdHeader?: string; workflowName?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowName?: string }
 ): Promise<{ costs: RunCost[] }> {
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
@@ -186,6 +193,7 @@ export async function addCosts(
     userId: identity?.userId,
     runId: identity?.runId,
     campaignId: identity?.campaignId,
+    featureSlug: identity?.featureSlug,
     brandIdHeader: identity?.brandIdHeader,
     workflowName: identity?.workflowName,
   });

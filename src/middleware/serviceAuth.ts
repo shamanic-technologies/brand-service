@@ -59,10 +59,12 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
 
   // Extract optional workflow tracking headers (injected by workflow-service)
   const campaignId = req.headers['x-campaign-id'] as string | undefined;
+  const featureSlug = req.headers['x-feature-slug'] as string | undefined;
   const brandIdHeader = req.headers['x-brand-id'] as string | undefined;
   const workflowName = req.headers['x-workflow-name'] as string | undefined;
 
   if (campaignId) req.campaignId = campaignId;
+  if (featureSlug) req.featureSlug = featureSlug;
   if (brandIdHeader) req.brandIdHeader = brandIdHeader;
   if (workflowName) req.workflowName = workflowName;
 
