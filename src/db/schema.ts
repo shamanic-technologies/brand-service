@@ -304,18 +304,19 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 	fieldKey: text("field_key").notNull(),
 	fieldValue: jsonb("field_value"),
 	sourceUrls: jsonb("source_urls"),
+	campaignId: uuid("campaign_id"),
 	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("idx_extracted_fields_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
+	index("idx_extracted_fields_campaign").using("btree", table.campaignId.asc().nullsLast().op("uuid_ops")),
 	foreignKey({
 			columns: [table.brandId],
 			foreignColumns: [brands.id],
 			name: "brand_extracted_fields_brand_id_fkey"
 		}).onDelete("cascade"),
-	unique("brand_extracted_fields_brand_id_field_key_key").on(table.brandId, table.fieldKey),
 ]);
 
 export const scrapedUrlFirecrawl = pgTable("scraped_url_firecrawl", {

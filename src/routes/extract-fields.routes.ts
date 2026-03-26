@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { eq } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { extractFields, getBrand } from '../services/fieldExtractionService';
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractFieldsRequestSchema } from '../schemas';
@@ -78,16 +78,23 @@ router.get('/brands/:brandId/extracted-fields', async (req: Request, res: Respon
       return res.status(404).json({ error: 'Brand not found' });
     }
 
+    const campaignId = req.query.campaignId as string | undefined;
+
+    const campaignFilter = campaignId
+      ? eq(brandExtractedFields.campaignId, campaignId)
+      : isNull(brandExtractedFields.campaignId);
+
     const fields = await db
       .select({
         key: brandExtractedFields.fieldKey,
         value: brandExtractedFields.fieldValue,
         sourceUrls: brandExtractedFields.sourceUrls,
+        campaignId: brandExtractedFields.campaignId,
         extractedAt: brandExtractedFields.extractedAt,
         expiresAt: brandExtractedFields.expiresAt,
       })
       .from(brandExtractedFields)
-      .where(eq(brandExtractedFields.brandId, brandId));
+      .where(and(eq(brandExtractedFields.brandId, brandId), campaignFilter));
 
     return res.json({ brandId, fields });
   } catch (error: any) {

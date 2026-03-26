@@ -72,8 +72,8 @@ Every authenticated request must include identity headers:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/brands/:brandId/extract-fields` | Extract arbitrary fields from a brand via AI (cached per field, 30-day TTL) |
-| GET | `/brands/:brandId/extracted-fields` | List all previously extracted and cached fields for a brand |
+| POST | `/brands/:brandId/extract-fields` | Extract arbitrary fields from a brand via AI. Cached per (brandId, fieldKey, campaignId), 30-day TTL. When `x-campaign-id` is present, campaign featureInputs are injected into LLM prompts. |
+| GET | `/brands/:brandId/extracted-fields` | List extracted fields for a brand. Optional `?campaignId=` query param filters by campaign; omit for non-campaign-scoped fields. |
 
 ### Organizations
 
@@ -195,6 +195,7 @@ See `.env.example` for all required variables:
 - `CHAT_SERVICE_URL` / `CHAT_SERVICE_API_KEY` - LLM completions (field extraction)
 - `RUNS_SERVICE_URL` / `RUNS_SERVICE_API_KEY` - Run tracking & cost management
 - `BILLING_SERVICE_URL` / `BILLING_SERVICE_API_KEY` - Credit authorization before paid ops
+- `CAMPAIGN_SERVICE_URL` / `CAMPAIGN_SERVICE_API_KEY` - Campaign context (featureInputs for LLM enrichment)
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage
 - `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` - Google Drive
 - `BRAND_SERVICE_URL` - Public URL for OpenAPI spec (used in generated spec, defaults to localhost)

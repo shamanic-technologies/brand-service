@@ -7,7 +7,7 @@
  * 3. Stores results in brand_extracted_fields
  */
 
-import { eq, and, gt, inArray, sql } from 'drizzle-orm';
+import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
 import { db, brands, brandExtractedFields } from '../db';
 import { chatComplete, TrackingHeaders } from '../lib/chat-client';
 import {
@@ -16,6 +16,7 @@ import {
   ScrapingTrackingContext,
 } from '../lib/scraping-client';
 import { createRun, updateRun } from '../lib/runs-client';
+import { getCampaignFeatureInputs } from '../lib/campaign-client';
 
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -64,8 +65,13 @@ interface Brand {
 async function getCachedFields(
   brandId: string,
   fieldKeys: string[],
+  campaignId?: string,
 ): Promise<Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>> {
   if (fieldKeys.length === 0) return new Map();
+
+  const campaignFilter = campaignId
+    ? eq(brandExtractedFields.campaignId, campaignId)
+    : isNull(brandExtractedFields.campaignId);
 
   const rows = await db
     .select()
@@ -75,6 +81,7 @@ async function getCachedFields(
         eq(brandExtractedFields.brandId, brandId),
         inArray(brandExtractedFields.fieldKey, fieldKeys),
         gt(brandExtractedFields.expiresAt, sql`NOW()`),
+        campaignFilter,
       ),
     );
 
@@ -96,15 +103,20 @@ async function selectRelevantUrls(
   allUrls: string[],
   fieldsDescription: string,
   tracking: TrackingHeaders,
+  campaignContext: string | null,
 ): Promise<string[]> {
   if (allUrls.length <= 10) return allUrls;
+
+  const contextBlock = campaignContext
+    ? `\n\nCampaign context (use this to prioritize which pages are most relevant):\n${campaignContext}\n`
+    : '';
 
   try {
     const result = await chatComplete(
       {
         systemPrompt:
           'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON array of URLs.',
-        message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON array: ["url1", "url2", ...]`,
+        message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}${contextBlock}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON array: ["url1", "url2", ...]`,
         responseFormat: 'json',
         temperature: 0,
         maxTokens: 1024,
@@ -132,6 +144,7 @@ async function extractFieldsFromContent(
   pageContents: { url: string; content: string }[],
   fields: FieldSpec[],
   tracking: TrackingHeaders,
+  campaignContext: string | null,
 ): Promise<Record<string, unknown>> {
   const combinedContent = pageContents
     .filter((p) => p.content)
@@ -142,11 +155,15 @@ async function extractFieldsFromContent(
     .map((f) => `- "${f.key}": ${f.description}`)
     .join('\n');
 
+  const contextBlock = campaignContext
+    ? `\n\nCampaign context (use this to guide and refine your extraction):\n${campaignContext}\n`
+    : '';
+
   const result = await chatComplete(
     {
       systemPrompt:
         'You are a brand information extraction assistant. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys.',
-      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}\n\nWebsite content:\n${combinedContent.substring(0, 100000)}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. Use null if information is not found. For array fields, return arrays.`,
+      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${contextBlock}\n\nWebsite content:\n${combinedContent.substring(0, 100000)}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. Use null if information is not found. For array fields, return arrays.`,
       responseFormat: 'json',
       temperature: 0,
       maxTokens: 4096,
@@ -167,30 +184,57 @@ async function upsertExtractedFields(
   brandId: string,
   fields: Array<{ key: string; value: unknown }>,
   sourceUrls: string[],
+  campaignId?: string,
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
 
   for (const field of fields) {
-    await db
-      .insert(brandExtractedFields)
-      .values({
-        brandId,
-        fieldKey: field.key,
-        fieldValue: field.value,
-        sourceUrls,
-        extractedAt: sql`NOW()`,
-        expiresAt,
-      })
-      .onConflictDoUpdate({
-        target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey],
-        set: {
+    if (campaignId) {
+      await db
+        .insert(brandExtractedFields)
+        .values({
+          brandId,
+          fieldKey: field.key,
+          fieldValue: field.value,
+          sourceUrls,
+          campaignId,
+          extractedAt: sql`NOW()`,
+          expiresAt,
+        })
+        .onConflictDoUpdate({
+          target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey, brandExtractedFields.campaignId],
+          targetWhere: sql`${brandExtractedFields.campaignId} IS NOT NULL`,
+          set: {
+            fieldValue: field.value,
+            sourceUrls,
+            extractedAt: sql`NOW()`,
+            expiresAt,
+            updatedAt: sql`NOW()`,
+          },
+        });
+    } else {
+      await db
+        .insert(brandExtractedFields)
+        .values({
+          brandId,
+          fieldKey: field.key,
           fieldValue: field.value,
           sourceUrls,
           extractedAt: sql`NOW()`,
           expiresAt,
-          updatedAt: sql`NOW()`,
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey],
+          targetWhere: sql`${brandExtractedFields.campaignId} IS NULL`,
+          set: {
+            fieldValue: field.value,
+            sourceUrls,
+            extractedAt: sql`NOW()`,
+            expiresAt,
+            updatedAt: sql`NOW()`,
+          },
+        });
+    }
   }
 }
 
@@ -230,8 +274,8 @@ export async function extractFields(
 
   const fieldKeys = fields.map((f) => f.key);
 
-  // 1. Check cache
-  const cached = await getCachedFields(brandId, fieldKeys);
+  // 1. Check cache (scoped by campaignId)
+  const cached = await getCachedFields(brandId, fieldKeys, campaignId);
   const cachedResults: ExtractedFieldResult[] = [];
   const missingFields: FieldSpec[] = [];
 
@@ -295,6 +339,15 @@ export async function extractFields(
   };
 
   try {
+    // 2b. Fetch campaign context for LLM enrichment
+    const featureInputs = await getCampaignFeatureInputs(campaignId, { orgId, userId, runId: run.id });
+    const campaignContext = featureInputs && Object.keys(featureInputs).length > 0
+      ? JSON.stringify(featureInputs, null, 2)
+      : null;
+    if (campaignContext) {
+      console.log(`[${brandId}] Using campaign context from campaign ${campaignId}`);
+    }
+
     // 3. Map site URLs (subdomain + root domain in parallel)
     console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
     let allUrls: string[];
@@ -328,7 +381,7 @@ export async function extractFields(
       .join('\n');
 
     console.log(`[${brandId}] Selecting relevant URLs...`);
-    const selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, tracking);
+    const selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, tracking, campaignContext);
     console.log(`[${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
     // 5. Scrape pages
@@ -348,6 +401,7 @@ export async function extractFields(
       successfulScrapes,
       missingFields,
       tracking,
+      campaignContext,
     );
 
     // 7. Store results (with the URLs that were actually scraped)
@@ -356,7 +410,7 @@ export async function extractFields(
       key: f.key,
       value: extracted[f.key] ?? null,
     }));
-    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls);
+    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, campaignId);
 
     // 8. Complete run
     try {

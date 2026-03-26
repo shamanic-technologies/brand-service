@@ -245,6 +245,11 @@
               "type": "string"
             }
           },
+          "campaignId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
           "extractedAt": {
             "type": "string"
           },
@@ -257,6 +262,7 @@
           "key",
           "value",
           "sourceUrls",
+          "campaignId",
           "extractedAt",
           "expiresAt"
         ]
@@ -881,7 +887,7 @@
     "/brands/{brandId}/extracted-fields": {
       "get": {
         "summary": "List all previously extracted fields for a brand",
-        "description": "Returns every field that has been extracted and cached for this brand, with keys, values, source URLs, and timestamps. Use this to discover what data is already available before calling extract-fields.",
+        "description": "Returns every field that has been extracted and cached for this brand, with keys, values, source URLs, and timestamps. Use this to discover what data is already available before calling extract-fields. Optionally filter by campaignId; if omitted, returns only non-campaign-scoped fields.",
         "parameters": [
           {
             "schema": {
@@ -891,6 +897,17 @@
             "required": true,
             "name": "brandId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Filter by campaign ID. If omitted, returns only non-campaign-scoped fields."
+            },
+            "required": false,
+            "description": "Filter by campaign ID. If omitted, returns only non-campaign-scoped fields.",
+            "name": "campaignId",
+            "in": "query"
           }
         ],
         "responses": {
@@ -919,7 +936,7 @@
     "/brands/{brandId}/extract-fields": {
       "post": {
         "summary": "Extract arbitrary fields from a brand via AI",
-        "description": "Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days.",
+        "description": "Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days. When x-campaign-id header is present, the campaign featureInputs are automatically fetched from campaign-service and injected into LLM prompts for context-aware extraction. Cache is scoped by (brandId, fieldKey, campaignId).",
         "parameters": [
           {
             "schema": {
