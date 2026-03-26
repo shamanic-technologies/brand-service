@@ -207,6 +207,7 @@ export const ListExtractedFieldItemSchema = z
           'The extracted value. Type depends on the field: string, array, object, or null.',
       }),
     sourceUrls: z.array(z.string()).nullable(),
+    campaignId: z.string().uuid().nullable(),
     extractedAt: z.string(),
     expiresAt: z.string().nullable(),
   })
@@ -223,9 +224,10 @@ registry.registerPath({
   method: 'get',
   path: '/brands/{brandId}/extracted-fields',
   summary: 'List all previously extracted fields for a brand',
-  description: 'Returns every field that has been extracted and cached for this brand, with keys, values, source URLs, and timestamps. Use this to discover what data is already available before calling extract-fields.',
+  description: 'Returns every field that has been extracted and cached for this brand, with keys, values, source URLs, and timestamps. Use this to discover what data is already available before calling extract-fields. Optionally filter by campaignId; if omitted, returns only non-campaign-scoped fields.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
+    query: z.object({ campaignId: z.string().uuid().optional().openapi({ description: 'Filter by campaign ID. If omitted, returns only non-campaign-scoped fields.' }) }),
   },
   responses: {
     200: { description: 'Extracted fields list', content: { 'application/json': { schema: ListExtractedFieldsResponseSchema } } },
@@ -239,7 +241,7 @@ registry.registerPath({
   method: 'post',
   path: '/brands/{brandId}/extract-fields',
   summary: 'Extract arbitrary fields from a brand via AI',
-  description: 'Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days.',
+  description: 'Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days. When x-campaign-id header is present, the campaign featureInputs are automatically fetched from campaign-service and injected into LLM prompts for context-aware extraction. Cache is scoped by (brandId, fieldKey, campaignId).',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
