@@ -247,6 +247,63 @@ describe('Mandatory run tracking — extractFields', () => {
     expect(mockMapSiteUrls).toHaveBeenCalledWith('https://sortes.fun', expect.any(Object));
   });
 
+  it('should log when all fields are served from cache', async () => {
+    const cachedRow = {
+      fieldKey: 'industry',
+      fieldValue: 'SaaS',
+      extractedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      sourceUrls: ['https://example.com'],
+    };
+    setDbSequence([
+      [cachedRow],  // cached fields → all hit
+    ]);
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    const results = await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      orgId: 'org_123',
+      parentRunId: 'parent-run-1',
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].cached).toBe(true);
+    expect(mockCreateRun).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('All 1 fields served from cache'),
+    );
+
+    logSpy.mockRestore();
+  });
+
+  it('should log cache miss count when some fields need extraction', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+    ]);
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      orgId: 'org_123',
+      parentRunId: 'parent-run-1',
+    });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Field cache: 0/1 cached, extracting all'),
+    );
+
+    logSpy.mockRestore();
+  });
+
   it('should not double-map when URL is already a root domain', async () => {
     setDbSequence([
       [],          // no cached fields
