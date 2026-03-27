@@ -23,7 +23,7 @@ vi.mock('../../src/lib/campaign-client', () => ({
   getCampaignFeatureInputs: vi.fn(),
 }));
 
-import { normalizeUrl } from '../../src/services/fieldExtractionService';
+import { normalizeUrl, formatFieldPreview } from '../../src/services/fieldExtractionService';
 
 describe('normalizeUrl', () => {
   it('strips www prefix', () => {
@@ -53,5 +53,22 @@ describe('normalizeUrl', () => {
 
   it('normalizes subdomains correctly (does not strip non-www subdomain)', () => {
     expect(normalizeUrl('https://blog.example.com/post')).toBe('https://blog.example.com/post');
+  });
+});
+
+describe('formatFieldPreview', () => {
+  it('shows all names when 3 or fewer', () => {
+    expect(formatFieldPreview(['industry'])).toBe('industry');
+    expect(formatFieldPreview(['industry', 'geography'])).toBe('industry, geography');
+    expect(formatFieldPreview(['industry', 'geography', 'audience'])).toBe('industry, geography, audience');
+  });
+
+  it('shows first 3 and +N more when more than 3', () => {
+    expect(formatFieldPreview(['a', 'b', 'c', 'd'])).toBe('a, b, c +1 more');
+    expect(formatFieldPreview(['a', 'b', 'c', 'd', 'e', 'f'])).toBe('a, b, c +3 more');
+  });
+
+  it('handles empty array', () => {
+    expect(formatFieldPreview([])).toBe('');
   });
 });
