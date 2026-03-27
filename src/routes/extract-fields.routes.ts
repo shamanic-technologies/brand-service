@@ -80,14 +80,10 @@ router.get('/brands/:brandId/extracted-fields', async (req: Request, res: Respon
     }
 
     const campaignId = req.query.campaignId as string | undefined;
-    const contextHash = req.query.contextHash as string | undefined;
 
-    // Prefer contextHash filter if provided; fall back to campaignId for backwards compat
-    const scopeFilter = contextHash
-      ? eq(brandExtractedFields.contextHash, contextHash)
-      : campaignId
-        ? eq(brandExtractedFields.campaignId, campaignId)
-        : isNull(brandExtractedFields.contextHash);
+    const campaignFilter = campaignId
+      ? eq(brandExtractedFields.campaignId, campaignId)
+      : isNull(brandExtractedFields.campaignId);
 
     const fields = await db
       .select({
@@ -95,12 +91,11 @@ router.get('/brands/:brandId/extracted-fields', async (req: Request, res: Respon
         value: brandExtractedFields.fieldValue,
         sourceUrls: brandExtractedFields.sourceUrls,
         campaignId: brandExtractedFields.campaignId,
-        contextHash: brandExtractedFields.contextHash,
         extractedAt: brandExtractedFields.extractedAt,
         expiresAt: brandExtractedFields.expiresAt,
       })
       .from(brandExtractedFields)
-      .where(and(eq(brandExtractedFields.brandId, brandId), scopeFilter));
+      .where(and(eq(brandExtractedFields.brandId, brandId), campaignFilter));
 
     return res.json({ brandId, fields });
   } catch (error: any) {
