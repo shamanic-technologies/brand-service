@@ -20,6 +20,46 @@ import { getCampaignFeatureInputs } from '../lib/campaign-client';
 
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// ─── In-memory scrape cache ─────────────────────────────────────────────────
+// Prevents redundant scraping-service calls when multiple extract-fields
+// requests hit the same brand within a short window (e.g. different features
+// in the same campaign run).
+
+const SCRAPE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const pageContentCache = new Map<string, CacheEntry<string>>();
+const urlMapCache = new Map<string, CacheEntry<string[]>>();
+
+function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
+  const entry = cache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return undefined;
+  }
+  return entry.value;
+}
+
+function setCached<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+/** Exported for testing */
+export function clearScrapeCache(): void {
+  pageContentCache.clear();
+  urlMapCache.clear();
+}
+
+export function getScrapeCacheStats(): { pages: number; maps: number } {
+  return { pages: pageContentCache.size, maps: urlMapCache.size };
+}
+
 /**
  * If the URL is on a subdomain (e.g. bnb.sortes.fun), return the root domain URL (https://sortes.fun).
  * Returns null if the URL is already a root domain or parsing fails.
@@ -348,26 +388,42 @@ export async function extractFields(
       console.log(`[${brandId}] Using campaign context from campaign ${campaignId}`);
     }
 
-    // 3. Map site URLs (subdomain + root domain in parallel)
+    // 3. Map site URLs (with in-memory cache to avoid redundant /map calls)
     console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
     let allUrls: string[];
     try {
-      const mapPromises: Promise<string[]>[] = [mapSiteUrls(brand.url, scrapingTracking)];
+      const cachedMap = getCached(urlMapCache, brand.url);
+      let primaryUrls: string[];
+      if (cachedMap) {
+        console.log(`[${brandId}] URL map cache hit for ${brand.url} (${cachedMap.length} URLs)`);
+        primaryUrls = cachedMap;
+      } else {
+        primaryUrls = await mapSiteUrls(brand.url, scrapingTracking);
+        setCached(urlMapCache, brand.url, primaryUrls, MAP_CACHE_TTL_MS);
+      }
+
+      const mapResults: string[][] = [primaryUrls];
 
       // If the brand URL is on a subdomain, also map the root domain
       const rootDomainUrl = getRootDomainUrl(brand.url);
       if (rootDomainUrl && rootDomainUrl !== brand.url) {
-        console.log(`[${brandId}] Also mapping root domain: ${rootDomainUrl}`);
-        mapPromises.push(
-          mapSiteUrls(rootDomainUrl, scrapingTracking).catch((err) => {
+        const cachedRootMap = getCached(urlMapCache, rootDomainUrl);
+        if (cachedRootMap) {
+          console.log(`[${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
+          mapResults.push(cachedRootMap);
+        } else {
+          console.log(`[${brandId}] Also mapping root domain: ${rootDomainUrl}`);
+          try {
+            const rootUrls = await mapSiteUrls(rootDomainUrl, scrapingTracking);
+            setCached(urlMapCache, rootDomainUrl, rootUrls, MAP_CACHE_TTL_MS);
+            mapResults.push(rootUrls);
+          } catch (err: any) {
             console.warn(`[${brandId}] Root domain mapping failed: ${err.message}`);
-            return [];
-          }),
-        );
+          }
+        }
       }
 
-      const results = await Promise.all(mapPromises);
-      allUrls = [...new Set(results.flat())];
+      allUrls = [...new Set(mapResults.flat())];
       console.log(`[${brandId}] Found ${allUrls.length} unique URLs`);
     } catch (mapError: any) {
       console.warn(`[${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
@@ -384,12 +440,35 @@ export async function extractFields(
     const selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, tracking, campaignContext);
     console.log(`[${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
-    // 5. Scrape pages
-    console.log(`[${brandId}] Scraping ${selectedUrls.length} pages...`);
-    const scrapePromises = selectedUrls.map((url) =>
-      scrapeUrl(url, scrapingTracking).then((content) => ({ url, content: content || '' })),
+    // 5. Scrape pages (with in-memory cache to avoid redundant /scrape calls)
+    const urlsToScrape: string[] = [];
+    const cachedPages: { url: string; content: string }[] = [];
+    for (const url of selectedUrls) {
+      const cachedContent = getCached(pageContentCache, url);
+      if (cachedContent) {
+        cachedPages.push({ url, content: cachedContent });
+      } else {
+        urlsToScrape.push(url);
+      }
+    }
+    if (cachedPages.length > 0) {
+      console.log(`[${brandId}] Page cache hit for ${cachedPages.length}/${selectedUrls.length} URLs`);
+    }
+    if (urlsToScrape.length > 0) {
+      console.log(`[${brandId}] Scraping ${urlsToScrape.length} pages (${cachedPages.length} cached)...`);
+    } else {
+      console.log(`[${brandId}] All ${selectedUrls.length} pages served from cache`);
+    }
+    const scrapePromises = urlsToScrape.map((url) =>
+      scrapeUrl(url, scrapingTracking).then((content) => {
+        if (content) {
+          setCached(pageContentCache, url, content, SCRAPE_CACHE_TTL_MS);
+        }
+        return { url, content: content || '' };
+      }),
     );
-    const pageContents = await Promise.all(scrapePromises);
+    const freshPages = await Promise.all(scrapePromises);
+    const pageContents = [...cachedPages, ...freshPages];
     const successfulScrapes = pageContents.filter((p) => p.content);
     console.log(`[${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
 

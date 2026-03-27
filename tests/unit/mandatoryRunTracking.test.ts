@@ -67,9 +67,12 @@ vi.mock('../../src/db', () => {
 describe('Mandatory run tracking — extractFields', () => {
   const brandRow = { id: 'brand-1', url: 'https://example.com', name: 'Test', domain: 'example.com' };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     dbCallIndex = 0;
+    // Clear the in-memory scrape cache so each test starts fresh
+    const { clearScrapeCache } = await import('../../src/services/fieldExtractionService');
+    clearScrapeCache();
     mockCreateRun.mockResolvedValue({ id: 'run-123' });
     mockUpdateRun.mockResolvedValue({ id: 'run-123', status: 'completed' });
     mockMapSiteUrls.mockResolvedValue(['https://example.com']);
