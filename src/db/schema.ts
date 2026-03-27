@@ -305,6 +305,7 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 	fieldValue: jsonb("field_value"),
 	sourceUrls: jsonb("source_urls"),
 	campaignId: uuid("campaign_id"),
+	contextHash: text("context_hash"),
 	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
@@ -312,6 +313,7 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 }, (table) => [
 	index("idx_extracted_fields_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
 	index("idx_extracted_fields_campaign").using("btree", table.campaignId.asc().nullsLast().op("uuid_ops")),
+	index("idx_extracted_fields_context_hash").using("btree", table.contextHash.asc().nullsLast()),
 	foreignKey({
 			columns: [table.brandId],
 			foreignColumns: [brands.id],
