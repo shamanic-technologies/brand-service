@@ -48,6 +48,7 @@ router.post('/brands/:brandId/extract-fields', async (req: Request, res: Respons
       featureSlug: req.featureSlug,
       brandIdHeader: req.brandIdHeader,
       workflowName: req.workflowName,
+      scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
     });
 
     return res.json({ brandId, results });

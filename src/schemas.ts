@@ -155,6 +155,17 @@ export const ExtractFieldItemSchema = z
 export const ExtractFieldsRequestSchema = z
   .object({
     fields: z.array(ExtractFieldItemSchema).min(1).max(50),
+    scrapeCacheTtlDays: z
+      .number()
+      .int()
+      .min(1)
+      .max(365)
+      .optional()
+      .openapi({
+        description:
+          'How many days to cache scraped page content and URL maps. Default 180 (6 months). Use lower values (e.g. 1–7) for fast-changing sites like client blogs. Use higher values (e.g. 180–365) for stable pages like journalist profiles or company about pages.',
+        example: 180,
+      }),
   })
   .openapi('ExtractFieldsRequest');
 
@@ -241,7 +252,7 @@ registry.registerPath({
   method: 'post',
   path: '/brands/{brandId}/extract-fields',
   summary: 'Extract arbitrary fields from a brand via AI',
-  description: 'Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days. When x-campaign-id header is present, the campaign featureInputs are automatically fetched from campaign-service and injected into LLM prompts for context-aware extraction. Cache is scoped by (brandId, fieldKey, campaignId).',
+  description: 'Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days. Scraped page content and URL maps are cached in DB for `scrapeCacheTtlDays` (default 180 days / 6 months) — this cache survives redeploys. Use lower values (1–7 days) for fast-changing sites, higher values (180–365) for stable pages like journalist profiles. When x-campaign-id header is present, the campaign featureInputs are automatically fetched from campaign-service and injected into LLM prompts for context-aware extraction. Cache is scoped by (brandId, fieldKey, campaignId).',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
