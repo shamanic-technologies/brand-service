@@ -5,10 +5,14 @@
  * 1. Checks per-field cache (30-day TTL)
  * 2. For missing fields: scrapes the brand site → selects relevant URLs via chat-service → scrapes pages → extracts fields via chat-service
  * 3. Stores results in brand_extracted_fields
+ *
+ * Scraped page content and URL maps are persisted in DB-backed cache tables
+ * (page_scrape_cache, url_map_cache) so they survive redeploys.
+ * Default scrape cache TTL is 180 days; callers can override via scrapeCacheTtlDays.
  */
 
 import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
-import { db, brands, brandExtractedFields } from '../db';
+import { db, brands, brandExtractedFields, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import { chatComplete, TrackingHeaders } from '../lib/chat-client';
 import {
   mapSiteUrls,
@@ -19,45 +23,100 @@ import { createRun, updateRun } from '../lib/runs-client';
 import { getCampaignFeatureInputs } from '../lib/campaign-client';
 
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180; // 6 months
 
-// ─── In-memory scrape cache ─────────────────────────────────────────────────
-// Prevents redundant scraping-service calls when multiple extract-fields
-// requests hit the same brand within a short window (e.g. different features
-// in the same campaign run).
+// ─── URL normalization ──────────────────────────────────────────────────────
 
-const SCRAPE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const MAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-
-const pageContentCache = new Map<string, CacheEntry<string>>();
-const urlMapCache = new Map<string, CacheEntry<string[]>>();
-
-function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
-  const entry = cache.get(key);
-  if (!entry) return undefined;
-  if (Date.now() > entry.expiresAt) {
-    cache.delete(key);
-    return undefined;
+export function normalizeUrl(urlStr: string): string {
+  try {
+    const parsed = new URL(urlStr);
+    // Lowercase host, remove www., remove trailing slash, keep path
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    const path = parsed.pathname.replace(/\/+$/, '') || '';
+    return `${parsed.protocol}//${host}${path}${parsed.search}`;
+  } catch {
+    return urlStr.toLowerCase().replace(/\/+$/, '');
   }
-  return entry.value;
 }
 
-function setCached<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+// ─── DB-backed scrape cache ─────────────────────────────────────────────────
+
+async function getCachedPageContent(url: string): Promise<string | null> {
+  const normalized = normalizeUrl(url);
+  const rows = await db
+    .select({ content: pageScrapeCache.content })
+    .from(pageScrapeCache)
+    .where(
+      and(
+        eq(pageScrapeCache.normalizedUrl, normalized),
+        gt(pageScrapeCache.expiresAt, sql`NOW()`),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.content ?? null;
 }
 
-/** Exported for testing */
-export function clearScrapeCache(): void {
-  pageContentCache.clear();
-  urlMapCache.clear();
+async function upsertPageContent(url: string, content: string, ttlDays: number): Promise<void> {
+  const normalized = normalizeUrl(url);
+  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+  await db
+    .insert(pageScrapeCache)
+    .values({
+      url,
+      normalizedUrl: normalized,
+      content,
+      scrapedAt: sql`NOW()`,
+      expiresAt,
+    })
+    .onConflictDoUpdate({
+      target: [pageScrapeCache.normalizedUrl],
+      set: {
+        url,
+        content,
+        scrapedAt: sql`NOW()`,
+        expiresAt,
+        updatedAt: sql`NOW()`,
+      },
+    });
 }
 
-export function getScrapeCacheStats(): { pages: number; maps: number } {
-  return { pages: pageContentCache.size, maps: urlMapCache.size };
+async function getCachedUrlMap(siteUrl: string): Promise<string[] | null> {
+  const normalized = normalizeUrl(siteUrl);
+  const rows = await db
+    .select({ urls: urlMapCacheTable.urls })
+    .from(urlMapCacheTable)
+    .where(
+      and(
+        eq(urlMapCacheTable.normalizedSiteUrl, normalized),
+        gt(urlMapCacheTable.expiresAt, sql`NOW()`),
+      ),
+    )
+    .limit(1);
+  return (rows[0]?.urls as string[] | undefined) ?? null;
+}
+
+async function upsertUrlMap(siteUrl: string, urls: string[], ttlDays: number): Promise<void> {
+  const normalized = normalizeUrl(siteUrl);
+  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+  await db
+    .insert(urlMapCacheTable)
+    .values({
+      siteUrl,
+      normalizedSiteUrl: normalized,
+      urls,
+      mappedAt: sql`NOW()`,
+      expiresAt,
+    })
+    .onConflictDoUpdate({
+      target: [urlMapCacheTable.normalizedSiteUrl],
+      set: {
+        siteUrl,
+        urls,
+        mappedAt: sql`NOW()`,
+        expiresAt,
+        updatedAt: sql`NOW()`,
+      },
+    });
 }
 
 /**
@@ -100,7 +159,7 @@ interface Brand {
   domain: string | null;
 }
 
-// ─── Cache ──────────────────────────────────────────────────────────────────
+// ─── Field cache ─────────────────────────────────────────────────────────────
 
 async function getCachedFields(
   brandId: string,
@@ -305,12 +364,14 @@ export interface ExtractFieldsOptions {
   featureSlug?: string;
   brandIdHeader?: string;
   workflowName?: string;
+  scrapeCacheTtlDays?: number;
 }
 
 export async function extractFields(
   options: ExtractFieldsOptions,
 ): Promise<ExtractedFieldResult[]> {
   const { brandId, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowName } = options;
+  const scrapeTtlDays = options.scrapeCacheTtlDays ?? DEFAULT_SCRAPE_CACHE_TTL_DAYS;
 
   const fieldKeys = fields.map((f) => f.key);
 
@@ -388,18 +449,20 @@ export async function extractFields(
       console.log(`[${brandId}] Using campaign context from campaign ${campaignId}`);
     }
 
-    // 3. Map site URLs (with in-memory cache to avoid redundant /map calls)
+    // 3. Map site URLs (DB-cached to survive redeploys)
     console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
     let allUrls: string[];
     try {
-      const cachedMap = getCached(urlMapCache, brand.url);
       let primaryUrls: string[];
+      const cachedMap = await getCachedUrlMap(brand.url);
       if (cachedMap) {
         console.log(`[${brandId}] URL map cache hit for ${brand.url} (${cachedMap.length} URLs)`);
         primaryUrls = cachedMap;
       } else {
         primaryUrls = await mapSiteUrls(brand.url, scrapingTracking);
-        setCached(urlMapCache, brand.url, primaryUrls, MAP_CACHE_TTL_MS);
+        await upsertUrlMap(brand.url, primaryUrls, scrapeTtlDays).catch((err) =>
+          console.warn(`[${brandId}] Failed to cache URL map: ${err.message}`),
+        );
       }
 
       const mapResults: string[][] = [primaryUrls];
@@ -407,7 +470,7 @@ export async function extractFields(
       // If the brand URL is on a subdomain, also map the root domain
       const rootDomainUrl = getRootDomainUrl(brand.url);
       if (rootDomainUrl && rootDomainUrl !== brand.url) {
-        const cachedRootMap = getCached(urlMapCache, rootDomainUrl);
+        const cachedRootMap = await getCachedUrlMap(rootDomainUrl);
         if (cachedRootMap) {
           console.log(`[${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
           mapResults.push(cachedRootMap);
@@ -415,7 +478,9 @@ export async function extractFields(
           console.log(`[${brandId}] Also mapping root domain: ${rootDomainUrl}`);
           try {
             const rootUrls = await mapSiteUrls(rootDomainUrl, scrapingTracking);
-            setCached(urlMapCache, rootDomainUrl, rootUrls, MAP_CACHE_TTL_MS);
+            await upsertUrlMap(rootDomainUrl, rootUrls, scrapeTtlDays).catch((err) =>
+              console.warn(`[${brandId}] Failed to cache root URL map: ${err.message}`),
+            );
             mapResults.push(rootUrls);
           } catch (err: any) {
             console.warn(`[${brandId}] Root domain mapping failed: ${err.message}`);
@@ -440,11 +505,11 @@ export async function extractFields(
     const selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, tracking, campaignContext);
     console.log(`[${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
-    // 5. Scrape pages (with in-memory cache to avoid redundant /scrape calls)
+    // 5. Scrape pages (DB-cached to survive redeploys)
     const urlsToScrape: string[] = [];
     const cachedPages: { url: string; content: string }[] = [];
     for (const url of selectedUrls) {
-      const cachedContent = getCached(pageContentCache, url);
+      const cachedContent = await getCachedPageContent(url);
       if (cachedContent) {
         cachedPages.push({ url, content: cachedContent });
       } else {
@@ -460,9 +525,11 @@ export async function extractFields(
       console.log(`[${brandId}] All ${selectedUrls.length} pages served from cache`);
     }
     const scrapePromises = urlsToScrape.map((url) =>
-      scrapeUrl(url, scrapingTracking).then((content) => {
+      scrapeUrl(url, scrapingTracking).then(async (content) => {
         if (content) {
-          setCached(pageContentCache, url, content, SCRAPE_CACHE_TTL_MS);
+          await upsertPageContent(url, content, scrapeTtlDays).catch((err) =>
+            console.warn(`[${brandId}] Failed to cache page content for ${url}: ${err.message}`),
+          );
         }
         return { url, content: content || '' };
       }),

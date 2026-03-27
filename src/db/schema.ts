@@ -319,6 +319,34 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 		}).onDelete("cascade"),
 ]);
 
+export const pageScrapeCache = pgTable("page_scrape_cache", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	url: text().notNull(),
+	normalizedUrl: text("normalized_url").notNull(),
+	content: text().notNull(),
+	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("page_scrape_cache_normalized_url_key").using("btree", table.normalizedUrl.asc().nullsLast().op("text_ops")),
+	index("idx_page_scrape_cache_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
+]);
+
+export const urlMapCache = pgTable("url_map_cache", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	siteUrl: text("site_url").notNull(),
+	normalizedSiteUrl: text("normalized_site_url").notNull(),
+	urls: jsonb().notNull().default([]),
+	mappedAt: timestamp("mapped_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("url_map_cache_normalized_site_url_key").using("btree", table.normalizedSiteUrl.asc().nullsLast().op("text_ops")),
+	index("idx_url_map_cache_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
+]);
+
 export const scrapedUrlFirecrawl = pgTable("scraped_url_firecrawl", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),

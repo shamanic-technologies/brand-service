@@ -59,6 +59,8 @@ vi.mock('../../src/db', () => {
     db: chainable(),
     brands: { id: 'brands.id', orgId: 'brands.orgId', name: 'brands.name', url: 'brands.url', domain: 'brands.domain' },
     brandExtractedFields: { brandId: 'bef.brandId', fieldKey: 'bef.fieldKey', expiresAt: 'bef.expiresAt' },
+    pageScrapeCache: { normalizedUrl: 'psc.normalizedUrl', content: 'psc.content', expiresAt: 'psc.expiresAt', url: 'psc.url', scrapedAt: 'psc.scrapedAt', updatedAt: 'psc.updatedAt' },
+    urlMapCache: { normalizedSiteUrl: 'umc.normalizedSiteUrl', urls: 'umc.urls', expiresAt: 'umc.expiresAt', siteUrl: 'umc.siteUrl', mappedAt: 'umc.mappedAt', updatedAt: 'umc.updatedAt' },
   };
 });
 
@@ -67,12 +69,9 @@ vi.mock('../../src/db', () => {
 describe('Mandatory run tracking — extractFields', () => {
   const brandRow = { id: 'brand-1', url: 'https://example.com', name: 'Test', domain: 'example.com' };
 
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
     dbCallIndex = 0;
-    // Clear the in-memory scrape cache so each test starts fresh
-    const { clearScrapeCache } = await import('../../src/services/fieldExtractionService');
-    clearScrapeCache();
     mockCreateRun.mockResolvedValue({ id: 'run-123' });
     mockUpdateRun.mockResolvedValue({ id: 'run-123', status: 'completed' });
     mockMapSiteUrls.mockResolvedValue(['https://example.com']);
