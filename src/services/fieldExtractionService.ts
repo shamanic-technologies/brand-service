@@ -396,9 +396,14 @@ export async function extractFields(
     }
   }
 
-  // All cached → return immediately
-  if (missingFields.length === 0) {
+  // Log cache results
+  if (cachedResults.length > 0 && missingFields.length === 0) {
+    console.log(`[${brandId}] All ${cachedResults.length} fields served from cache (keys: ${cachedResults.map(r => r.key).join(', ')})`);
     return cachedResults;
+  } else if (cachedResults.length > 0) {
+    console.log(`[${brandId}] Field cache: ${cachedResults.length} cached, ${missingFields.length} need extraction (missing: ${missingFields.map(f => f.key).join(', ')})`);
+  } else {
+    console.log(`[${brandId}] Field cache: 0/${fields.length} cached, extracting all`);
   }
 
   // 2. Need extraction — look up brand
