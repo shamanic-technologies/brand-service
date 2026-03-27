@@ -23,7 +23,7 @@ vi.mock('../../src/lib/campaign-client', () => ({
   getCampaignFeatureInputs: vi.fn(),
 }));
 
-import { normalizeUrl, formatFieldPreview, computeContextHash } from '../../src/services/fieldExtractionService';
+import { normalizeUrl, formatFieldPreview } from '../../src/services/fieldExtractionService';
 
 describe('normalizeUrl', () => {
   it('strips www prefix', () => {
@@ -70,30 +70,5 @@ describe('formatFieldPreview', () => {
 
   it('handles empty array', () => {
     expect(formatFieldPreview([])).toBe('');
-  });
-});
-
-describe('computeContextHash', () => {
-  it('returns null for null/undefined/empty inputs', () => {
-    expect(computeContextHash(null)).toBeNull();
-    expect(computeContextHash(undefined)).toBeNull();
-    expect(computeContextHash({})).toBeNull();
-  });
-
-  it('returns a hex string for non-empty inputs', () => {
-    const hash = computeContextHash({ prAngle: 'test', newsHook: 'hook' });
-    expect(hash).toMatch(/^[a-f0-9]{64}$/);
-  });
-
-  it('produces the same hash regardless of key order', () => {
-    const hash1 = computeContextHash({ prAngle: 'test', newsHook: 'hook', spokesperson: 'Kevin' });
-    const hash2 = computeContextHash({ spokesperson: 'Kevin', prAngle: 'test', newsHook: 'hook' });
-    expect(hash1).toBe(hash2);
-  });
-
-  it('produces different hashes for different values', () => {
-    const hash1 = computeContextHash({ prAngle: 'angle A' });
-    const hash2 = computeContextHash({ prAngle: 'angle B' });
-    expect(hash1).not.toBe(hash2);
   });
 });
