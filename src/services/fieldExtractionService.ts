@@ -11,6 +11,7 @@
  * Default scrape cache TTL is 180 days; callers can override via scrapeCacheTtlDays.
  */
 
+import { createHash } from 'crypto';
 import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
 import { db, brands, brandExtractedFields, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import { chatComplete, TrackingHeaders } from '../lib/chat-client';
@@ -28,6 +29,16 @@ const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export function formatFieldPreview(keys: string[], maxShown = 3): string {
   if (keys.length <= maxShown) return keys.join(', ');
   return `${keys.slice(0, maxShown).join(', ')} +${keys.length - maxShown} more`;
+}
+
+/**
+ * Compute a stable SHA-256 hash of featureInputs (sorted keys to avoid order-dependent misses).
+ * Returns null when there are no featureInputs (no campaign context).
+ */
+export function computeContextHash(featureInputs: Record<string, unknown> | null | undefined): string | null {
+  if (!featureInputs || Object.keys(featureInputs).length === 0) return null;
+  const sorted = JSON.stringify(featureInputs, Object.keys(featureInputs).sort());
+  return createHash('sha256').update(sorted).digest('hex');
 }
 const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180; // 6 months
 
@@ -170,13 +181,13 @@ interface Brand {
 async function getCachedFields(
   brandId: string,
   fieldKeys: string[],
-  campaignId?: string,
+  contextHash: string | null,
 ): Promise<Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>> {
   if (fieldKeys.length === 0) return new Map();
 
-  const campaignFilter = campaignId
-    ? eq(brandExtractedFields.campaignId, campaignId)
-    : isNull(brandExtractedFields.campaignId);
+  const contextFilter = contextHash
+    ? eq(brandExtractedFields.contextHash, contextHash)
+    : isNull(brandExtractedFields.contextHash);
 
   const rows = await db
     .select()
@@ -186,7 +197,7 @@ async function getCachedFields(
         eq(brandExtractedFields.brandId, brandId),
         inArray(brandExtractedFields.fieldKey, fieldKeys),
         gt(brandExtractedFields.expiresAt, sql`NOW()`),
-        campaignFilter,
+        contextFilter,
       ),
     );
 
@@ -289,12 +300,13 @@ async function upsertExtractedFields(
   brandId: string,
   fields: Array<{ key: string; value: unknown }>,
   sourceUrls: string[],
+  contextHash: string | null,
   campaignId?: string,
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
 
   for (const field of fields) {
-    if (campaignId) {
+    if (contextHash) {
       await db
         .insert(brandExtractedFields)
         .values({
@@ -302,16 +314,18 @@ async function upsertExtractedFields(
           fieldKey: field.key,
           fieldValue: field.value,
           sourceUrls,
+          contextHash,
           campaignId,
           extractedAt: sql`NOW()`,
           expiresAt,
         })
         .onConflictDoUpdate({
-          target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey, brandExtractedFields.campaignId],
-          targetWhere: sql`${brandExtractedFields.campaignId} IS NOT NULL`,
+          target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey, brandExtractedFields.contextHash],
+          targetWhere: sql`${brandExtractedFields.contextHash} IS NOT NULL`,
           set: {
             fieldValue: field.value,
             sourceUrls,
+            campaignId,
             extractedAt: sql`NOW()`,
             expiresAt,
             updatedAt: sql`NOW()`,
@@ -330,7 +344,7 @@ async function upsertExtractedFields(
         })
         .onConflictDoUpdate({
           target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey],
-          targetWhere: sql`${brandExtractedFields.campaignId} IS NULL`,
+          targetWhere: sql`${brandExtractedFields.contextHash} IS NULL`,
           set: {
             fieldValue: field.value,
             sourceUrls,
@@ -381,8 +395,18 @@ export async function extractFields(
 
   const fieldKeys = fields.map((f) => f.key);
 
-  // 1. Check cache (scoped by campaignId)
-  const cached = await getCachedFields(brandId, fieldKeys, campaignId);
+  // 0. Fetch campaign context early so we can compute the context hash for cache lookup
+  const featureInputs = await getCampaignFeatureInputs(campaignId, { orgId, userId });
+  const contextHash = computeContextHash(featureInputs);
+  const campaignContext = featureInputs && Object.keys(featureInputs).length > 0
+    ? JSON.stringify(featureInputs, null, 2)
+    : null;
+  if (campaignContext) {
+    console.log(`[${brandId}] Campaign context hash: ${contextHash} (from campaign ${campaignId})`);
+  }
+
+  // 1. Check cache (scoped by context hash — same featureInputs = same cache regardless of campaignId)
+  const cached = await getCachedFields(brandId, fieldKeys, contextHash);
   const cachedResults: ExtractedFieldResult[] = [];
   const missingFields: FieldSpec[] = [];
 
@@ -451,15 +475,6 @@ export async function extractFields(
   };
 
   try {
-    // 2b. Fetch campaign context for LLM enrichment
-    const featureInputs = await getCampaignFeatureInputs(campaignId, { orgId, userId, runId: run.id });
-    const campaignContext = featureInputs && Object.keys(featureInputs).length > 0
-      ? JSON.stringify(featureInputs, null, 2)
-      : null;
-    if (campaignContext) {
-      console.log(`[${brandId}] Using campaign context from campaign ${campaignId}`);
-    }
-
     // 3. Map site URLs (DB-cached to survive redeploys)
     console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
     let allUrls: string[];
@@ -567,7 +582,7 @@ export async function extractFields(
       key: f.key,
       value: extracted[f.key] ?? null,
     }));
-    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, campaignId);
+    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, contextHash, campaignId);
 
     // 8. Complete run
     try {
