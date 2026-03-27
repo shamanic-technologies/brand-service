@@ -23,13 +23,13 @@ import { createRun, updateRun } from '../lib/runs-client';
 import { getCampaignFeatureInputs } from '../lib/campaign-client';
 
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180; // 6 months
 
 /** Show first 3 names then "+N more" for the rest */
 export function formatFieldPreview(keys: string[], maxShown = 3): string {
   if (keys.length <= maxShown) return keys.join(', ');
   return `${keys.slice(0, maxShown).join(', ')} +${keys.length - maxShown} more`;
 }
-const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180; // 6 months
 
 // ─── URL normalization ──────────────────────────────────────────────────────
 
