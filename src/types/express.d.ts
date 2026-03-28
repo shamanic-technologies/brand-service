@@ -9,7 +9,7 @@ declare global {
       campaignId?: string;
       featureSlug?: string;
       brandIdHeader?: string;
-      workflowName?: string;
+      workflowSlug?: string;
     }
   }
 }

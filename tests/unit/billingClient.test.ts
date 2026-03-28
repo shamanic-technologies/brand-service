@@ -95,7 +95,7 @@ describe('billing-client', () => {
         campaignId: 'campaign-1',
         featureSlug: 'feature-1',
         brandId: 'brand-1',
-        workflowName: 'test-workflow',
+        workflowSlug: 'test-workflow',
       });
 
       const callArgs = mockFetch.mock.calls[0];
@@ -106,7 +106,7 @@ describe('billing-client', () => {
       expect(headers['x-campaign-id']).toBe('campaign-1');
       expect(headers['x-feature-slug']).toBe('feature-1');
       expect(headers['x-brand-id']).toBe('brand-1');
-      expect(headers['x-workflow-name']).toBe('test-workflow');
+      expect(headers['x-workflow-slug']).toBe('test-workflow');
     });
 
     it('should omit optional headers when not provided', async () => {
@@ -127,7 +127,7 @@ describe('billing-client', () => {
       expect(headers).not.toHaveProperty('x-campaign-id');
       expect(headers).not.toHaveProperty('x-feature-slug');
       expect(headers).not.toHaveProperty('x-brand-id');
-      expect(headers).not.toHaveProperty('x-workflow-name');
+      expect(headers).not.toHaveProperty('x-workflow-slug');
     });
 
     it('should throw on non-OK response', async () => {

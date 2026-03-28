@@ -12,7 +12,7 @@ export interface ScrapingTrackingContext {
   brandId: string;
   orgId: string;
   userId?: string;
-  workflowName?: string;
+  workflowSlug?: string;
   runId?: string;
   campaignId?: string;
   featureSlug?: string;
@@ -38,7 +38,7 @@ function buildHeaders(tracking?: ScrapingTrackingContext): Record<string, string
   if (tracking?.campaignId) headers['X-Campaign-Id'] = tracking.campaignId;
   if (tracking?.featureSlug) headers['X-Feature-Slug'] = tracking.featureSlug;
   if (tracking?.brandIdHeader) headers['X-Brand-Id'] = tracking.brandIdHeader;
-  if (tracking?.workflowName) headers['X-Workflow-Name'] = tracking.workflowName;
+  if (tracking?.workflowSlug) headers['X-Workflow-Slug'] = tracking.workflowSlug;
   return headers;
 }
 
@@ -54,7 +54,7 @@ export async function mapSiteUrls(
         limit: 100,
         ...(tracking && {
           brandId: tracking.brandId,
-          workflowName: tracking.workflowName,
+          workflowSlug: tracking.workflowSlug,
         }),
       },
       { headers: buildHeaders(tracking), timeout: 30_000 },
@@ -88,7 +88,7 @@ export async function scrapeUrl(
         sourceService: 'brand-service',
         ...(tracking && {
           brandId: tracking.brandId,
-          workflowName: tracking.workflowName,
+          workflowSlug: tracking.workflowSlug,
         }),
       },
       { headers: buildHeaders(tracking), timeout: 60_000 },

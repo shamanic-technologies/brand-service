@@ -369,14 +369,14 @@ export interface ExtractFieldsOptions {
   campaignId?: string;
   featureSlug?: string;
   brandIdHeader?: string;
-  workflowName?: string;
+  workflowSlug?: string;
   scrapeCacheTtlDays?: number;
 }
 
 export async function extractFields(
   options: ExtractFieldsOptions,
 ): Promise<ExtractedFieldResult[]> {
-  const { brandId, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowName } = options;
+  const { brandId, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowSlug } = options;
   const scrapeTtlDays = options.scrapeCacheTtlDays ?? DEFAULT_SCRAPE_CACHE_TTL_DAYS;
 
   const fieldKeys = fields.map((f) => f.key);
@@ -426,7 +426,7 @@ export async function extractFields(
     serviceName: 'brand-service',
     taskName: 'field-extraction',
     parentRunId,
-    workflowName,
+    workflowSlug,
   });
 
   const tracking: TrackingHeaders = {
@@ -436,14 +436,14 @@ export async function extractFields(
     campaignId,
     featureSlug,
     brandId: brandIdHeader,
-    workflowName,
+    workflowSlug,
   };
 
   const scrapingTracking: ScrapingTrackingContext = {
     brandId,
     orgId,
     userId,
-    workflowName,
+    workflowSlug,
     campaignId,
     featureSlug,
     brandIdHeader,
@@ -571,7 +571,7 @@ export async function extractFields(
 
     // 8. Complete run
     try {
-      await updateRun(run.id, 'completed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowName });
+      await updateRun(run.id, 'completed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug });
     } catch (err) {
       console.warn(`[${brandId}] Failed to complete run ${run.id}:`, err);
     }
@@ -591,7 +591,7 @@ export async function extractFields(
     return [...cachedResults, ...freshResults];
   } catch (error) {
     try {
-      await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowName });
+      await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug });
     } catch (err) {
       console.warn(`[${brandId}] Failed to mark run as failed:`, err);
     }

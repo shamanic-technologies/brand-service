@@ -90,13 +90,13 @@ describe('scraping-client', () => {
         brandId: 'brand-1',
         orgId: 'org_123',
         runId: 'run_789',
-        workflowName: 'discovery',
+        workflowSlug: 'discovery',
       });
 
       const config = mockedAxios.post.mock.calls[0][2] as Record<string, any>;
       expect(config.headers['X-Org-Id']).toBe('org_123');
       expect(config.headers['X-Run-Id']).toBe('run_789');
-      expect(config.headers['X-Workflow-Name']).toBe('discovery');
+      expect(config.headers['X-Workflow-Slug']).toBe('discovery');
     });
   });
 });

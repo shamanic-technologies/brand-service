@@ -68,12 +68,12 @@ document.components = {
       schema: { type: 'string' },
       description: 'Brand ID (injected by workflow-service)',
     },
-    'X-Workflow-Name': {
-      name: 'X-Workflow-Name',
+    'X-Workflow-Slug': {
+      name: 'X-Workflow-Slug',
       in: 'header',
       required: false,
       schema: { type: 'string' },
-      description: 'Workflow name (injected by workflow-service)',
+      description: 'Workflow slug (injected by workflow-service)',
     },
   },
 };

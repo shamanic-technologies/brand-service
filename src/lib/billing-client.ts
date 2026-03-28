@@ -23,7 +23,7 @@ export interface AuthorizeCreditsParams {
   campaignId?: string;
   featureSlug?: string;
   brandId?: string;
-  workflowName?: string;
+  workflowSlug?: string;
 }
 
 export interface AuthorizeCreditsResult {
@@ -53,7 +53,7 @@ export async function authorizeCredits(
   if (params.campaignId) headers["x-campaign-id"] = params.campaignId;
   if (params.featureSlug) headers["x-feature-slug"] = params.featureSlug;
   if (params.brandId) headers["x-brand-id"] = params.brandId;
-  if (params.workflowName) headers["x-workflow-name"] = params.workflowName;
+  if (params.workflowSlug) headers["x-workflow-slug"] = params.workflowSlug;
 
   const response = await fetch(`${BILLING_SERVICE_URL}/v1/credits/authorize`, {
     method: "POST",

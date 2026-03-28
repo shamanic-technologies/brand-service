@@ -71,14 +71,14 @@ export function getAuthHeadersWithTracking(
   orgId = 'test-org-uuid',
   userId = 'test-user-uuid',
   runId = 'test-run-uuid',
-  tracking: { campaignId?: string; featureSlug?: string; brandId?: string; workflowName?: string } = {}
+  tracking: { campaignId?: string; featureSlug?: string; brandId?: string; workflowSlug?: string } = {}
 ) {
   return {
     ...getAuthHeaders(orgId, userId, runId),
     ...(tracking.campaignId && { 'X-Campaign-Id': tracking.campaignId }),
     ...(tracking.featureSlug && { 'X-Feature-Slug': tracking.featureSlug }),
     ...(tracking.brandId && { 'X-Brand-Id': tracking.brandId }),
-    ...(tracking.workflowName && { 'X-Workflow-Name': tracking.workflowName }),
+    ...(tracking.workflowSlug && { 'X-Workflow-Slug': tracking.workflowSlug }),
   };
 }
 
