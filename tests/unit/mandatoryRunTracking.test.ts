@@ -161,7 +161,7 @@ describe('Mandatory run tracking — extractFields', () => {
     warnSpy.mockRestore();
   });
 
-  it('should pass workflowName to createRun when provided', async () => {
+  it('should pass workflowSlug to createRun when provided', async () => {
     setDbSequence([
       [],          // no cached fields
       [brandRow],  // getBrand
@@ -174,11 +174,11 @@ describe('Mandatory run tracking — extractFields', () => {
       fields: [{ key: 'industry', description: 'Brand industry' }],
       orgId: 'org_123',
       parentRunId: 'parent-run-1',
-      workflowName: 'discovery-campaign',
+      workflowSlug: 'discovery-campaign',
     });
 
     expect(mockCreateRun).toHaveBeenCalledWith(expect.objectContaining({
-      workflowName: 'discovery-campaign',
+      workflowSlug: 'discovery-campaign',
     }));
   });
 
@@ -196,7 +196,7 @@ describe('Mandatory run tracking — extractFields', () => {
       orgId: 'org_123',
       userId: 'user_456',
       parentRunId: 'parent-run-1',
-      workflowName: 'discovery-campaign',
+      workflowSlug: 'discovery-campaign',
     });
 
     // mapSiteUrls should receive tracking context
@@ -206,7 +206,7 @@ describe('Mandatory run tracking — extractFields', () => {
         brandId: 'brand-1',
         orgId: 'org_123',
         userId: 'user_456',
-        workflowName: 'discovery-campaign',
+        workflowSlug: 'discovery-campaign',
         runId: 'run-123',
       }),
     );

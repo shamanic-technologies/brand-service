@@ -150,7 +150,7 @@ describe('combinedAuth middleware', () => {
     });
   });
 
-  describe('Workflow tracking headers (x-campaign-id, x-feature-slug, x-brand-id, x-workflow-name)', () => {
+  describe('Workflow tracking headers (x-campaign-id, x-feature-slug, x-brand-id, x-workflow-slug)', () => {
     it('should attach tracking headers when provided', () => {
       const req = createMockReq({
         path: '/brands',
@@ -160,7 +160,7 @@ describe('combinedAuth middleware', () => {
           'x-campaign-id': 'camp-123',
           'x-feature-slug': 'my-feature',
           'x-brand-id': 'brand-456',
-          'x-workflow-name': 'sales-profile-wf',
+          'x-workflow-slug': 'sales-profile-wf',
         },
       });
       const res = createMockRes();
@@ -171,7 +171,7 @@ describe('combinedAuth middleware', () => {
       expect((req as any).campaignId).toBe('camp-123');
       expect((req as any).featureSlug).toBe('my-feature');
       expect((req as any).brandIdHeader).toBe('brand-456');
-      expect((req as any).workflowName).toBe('sales-profile-wf');
+      expect((req as any).workflowSlug).toBe('sales-profile-wf');
     });
 
     it('should not set tracking properties when headers are absent', () => {
@@ -187,7 +187,7 @@ describe('combinedAuth middleware', () => {
       expect((req as any).campaignId).toBeUndefined();
       expect((req as any).featureSlug).toBeUndefined();
       expect((req as any).brandIdHeader).toBeUndefined();
-      expect((req as any).workflowName).toBeUndefined();
+      expect((req as any).workflowSlug).toBeUndefined();
     });
 
     it('should attach partial tracking headers (only some present)', () => {
@@ -207,7 +207,7 @@ describe('combinedAuth middleware', () => {
       expect((req as any).campaignId).toBe('camp-789');
       expect((req as any).featureSlug).toBeUndefined();
       expect((req as any).brandIdHeader).toBeUndefined();
-      expect((req as any).workflowName).toBeUndefined();
+      expect((req as any).workflowSlug).toBeUndefined();
     });
   });
 });

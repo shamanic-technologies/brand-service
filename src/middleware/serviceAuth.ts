@@ -61,12 +61,12 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   const campaignId = req.headers['x-campaign-id'] as string | undefined;
   const featureSlug = req.headers['x-feature-slug'] as string | undefined;
   const brandIdHeader = req.headers['x-brand-id'] as string | undefined;
-  const workflowName = req.headers['x-workflow-name'] as string | undefined;
+  const workflowSlug = req.headers['x-workflow-slug'] as string | undefined;
 
   if (campaignId) req.campaignId = campaignId;
   if (featureSlug) req.featureSlug = featureSlug;
   if (brandIdHeader) req.brandIdHeader = brandIdHeader;
-  if (workflowName) req.workflowName = workflowName;
+  if (workflowSlug) req.workflowSlug = workflowSlug;
 
   return next();
 }

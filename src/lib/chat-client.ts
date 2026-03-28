@@ -34,7 +34,7 @@ export interface TrackingHeaders {
   campaignId?: string;
   featureSlug?: string;
   brandId?: string;
-  workflowName?: string;
+  workflowSlug?: string;
 }
 
 export async function chatComplete(
@@ -51,7 +51,7 @@ export async function chatComplete(
   if (tracking.campaignId) headers['x-campaign-id'] = tracking.campaignId;
   if (tracking.featureSlug) headers['x-feature-slug'] = tracking.featureSlug;
   if (tracking.brandId) headers['x-brand-id'] = tracking.brandId;
-  if (tracking.workflowName) headers['x-workflow-name'] = tracking.workflowName;
+  if (tracking.workflowSlug) headers['x-workflow-slug'] = tracking.workflowSlug;
 
   const response = await axios.post<ChatCompleteResult>(
     `${CHAT_SERVICE_URL}/complete`,

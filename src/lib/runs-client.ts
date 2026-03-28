@@ -16,7 +16,7 @@ export interface Run {
   brandId: string | null;
   campaignId: string | null;
   featureSlug: string | null;
-  workflowName: string | null;
+  workflowSlug: string | null;
   serviceName: string;
   taskName: string;
   status: string;
@@ -67,7 +67,7 @@ export interface CreateRunParams {
   brandId?: string;
   campaignId?: string;
   featureSlug?: string;
-  workflowName?: string;
+  workflowSlug?: string;
   serviceName: string;
   taskName: string;
   parentRunId?: string;
@@ -85,7 +85,7 @@ export interface ListRunsParams {
   brandId?: string;
   campaignId?: string;
   featureSlug?: string;
-  workflowName?: string;
+  workflowSlug?: string;
   serviceName?: string;
   taskName?: string;
   status?: string;
@@ -101,9 +101,9 @@ export interface ListRunsParams {
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowName?: string } = {}
+  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string } = {}
 ): Promise<T> {
-  const { method = "GET", body, orgId, userId, runId, campaignId, featureSlug, brandIdHeader, workflowName } = options;
+  const { method = "GET", body, orgId, userId, runId, campaignId, featureSlug, brandIdHeader, workflowSlug } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -128,8 +128,8 @@ async function runsRequest<T>(
   if (brandIdHeader) {
     headers["x-brand-id"] = brandIdHeader;
   }
-  if (workflowName) {
-    headers["x-workflow-name"] = workflowName;
+  if (workflowSlug) {
+    headers["x-workflow-slug"] = workflowSlug;
   }
 
   const response = await fetch(`${RUNS_SERVICE_URL}${path}`, {
@@ -166,7 +166,7 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowName?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string }
 ): Promise<Run> {
   return runsRequest<Run>(`/v1/runs/${runId}`, {
     method: "PATCH",
@@ -177,14 +177,14 @@ export async function updateRun(
     campaignId: identity?.campaignId,
     featureSlug: identity?.featureSlug,
     brandIdHeader: identity?.brandIdHeader,
-    workflowName: identity?.workflowName,
+    workflowSlug: identity?.workflowSlug,
   });
 }
 
 export async function addCosts(
   runId: string,
   items: CostItem[],
-  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowName?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string }
 ): Promise<{ costs: RunCost[] }> {
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
@@ -195,7 +195,7 @@ export async function addCosts(
     campaignId: identity?.campaignId,
     featureSlug: identity?.featureSlug,
     brandIdHeader: identity?.brandIdHeader,
-    workflowName: identity?.workflowName,
+    workflowSlug: identity?.workflowSlug,
   });
 }
 
@@ -206,7 +206,7 @@ export async function listRuns(
   if (params.userId) searchParams.set("userId", params.userId);
   if (params.brandId) searchParams.set("brandId", params.brandId);
   if (params.campaignId) searchParams.set("campaignId", params.campaignId);
-  if (params.workflowName) searchParams.set("workflowName", params.workflowName);
+  if (params.workflowSlug) searchParams.set("workflowSlug", params.workflowSlug);
   if (params.serviceName) searchParams.set("serviceName", params.serviceName);
   if (params.taskName) searchParams.set("taskName", params.taskName);
   if (params.status) searchParams.set("status", params.status);
