@@ -75,6 +75,13 @@ Every authenticated request must include identity headers:
 | POST | `/brands/:brandId/extract-fields` | Extract arbitrary fields from a brand via AI. Cached per (brandId, fieldKey, campaignId), 30-day TTL. When `x-campaign-id` is present, campaign featureInputs are injected into LLM prompts. |
 | GET | `/brands/:brandId/extracted-fields` | List extracted fields for a brand. Optional `?campaignId=` query param filters by campaign; omit for non-campaign-scoped fields. |
 
+### Image Extraction
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/brands/:brandId/extract-images` | Extract brand images by category via AI vision (Gemini Flash). Scrapes site, classifies images, uploads to R2. Cached per (brandId, categoryKey, campaignId), 30-day TTL. |
+| GET | `/brands/:brandId/extracted-images` | List extracted images for a brand. Optional `?campaignId=` filter. |
+
 ### Organizations
 
 | Method | Path | Description |
@@ -177,6 +184,7 @@ Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 - `individuals`, `brand_individuals`, `individuals_pdl_enrichment`
 - `media_assets`, `supabase_storage`
 - `intake_forms`, `brand_thesis`
+- `brand_extracted_images` — AI-extracted brand images with categories, R2 URLs, relevance scores
 - `brand_relations`, `web_pages`, `scraped_url_firecrawl`
 
 Run/cost tracking is handled by runs-service (see `src/lib/runs-client.ts`).
@@ -196,6 +204,7 @@ See `.env.example` for all required variables:
 - `RUNS_SERVICE_URL` / `RUNS_SERVICE_API_KEY` - Run tracking & cost management
 - `BILLING_SERVICE_URL` / `BILLING_SERVICE_API_KEY` - Credit authorization before paid ops
 - `CAMPAIGN_SERVICE_URL` / `CAMPAIGN_SERVICE_API_KEY` - Campaign context (featureInputs for LLM enrichment)
+- `CLOUDFLARE_SERVICE_URL` / `CLOUDFLARE_SERVICE_API_KEY` - R2 image storage (brand image extraction)
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage
 - `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` - Google Drive
 - `BRAND_SERVICE_URL` - Public URL for OpenAPI spec (used in generated spec, defaults to localhost)

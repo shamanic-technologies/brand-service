@@ -267,6 +267,132 @@ registry.registerPath({
 });
 
 // ============================================================
+// Extract Images (brand image extraction)
+// ============================================================
+
+export const ExtractImageCategorySchema = z
+  .object({
+    key: z.string().min(1),
+    description: z.string().min(1),
+    maxCount: z.number().int().min(1).max(20),
+  })
+  .openapi('ExtractImageCategory');
+
+export const ExtractImagesRequestSchema = z
+  .object({
+    categories: z.array(ExtractImageCategorySchema).min(1).max(20),
+    /** Max width for resized images (passed to cloudflare-service for on-the-fly resizing) */
+    maxWidth: z.number().int().min(1).optional(),
+    /** Max height for resized images (passed to cloudflare-service for on-the-fly resizing) */
+    maxHeight: z.number().int().min(1).optional(),
+    scrapeCacheTtlDays: z
+      .number()
+      .int()
+      .min(1)
+      .max(365)
+      .optional()
+      .openapi({
+        description:
+          'How many days to cache scraped page content and URL maps. Default 180 (6 months).',
+        example: 180,
+      }),
+  })
+  .openapi('ExtractImagesRequest');
+
+export const ExtractedImageSchema = z
+  .object({
+    originalUrl: z.string(),
+    permanentUrl: z.string(),
+    description: z.string(),
+    width: z.number().int().nullable(),
+    height: z.number().int().nullable(),
+    format: z.string(),
+    sizeBytes: z.number().int(),
+    relevanceScore: z.number(),
+    cached: z.boolean(),
+  })
+  .openapi('ExtractedImage');
+
+export const ExtractedImageCategoryResultSchema = z
+  .object({
+    category: z.string(),
+    images: z.array(ExtractedImageSchema),
+  })
+  .openapi('ExtractedImageCategoryResult');
+
+export const ExtractImagesResponseSchema = z
+  .object({
+    brandId: z.string(),
+    results: z.array(ExtractedImageCategoryResultSchema),
+  })
+  .openapi('ExtractImagesResponse');
+
+export const ListExtractedImageSchema = z
+  .object({
+    categoryKey: z.string(),
+    originalUrl: z.string(),
+    permanentUrl: z.string(),
+    description: z.string().nullable(),
+    width: z.number().int().nullable(),
+    height: z.number().int().nullable(),
+    format: z.string().nullable(),
+    sizeBytes: z.number().int().nullable(),
+    relevanceScore: z.number().nullable(),
+    sourcePageUrl: z.string().nullable(),
+    campaignId: z.string().uuid().nullable(),
+    extractedAt: z.string(),
+    expiresAt: z.string().nullable(),
+  })
+  .openapi('ListExtractedImage');
+
+export const ListExtractedImagesResponseSchema = z
+  .object({
+    brandId: z.string(),
+    images: z.array(ListExtractedImageSchema),
+  })
+  .openapi('ListExtractedImagesResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/brands/{brandId}/extract-images',
+  summary: 'Extract brand images by category via AI',
+  description:
+    'Image extraction endpoint. Send a list of image categories with key + description + maxCount; returns categorized images with permanent R2 URLs. ' +
+    'Images are found by scraping the brand site, classified via vision LLM (Gemini Flash), and uploaded to Cloudflare R2 for permanent hosting. ' +
+    'Results are cached per category for 30 days. Cache is scoped by (brandId, categoryKey, campaignId).',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: ExtractImagesRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Extracted images by category', content: { 'application/json': { schema: ExtractImagesResponseSchema } } },
+    400: { description: 'Invalid request or brand has no URL' },
+    404: { description: 'Brand not found' },
+    422: { description: 'Site scraping failed' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/brands/{brandId}/extracted-images',
+  summary: 'List all previously extracted images for a brand',
+  description:
+    'Returns every image that has been extracted and cached for this brand, with category, URLs, scores, and timestamps. ' +
+    'Optionally filter by campaignId; if omitted, returns only non-campaign-scoped images.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    query: z.object({ campaignId: z.string().uuid().optional().openapi({ description: 'Filter by campaign ID.' }) }),
+  },
+  responses: {
+    200: { description: 'Extracted images list', content: { 'application/json': { schema: ListExtractedImagesResponseSchema } } },
+    400: { description: 'Invalid brandId format' },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ============================================================
 // Organizations
 // ============================================================
 

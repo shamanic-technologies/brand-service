@@ -8,6 +8,7 @@ import analyzeRoutes from '../../src/routes/analyze.routes';
 import intakeFormRoutes from '../../src/routes/intake-form.routes';
 import publicInfoRoutes from '../../src/routes/public-information.routes';
 import extractFieldsRoutes from '../../src/routes/extract-fields.routes';
+import extractImagesRoutes from '../../src/routes/extract-images.routes';
 import brandsRoutes from '../../src/routes/brands.routes';
 
 /**
@@ -45,6 +46,7 @@ export function createTestApp() {
   app.use('/', intakeFormRoutes);
   app.use('/', publicInfoRoutes);
   app.use('/', extractFieldsRoutes);
+  app.use('/', extractImagesRoutes);
   app.use('/', brandsRoutes);
 
   return app;
