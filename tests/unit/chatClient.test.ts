@@ -101,6 +101,34 @@ describe('chat-client', () => {
     expect(body.responseFormat).toBeUndefined();
     expect(body.temperature).toBeUndefined();
     expect(body.maxTokens).toBeUndefined();
+    expect(body.imageUrl).toBeUndefined();
+    expect(body.imageContext).toBeUndefined();
+    expect(body.model).toBeUndefined();
+  });
+
+  it('should pass imageUrl, imageContext, and model when provided', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: { content: '{}', json: {}, tokensInput: 10, tokensOutput: 5, model: 'gemini-3.1-flash-lite-preview' },
+    });
+
+    const { chatComplete } = await import('../../src/lib/chat-client');
+
+    await chatComplete(
+      {
+        message: 'Analyze this image',
+        systemPrompt: 'You are an image classifier.',
+        imageUrl: 'https://example.com/photo.jpg',
+        imageContext: { alt: 'Team photo', sourceUrl: 'https://example.com/about' },
+        model: 'gemini-3.1-flash-lite-preview',
+        responseFormat: 'json',
+      },
+      { orgId: 'org_123' },
+    );
+
+    const body = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.imageUrl).toBe('https://example.com/photo.jpg');
+    expect(body.imageContext).toEqual({ alt: 'Team photo', sourceUrl: 'https://example.com/about' });
+    expect(body.model).toBe('gemini-3.1-flash-lite-preview');
   });
 
   it('should throw on non-2xx response', async () => {
