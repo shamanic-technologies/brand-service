@@ -17,9 +17,11 @@ export interface ChatCompleteParams {
   responseFormat?: 'json';
   temperature?: number;
   maxTokens?: number;
-  /** URL of an image for vision analysis. Requires a vision-capable model (e.g. gemini-2.0-flash). */
+  /** URL of an image for vision analysis. Requires a vision-capable model. */
   imageUrl?: string;
-  /** Override the default model. Use "gemini-2.0-flash" for cheap vision tasks. */
+  /** HTML metadata for the image — alt text, title, source URL. Injected into the prompt alongside the image. */
+  imageContext?: { alt?: string; title?: string; sourceUrl?: string };
+  /** Override the default model. Use "gemini-3.1-flash-lite-preview" for cheap vision tasks. */
   model?: string;
 }
 
@@ -66,6 +68,7 @@ export async function chatComplete(
       ...(params.temperature !== undefined && { temperature: params.temperature }),
       ...(params.maxTokens !== undefined && { maxTokens: params.maxTokens }),
       ...(params.imageUrl && { imageUrl: params.imageUrl }),
+      ...(params.imageContext && { imageContext: params.imageContext }),
       ...(params.model && { model: params.model }),
     },
     { headers, timeout: 120_000 },

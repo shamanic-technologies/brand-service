@@ -118,7 +118,7 @@ async function probeImage(url: string): Promise<{ contentType: string; sizeBytes
 // ─── Vision analysis via chat-service ───────────────────────────────────────
 
 async function analyzeImageWithVision(
-  imageUrl: string,
+  candidate: ImageCandidate,
   categories: ImageCategorySpec[],
   tracking: TrackingHeaders,
 ): Promise<VisionAnalysis> {
@@ -138,8 +138,12 @@ async function analyzeImageWithVision(
         `Return JSON: { "scores": { "<category_key>": <0.0-1.0> }, "description": "<one sentence describing the image>" }\n` +
         `Score 0.0 = completely irrelevant, 1.0 = perfect match.\n` +
         `Also assess: is this a professional, high-quality image suitable for a press kit? If not professional, score all categories below 0.3.`,
-      imageUrl,
-      model: 'gemini-2.0-flash',
+      imageUrl: candidate.url,
+      imageContext: {
+        alt: candidate.altText || undefined,
+        sourceUrl: candidate.sourcePageUrl || undefined,
+      },
+      model: 'gemini-3.1-flash-lite-preview',
       responseFormat: 'json',
       temperature: 0,
       maxTokens: 512,
@@ -172,7 +176,7 @@ async function batchAnalyzeImages(
     const batch = candidates.slice(i, i + VISION_BATCH_SIZE);
     const batchResults = await Promise.allSettled(
       batch.map(async (candidate) => {
-        const analysis = await analyzeImageWithVision(candidate.url, categories, tracking);
+        const analysis = await analyzeImageWithVision(candidate, categories, tracking);
         return { candidate, analysis };
       }),
     );
