@@ -17,6 +17,7 @@ import intakeFormRoutes from './routes/intake-form.routes';
 import thesisRoutes from './routes/thesis.routes';
 import publicInformationRoutes from './routes/public-information.routes';
 import extractFieldsRoutes from './routes/extract-fields.routes';
+import extractImagesRoutes from './routes/extract-images.routes';
 import brandsRoutes from './routes/brands.routes';
 
 const app = express();
@@ -28,7 +29,7 @@ app.use(cors({
   origin: true, // Allow all origins - auth is via BRAND_SERVICE_API_KEY
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-External-Organization-Id', 'X-Org-Id', 'X-User-Id', 'X-Run-Id', 'X-Campaign-Id', 'X-Brand-Id', 'X-Workflow-Slug'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-External-Organization-Id', 'X-Org-Id', 'X-User-Id', 'X-Run-Id', 'X-Campaign-Id', 'X-Brand-Id', 'X-Workflow-Slug', 'X-Feature-Slug'],
 }));
 
 app.use(express.json());
@@ -65,6 +66,7 @@ app.use('/', intakeFormRoutes);
 app.use('/', thesisRoutes);
 app.use('/', publicInformationRoutes);
 app.use('/', extractFieldsRoutes);
+app.use('/', extractImagesRoutes);
 app.use('/', brandsRoutes);
 
 // Only start server if not in test environment

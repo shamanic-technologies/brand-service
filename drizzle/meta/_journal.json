@@ -120,6 +120,13 @@
       "when": 1775107200000,
       "tag": "0016_add_campaign_id_to_extracted_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1774859106495,
+      "tag": "0017_white_thing",
+      "breakpoints": true
     }
   ]
 }

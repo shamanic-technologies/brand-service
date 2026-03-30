@@ -885,6 +885,35 @@ export const vTargetOrganizations = pgView("v_target_organizations", {	sourceExt
 	targetOrgSocialMedia: jsonb("target_org_social_media"),
 }).as(sql`SELECT source_org.external_organization_id AS source_external_organization_id, target_org.id AS target_org_id, target_org.external_organization_id AS target_org_external_id, target_org.name AS target_org_name, target_org.url AS target_org_url, target_org.organization_linkedin_url AS target_org_linkedin_url, target_org.domain AS target_org_domain, rel.relation_type, rel.relation_confidence_level, rel.relation_confidence_rationale, rel.status AS relation_status, rel.created_at AS relation_created_at, rel.updated_at AS relation_updated_at, target_org.location AS target_org_location, target_org.bio AS target_org_bio, target_org.elevator_pitch AS target_org_elevator_pitch, target_org.mission AS target_org_mission, target_org.story AS target_org_story, target_org.offerings AS target_org_offerings, target_org.problem_solution AS target_org_problem_solution, target_org.goals AS target_org_goals, target_org.categories AS target_org_categories, target_org.founded_date AS target_org_founded_date, target_org.contact_name AS target_org_contact_name, target_org.contact_email AS target_org_contact_email, target_org.contact_phone AS target_org_contact_phone, target_org.social_media AS target_org_social_media FROM brands source_org JOIN brand_relations rel ON source_org.id = rel.source_brand_id JOIN brands target_org ON rel.target_brand_id = target_org.id ORDER BY source_org.external_organization_id, rel.created_at DESC`);
 
+export const brandExtractedImages = pgTable("brand_extracted_images", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	categoryKey: text("category_key").notNull(),
+	originalUrl: text("original_url").notNull(),
+	permanentUrl: text("permanent_url").notNull(),
+	description: text(),
+	width: integer(),
+	height: integer(),
+	format: text(),
+	sizeBytes: integer("size_bytes"),
+	relevanceScore: numeric("relevance_score"),
+	sourcePageUrl: text("source_page_url"),
+	campaignId: uuid("campaign_id"),
+	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_extracted_images_brand_category").using("btree", table.brandId.asc().nullsLast().op("uuid_ops"), table.categoryKey.asc().nullsLast().op("text_ops")),
+	index("idx_extracted_images_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
+	index("idx_extracted_images_campaign").using("btree", table.campaignId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.brandId],
+			foreignColumns: [brands.id],
+			name: "brand_extracted_images_brand_id_fkey"
+		}).onDelete("cascade"),
+]);
+
 // Deprecated: tasks, tasks_runs, tasks_runs_costs tables removed from schema.
 // Run tracking is now handled by runs-service via src/lib/runs-client.ts.
 // The physical tables still exist in the database but are no longer used.
