@@ -7,8 +7,10 @@
  */
 
 import crypto from 'crypto';
+import { eq, gt, sql, and } from 'drizzle-orm';
 import { extractFields, getBrand, FieldSpec, ExtractedFieldResult } from './fieldExtractionService';
 import { chatComplete, TrackingHeaders } from '../lib/chat-client';
+import { db, consolidatedFieldCache } from '../db';
 
 interface Brand {
   id: string;
@@ -53,17 +55,9 @@ export interface MultiBrandFieldsResponse {
   }>;
 }
 
-// ─── Consolidated fields cache ───────────────────────────────────────────────
-// In-memory cache for LLM-consolidated multi-brand field values.
+// ─── DB-backed consolidated fields cache ────────────────────────────────────
 // Keyed by a deterministic hash of (sorted brand IDs + sorted field keys + campaignId + per-brand values).
-// Survives for the lifetime of the process; one extra LLM call per redeploy is acceptable.
-
-interface ConsolidatedCacheEntry {
-  values: Record<string, unknown>;
-  expiresAt: number; // epoch ms
-}
-
-const consolidatedCache = new Map<string, ConsolidatedCacheEntry>();
+// Persisted in the consolidated_field_cache table so it survives redeploys.
 
 /** Build a deterministic cache key from inputs + per-brand values. */
 function buildConsolidatedCacheKey(
@@ -83,22 +77,48 @@ function buildConsolidatedCacheKey(
   return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
-function getCachedConsolidated(key: string): Record<string, unknown> | null {
-  const entry = consolidatedCache.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    consolidatedCache.delete(key);
-    return null;
-  }
-  return entry.values;
+async function getCachedConsolidated(key: string): Promise<Record<string, unknown> | null> {
+  const rows = await db
+    .select({ fieldValues: consolidatedFieldCache.fieldValues })
+    .from(consolidatedFieldCache)
+    .where(
+      and(
+        eq(consolidatedFieldCache.cacheKey, key),
+        gt(consolidatedFieldCache.expiresAt, sql`NOW()`),
+      ),
+    )
+    .limit(1);
+
+  if (rows.length === 0) return null;
+  return rows[0].fieldValues as Record<string, unknown>;
 }
 
-function setCachedConsolidated(
+async function setCachedConsolidated(
   key: string,
   values: Record<string, unknown>,
-  minExpiresAt: number,
-): void {
-  consolidatedCache.set(key, { values, expiresAt: minExpiresAt });
+  expiresAt: Date,
+  brandIds: string[],
+  fieldKeys: string[],
+  campaignId?: string,
+): Promise<void> {
+  await db
+    .insert(consolidatedFieldCache)
+    .values({
+      cacheKey: key,
+      fieldValues: values,
+      brandIds: brandIds,
+      fieldKeys: fieldKeys,
+      campaignId: campaignId ?? null,
+      expiresAt: expiresAt.toISOString(),
+    })
+    .onConflictDoUpdate({
+      target: [consolidatedFieldCache.cacheKey],
+      set: {
+        fieldValues: values,
+        expiresAt: expiresAt.toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
 }
 
 /**
@@ -225,9 +245,9 @@ export async function multiBrandExtractFields(
     const domain = brandsMeta[0].domain;
     valueMap = { ...valuesByDomain[domain] };
   } else {
-    // Check consolidated cache — keyed by brand IDs + field keys + campaign + per-brand values
+    // Check DB-backed consolidated cache — keyed by brand IDs + field keys + campaign + per-brand values
     const cacheKey = buildConsolidatedCacheKey(brandIds, fieldKeys, valuesByDomain, campaignId);
-    const cachedConsolidated = getCachedConsolidated(cacheKey);
+    const cachedConsolidated = await getCachedConsolidated(cacheKey);
 
     if (cachedConsolidated) {
       console.log(`[brand-service] Consolidated fields cache hit for ${brandIds.length} brands`);
@@ -252,7 +272,7 @@ export async function multiBrandExtractFields(
         .filter((t) => t !== Infinity);
       const minExpiry = allExpiries.length > 0 ? Math.min(...allExpiries) : Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      setCachedConsolidated(cacheKey, valueMap, minExpiry);
+      await setCachedConsolidated(cacheKey, valueMap, new Date(minExpiry), brandIds, fieldKeys, campaignId);
     }
   }
 
