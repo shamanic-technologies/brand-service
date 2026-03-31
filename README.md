@@ -72,14 +72,16 @@ Every authenticated request must include identity headers:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/brands/:brandId/extract-fields` | Extract arbitrary fields from a brand via AI. Cached per (brandId, fieldKey, campaignId), 30-day TTL. When `x-campaign-id` is present, campaign featureInputs are injected into LLM prompts. |
+| POST | `/brands/extract-fields` | **Multi-brand** field extraction. Reads `x-brand-id` header (comma-separated UUIDs). Single brand → flat `{fields: {key: value}}`. Multiple brands → `{fields: {key: {consolidated, byBrand}}}` with domain-keyed per-brand results. |
+| POST | `/brands/:brandId/extract-fields` | **(Deprecated)** Use `POST /brands/extract-fields` with `x-brand-id` header instead. |
 | GET | `/brands/:brandId/extracted-fields` | List extracted fields for a brand. Optional `?campaignId=` query param filters by campaign; omit for non-campaign-scoped fields. |
 
 ### Image Extraction
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/brands/:brandId/extract-images` | Extract brand images by category via AI vision (Gemini Flash). Scrapes site, classifies images, uploads to R2. Cached per (brandId, categoryKey, campaignId), 30-day TTL. |
+| POST | `/brands/extract-images` | **Multi-brand** image extraction. Reads `x-brand-id` header (comma-separated UUIDs). Single brand → standard results. Multiple brands → `{results: [{category, consolidated, byBrand}]}` with domain-keyed per-brand images. |
+| POST | `/brands/:brandId/extract-images` | **(Deprecated)** Use `POST /brands/extract-images` with `x-brand-id` header instead. |
 | GET | `/brands/:brandId/extracted-images` | List extracted images for a brand. Optional `?campaignId=` filter. |
 
 ### Organizations

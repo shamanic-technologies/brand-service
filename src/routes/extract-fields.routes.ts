@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
 import { extractFields, getBrand } from '../services/fieldExtractionService';
+import { multiBrandExtractFields } from '../services/multiBrandFieldExtractionService';
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractFieldsRequestSchema } from '../schemas';
 import { db, brandExtractedFields } from '../db';
@@ -10,7 +11,68 @@ const router = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * POST /brands/extract-fields
+ *
+ * Multi-brand field extraction endpoint. Reads brand IDs from x-brand-id header
+ * (comma-separated UUIDs). Returns flat key→value for single brand, or
+ * consolidated + byBrand for multiple brands.
+ */
+router.post('/brands/extract-fields', async (req: Request, res: Response) => {
+  try {
+    const brandIdHeader = req.headers['x-brand-id'] as string | undefined;
+    if (!brandIdHeader) {
+      return res.status(400).json({ error: 'Missing x-brand-id header' });
+    }
+
+    const brandIds = brandIdHeader.split(',').map((id) => id.trim()).filter(Boolean);
+    if (brandIds.length === 0) {
+      return res.status(400).json({ error: 'x-brand-id header contains no valid IDs' });
+    }
+
+    for (const id of brandIds) {
+      if (!UUID_REGEX.test(id)) {
+        return res.status(400).json({ error: `Invalid brand ID format: ${id} — must be a UUID` });
+      }
+    }
+
+    const parsed = ExtractFieldsRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    const result = await multiBrandExtractFields({
+      brandIds,
+      fields: parsed.data.fields,
+      orgId: req.orgId,
+      userId: req.userId,
+      parentRunId: req.runId!,
+      campaignId: req.campaignId,
+      featureSlug: req.featureSlug,
+      brandIdHeader: req.brandIdHeader,
+      workflowSlug: req.workflowSlug,
+      scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
+    });
+
+    return res.json(result);
+  } catch (error: any) {
+    console.error('[brand-service] Multi-brand extract fields error:', error);
+    if (error instanceof SiteMapError) {
+      return res.status(422).json({ error: error.message });
+    }
+    if (error.message?.includes('Brand not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    if (error.message?.includes('Brand has no URL')) {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message || 'Failed to extract fields' });
+  }
+});
+
+/**
  * POST /brands/:brandId/extract-fields
+ *
+ * @deprecated Use POST /brands/extract-fields with x-brand-id header instead.
  *
  * Generic field extraction endpoint. Clients send a list of fields with
  * key + description; the service returns extracted values (cached or fresh).
