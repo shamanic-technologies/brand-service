@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
 import { extractImages, getBrandForImages } from '../services/imageExtractionService';
+import { multiBrandExtractImages } from '../services/multiBrandImageExtractionService';
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractImagesRequestSchema } from '../schemas';
 import { db, brandExtractedImages } from '../db';
@@ -13,8 +14,9 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  * POST /brands/extract-images
  *
  * Multi-brand image extraction endpoint. Reads brand IDs from x-brand-id header
- * (comma-separated UUIDs). Extracts images for each brand and returns results
- * grouped by brand.
+ * (comma-separated UUIDs). Single brand → standard results. Multiple brands →
+ * { results: [{ category, consolidated, byBrand }] } with domain-keyed per-brand
+ * images and relevance-sorted consolidated set.
  */
 router.post('/brands/extract-images', async (req: Request, res: Response) => {
   try {
@@ -34,43 +36,32 @@ router.post('/brands/extract-images', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
-    const allResults: Array<{ brandId: string; results: any[] }> = [];
+    const result = await multiBrandExtractImages({
+      brandIds,
+      categories: parsed.data.categories,
+      orgId: req.orgId,
+      userId: req.userId,
+      parentRunId: req.runId!,
+      campaignId: req.campaignId,
+      featureSlug: req.featureSlug,
+      brandIdHeader: req.brandIdHeader,
+      workflowSlug: req.workflowSlug,
+      scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
+      maxWidth: parsed.data.maxWidth,
+      maxHeight: parsed.data.maxHeight,
+    });
 
-    for (const brandId of brandIds) {
-      const brand = await getBrandForImages(brandId);
-      if (!brand) {
-        return res.status(404).json({ error: `Brand not found: ${brandId}` });
-      }
-      if (!brand.url) {
-        return res.status(400).json({
-          error: `Brand ${brandId} has no URL`,
-          hint: 'Use POST /brands to register a brand with a URL first.',
-        });
-      }
-
-      const results = await extractImages({
-        brandId,
-        categories: parsed.data.categories,
-        orgId: req.orgId,
-        userId: req.userId,
-        parentRunId: req.runId!,
-        campaignId: req.campaignId,
-        featureSlug: req.featureSlug,
-        brandIdHeader: req.brandIdHeader,
-        workflowSlug: req.workflowSlug,
-        scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
-        maxWidth: parsed.data.maxWidth,
-        maxHeight: parsed.data.maxHeight,
-      });
-
-      allResults.push({ brandId, results });
-    }
-
-    return res.json({ results: allResults });
+    return res.json(result);
   } catch (error: any) {
     console.error('[brand-service] Extract images (multi-brand) error:', error);
     if (error instanceof SiteMapError) {
       return res.status(422).json({ error: error.message });
+    }
+    if (error.message?.includes('Brand not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    if (error.message?.includes('Brand has no URL')) {
+      return res.status(400).json({ error: error.message });
     }
     res.status(500).json({ error: error.message || 'Failed to extract images' });
   }
