@@ -259,45 +259,6 @@ export const brandLinkedinPosts = pgTable("brand_linkedin_posts", {
 	unique("organizations_linkedin_posts_linkedin_post_id_key").on(table.linkedinPostId),
 ]);
 
-export const brandSalesProfiles = pgTable("brand_sales_profiles", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	brandId: uuid("brand_id").notNull(),
-	valueProposition: text("value_proposition"),
-	customerPainPoints: jsonb("customer_pain_points"),
-	callToAction: text("call_to_action"),
-	socialProof: jsonb("social_proof"),
-	companyOverview: text("company_overview"),
-	additionalContext: text("additional_context"),
-	competitors: jsonb(),
-	productDifferentiators: jsonb("product_differentiators"),
-	targetAudience: text("target_audience"),
-	keyFeatures: jsonb("key_features"),
-	leadership: jsonb("leadership"),
-	funding: jsonb("funding"),
-	awardsAndRecognition: jsonb("awards_and_recognition"),
-	revenueMilestones: jsonb("revenue_milestones"),
-	urgency: jsonb("urgency"),
-	scarcity: jsonb("scarcity"),
-	riskReversal: jsonb("risk_reversal"),
-	priceAnchoring: jsonb("price_anchoring"),
-	valueStacking: jsonb("value_stacking"),
-	extractionModel: text("extraction_model"),
-	sourceScrapeIds: jsonb("source_scrape_ids"),
-	scrapedUrls: jsonb("scraped_urls"),
-	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("idx_sales_profiles_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
-	foreignKey({
-			columns: [table.brandId],
-			foreignColumns: [brands.id],
-			name: "organization_sales_profiles_organization_id_fkey"
-		}).onDelete("cascade"),
-	unique("organization_sales_profiles_organization_id_key").on(table.brandId),
-]);
-
 export const brandExtractedFields = pgTable("brand_extracted_fields", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	brandId: uuid("brand_id").notNull(),

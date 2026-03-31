@@ -10,7 +10,7 @@ const document = generator.generateDocument({
   info: {
     title: 'Brand Service API',
     description:
-      'Microservice for managing brand information, sales profiles, media assets, organization data, and AI-powered content analysis.',
+      'Microservice for managing brand information, media assets, organization data, and AI-powered content analysis.',
     version: '1.0.0',
   },
   servers: [

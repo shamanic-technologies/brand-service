@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { orgs, brands, individuals, individualsPdlEnrichment, supabaseStorage, mediaAssets, brandLinkedinPosts, brandSalesProfiles, individualsLinkedinPosts, intakeForms, brandThesis, users, brandRelations, brandIndividuals } from "./schema";
+import { orgs, brands, individuals, individualsPdlEnrichment, supabaseStorage, mediaAssets, brandLinkedinPosts, individualsLinkedinPosts, intakeForms, brandThesis, users, brandRelations, brandIndividuals } from "./schema";
 
 export const brandsRelations = relations(brands, ({one, many}) => ({
 	org: one(orgs, {
@@ -8,7 +8,6 @@ export const brandsRelations = relations(brands, ({one, many}) => ({
 	}),
 	mediaAssets: many(mediaAssets),
 	brandLinkedinPosts: many(brandLinkedinPosts),
-	brandSalesProfiles: many(brandSalesProfiles),
 	intakeForms: many(intakeForms),
 	brandTheses_brandId: many(brandThesis, {
 		relationName: "brandThesis_brandId_brands_id"
@@ -60,13 +59,6 @@ export const supabaseStorageRelations = relations(supabaseStorage, ({many}) => (
 export const brandLinkedinPostsRelations = relations(brandLinkedinPosts, ({one}) => ({
 	brand: one(brands, {
 		fields: [brandLinkedinPosts.brandId],
-		references: [brands.id]
-	}),
-}));
-
-export const brandSalesProfilesRelations = relations(brandSalesProfiles, ({one}) => ({
-	brand: one(brands, {
-		fields: [brandSalesProfiles.brandId],
 		references: [brands.id]
 	}),
 }));

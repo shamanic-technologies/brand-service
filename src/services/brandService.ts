@@ -1,7 +1,6 @@
 /**
  * Brand CRUD utilities.
  *
- * Extracted from the former salesProfileExtractionService.ts.
  * Only brand lookup/creation logic — no extraction, no AI, no scraping.
  */
 
