@@ -121,10 +121,15 @@ async function analyzeImageWithVision(
   candidate: ImageCandidate,
   categories: ImageCategorySpec[],
   tracking: TrackingHeaders,
+  campaignContext: string | null,
 ): Promise<VisionAnalysis> {
   const categoryDescriptions = categories
     .map((c) => `- "${c.key}": ${c.description}`)
     .join('\n');
+
+  const contextBlock = campaignContext
+    ? `\n\nCampaign context (use this to refine your scoring — prioritize images that align with this campaign):\n${campaignContext}\n`
+    : '';
 
   const result = await chatComplete(
     {
@@ -134,7 +139,7 @@ async function analyzeImageWithVision(
         'Return ONLY valid JSON.',
       message:
         `Analyze this image and score it for each category below.\n\n` +
-        `Categories:\n${categoryDescriptions}\n\n` +
+        `Categories:\n${categoryDescriptions}${contextBlock}\n\n` +
         `Return JSON: { "scores": { "<category_key>": <0.0-1.0> }, "description": "<one sentence describing the image>" }\n` +
         `Score 0.0 = completely irrelevant, 1.0 = perfect match.\n` +
         `Also assess: is this a professional, high-quality image suitable for a press kit? If not professional, score all categories below 0.3.`,
@@ -168,6 +173,7 @@ async function batchAnalyzeImages(
   candidates: ImageCandidate[],
   categories: ImageCategorySpec[],
   tracking: TrackingHeaders,
+  campaignContext: string | null,
 ): Promise<Array<{ candidate: ImageCandidate; analysis: VisionAnalysis }>> {
   const results: Array<{ candidate: ImageCandidate; analysis: VisionAnalysis }> = [];
 
@@ -176,7 +182,7 @@ async function batchAnalyzeImages(
     const batch = candidates.slice(i, i + VISION_BATCH_SIZE);
     const batchResults = await Promise.allSettled(
       batch.map(async (candidate) => {
-        const analysis = await analyzeImageWithVision(candidate, categories, tracking);
+        const analysis = await analyzeImageWithVision(candidate, categories, tracking, campaignContext);
         return { candidate, analysis };
       }),
     );
@@ -496,7 +502,7 @@ export async function extractImages(
 
     // 10. Vision analysis
     console.log(`[brand-service] [${brandId}] Analyzing ${validCandidates.length} images with vision...`);
-    const analyzed = await batchAnalyzeImages(validCandidates, missingCategories, tracking);
+    const analyzed = await batchAnalyzeImages(validCandidates, missingCategories, tracking, campaignContext);
 
     // 11. Select best images per category
     const freshResults: ExtractedImageCategoryResult[] = [];
