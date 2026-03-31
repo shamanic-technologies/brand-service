@@ -71,11 +71,31 @@ describe('POST /brands/extract-fields (multi-brand, header-based)', () => {
     expect(res.body.error).toMatch(/Brand not found: 00000000-0000-0000-0000-00000000009[89]/);
   });
 
+  it('should return 400 for missing fields property', async () => {
+    const res = await request(app)
+      .post('/brands/extract-fields')
+      .set({ ...getAuthHeaders(), 'X-Brand-Id': '00000000-0000-0000-0000-000000000001' })
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Invalid request');
+  });
+
   it('should return 401 without auth headers', async () => {
     const res = await request(app)
       .post('/brands/extract-fields')
       .send({ fields: [{ key: 'industry', description: 'test' }] });
 
     expect(res.status).toBe(401);
+  });
+
+  it('should still serve the deprecated /:brandId endpoint', async () => {
+    const res = await request(app)
+      .post('/brands/00000000-0000-0000-0000-000000000099/extract-fields')
+      .set(getAuthHeaders())
+      .send({ fields: [{ key: 'industry', description: 'Brand industry' }] });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Brand not found');
   });
 });
