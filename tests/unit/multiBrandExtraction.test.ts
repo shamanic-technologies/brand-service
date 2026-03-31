@@ -63,7 +63,7 @@ describe('multiBrandExtractFields', () => {
     vi.clearAllMocks();
   });
 
-  it('should return unified { brands, fields: { key: { value, byBrand } } } for single brand', async () => {
+  it('should return unified format with full metadata in byBrand for single brand', async () => {
     mockedGetBrand.mockResolvedValue({
       id: 'brand-1',
       url: 'https://acme.com',
@@ -71,8 +71,8 @@ describe('multiBrandExtractFields', () => {
       domain: 'acme.com',
     });
     mockedExtractFields.mockResolvedValue([
-      { key: 'industry', value: 'SaaS tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] },
-      { key: 'size', value: '100-500', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] },
+      { key: 'industry', value: 'SaaS tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/about'] },
+      { key: 'size', value: '100-500', cached: true, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/'] },
     ]);
 
     const result = await multiBrandExtractFields({
@@ -85,23 +85,33 @@ describe('multiBrandExtractFields', () => {
     expect(result).toEqual({
       brands: [{ brandId: 'brand-1', domain: 'acme.com', name: 'Acme' }],
       fields: {
-        industry: { value: 'SaaS tools', byBrand: { 'acme.com': 'SaaS tools' } },
-        size: { value: '100-500', byBrand: { 'acme.com': '100-500' } },
+        industry: {
+          value: 'SaaS tools',
+          byBrand: {
+            'acme.com': { value: 'SaaS tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/about'] },
+          },
+        },
+        size: {
+          value: '100-500',
+          byBrand: {
+            'acme.com': { value: '100-500', cached: true, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/'] },
+          },
+        },
       },
     });
   });
 
-  it('should return unified format with LLM-consolidated value for multiple brands', async () => {
+  it('should return unified format with LLM-consolidated value and full metadata for multiple brands', async () => {
     mockedGetBrand
       .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
       .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
 
     mockedExtractFields
       .mockResolvedValueOnce([
-        { key: 'industry', value: 'SaaS productivity tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] },
+        { key: 'industry', value: 'SaaS productivity tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/about'] },
       ])
       .mockResolvedValueOnce([
-        { key: 'industry', value: 'FinTech payment processing', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] },
+        { key: 'industry', value: 'FinTech payment processing', cached: true, extractedAt: '2024-01-05', expiresAt: '2024-02-04', sourceUrls: ['https://finpay.io/'] },
       ]);
 
     mockedChatComplete.mockResolvedValue({
@@ -128,8 +138,8 @@ describe('multiBrandExtractFields', () => {
         industry: {
           value: 'SaaS & FinTech solutions for SMBs',
           byBrand: {
-            'acme.com': 'SaaS productivity tools',
-            'finpay.io': 'FinTech payment processing',
+            'acme.com': { value: 'SaaS productivity tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/about'] },
+            'finpay.io': { value: 'FinTech payment processing', cached: true, extractedAt: '2024-01-05', expiresAt: '2024-02-04', sourceUrls: ['https://finpay.io/'] },
           },
         },
       },

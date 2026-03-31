@@ -258,14 +258,24 @@ export const BrandMetaSchema = z
   })
   .openapi('BrandMeta');
 
+const FieldValueType = z.union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown()), z.null()]);
+
+export const BrandFieldDetailSchema = z
+  .object({
+    value: FieldValueType.openapi({ description: 'Extracted value for this brand' }),
+    cached: z.boolean().openapi({ description: 'Whether this result was served from cache' }),
+    extractedAt: z.string().openapi({ description: 'ISO timestamp when this value was extracted' }),
+    expiresAt: z.string().nullable().openapi({ description: 'ISO timestamp when the cached value expires, or null' }),
+    sourceUrls: z.array(z.string()).nullable().openapi({ description: 'URLs from which this value was extracted, or null' }),
+  })
+  .openapi('BrandFieldDetail');
+
 export const MultiBrandFieldValueSchema = z
   .object({
-    value: z
-      .union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown()), z.null()])
-      .openapi({ description: 'Primary value: the brand value (1 brand) or LLM-consolidated (N brands)' }),
+    value: FieldValueType.openapi({ description: 'Primary value: the brand value (1 brand) or LLM-consolidated (N brands)' }),
     byBrand: z
-      .record(z.string(), z.union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown()), z.null()]))
-      .openapi({ description: 'Per-brand values keyed by brand domain' }),
+      .record(z.string(), BrandFieldDetailSchema)
+      .openapi({ description: 'Per-brand field details keyed by brand domain, including value, cache status, timestamps, and source URLs' }),
   })
   .openapi('MultiBrandFieldValue');
 
