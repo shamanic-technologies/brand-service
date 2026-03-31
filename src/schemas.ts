@@ -248,25 +248,6 @@ registry.registerPath({
   },
 });
 
-registry.registerPath({
-  method: 'post',
-  path: '/brands/{brandId}/extract-fields',
-  summary: '[Deprecated] Extract arbitrary fields from a brand via AI',
-  description: '**Deprecated: Use POST /brands/extract-fields with x-brand-id header instead.**\n\nGeneric field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days. Cache is scoped by (brandId, fieldKey, campaignId).',
-  deprecated: true,
-  request: {
-    params: z.object({ brandId: z.string().uuid() }),
-    body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
-  },
-  responses: {
-    200: { description: 'Extracted fields', content: { 'application/json': { schema: ExtractFieldsResponseSchema } } },
-    400: { description: 'Invalid request or brand has no URL' },
-    404: { description: 'Brand not found' },
-    422: { description: 'Site scraping failed' },
-    500: { description: 'Internal server error' },
-  },
-});
-
 // ── Multi-brand extract-fields response schemas ─────────────────────────────
 
 export const BrandMetaSchema = z
@@ -408,28 +389,6 @@ export const ListExtractedImagesResponseSchema = z
     images: z.array(ListExtractedImageSchema),
   })
   .openapi('ListExtractedImagesResponse');
-
-registry.registerPath({
-  method: 'post',
-  path: '/brands/{brandId}/extract-images',
-  summary: '[Deprecated] Extract brand images by category via AI',
-  description:
-    '**Deprecated: Use POST /brands/extract-images with x-brand-id header instead.**\n\n' +
-    'Image extraction endpoint. Send a list of image categories with key + description + maxCount; returns categorized images with permanent R2 URLs. ' +
-    'Results are cached per category for 30 days. Cache is scoped by (brandId, categoryKey, campaignId).',
-  deprecated: true,
-  request: {
-    params: z.object({ brandId: z.string().uuid() }),
-    body: { content: { 'application/json': { schema: ExtractImagesRequestSchema } } },
-  },
-  responses: {
-    200: { description: 'Extracted images by category', content: { 'application/json': { schema: ExtractImagesResponseSchema } } },
-    400: { description: 'Invalid request or brand has no URL' },
-    404: { description: 'Brand not found' },
-    422: { description: 'Site scraping failed' },
-    500: { description: 'Internal server error' },
-  },
-});
 
 // ── Multi-brand extract-images response schemas ─────────────────────────────
 

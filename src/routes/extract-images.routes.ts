@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
-import { extractImages, getBrandForImages } from '../services/imageExtractionService';
+import { getBrandForImages } from '../services/imageExtractionService';
 import { multiBrandExtractImages } from '../services/multiBrandImageExtractionService';
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractImagesRequestSchema } from '../schemas';
@@ -62,61 +62,6 @@ router.post('/brands/extract-images', async (req: Request, res: Response) => {
     }
     if (error.message?.includes('Brand has no URL')) {
       return res.status(400).json({ error: error.message });
-    }
-    res.status(500).json({ error: error.message || 'Failed to extract images' });
-  }
-});
-
-/**
- * POST /brands/:brandId/extract-images
- *
- * Extract brand images by category. Clients send a list of categories with
- * key + description + maxCount; the service returns categorized images with
- * permanent R2 URLs (cached or fresh).
- */
-router.post('/brands/:brandId/extract-images', async (req: Request, res: Response) => {
-  try {
-    const { brandId } = req.params;
-    if (!UUID_REGEX.test(brandId)) {
-      return res.status(400).json({ error: 'Invalid brandId format: must be a UUID' });
-    }
-
-    const parsed = ExtractImagesRequestSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
-    }
-
-    const brand = await getBrandForImages(brandId);
-    if (!brand) {
-      return res.status(404).json({ error: 'Brand not found' });
-    }
-    if (!brand.url) {
-      return res.status(400).json({
-        error: 'Brand has no URL',
-        hint: 'Use POST /brands to register a brand with a URL first.',
-      });
-    }
-
-    const results = await extractImages({
-      brandId,
-      categories: parsed.data.categories,
-      orgId: req.orgId,
-      userId: req.userId,
-      parentRunId: req.runId!,
-      campaignId: req.campaignId,
-      featureSlug: req.featureSlug,
-      brandIdHeader: req.brandIdHeader,
-      workflowSlug: req.workflowSlug,
-      scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
-      maxWidth: parsed.data.maxWidth,
-      maxHeight: parsed.data.maxHeight,
-    });
-
-    return res.json({ brandId, results });
-  } catch (error: any) {
-    console.error('[brand-service] Extract images error:', error);
-    if (error instanceof SiteMapError) {
-      return res.status(422).json({ error: error.message });
     }
     res.status(500).json({ error: error.message || 'Failed to extract images' });
   }
