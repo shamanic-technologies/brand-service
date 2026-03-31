@@ -158,7 +158,22 @@ describe('combinedAuth middleware', () => {
       expect((mockReq as any).campaignId).toBe('camp-1');
       expect((mockReq as any).featureSlug).toBe('my-feature');
       expect((mockReq as any).brandIdHeader).toBe('brand-1');
+      expect((mockReq as any).brandIds).toEqual(['brand-1']);
       expect((mockReq as any).workflowSlug).toBe('test-workflow');
+    });
+
+    it('should parse CSV x-brand-id header into brandIds array', () => {
+      mockReq.headers = {
+        'x-api-key': 'test-valid-key',
+        'x-org-id': 'org-1',
+        'x-brand-id': 'brand-1, brand-2, brand-3',
+      };
+
+      combinedAuth(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+      expect((mockReq as any).brandIdHeader).toBe('brand-1, brand-2, brand-3');
+      expect((mockReq as any).brandIds).toEqual(['brand-1', 'brand-2', 'brand-3']);
     });
 
     it('should not set tracking properties when tracking headers absent', () => {
