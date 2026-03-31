@@ -35,12 +35,20 @@ export interface BrandMeta {
   name: string;
 }
 
+export interface BrandFieldDetail {
+  value: unknown;
+  cached: boolean;
+  extractedAt: string;
+  expiresAt: string | null;
+  sourceUrls: string[] | null;
+}
+
 /** Unified response: always brands + { value, byBrand } per field */
 export interface MultiBrandFieldsResponse {
   brands: BrandMeta[];
   fields: Record<string, {
     value: unknown;
-    byBrand: Record<string, unknown>;
+    byBrand: Record<string, BrandFieldDetail>;
   }>;
 }
 
@@ -141,19 +149,24 @@ export async function multiBrandExtractFields(
     ),
   );
 
-  // Build byBrand map (keyed by domain)
+  // Build per-brand detail map (keyed by domain → fieldKey → full result)
   const fieldKeys = fields.map((f) => f.key);
-  const byDomain: Record<string, Record<string, unknown>> = {};
+  const byDomain: Record<string, Record<string, ExtractedFieldResult>> = {};
+  // Also build a values-only map for LLM consolidation
+  const valuesByDomain: Record<string, Record<string, unknown>> = {};
 
   for (let i = 0; i < brandIds.length; i++) {
     const domain = brandsMeta[i].domain;
     const brandResults = perBrandResults[i];
 
-    const brandFields: Record<string, unknown> = {};
+    const brandDetails: Record<string, ExtractedFieldResult> = {};
+    const brandValues: Record<string, unknown> = {};
     for (const result of brandResults) {
-      brandFields[result.key] = result.value;
+      brandDetails[result.key] = result;
+      brandValues[result.key] = result.value;
     }
-    byDomain[domain] = brandFields;
+    byDomain[domain] = brandDetails;
+    valuesByDomain[domain] = brandValues;
   }
 
   // Determine `value` per field: direct value for single brand, LLM-consolidated for multiple
@@ -161,7 +174,7 @@ export async function multiBrandExtractFields(
 
   if (brandIds.length === 1) {
     const domain = brandsMeta[0].domain;
-    valueMap = { ...byDomain[domain] };
+    valueMap = { ...valuesByDomain[domain] };
   } else {
     const tracking: TrackingHeaders = {
       orgId,
@@ -173,15 +186,18 @@ export async function multiBrandExtractFields(
       workflowSlug,
     };
     console.log(`[brand-service] Consolidating fields across ${brandIds.length} brands`);
-    valueMap = await consolidateFields(fieldKeys, byDomain, tracking);
+    valueMap = await consolidateFields(fieldKeys, valuesByDomain, tracking);
   }
 
-  // Build unified response
-  const responseFields: Record<string, { value: unknown; byBrand: Record<string, unknown> }> = {};
+  // Build unified response with full metadata in byBrand
+  const responseFields: Record<string, { value: unknown; byBrand: Record<string, BrandFieldDetail> }> = {};
   for (const key of fieldKeys) {
-    const perBrand: Record<string, unknown> = {};
-    for (const [domain, brandFields] of Object.entries(byDomain)) {
-      perBrand[domain] = brandFields[key] ?? null;
+    const perBrand: Record<string, BrandFieldDetail> = {};
+    for (const [domain, brandDetails] of Object.entries(byDomain)) {
+      const detail = brandDetails[key];
+      perBrand[domain] = detail
+        ? { value: detail.value, cached: detail.cached, extractedAt: detail.extractedAt, expiresAt: detail.expiresAt, sourceUrls: detail.sourceUrls }
+        : { value: null, cached: false, extractedAt: new Date().toISOString(), expiresAt: null, sourceUrls: null };
     }
     responseFields[key] = {
       value: valueMap[key] ?? null,
