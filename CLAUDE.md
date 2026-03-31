@@ -1,6 +1,6 @@
 # Project: brand-service
 
-Microservice for managing brand information, sales profiles, media assets, organizations, and AI-powered content analysis.
+Microservice for managing brand information, media assets, organizations, and AI-powered content analysis.
 
 ## Commands
 

@@ -127,6 +127,13 @@
       "when": 1775193600000,
       "tag": "0017_white_thing",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1775280000000,
+      "tag": "0018_drop_brand_sales_profiles",
+      "breakpoints": true
     }
   ]
 }

@@ -179,7 +179,6 @@ Every authenticated request must include identity headers:
 Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 
 - `brands` — keyed by `org_id` (client-service UUID, NOT NULL)
-- `brand_sales_profiles` — AI-extracted profiles with leadership, funding, awards, revenue milestones, rich testimonials
 - `brand_linkedin_posts`
 - `individuals`, `brand_individuals`, `individuals_pdl_enrichment`
 - `media_assets`, `supabase_storage`

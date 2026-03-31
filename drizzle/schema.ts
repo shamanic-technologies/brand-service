@@ -279,36 +279,6 @@ export const brandLinkedinPosts = pgTable("brand_linkedin_posts", {
 	unique("organizations_linkedin_posts_linkedin_post_id_key").on(table.linkedinPostId),
 ]);
 
-export const brandSalesProfiles = pgTable("brand_sales_profiles", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	brandId: uuid("brand_id").notNull(),
-	companyName: text("company_name"),
-	valueProposition: text("value_proposition"),
-	customerPainPoints: jsonb("customer_pain_points"),
-	callToAction: text("call_to_action"),
-	socialProof: jsonb("social_proof"),
-	companyOverview: text("company_overview"),
-	additionalContext: text("additional_context"),
-	competitors: jsonb(),
-	productDifferentiators: jsonb("product_differentiators"),
-	targetAudience: text("target_audience"),
-	keyFeatures: jsonb("key_features"),
-	extractionModel: text("extraction_model"),
-	sourceScrapeIds: jsonb("source_scrape_ids"),
-	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("idx_sales_profiles_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
-	foreignKey({
-			columns: [table.brandId],
-			foreignColumns: [brands.id],
-			name: "organization_sales_profiles_organization_id_fkey"
-		}).onDelete("cascade"),
-	unique("organization_sales_profiles_organization_id_key").on(table.brandId),
-]);
-
 export const scrapedUrlFirecrawl = pgTable("scraped_url_firecrawl", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
