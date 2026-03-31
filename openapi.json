@@ -267,137 +267,6 @@
           "expiresAt"
         ]
       },
-      "ExtractFieldsResponse": {
-        "type": "object",
-        "properties": {
-          "brandId": {
-            "type": "string"
-          },
-          "results": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ExtractedFieldResult"
-            }
-          }
-        },
-        "required": [
-          "brandId",
-          "results"
-        ]
-      },
-      "ExtractedFieldResult": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "value": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "array",
-                "items": {
-                  "nullable": true
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": {
-                  "nullable": true
-                }
-              },
-              {
-                "nullable": true
-              }
-            ],
-            "description": "Extracted value. Type depends on the field: string for simple values (e.g. companyOverview, valueProposition), array for list values (e.g. targetAudience, keyFeatures, customerPainPoints), object for structured values (e.g. socialProof with metrics/ecosystemSupport, funding with backers/investors), or null if not found on the site.",
-            "examples": [
-              "SaaS platform for developer tools",
-              [
-                "Enterprise developers",
-                "DevOps teams",
-                "CTOs"
-              ],
-              {
-                "metrics": {
-                  "users": 1491
-                },
-                "ecosystemSupport": [
-                  "Backed by Acme Corp"
-                ]
-              },
-              null
-            ]
-          },
-          "cached": {
-            "type": "boolean"
-          },
-          "extractedAt": {
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": "string",
-            "nullable": true
-          },
-          "sourceUrls": {
-            "type": "array",
-            "nullable": true,
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "key",
-          "value",
-          "cached",
-          "extractedAt",
-          "expiresAt",
-          "sourceUrls"
-        ]
-      },
-      "ExtractFieldsRequest": {
-        "type": "object",
-        "properties": {
-          "fields": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ExtractFieldItem"
-            },
-            "minItems": 1,
-            "maxItems": 50
-          },
-          "scrapeCacheTtlDays": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 365,
-            "description": "How many days to cache scraped page content and URL maps. Default 180 (6 months). Use lower values (e.g. 1–7) for fast-changing sites like client blogs. Use higher values (e.g. 180–365) for stable pages like journalist profiles or company about pages.",
-            "example": 180
-          }
-        },
-        "required": [
-          "fields"
-        ]
-      },
-      "ExtractFieldItem": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "minLength": 1
-          },
-          "description": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "key",
-          "description"
-        ]
-      },
       "MultiBrandExtractFieldsResponse": {
         "type": "object",
         "properties": {
@@ -501,25 +370,69 @@
           "byBrand"
         ]
       },
-      "ExtractImagesResponse": {
+      "ExtractFieldsRequest": {
         "type": "object",
         "properties": {
-          "brandId": {
-            "type": "string"
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractFieldItem"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "scrapeCacheTtlDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "description": "How many days to cache scraped page content and URL maps. Default 180 (6 months). Use lower values (e.g. 1–7) for fast-changing sites like client blogs. Use higher values (e.g. 180–365) for stable pages like journalist profiles or company about pages.",
+            "example": 180
+          }
+        },
+        "required": [
+          "fields"
+        ]
+      },
+      "ExtractFieldItem": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "key",
+          "description"
+        ]
+      },
+      "MultiBrandExtractImagesResponse": {
+        "type": "object",
+        "properties": {
+          "brands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BrandMeta"
+            },
+            "description": "Metadata for each brand in the request"
           },
           "results": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ExtractedImageCategoryResult"
+              "$ref": "#/components/schemas/MultiBrandImageCategoryResult"
             }
           }
         },
         "required": [
-          "brandId",
+          "brands",
           "results"
         ]
       },
-      "ExtractedImageCategoryResult": {
+      "MultiBrandImageCategoryResult": {
         "type": "object",
         "properties": {
           "category": {
@@ -529,12 +442,24 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExtractedImage"
-            }
+            },
+            "description": "Primary images: the brand images (1 brand) or relevance-sorted merge (N brands)"
+          },
+          "byBrand": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ExtractedImage"
+              }
+            },
+            "description": "Per-brand images keyed by brand domain"
           }
         },
         "required": [
           "category",
-          "images"
+          "images",
+          "byBrand"
         ]
       },
       "ExtractedImage": {
@@ -634,58 +559,6 @@
           "key",
           "description",
           "maxCount"
-        ]
-      },
-      "MultiBrandExtractImagesResponse": {
-        "type": "object",
-        "properties": {
-          "brands": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/BrandMeta"
-            },
-            "description": "Metadata for each brand in the request"
-          },
-          "results": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MultiBrandImageCategoryResult"
-            }
-          }
-        },
-        "required": [
-          "brands",
-          "results"
-        ]
-      },
-      "MultiBrandImageCategoryResult": {
-        "type": "object",
-        "properties": {
-          "category": {
-            "type": "string"
-          },
-          "images": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ExtractedImage"
-            },
-            "description": "Primary images: the brand images (1 brand) or relevance-sorted merge (N brands)"
-          },
-          "byBrand": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/ExtractedImage"
-              }
-            },
-            "description": "Per-brand images keyed by brand domain"
-          }
-        },
-        "required": [
-          "category",
-          "images",
-          "byBrand"
         ]
       },
       "ListExtractedImagesResponse": {
@@ -1318,57 +1191,6 @@
         }
       }
     },
-    "/brands/{brandId}/extract-fields": {
-      "post": {
-        "summary": "[Deprecated] Extract arbitrary fields from a brand via AI",
-        "description": "**Deprecated: Use POST /brands/extract-fields with x-brand-id header instead.**\n\nGeneric field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days. Cache is scoped by (brandId, fieldKey, campaignId).",
-        "deprecated": true,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "brandId",
-            "in": "path"
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ExtractFieldsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Extracted fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExtractFieldsResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request or brand has no URL"
-          },
-          "404": {
-            "description": "Brand not found"
-          },
-          "422": {
-            "description": "Site scraping failed"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/brands/extract-fields": {
       "post": {
         "summary": "Extract fields from one or more brands via AI",
@@ -1408,57 +1230,6 @@
           },
           "400": {
             "description": "Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL"
-          },
-          "404": {
-            "description": "Brand not found"
-          },
-          "422": {
-            "description": "Site scraping failed"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/brands/{brandId}/extract-images": {
-      "post": {
-        "summary": "[Deprecated] Extract brand images by category via AI",
-        "description": "**Deprecated: Use POST /brands/extract-images with x-brand-id header instead.**\n\nImage extraction endpoint. Send a list of image categories with key + description + maxCount; returns categorized images with permanent R2 URLs. Results are cached per category for 30 days. Cache is scoped by (brandId, categoryKey, campaignId).",
-        "deprecated": true,
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "brandId",
-            "in": "path"
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ExtractImagesRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Extracted images by category",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExtractImagesResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request or brand has no URL"
           },
           "404": {
             "description": "Brand not found"

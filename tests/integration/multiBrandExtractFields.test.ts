@@ -89,13 +89,4 @@ describe('POST /brands/extract-fields (multi-brand, header-based)', () => {
     expect(res.status).toBe(401);
   });
 
-  it('should still serve the deprecated /:brandId endpoint', async () => {
-    const res = await request(app)
-      .post('/brands/00000000-0000-0000-0000-000000000099/extract-fields')
-      .set(getAuthHeaders())
-      .send({ fields: [{ key: 'industry', description: 'Brand industry' }] });
-
-    expect(res.status).toBe(404);
-    expect(res.body.error).toBe('Brand not found');
-  });
 });
