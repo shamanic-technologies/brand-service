@@ -383,7 +383,10 @@ export async function extractImages(
 
   for (const cat of categories) {
     const cachedImages = cached.get(cat.key);
-    if (cachedImages && cachedImages.length >= cat.maxCount) {
+    // Cache hit if ANY non-expired images exist for this category.
+    // A previous extraction that found fewer than maxCount means the brand
+    // simply doesn't have more images — re-extracting won't find new ones.
+    if (cachedImages && cachedImages.length > 0) {
       cachedResults.push({ category: cat.key, images: cachedImages.slice(0, cat.maxCount) });
     } else {
       missingCategories.push(cat);

@@ -6,6 +6,7 @@
  * across all brands.
  */
 
+import crypto from 'crypto';
 import { extractFields, getBrand, FieldSpec, ExtractedFieldResult } from './fieldExtractionService';
 import { chatComplete, TrackingHeaders } from '../lib/chat-client';
 
@@ -50,6 +51,54 @@ export interface MultiBrandFieldsResponse {
     value: unknown;
     byBrand: Record<string, BrandFieldDetail>;
   }>;
+}
+
+// ─── Consolidated fields cache ───────────────────────────────────────────────
+// In-memory cache for LLM-consolidated multi-brand field values.
+// Keyed by a deterministic hash of (sorted brand IDs + sorted field keys + campaignId + per-brand values).
+// Survives for the lifetime of the process; one extra LLM call per redeploy is acceptable.
+
+interface ConsolidatedCacheEntry {
+  values: Record<string, unknown>;
+  expiresAt: number; // epoch ms
+}
+
+const consolidatedCache = new Map<string, ConsolidatedCacheEntry>();
+
+/** Build a deterministic cache key from inputs + per-brand values. */
+function buildConsolidatedCacheKey(
+  brandIds: string[],
+  fieldKeys: string[],
+  valuesByDomain: Record<string, Record<string, unknown>>,
+  campaignId?: string,
+): string {
+  const payload = JSON.stringify({
+    brands: [...brandIds].sort(),
+    fields: [...fieldKeys].sort(),
+    campaign: campaignId ?? '',
+    values: Object.keys(valuesByDomain)
+      .sort()
+      .map((domain) => [domain, valuesByDomain[domain]]),
+  });
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+function getCachedConsolidated(key: string): Record<string, unknown> | null {
+  const entry = consolidatedCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    consolidatedCache.delete(key);
+    return null;
+  }
+  return entry.values;
+}
+
+function setCachedConsolidated(
+  key: string,
+  values: Record<string, unknown>,
+  minExpiresAt: number,
+): void {
+  consolidatedCache.set(key, { values, expiresAt: minExpiresAt });
 }
 
 /**
@@ -176,17 +225,35 @@ export async function multiBrandExtractFields(
     const domain = brandsMeta[0].domain;
     valueMap = { ...valuesByDomain[domain] };
   } else {
-    const tracking: TrackingHeaders = {
-      orgId,
-      userId,
-      runId: parentRunId,
-      campaignId,
-      featureSlug,
-      brandId: brandIdHeader,
-      workflowSlug,
-    };
-    console.log(`[brand-service] Consolidating fields across ${brandIds.length} brands`);
-    valueMap = await consolidateFields(fieldKeys, valuesByDomain, tracking);
+    // Check consolidated cache — keyed by brand IDs + field keys + campaign + per-brand values
+    const cacheKey = buildConsolidatedCacheKey(brandIds, fieldKeys, valuesByDomain, campaignId);
+    const cachedConsolidated = getCachedConsolidated(cacheKey);
+
+    if (cachedConsolidated) {
+      console.log(`[brand-service] Consolidated fields cache hit for ${brandIds.length} brands`);
+      valueMap = cachedConsolidated;
+    } else {
+      const tracking: TrackingHeaders = {
+        orgId,
+        userId,
+        runId: parentRunId,
+        campaignId,
+        featureSlug,
+        brandId: brandIdHeader,
+        workflowSlug,
+      };
+      console.log(`[brand-service] Consolidating fields across ${brandIds.length} brands`);
+      valueMap = await consolidateFields(fieldKeys, valuesByDomain, tracking);
+
+      // Cache the consolidated result. Expires at the earliest per-brand expiry.
+      const allExpiries = Object.values(byDomain)
+        .flatMap((details) => Object.values(details))
+        .map((d) => d.expiresAt ? new Date(d.expiresAt).getTime() : Infinity)
+        .filter((t) => t !== Infinity);
+      const minExpiry = allExpiries.length > 0 ? Math.min(...allExpiries) : Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+      setCachedConsolidated(cacheKey, valueMap, minExpiry);
+    }
   }
 
   // Build unified response with full metadata in byBrand
