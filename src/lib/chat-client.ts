@@ -6,10 +6,27 @@
  */
 
 import axios from 'axios';
+import http from 'http';
 
 const CHAT_SERVICE_URL =
   process.env.CHAT_SERVICE_URL || 'https://chat.distribute.you';
 const CHAT_SERVICE_API_KEY = process.env.CHAT_SERVICE_API_KEY || '';
+
+/** Dedicated agent with keepAlive disabled to avoid stale-socket "hang up" errors on Railway internal networking. */
+const httpAgent = new http.Agent({ keepAlive: false });
+
+const MAX_RETRIES = 2;
+
+function isSocketHangUp(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: string }).code;
+  const msg = err.message;
+  return (
+    code === 'ECONNRESET' ||
+    code === 'EPIPE' ||
+    msg.includes('socket hang up')
+  );
+}
 
 export interface ChatCompleteParams {
   message: string;
@@ -59,20 +76,36 @@ export async function chatComplete(
   if (tracking.brandId) headers['x-brand-id'] = tracking.brandId;
   if (tracking.workflowSlug) headers['x-workflow-slug'] = tracking.workflowSlug;
 
-  const response = await axios.post<ChatCompleteResult>(
-    `${CHAT_SERVICE_URL}/complete`,
-    {
-      message: params.message,
-      systemPrompt: params.systemPrompt,
-      ...(params.responseFormat && { responseFormat: params.responseFormat }),
-      ...(params.temperature !== undefined && { temperature: params.temperature }),
-      ...(params.maxTokens !== undefined && { maxTokens: params.maxTokens }),
-      ...(params.imageUrl && { imageUrl: params.imageUrl }),
-      ...(params.imageContext && { imageContext: params.imageContext }),
-      ...(params.model && { model: params.model }),
-    },
-    { headers, timeout: 120_000 },
-  );
+  const body = {
+    message: params.message,
+    systemPrompt: params.systemPrompt,
+    ...(params.responseFormat && { responseFormat: params.responseFormat }),
+    ...(params.temperature !== undefined && { temperature: params.temperature }),
+    ...(params.maxTokens !== undefined && { maxTokens: params.maxTokens }),
+    ...(params.imageUrl && { imageUrl: params.imageUrl }),
+    ...(params.imageContext && { imageContext: params.imageContext }),
+    ...(params.model && { model: params.model }),
+  };
 
-  return response.data;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await axios.post<ChatCompleteResult>(
+        `${CHAT_SERVICE_URL}/complete`,
+        body,
+        { headers, timeout: 120_000, httpAgent },
+      );
+      return response.data;
+    } catch (err) {
+      if (isSocketHangUp(err) && attempt < MAX_RETRIES) {
+        console.warn(
+          `[brand-service] Socket hang up on chat-service call (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying...`,
+        );
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  // Unreachable — the loop always returns or throws — but satisfies TypeScript.
+  throw new Error('[brand-service] chatComplete: exhausted retries');
 }
