@@ -269,11 +269,19 @@ registry.registerPath({
 
 // ── Multi-brand extract-fields response schemas ─────────────────────────────
 
+export const BrandMetaSchema = z
+  .object({
+    brandId: z.string().uuid().openapi({ description: 'Brand UUID' }),
+    domain: z.string().openapi({ description: 'Brand domain (e.g. "acme.com")' }),
+    name: z.string().openapi({ description: 'Brand display name' }),
+  })
+  .openapi('BrandMeta');
+
 export const MultiBrandFieldValueSchema = z
   .object({
-    consolidated: z
+    value: z
       .union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown()), z.null()])
-      .openapi({ description: 'Merged/consolidated value across all brands' }),
+      .openapi({ description: 'Primary value: the brand value (1 brand) or LLM-consolidated (N brands)' }),
     byBrand: z
       .record(z.string(), z.union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown()), z.null()]))
       .openapi({ description: 'Per-brand values keyed by brand domain' }),
@@ -282,18 +290,8 @@ export const MultiBrandFieldValueSchema = z
 
 export const MultiBrandExtractFieldsResponseSchema = z
   .object({
-    fields: z.record(
-      z.string(),
-      z.union([
-        // Single brand: flat value
-        z.string(),
-        z.array(z.unknown()),
-        z.record(z.string(), z.unknown()),
-        z.null(),
-        // Multi-brand: consolidated + byBrand
-        MultiBrandFieldValueSchema,
-      ]),
-    ),
+    brands: z.array(BrandMetaSchema).openapi({ description: 'Metadata for each brand in the request' }),
+    fields: z.record(z.string(), MultiBrandFieldValueSchema),
   })
   .openapi('MultiBrandExtractFieldsResponse');
 
@@ -303,9 +301,9 @@ registry.registerPath({
   summary: 'Extract fields from one or more brands via AI',
   description:
     'Multi-brand field extraction endpoint. Read brand IDs from the x-brand-id header (comma-separated UUIDs). ' +
-    'For a single brand, returns flat key→value fields: `{ fields: { "industry": "SaaS" } }`. ' +
-    'For multiple brands, returns each field with a `consolidated` merged view and `byBrand` keyed by domain: ' +
-    '`{ fields: { "industry": { consolidated: "SaaS & FinTech", byBrand: { "acme.com": "SaaS", "finpay.io": "FinTech" } } } }`. ' +
+    'Returns a unified format: `{ brands: [...], fields: { key: { value, byBrand } } }`. ' +
+    '`value` is the single brand value (1 brand) or LLM-consolidated (N brands). ' +
+    '`byBrand` is always present, keyed by domain. Same shape regardless of brand count. ' +
     'Results are cached per field for 30 days, scoped by (brandId, fieldKey, campaignId).',
   request: {
     headers: z.object({
@@ -317,7 +315,7 @@ registry.registerPath({
     body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
   },
   responses: {
-    200: { description: 'Extracted fields (format depends on brand count)', content: { 'application/json': { schema: MultiBrandExtractFieldsResponseSchema } } },
+    200: { description: 'Extracted fields with brands metadata', content: { 'application/json': { schema: MultiBrandExtractFieldsResponseSchema } } },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed' },
@@ -438,21 +436,15 @@ registry.registerPath({
 export const MultiBrandImageCategoryResultSchema = z
   .object({
     category: z.string(),
-    consolidated: z.array(ExtractedImageSchema).openapi({ description: 'Merged set of the most relevant images across all brands, sorted by relevance' }),
+    images: z.array(ExtractedImageSchema).openapi({ description: 'Primary images: the brand images (1 brand) or relevance-sorted merge (N brands)' }),
     byBrand: z.record(z.string(), z.array(ExtractedImageSchema)).openapi({ description: 'Per-brand images keyed by brand domain' }),
   })
   .openapi('MultiBrandImageCategoryResult');
 
 export const MultiBrandExtractImagesResponseSchema = z
   .object({
-    results: z.array(
-      z.union([
-        // Single brand: same as today
-        ExtractedImageCategoryResultSchema,
-        // Multi-brand: consolidated + byBrand
-        MultiBrandImageCategoryResultSchema,
-      ]),
-    ),
+    brands: z.array(BrandMetaSchema).openapi({ description: 'Metadata for each brand in the request' }),
+    results: z.array(MultiBrandImageCategoryResultSchema),
   })
   .openapi('MultiBrandExtractImagesResponse');
 
@@ -462,8 +454,9 @@ registry.registerPath({
   summary: 'Extract images from one or more brands via AI',
   description:
     'Multi-brand image extraction endpoint. Read brand IDs from the x-brand-id header (comma-separated UUIDs). ' +
-    'For a single brand, returns standard category→images results. For multiple brands, returns each category with ' +
-    '`consolidated` (merged by relevance) and `byBrand` (keyed by domain) image arrays. ' +
+    'Returns a unified format: `{ brands: [...], results: [{ category, images, byBrand }] }`. ' +
+    '`images` is the brand images (1 brand) or relevance-sorted merge (N brands). ' +
+    '`byBrand` is always present, keyed by domain. Same shape regardless of brand count. ' +
     'Images are classified via vision LLM and uploaded to Cloudflare R2. Results cached per (brandId, categoryKey, campaignId) for 30 days.',
   request: {
     headers: z.object({
@@ -475,7 +468,7 @@ registry.registerPath({
     body: { content: { 'application/json': { schema: ExtractImagesRequestSchema } } },
   },
   responses: {
-    200: { description: 'Extracted images (format depends on brand count)', content: { 'application/json': { schema: MultiBrandExtractImagesResponseSchema } } },
+    200: { description: 'Extracted images with brands metadata', content: { 'application/json': { schema: MultiBrandExtractImagesResponseSchema } } },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed' },
