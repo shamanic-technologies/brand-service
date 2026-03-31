@@ -53,6 +53,14 @@ function buildHeaders(tracking: CloudflareTrackingHeaders): Record<string, strin
   return headers;
 }
 
+/**
+ * Returns true if cloudflare-service is configured (both URL and API key).
+ * Call this before starting expensive pipelines that need R2 uploads.
+ */
+export function isCloudflareConfigured(): boolean {
+  return Boolean(CLOUDFLARE_SERVICE_URL) && Boolean(CLOUDFLARE_SERVICE_API_KEY);
+}
+
 export async function uploadToCloudflare(
   params: CloudflareUploadParams,
   tracking: CloudflareTrackingHeaders,

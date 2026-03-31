@@ -14,7 +14,7 @@ import axios from 'axios';
 import { db, brands, brandExtractedImages } from '../db';
 import { chatComplete, TrackingHeaders } from '../lib/chat-client';
 import { ScrapingTrackingContext } from '../lib/scraping-client';
-import { uploadToCloudflare, CloudflareTrackingHeaders } from '../lib/cloudflare-client';
+import { uploadToCloudflare, isCloudflareConfigured, CloudflareTrackingHeaders } from '../lib/cloudflare-client';
 import { createRun, updateRun } from '../lib/runs-client';
 import { getCampaignFeatureInputs } from '../lib/campaign-client';
 import { mapBrandUrls, scrapeSelectedPages } from './scrapeOrchestrator';
@@ -387,6 +387,14 @@ export async function extractImages(
   if (missingCategories.length === 0) {
     console.log(`[brand-service] [${brandId}] All ${cachedResults.length} image categories served from cache`);
     return cachedResults;
+  }
+
+  // Fail fast: if cloudflare-service is not configured, don't burn money on scraping + vision
+  if (!isCloudflareConfigured()) {
+    throw new Error(
+      'cloudflare-service is not configured (CLOUDFLARE_SERVICE_URL / CLOUDFLARE_SERVICE_API_KEY missing). ' +
+      'Cannot upload extracted images to R2.',
+    );
   }
 
   console.log(
