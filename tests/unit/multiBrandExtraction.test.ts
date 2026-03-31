@@ -63,7 +63,7 @@ describe('multiBrandExtractFields', () => {
     vi.clearAllMocks();
   });
 
-  it('should return flat key→value for single brand', async () => {
+  it('should return unified { brands, fields: { key: { value, byBrand } } } for single brand', async () => {
     mockedGetBrand.mockResolvedValue({
       id: 'brand-1',
       url: 'https://acme.com',
@@ -83,14 +83,15 @@ describe('multiBrandExtractFields', () => {
     });
 
     expect(result).toEqual({
+      brands: [{ brandId: 'brand-1', domain: 'acme.com', name: 'Acme' }],
       fields: {
-        industry: 'SaaS tools',
-        size: '100-500',
+        industry: { value: 'SaaS tools', byBrand: { 'acme.com': 'SaaS tools' } },
+        size: { value: '100-500', byBrand: { 'acme.com': '100-500' } },
       },
     });
   });
 
-  it('should return consolidated + byBrand for multiple brands', async () => {
+  it('should return unified format with LLM-consolidated value for multiple brands', async () => {
     mockedGetBrand
       .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
       .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
@@ -119,9 +120,13 @@ describe('multiBrandExtractFields', () => {
     });
 
     expect(result).toEqual({
+      brands: [
+        { brandId: 'brand-1', domain: 'acme.com', name: 'Acme' },
+        { brandId: 'brand-2', domain: 'finpay.io', name: 'FinPay' },
+      ],
       fields: {
         industry: {
-          consolidated: 'SaaS & FinTech solutions for SMBs',
+          value: 'SaaS & FinTech solutions for SMBs',
           byBrand: {
             'acme.com': 'SaaS productivity tools',
             'finpay.io': 'FinTech payment processing',
@@ -168,28 +173,26 @@ describe('multiBrandExtractImages', () => {
     vi.clearAllMocks();
   });
 
-  it('should return standard results for single brand', async () => {
+  it('should return unified { brands, results } for single brand', async () => {
     mockedGetBrandForImages.mockResolvedValue({
       id: 'brand-1',
       url: 'https://acme.com',
       name: 'Acme',
       domain: 'acme.com',
     });
+    const acmeLogo = {
+      originalUrl: 'https://acme.com/logo.png',
+      permanentUrl: 'https://r2.example.com/logo.png',
+      description: 'Acme logo',
+      width: 200,
+      height: 100,
+      format: 'png',
+      sizeBytes: 5000,
+      relevanceScore: 0.9,
+      cached: false,
+    };
     mockedExtractImages.mockResolvedValue([
-      {
-        category: 'logo',
-        images: [{
-          originalUrl: 'https://acme.com/logo.png',
-          permanentUrl: 'https://r2.example.com/logo.png',
-          description: 'Acme logo',
-          width: 200,
-          height: 100,
-          format: 'png',
-          sizeBytes: 5000,
-          relevanceScore: 0.9,
-          cached: false,
-        }],
-      },
+      { category: 'logo', images: [acmeLogo] },
     ]);
 
     const result = await multiBrandExtractImages({
@@ -200,24 +203,16 @@ describe('multiBrandExtractImages', () => {
     });
 
     expect(result).toEqual({
+      brands: [{ brandId: 'brand-1', domain: 'acme.com', name: 'Acme' }],
       results: [{
         category: 'logo',
-        images: [{
-          originalUrl: 'https://acme.com/logo.png',
-          permanentUrl: 'https://r2.example.com/logo.png',
-          description: 'Acme logo',
-          width: 200,
-          height: 100,
-          format: 'png',
-          sizeBytes: 5000,
-          relevanceScore: 0.9,
-          cached: false,
-        }],
+        images: [acmeLogo],
+        byBrand: { 'acme.com': [acmeLogo] },
       }],
     });
   });
 
-  it('should return consolidated + byBrand for multiple brands', async () => {
+  it('should return unified format with merged images for multiple brands', async () => {
     mockedGetBrandForImages
       .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
       .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
@@ -248,11 +243,14 @@ describe('multiBrandExtractImages', () => {
       parentRunId: 'run-1',
     });
 
-    // Multi-brand: consolidated sorted by relevance, byBrand keyed by domain
     expect(result).toEqual({
+      brands: [
+        { brandId: 'brand-1', domain: 'acme.com', name: 'Acme' },
+        { brandId: 'brand-2', domain: 'finpay.io', name: 'FinPay' },
+      ],
       results: [{
         category: 'logo',
-        consolidated: [acmeLogo, finpayLogo], // sorted by relevanceScore descending
+        images: [acmeLogo, finpayLogo], // sorted by relevanceScore descending
         byBrand: {
           'acme.com': [acmeLogo],
           'finpay.io': [finpayLogo],
