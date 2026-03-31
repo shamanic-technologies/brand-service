@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
+// Import AxiosError from the real module before mocking
+const { AxiosError: RealAxiosError } = await vi.importActual<typeof import('axios')>('axios');
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
 
+function makeSocketHangUpError() {
+  const err = new RealAxiosError('socket hang up');
+  err.code = 'ECONNRESET';
+  return err;
+}
+
 describe('chat-client', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it('should call chat-service /complete with correct headers and body', async () => {
@@ -142,5 +150,71 @@ describe('chat-client', () => {
         { orgId: 'org_123' },
       ),
     ).rejects.toThrow('502');
+  });
+
+  it('should retry on socket hang up and succeed on second attempt', async () => {
+    const successData = { content: 'ok', tokensInput: 10, tokensOutput: 5, model: 'test' };
+    mockedAxios.post
+      .mockRejectedValueOnce(makeSocketHangUpError())
+      .mockResolvedValueOnce({ data: successData });
+
+    const { chatComplete } = await import('../../src/lib/chat-client');
+
+    const result = await chatComplete(
+      { message: 'test', systemPrompt: 'test' },
+      { orgId: 'org_123' },
+    );
+
+    expect(result).toEqual(successData);
+    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('should throw after exhausting retries on socket hang up', async () => {
+    mockedAxios.post
+      .mockRejectedValueOnce(makeSocketHangUpError())
+      .mockRejectedValueOnce(makeSocketHangUpError())
+      .mockRejectedValueOnce(makeSocketHangUpError());
+
+    const { chatComplete } = await import('../../src/lib/chat-client');
+
+    await expect(
+      chatComplete(
+        { message: 'test', systemPrompt: 'test' },
+        { orgId: 'org_123' },
+      ),
+    ).rejects.toThrow('socket hang up');
+    // 1 initial + 2 retries = 3 total attempts
+    expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+  });
+
+  it('should not retry on non-transient errors', async () => {
+    mockedAxios.post.mockRejectedValueOnce(new RealAxiosError('Bad Request', '400'));
+
+    const { chatComplete } = await import('../../src/lib/chat-client');
+
+    await expect(
+      chatComplete(
+        { message: 'test', systemPrompt: 'test' },
+        { orgId: 'org_123' },
+      ),
+    ).rejects.toThrow('Bad Request');
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('should pass httpAgent in request config', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: { content: 'test', tokensInput: 10, tokensOutput: 5, model: 'test' },
+    });
+
+    const { chatComplete } = await import('../../src/lib/chat-client');
+
+    await chatComplete(
+      { message: 'test', systemPrompt: 'test' },
+      { orgId: 'org_123' },
+    );
+
+    const config = mockedAxios.post.mock.calls[0][2] as Record<string, any>;
+    expect(config.httpAgent).toBeDefined();
+    expect(config.httpAgent.keepAlive).toBe(false);
   });
 });
