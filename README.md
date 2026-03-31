@@ -186,6 +186,7 @@ Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 - `media_assets`, `supabase_storage`
 - `intake_forms`, `brand_thesis`
 - `brand_extracted_images` — AI-extracted brand images with categories, R2 URLs, relevance scores
+- `consolidated_field_cache` — DB-backed cache for LLM-consolidated multi-brand field values
 - `brand_relations`, `web_pages`, `scraped_url_firecrawl`
 
 Run/cost tracking is handled by runs-service (see `src/lib/runs-client.ts`).
