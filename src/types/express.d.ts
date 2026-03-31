@@ -9,6 +9,8 @@ declare global {
       campaignId?: string;
       featureSlug?: string;
       brandIdHeader?: string;
+      /** Parsed brand IDs from x-brand-id header (CSV-split) */
+      brandIds?: string[];
       workflowSlug?: string;
     }
   }

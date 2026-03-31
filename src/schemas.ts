@@ -251,8 +251,8 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/brands/{brandId}/extract-fields',
-  summary: 'Extract arbitrary fields from a brand via AI',
-  description: 'Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days. Scraped page content and URL maps are cached in DB for `scrapeCacheTtlDays` (default 180 days / 6 months) — this cache survives redeploys. Use lower values (1–7 days) for fast-changing sites, higher values (180–365) for stable pages like journalist profiles. When x-campaign-id header is present, the campaign featureInputs are automatically fetched from campaign-service and injected into LLM prompts for context-aware extraction. Cache is scoped by (brandId, fieldKey, campaignId).',
+  summary: 'Extract arbitrary fields from a brand via AI (single brand)',
+  description: 'Generic field extraction endpoint. Send a list of fields with key + description; returns extracted values. Results are cached per field for 30 days. Scraped page content and URL maps are cached in DB for `scrapeCacheTtlDays` (default 180 days / 6 months) — this cache survives redeploys. Use lower values (1–7 days) for fast-changing sites, higher values (180–365) for stable pages like journalist profiles. When x-campaign-id header is present, the campaign featureInputs are automatically fetched from campaign-service and injected into LLM prompts for context-aware extraction. Cache is scoped by (brandId, fieldKey, campaignId). Prefer POST /brands/extract-fields (header-based) for new integrations.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
@@ -260,6 +260,45 @@ registry.registerPath({
   responses: {
     200: { description: 'Extracted fields', content: { 'application/json': { schema: ExtractFieldsResponseSchema } } },
     400: { description: 'Invalid request or brand has no URL' },
+    404: { description: 'Brand not found' },
+    422: { description: 'Site scraping failed' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+export const MultiBrandExtractFieldsResultSchema = z
+  .object({
+    brandId: z.string().uuid(),
+    results: z.array(ExtractedFieldResultSchema),
+  })
+  .openapi('MultiBrandExtractFieldsResult');
+
+export const MultiBrandExtractFieldsResponseSchema = z
+  .object({
+    results: z.array(MultiBrandExtractFieldsResultSchema),
+  })
+  .openapi('MultiBrandExtractFieldsResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/brands/extract-fields',
+  summary: 'Extract fields from multiple brands via AI (header-based)',
+  description:
+    'Multi-brand field extraction endpoint. Reads brand IDs from the x-brand-id header (comma-separated UUIDs, e.g. "uuid1,uuid2,uuid3"). ' +
+    'Extracts the requested fields for each brand and returns results grouped by brand. ' +
+    'Same caching and campaign context behavior as the single-brand endpoint.',
+  request: {
+    headers: z.object({
+      'x-brand-id': z.string().openapi({
+        description: 'Comma-separated brand UUIDs',
+        example: '550e8400-e29b-41d4-a716-446655440000,660e8400-e29b-41d4-a716-446655440001',
+      }),
+    }),
+    body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Extracted fields grouped by brand', content: { 'application/json': { schema: MultiBrandExtractFieldsResponseSchema } } },
+    400: { description: 'Missing x-brand-id header, invalid UUID, or invalid request body' },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed' },
     500: { description: 'Internal server error' },
@@ -355,11 +394,12 @@ export const ListExtractedImagesResponseSchema = z
 registry.registerPath({
   method: 'post',
   path: '/brands/{brandId}/extract-images',
-  summary: 'Extract brand images by category via AI',
+  summary: 'Extract brand images by category via AI (single brand)',
   description:
     'Image extraction endpoint. Send a list of image categories with key + description + maxCount; returns categorized images with permanent R2 URLs. ' +
     'Images are found by scraping the brand site, classified via vision LLM (Gemini Flash), and uploaded to Cloudflare R2 for permanent hosting. ' +
-    'Results are cached per category for 30 days. Cache is scoped by (brandId, categoryKey, campaignId).',
+    'Results are cached per category for 30 days. Cache is scoped by (brandId, categoryKey, campaignId). ' +
+    'Prefer POST /brands/extract-images (header-based) for new integrations.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: ExtractImagesRequestSchema } } },
@@ -367,6 +407,45 @@ registry.registerPath({
   responses: {
     200: { description: 'Extracted images by category', content: { 'application/json': { schema: ExtractImagesResponseSchema } } },
     400: { description: 'Invalid request or brand has no URL' },
+    404: { description: 'Brand not found' },
+    422: { description: 'Site scraping failed' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+export const MultiBrandExtractImagesResultSchema = z
+  .object({
+    brandId: z.string().uuid(),
+    results: z.array(ExtractedImageCategoryResultSchema),
+  })
+  .openapi('MultiBrandExtractImagesResult');
+
+export const MultiBrandExtractImagesResponseSchema = z
+  .object({
+    results: z.array(MultiBrandExtractImagesResultSchema),
+  })
+  .openapi('MultiBrandExtractImagesResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/brands/extract-images',
+  summary: 'Extract images from multiple brands via AI (header-based)',
+  description:
+    'Multi-brand image extraction endpoint. Reads brand IDs from the x-brand-id header (comma-separated UUIDs, e.g. "uuid1,uuid2,uuid3"). ' +
+    'Extracts the requested image categories for each brand and returns results grouped by brand. ' +
+    'Same caching and campaign context behavior as the single-brand endpoint.',
+  request: {
+    headers: z.object({
+      'x-brand-id': z.string().openapi({
+        description: 'Comma-separated brand UUIDs',
+        example: '550e8400-e29b-41d4-a716-446655440000,660e8400-e29b-41d4-a716-446655440001',
+      }),
+    }),
+    body: { content: { 'application/json': { schema: ExtractImagesRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Extracted images grouped by brand', content: { 'application/json': { schema: MultiBrandExtractImagesResponseSchema } } },
+    400: { description: 'Missing x-brand-id header, invalid UUID, or invalid request body' },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed' },
     500: { description: 'Internal server error' },

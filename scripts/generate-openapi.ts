@@ -66,7 +66,8 @@ document.components = {
       in: 'header',
       required: false,
       schema: { type: 'string' },
-      description: 'Brand ID (injected by workflow-service)',
+      description: 'Comma-separated brand UUIDs (injected by workflow-service). Example: "uuid1,uuid2,uuid3". Single UUID for single-brand campaigns.',
+      example: '550e8400-e29b-41d4-a716-446655440000,660e8400-e29b-41d4-a716-446655440001',
     },
     'X-Workflow-Slug': {
       name: 'X-Workflow-Slug',

@@ -65,7 +65,10 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
 
   if (campaignId) req.campaignId = campaignId;
   if (featureSlug) req.featureSlug = featureSlug;
-  if (brandIdHeader) req.brandIdHeader = brandIdHeader;
+  if (brandIdHeader) {
+    req.brandIdHeader = brandIdHeader;
+    req.brandIds = brandIdHeader.split(',').map(s => s.trim()).filter(Boolean);
+  }
   if (workflowSlug) req.workflowSlug = workflowSlug;
 
   return next();
