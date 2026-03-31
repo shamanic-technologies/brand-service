@@ -176,6 +176,83 @@ describe('multiBrandExtractFields', () => {
       }),
     ).rejects.toThrow('Brand has no URL');
   });
+
+  it('should use consolidated cache on second call with same per-brand values', async () => {
+    const futureExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Set up two brands for multi-brand
+    mockedGetBrand
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' })
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
+
+    mockedExtractFields
+      .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS tools', cached: true, extractedAt: '2024-01-01', expiresAt: futureExpiry, sourceUrls: ['https://acme.com/about'] }])
+      .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech payments', cached: true, extractedAt: '2024-01-05', expiresAt: futureExpiry, sourceUrls: ['https://finpay.io/'] }])
+      .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS tools', cached: true, extractedAt: '2024-01-01', expiresAt: futureExpiry, sourceUrls: ['https://acme.com/about'] }])
+      .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech payments', cached: true, extractedAt: '2024-01-05', expiresAt: futureExpiry, sourceUrls: ['https://finpay.io/'] }]);
+
+    mockedChatComplete.mockResolvedValue({
+      content: '',
+      json: { industry: 'SaaS & FinTech' },
+      tokensInput: 100,
+      tokensOutput: 50,
+      model: 'test-model',
+    });
+
+    const opts = {
+      brandIds: ['brand-1', 'brand-2'],
+      fields: [{ key: 'industry', description: 'test' }],
+      orgId: 'org-1',
+      parentRunId: 'run-1',
+    };
+
+    // First call: consolidation LLM runs
+    await multiBrandExtractFields(opts);
+    expect(mockedChatComplete).toHaveBeenCalledTimes(1);
+
+    // Second call: same per-brand values → consolidated cache hit, NO LLM call
+    await multiBrandExtractFields(opts);
+    expect(mockedChatComplete).toHaveBeenCalledTimes(1); // still 1, not 2
+  });
+
+  it('should re-consolidate when per-brand values change', async () => {
+    const futureExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    mockedGetBrand
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' })
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
+
+    mockedExtractFields
+      .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS tools', cached: true, extractedAt: '2024-01-01', expiresAt: futureExpiry, sourceUrls: [] }])
+      .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech v1', cached: true, extractedAt: '2024-01-01', expiresAt: futureExpiry, sourceUrls: [] }])
+      // Second call: brand-2 value changed (was re-extracted with new data)
+      .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS tools', cached: true, extractedAt: '2024-01-01', expiresAt: futureExpiry, sourceUrls: [] }])
+      .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech v2 updated', cached: false, extractedAt: '2024-01-10', expiresAt: futureExpiry, sourceUrls: [] }]);
+
+    mockedChatComplete
+      .mockResolvedValueOnce({ content: '', json: { industry: 'Consolidated v1' }, tokensInput: 100, tokensOutput: 50, model: 'test' })
+      .mockResolvedValueOnce({ content: '', json: { industry: 'Consolidated v2' }, tokensInput: 100, tokensOutput: 50, model: 'test' });
+
+    const opts = {
+      brandIds: ['brand-1', 'brand-2'],
+      fields: [{ key: 'industry', description: 'test' }],
+      orgId: 'org-1',
+      parentRunId: 'run-1',
+    };
+
+    const result1 = await multiBrandExtractFields(opts);
+    expect(result1.fields.industry.value).toBe('Consolidated v1');
+
+    const result2 = await multiBrandExtractFields(opts);
+    expect(result2.fields.industry.value).toBe('Consolidated v2');
+
+    // Both calls triggered LLM because per-brand values differ
+    expect(mockedChatComplete).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('multiBrandExtractImages', () => {
