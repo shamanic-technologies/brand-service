@@ -503,6 +503,7 @@ export async function extractImages(
     // 10. Vision analysis
     console.log(`[brand-service] [${brandId}] Analyzing ${validCandidates.length} images with vision...`);
     const analyzed = await batchAnalyzeImages(validCandidates, missingCategories, tracking, campaignContext);
+    console.log(`[brand-service] [${brandId}] Vision analysis returned ${analyzed.length} results`);
 
     // 11. Select best images per category
     const freshResults: ExtractedImageCategoryResult[] = [];
@@ -517,6 +518,8 @@ export async function extractImages(
         .filter((s) => s.score >= 0.3) // minimum relevance threshold
         .sort((a, b) => b.score - a.score)
         .slice(0, cat.maxCount);
+
+      console.log(`[brand-service] [${brandId}] Category "${cat.key}": ${scored.length} images above threshold (top score: ${scored[0]?.score ?? 'none'})`);
 
       const images: ExtractedImage[] = [];
 
