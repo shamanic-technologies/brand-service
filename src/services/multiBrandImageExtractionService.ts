@@ -29,16 +29,18 @@ export interface MultiBrandExtractImagesOptions {
   maxHeight?: number;
 }
 
-/** Single-brand response: standard category→images array */
-export interface SingleBrandImagesResponse {
-  results: ExtractedImageCategoryResult[];
+export interface BrandMeta {
+  brandId: string;
+  domain: string;
+  name: string;
 }
 
-/** Multi-brand response: each category has consolidated + byBrand */
+/** Unified response: always brands + { images, byBrand } per category */
 export interface MultiBrandImagesResponse {
+  brands: BrandMeta[];
   results: Array<{
     category: string;
-    consolidated: ExtractedImage[];
+    images: ExtractedImage[];
     byBrand: Record<string, ExtractedImage[]>;
   }>;
 }
@@ -46,12 +48,15 @@ export interface MultiBrandImagesResponse {
 /**
  * Extract images from one or more brands.
  *
- * - 1 brand → returns SingleBrandImagesResponse (same as today)
- * - 2+ brands → returns MultiBrandImagesResponse (consolidated + byBrand per category)
+ * Unified response format regardless of brand count:
+ * { brands: [...], results: [{ category, images, byBrand }] }
+ *
+ * `images` = single brand's images (1 brand) or relevance-sorted merge (N brands).
+ * `byBrand` = per-brand images keyed by domain.
  */
 export async function multiBrandExtractImages(
   options: MultiBrandExtractImagesOptions,
-): Promise<SingleBrandImagesResponse | MultiBrandImagesResponse> {
+): Promise<MultiBrandImagesResponse> {
   const {
     brandIds, categories, orgId, userId, parentRunId,
     campaignId, featureSlug, brandIdHeader, workflowSlug,
@@ -73,6 +78,16 @@ export async function multiBrandExtractImages(
     brandsMap.set(brandIds[i], brand);
   }
 
+  // Build brands metadata array
+  const brandsMeta: BrandMeta[] = brandIds.map((id) => {
+    const brand = brandsMap.get(id)!;
+    return {
+      brandId: id,
+      domain: brand.domain || new URL(brand.url!).hostname,
+      name: brand.name || brand.domain || new URL(brand.url!).hostname,
+    };
+  });
+
   // Extract images for each brand in parallel
   const perBrandResults = await Promise.all(
     brandIds.map((brandId) =>
@@ -93,12 +108,7 @@ export async function multiBrandExtractImages(
     ),
   );
 
-  // Single brand: return same format as today
-  if (brandIds.length === 1) {
-    return { results: perBrandResults[0] };
-  }
-
-  // Multi-brand: build consolidated + byBrand per category
+  // Build unified results per category
   const results: MultiBrandImagesResponse['results'] = [];
 
   for (const cat of categories) {
@@ -106,25 +116,24 @@ export async function multiBrandExtractImages(
     const allImages: ExtractedImage[] = [];
 
     for (let i = 0; i < brandIds.length; i++) {
-      const brand = brandsMap.get(brandIds[i])!;
-      const domain = brand.domain || brand.url || brandIds[i];
+      const domain = brandsMeta[i].domain;
       const brandCategoryResult = perBrandResults[i].find((r) => r.category === cat.key);
       const images = brandCategoryResult?.images ?? [];
       byBrand[domain] = images;
       allImages.push(...images);
     }
 
-    // Consolidated: merge all images, sort by relevance, take top maxCount
-    const consolidated = allImages
+    // images: for single brand, just the brand's images; for multi, merge by relevance
+    const images = allImages
       .sort((a, b) => b.relevanceScore - a.relevanceScore)
       .slice(0, cat.maxCount);
 
     results.push({
       category: cat.key,
-      consolidated,
+      images,
       byBrand,
     });
   }
 
-  return { results };
+  return { brands: brandsMeta, results };
 }
