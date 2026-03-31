@@ -147,8 +147,8 @@ registry.registerPath({
 
 export const ExtractFieldItemSchema = z
   .object({
-    key: z.string().min(1),
-    description: z.string().min(1),
+    key: z.string().min(1).openapi({ example: 'industry' }),
+    description: z.string().min(1).openapi({ example: 'The brand\'s primary industry vertical' }),
   })
   .openapi('ExtractFieldItem');
 
@@ -252,9 +252,9 @@ registry.registerPath({
 
 export const BrandMetaSchema = z
   .object({
-    brandId: z.string().uuid().openapi({ description: 'Brand UUID' }),
-    domain: z.string().openapi({ description: 'Brand domain (e.g. "acme.com")' }),
-    name: z.string().openapi({ description: 'Brand display name' }),
+    brandId: z.string().uuid().openapi({ description: 'Brand UUID', example: '550e8400-e29b-41d4-a716-446655440000' }),
+    domain: z.string().openapi({ description: 'Brand domain', example: 'acme.com' }),
+    name: z.string().openapi({ description: 'Brand display name', example: 'Acme Corp' }),
   })
   .openapi('BrandMeta');
 
@@ -262,20 +262,25 @@ const FieldValueType = z.union([z.string(), z.array(z.unknown()), z.record(z.str
 
 export const BrandFieldDetailSchema = z
   .object({
-    value: FieldValueType.openapi({ description: 'Extracted value for this brand' }),
-    cached: z.boolean().openapi({ description: 'Whether this result was served from cache' }),
-    extractedAt: z.string().openapi({ description: 'ISO timestamp when this value was extracted' }),
-    expiresAt: z.string().nullable().openapi({ description: 'ISO timestamp when the cached value expires, or null' }),
-    sourceUrls: z.array(z.string()).nullable().openapi({ description: 'URLs from which this value was extracted, or null' }),
+    value: FieldValueType.openapi({ description: 'Extracted value for this brand', example: 'SaaS productivity tools' }),
+    cached: z.boolean().openapi({ description: 'Whether this result was served from cache', example: true }),
+    extractedAt: z.string().openapi({ description: 'ISO timestamp when this value was extracted', example: '2026-03-15T10:00:00.000Z' }),
+    expiresAt: z.string().nullable().openapi({ description: 'ISO timestamp when the cached value expires, or null', example: '2026-04-14T10:00:00.000Z' }),
+    sourceUrls: z.array(z.string()).nullable().openapi({ description: 'Page URLs from which this value was extracted', example: ['https://acme.com/about', 'https://acme.com/'] }),
   })
   .openapi('BrandFieldDetail');
 
 export const MultiBrandFieldValueSchema = z
   .object({
-    value: FieldValueType.openapi({ description: 'Primary value: the brand value (1 brand) or LLM-consolidated (N brands)' }),
+    value: FieldValueType.openapi({
+      description: 'Primary value: the single brand\'s value (1 brand) or LLM-consolidated merge (N brands)',
+      example: 'SaaS productivity tools',
+    }),
     byBrand: z
       .record(z.string(), BrandFieldDetailSchema)
-      .openapi({ description: 'Per-brand field details keyed by brand domain, including value, cache status, timestamps, and source URLs' }),
+      .openapi({
+        description: 'Per-brand field details keyed by brand domain. Each entry includes the extracted value, cache status, extraction timestamp, expiry, and source URLs.',
+      }),
   })
   .openapi('MultiBrandFieldValue');
 
@@ -306,7 +311,60 @@ registry.registerPath({
     body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
   },
   responses: {
-    200: { description: 'Extracted fields with brands metadata', content: { 'application/json': { schema: MultiBrandExtractFieldsResponseSchema } } },
+    200: {
+      description: 'Extracted fields with brands metadata',
+      content: {
+        'application/json': {
+          schema: MultiBrandExtractFieldsResponseSchema,
+          example: {
+            brands: [
+              { brandId: '550e8400-e29b-41d4-a716-446655440000', domain: 'acme.com', name: 'Acme Corp' },
+              { brandId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', domain: 'globex.io', name: 'Globex' },
+            ],
+            fields: {
+              industry: {
+                value: 'SaaS productivity and workflow automation',
+                byBrand: {
+                  'acme.com': {
+                    value: 'SaaS productivity tools',
+                    cached: true,
+                    extractedAt: '2026-03-15T10:00:00.000Z',
+                    expiresAt: '2026-04-14T10:00:00.000Z',
+                    sourceUrls: ['https://acme.com/about', 'https://acme.com/'],
+                  },
+                  'globex.io': {
+                    value: 'Workflow automation platform',
+                    cached: false,
+                    extractedAt: '2026-03-31T14:30:00.000Z',
+                    expiresAt: '2026-04-30T14:30:00.000Z',
+                    sourceUrls: ['https://globex.io/'],
+                  },
+                },
+              },
+              target_audience: {
+                value: ['Engineering managers', 'DevOps teams', 'CTOs'],
+                byBrand: {
+                  'acme.com': {
+                    value: ['Engineering managers', 'CTOs'],
+                    cached: true,
+                    extractedAt: '2026-03-15T10:00:00.000Z',
+                    expiresAt: '2026-04-14T10:00:00.000Z',
+                    sourceUrls: ['https://acme.com/customers'],
+                  },
+                  'globex.io': {
+                    value: ['DevOps teams', 'Platform engineers'],
+                    cached: false,
+                    extractedAt: '2026-03-31T14:30:00.000Z',
+                    expiresAt: '2026-04-30T14:30:00.000Z',
+                    sourceUrls: ['https://globex.io/use-cases'],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed' },
@@ -320,9 +378,9 @@ registry.registerPath({
 
 export const ExtractImageCategorySchema = z
   .object({
-    key: z.string().min(1),
-    description: z.string().min(1),
-    maxCount: z.number().int().min(1).max(20),
+    key: z.string().min(1).openapi({ example: 'logo' }),
+    description: z.string().min(1).openapi({ example: 'Company logo images (wordmark, icon, full logo)' }),
+    maxCount: z.number().int().min(1).max(20).openapi({ example: 3 }),
   })
   .openapi('ExtractImageCategory');
 
@@ -349,15 +407,15 @@ export const ExtractImagesRequestSchema = z
 
 export const ExtractedImageSchema = z
   .object({
-    originalUrl: z.string(),
-    permanentUrl: z.string(),
-    description: z.string(),
-    width: z.number().int().nullable(),
-    height: z.number().int().nullable(),
-    format: z.string(),
-    sizeBytes: z.number().int(),
-    relevanceScore: z.number(),
-    cached: z.boolean(),
+    originalUrl: z.string().openapi({ example: 'https://acme.com/images/logo.png' }),
+    permanentUrl: z.string().openapi({ example: 'https://cdn.distribute.so/brands/550e8400/logo.png' }),
+    description: z.string().openapi({ example: 'Acme Corp full logo on white background' }),
+    width: z.number().int().nullable().openapi({ example: 400 }),
+    height: z.number().int().nullable().openapi({ example: 120 }),
+    format: z.string().openapi({ example: 'png' }),
+    sizeBytes: z.number().int().openapi({ example: 24576 }),
+    relevanceScore: z.number().openapi({ description: 'AI relevance score (0–1) for the requested category', example: 0.92 }),
+    cached: z.boolean().openapi({ example: true }),
   })
   .openapi('ExtractedImage');
 
@@ -404,9 +462,9 @@ export const ListExtractedImagesResponseSchema = z
 
 export const MultiBrandImageCategoryResultSchema = z
   .object({
-    category: z.string(),
-    images: z.array(ExtractedImageSchema).openapi({ description: 'Primary images: the brand images (1 brand) or relevance-sorted merge (N brands)' }),
-    byBrand: z.record(z.string(), z.array(ExtractedImageSchema)).openapi({ description: 'Per-brand images keyed by brand domain' }),
+    category: z.string().openapi({ example: 'logo' }),
+    images: z.array(ExtractedImageSchema).openapi({ description: 'Primary images: the single brand\'s images (1 brand) or relevance-sorted merge across all brands (N brands)' }),
+    byBrand: z.record(z.string(), z.array(ExtractedImageSchema)).openapi({ description: 'Per-brand images keyed by brand domain. Each domain maps to the images extracted specifically from that brand.' }),
   })
   .openapi('MultiBrandImageCategoryResult');
 
@@ -437,7 +495,52 @@ registry.registerPath({
     body: { content: { 'application/json': { schema: ExtractImagesRequestSchema } } },
   },
   responses: {
-    200: { description: 'Extracted images with brands metadata', content: { 'application/json': { schema: MultiBrandExtractImagesResponseSchema } } },
+    200: {
+      description: 'Extracted images with brands metadata',
+      content: {
+        'application/json': {
+          schema: MultiBrandExtractImagesResponseSchema,
+          example: {
+            brands: [
+              { brandId: '550e8400-e29b-41d4-a716-446655440000', domain: 'acme.com', name: 'Acme Corp' },
+            ],
+            results: [
+              {
+                category: 'logo',
+                images: [
+                  {
+                    originalUrl: 'https://acme.com/images/logo.png',
+                    permanentUrl: 'https://cdn.distribute.so/brands/550e8400/logo.png',
+                    description: 'Acme Corp full logo on white background',
+                    width: 400,
+                    height: 120,
+                    format: 'png',
+                    sizeBytes: 24576,
+                    relevanceScore: 0.95,
+                    cached: true,
+                  },
+                ],
+                byBrand: {
+                  'acme.com': [
+                    {
+                      originalUrl: 'https://acme.com/images/logo.png',
+                      permanentUrl: 'https://cdn.distribute.so/brands/550e8400/logo.png',
+                      description: 'Acme Corp full logo on white background',
+                      width: 400,
+                      height: 120,
+                      format: 'png',
+                      sizeBytes: 24576,
+                      relevanceScore: 0.95,
+                      cached: true,
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed' },

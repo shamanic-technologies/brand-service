@@ -295,15 +295,18 @@
           "brandId": {
             "type": "string",
             "format": "uuid",
-            "description": "Brand UUID"
+            "description": "Brand UUID",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
           },
           "domain": {
             "type": "string",
-            "description": "Brand domain (e.g. \"acme.com\")"
+            "description": "Brand domain",
+            "example": "acme.com"
           },
           "name": {
             "type": "string",
-            "description": "Brand display name"
+            "description": "Brand display name",
+            "example": "Acme Corp"
           }
         },
         "required": [
@@ -336,14 +339,15 @@
                 "nullable": true
               }
             ],
-            "description": "Primary value: the brand value (1 brand) or LLM-consolidated (N brands)"
+            "description": "Primary value: the single brand's value (1 brand) or LLM-consolidated merge (N brands)",
+            "example": "SaaS productivity tools"
           },
           "byBrand": {
             "type": "object",
             "additionalProperties": {
               "$ref": "#/components/schemas/BrandFieldDetail"
             },
-            "description": "Per-brand field details keyed by brand domain, including value, cache status, timestamps, and source URLs"
+            "description": "Per-brand field details keyed by brand domain. Each entry includes the extracted value, cache status, extraction timestamp, expiry, and source URLs."
           }
         },
         "required": [
@@ -375,20 +379,24 @@
                 "nullable": true
               }
             ],
-            "description": "Extracted value for this brand"
+            "description": "Extracted value for this brand",
+            "example": "SaaS productivity tools"
           },
           "cached": {
             "type": "boolean",
-            "description": "Whether this result was served from cache"
+            "description": "Whether this result was served from cache",
+            "example": true
           },
           "extractedAt": {
             "type": "string",
-            "description": "ISO timestamp when this value was extracted"
+            "description": "ISO timestamp when this value was extracted",
+            "example": "2026-03-15T10:00:00.000Z"
           },
           "expiresAt": {
             "type": "string",
             "nullable": true,
-            "description": "ISO timestamp when the cached value expires, or null"
+            "description": "ISO timestamp when the cached value expires, or null",
+            "example": "2026-04-14T10:00:00.000Z"
           },
           "sourceUrls": {
             "type": "array",
@@ -396,7 +404,11 @@
             "items": {
               "type": "string"
             },
-            "description": "URLs from which this value was extracted, or null"
+            "description": "Page URLs from which this value was extracted",
+            "example": [
+              "https://acme.com/about",
+              "https://acme.com/"
+            ]
           }
         },
         "required": [
@@ -435,11 +447,13 @@
         "properties": {
           "key": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "example": "industry"
           },
           "description": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "example": "The brand's primary industry vertical"
           }
         },
         "required": [
@@ -473,14 +487,15 @@
         "type": "object",
         "properties": {
           "category": {
-            "type": "string"
+            "type": "string",
+            "example": "logo"
           },
           "images": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExtractedImage"
             },
-            "description": "Primary images: the brand images (1 brand) or relevance-sorted merge (N brands)"
+            "description": "Primary images: the single brand's images (1 brand) or relevance-sorted merge across all brands (N brands)"
           },
           "byBrand": {
             "type": "object",
@@ -490,7 +505,7 @@
                 "$ref": "#/components/schemas/ExtractedImage"
               }
             },
-            "description": "Per-brand images keyed by brand domain"
+            "description": "Per-brand images keyed by brand domain. Each domain maps to the images extracted specifically from that brand."
           }
         },
         "required": [
@@ -503,33 +518,43 @@
         "type": "object",
         "properties": {
           "originalUrl": {
-            "type": "string"
+            "type": "string",
+            "example": "https://acme.com/images/logo.png"
           },
           "permanentUrl": {
-            "type": "string"
+            "type": "string",
+            "example": "https://cdn.distribute.so/brands/550e8400/logo.png"
           },
           "description": {
-            "type": "string"
+            "type": "string",
+            "example": "Acme Corp full logo on white background"
           },
           "width": {
             "type": "integer",
-            "nullable": true
+            "nullable": true,
+            "example": 400
           },
           "height": {
             "type": "integer",
-            "nullable": true
+            "nullable": true,
+            "example": 120
           },
           "format": {
-            "type": "string"
+            "type": "string",
+            "example": "png"
           },
           "sizeBytes": {
-            "type": "integer"
+            "type": "integer",
+            "example": 24576
           },
           "relevanceScore": {
-            "type": "number"
+            "type": "number",
+            "description": "AI relevance score (0–1) for the requested category",
+            "example": 0.92
           },
           "cached": {
-            "type": "boolean"
+            "type": "boolean",
+            "example": true
           }
         },
         "required": [
@@ -580,16 +605,19 @@
         "properties": {
           "key": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "example": "logo"
           },
           "description": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "example": "Company logo images (wordmark, icon, full logo)"
           },
           "maxCount": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 20
+            "maximum": 20,
+            "example": 3
           }
         },
         "required": [
@@ -1261,6 +1289,79 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MultiBrandExtractFieldsResponse"
+                },
+                "example": {
+                  "brands": [
+                    {
+                      "brandId": "550e8400-e29b-41d4-a716-446655440000",
+                      "domain": "acme.com",
+                      "name": "Acme Corp"
+                    },
+                    {
+                      "brandId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+                      "domain": "globex.io",
+                      "name": "Globex"
+                    }
+                  ],
+                  "fields": {
+                    "industry": {
+                      "value": "SaaS productivity and workflow automation",
+                      "byBrand": {
+                        "acme.com": {
+                          "value": "SaaS productivity tools",
+                          "cached": true,
+                          "extractedAt": "2026-03-15T10:00:00.000Z",
+                          "expiresAt": "2026-04-14T10:00:00.000Z",
+                          "sourceUrls": [
+                            "https://acme.com/about",
+                            "https://acme.com/"
+                          ]
+                        },
+                        "globex.io": {
+                          "value": "Workflow automation platform",
+                          "cached": false,
+                          "extractedAt": "2026-03-31T14:30:00.000Z",
+                          "expiresAt": "2026-04-30T14:30:00.000Z",
+                          "sourceUrls": [
+                            "https://globex.io/"
+                          ]
+                        }
+                      }
+                    },
+                    "target_audience": {
+                      "value": [
+                        "Engineering managers",
+                        "DevOps teams",
+                        "CTOs"
+                      ],
+                      "byBrand": {
+                        "acme.com": {
+                          "value": [
+                            "Engineering managers",
+                            "CTOs"
+                          ],
+                          "cached": true,
+                          "extractedAt": "2026-03-15T10:00:00.000Z",
+                          "expiresAt": "2026-04-14T10:00:00.000Z",
+                          "sourceUrls": [
+                            "https://acme.com/customers"
+                          ]
+                        },
+                        "globex.io": {
+                          "value": [
+                            "DevOps teams",
+                            "Platform engineers"
+                          ],
+                          "cached": false,
+                          "extractedAt": "2026-03-31T14:30:00.000Z",
+                          "expiresAt": "2026-04-30T14:30:00.000Z",
+                          "sourceUrls": [
+                            "https://globex.io/use-cases"
+                          ]
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -1313,6 +1414,48 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MultiBrandExtractImagesResponse"
+                },
+                "example": {
+                  "brands": [
+                    {
+                      "brandId": "550e8400-e29b-41d4-a716-446655440000",
+                      "domain": "acme.com",
+                      "name": "Acme Corp"
+                    }
+                  ],
+                  "results": [
+                    {
+                      "category": "logo",
+                      "images": [
+                        {
+                          "originalUrl": "https://acme.com/images/logo.png",
+                          "permanentUrl": "https://cdn.distribute.so/brands/550e8400/logo.png",
+                          "description": "Acme Corp full logo on white background",
+                          "width": 400,
+                          "height": 120,
+                          "format": "png",
+                          "sizeBytes": 24576,
+                          "relevanceScore": 0.95,
+                          "cached": true
+                        }
+                      ],
+                      "byBrand": {
+                        "acme.com": [
+                          {
+                            "originalUrl": "https://acme.com/images/logo.png",
+                            "permanentUrl": "https://cdn.distribute.so/brands/550e8400/logo.png",
+                            "description": "Acme Corp full logo on white background",
+                            "width": 400,
+                            "height": 120,
+                            "format": "png",
+                            "sizeBytes": 24576,
+                            "relevanceScore": 0.95,
+                            "cached": true
+                          }
+                        ]
+                      }
+                    }
+                  ]
                 }
               }
             }
