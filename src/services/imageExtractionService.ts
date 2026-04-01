@@ -148,7 +148,8 @@ async function analyzeImageWithVision(
         alt: candidate.altText || undefined,
         sourceUrl: candidate.sourcePageUrl || undefined,
       },
-      model: 'gemini-3.1-flash-lite-preview',
+      provider: 'google',
+      model: 'flash-lite',
       responseFormat: 'json',
       temperature: 0,
       maxTokens: 512,
@@ -228,6 +229,8 @@ async function selectRelevantUrlsForImages(
           `Select the 10 most relevant URLs for finding these image categories:\n${categoryDescriptions}${contextBlock}\n\n` +
           `URLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\n` +
           `Return a JSON array: ["url1", "url2", ...]`,
+        provider: 'google',
+        model: 'flash',
         responseFormat: 'json',
         temperature: 0,
         maxTokens: 1024,

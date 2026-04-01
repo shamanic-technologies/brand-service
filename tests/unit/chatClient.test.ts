@@ -34,6 +34,8 @@ describe('chat-client', () => {
       {
         message: 'Extract the industry',
         systemPrompt: 'You are a brand extraction assistant.',
+        provider: 'google',
+        model: 'flash',
         responseFormat: 'json',
         temperature: 0,
         maxTokens: 1024,
@@ -59,6 +61,8 @@ describe('chat-client', () => {
     const body = callArgs[1] as Record<string, unknown>;
     expect(body.message).toBe('Extract the industry');
     expect(body.systemPrompt).toBe('You are a brand extraction assistant.');
+    expect(body.provider).toBe('google');
+    expect(body.model).toBe('flash');
     expect(body.responseFormat).toBe('json');
     expect(body.temperature).toBe(0);
     expect(body.maxTokens).toBe(1024);
@@ -82,7 +86,7 @@ describe('chat-client', () => {
     const { chatComplete } = await import('../../src/lib/chat-client');
 
     await chatComplete(
-      { message: 'test', systemPrompt: 'test' },
+      { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
       { orgId: 'org_123' },
     );
 
@@ -101,20 +105,21 @@ describe('chat-client', () => {
     const { chatComplete } = await import('../../src/lib/chat-client');
 
     await chatComplete(
-      { message: 'test', systemPrompt: 'test' },
+      { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
       { orgId: 'org_123' },
     );
 
     const body = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.provider).toBe('google');
+    expect(body.model).toBe('flash');
     expect(body.responseFormat).toBeUndefined();
     expect(body.temperature).toBeUndefined();
     expect(body.maxTokens).toBeUndefined();
     expect(body.imageUrl).toBeUndefined();
     expect(body.imageContext).toBeUndefined();
-    expect(body.model).toBeUndefined();
   });
 
-  it('should pass imageUrl, imageContext, and model when provided', async () => {
+  it('should pass imageUrl, imageContext, provider, and model when provided', async () => {
     mockedAxios.post.mockResolvedValue({
       data: { content: '{}', json: {}, tokensInput: 10, tokensOutput: 5, model: 'gemini-3.1-flash-lite-preview' },
     });
@@ -125,9 +130,10 @@ describe('chat-client', () => {
       {
         message: 'Analyze this image',
         systemPrompt: 'You are an image classifier.',
+        provider: 'google',
+        model: 'flash-lite',
         imageUrl: 'https://example.com/photo.jpg',
         imageContext: { alt: 'Team photo', sourceUrl: 'https://example.com/about' },
-        model: 'gemini-3.1-flash-lite-preview',
         responseFormat: 'json',
       },
       { orgId: 'org_123' },
@@ -136,7 +142,8 @@ describe('chat-client', () => {
     const body = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
     expect(body.imageUrl).toBe('https://example.com/photo.jpg');
     expect(body.imageContext).toEqual({ alt: 'Team photo', sourceUrl: 'https://example.com/about' });
-    expect(body.model).toBe('gemini-3.1-flash-lite-preview');
+    expect(body.provider).toBe('google');
+    expect(body.model).toBe('flash-lite');
   });
 
   it('should throw on non-2xx response', async () => {
@@ -146,7 +153,7 @@ describe('chat-client', () => {
 
     await expect(
       chatComplete(
-        { message: 'test', systemPrompt: 'test' },
+        { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
         { orgId: 'org_123' },
       ),
     ).rejects.toThrow('502');
@@ -161,7 +168,7 @@ describe('chat-client', () => {
     const { chatComplete } = await import('../../src/lib/chat-client');
 
     const result = await chatComplete(
-      { message: 'test', systemPrompt: 'test' },
+      { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
       { orgId: 'org_123' },
     );
 
@@ -179,7 +186,7 @@ describe('chat-client', () => {
 
     await expect(
       chatComplete(
-        { message: 'test', systemPrompt: 'test' },
+        { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
         { orgId: 'org_123' },
       ),
     ).rejects.toThrow('socket hang up');
@@ -194,7 +201,7 @@ describe('chat-client', () => {
 
     await expect(
       chatComplete(
-        { message: 'test', systemPrompt: 'test' },
+        { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
         { orgId: 'org_123' },
       ),
     ).rejects.toThrow('Bad Request');
@@ -209,7 +216,7 @@ describe('chat-client', () => {
     const { chatComplete } = await import('../../src/lib/chat-client');
 
     await chatComplete(
-      { message: 'test', systemPrompt: 'test' },
+      { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
       { orgId: 'org_123' },
     );
 

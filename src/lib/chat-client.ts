@@ -31,6 +31,10 @@ function isSocketHangUp(err: unknown): boolean {
 export interface ChatCompleteParams {
   message: string;
   systemPrompt: string;
+  /** LLM provider — 'google' (Gemini) or 'anthropic' (Claude). */
+  provider: 'google' | 'anthropic';
+  /** Model tier — chat-service resolves the versioned model internally. */
+  model: 'flash' | 'flash-lite' | 'pro' | 'sonnet' | 'haiku' | 'opus';
   responseFormat?: 'json';
   temperature?: number;
   maxTokens?: number;
@@ -38,8 +42,6 @@ export interface ChatCompleteParams {
   imageUrl?: string;
   /** HTML metadata for the image — alt text, title, source URL. Injected into the prompt alongside the image. */
   imageContext?: { alt?: string; title?: string; sourceUrl?: string };
-  /** Override the default model. Use "gemini-3.1-flash-lite-preview" for cheap vision tasks. */
-  model?: string;
 }
 
 export interface ChatCompleteResult {
@@ -79,12 +81,13 @@ export async function chatComplete(
   const body = {
     message: params.message,
     systemPrompt: params.systemPrompt,
+    provider: params.provider,
+    model: params.model,
     ...(params.responseFormat && { responseFormat: params.responseFormat }),
     ...(params.temperature !== undefined && { temperature: params.temperature }),
     ...(params.maxTokens !== undefined && { maxTokens: params.maxTokens }),
     ...(params.imageUrl && { imageUrl: params.imageUrl }),
     ...(params.imageContext && { imageContext: params.imageContext }),
-    ...(params.model && { model: params.model }),
   };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
