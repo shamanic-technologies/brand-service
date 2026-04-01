@@ -527,49 +527,47 @@ export async function extractImages(
       const images: ExtractedImage[] = [];
 
       // 12. Upload selected images to R2
+      // Upload failures are real errors — let them propagate.
+      // "No images found" (empty scored list) is fine and returns images: [].
       for (const selected of scored) {
-        try {
-          const ext = getExtensionFromUrl(selected.candidate.url) || 'png';
-          const hash = crypto.createHash('md5').update(selected.candidate.url).digest('hex').slice(0, 12);
-          const filename = `${hash}.${ext}`;
+        const ext = getExtensionFromUrl(selected.candidate.url) || 'png';
+        const hash = crypto.createHash('md5').update(selected.candidate.url).digest('hex').slice(0, 12);
+        const filename = `${hash}.${ext}`;
 
-          const uploadResult = await uploadToCloudflare(
-            {
-              sourceUrl: selected.candidate.url,
-              folder: `brands/${brandId}`,
-              filename,
-              contentType: selected.candidate.contentType,
-            },
-            cloudflareTracking,
-          );
+        const uploadResult = await uploadToCloudflare(
+          {
+            sourceUrl: selected.candidate.url,
+            folder: `brands/${brandId}`,
+            filename,
+            contentType: selected.candidate.contentType,
+          },
+          cloudflareTracking,
+        );
 
-          const image: ExtractedImage = {
-            originalUrl: selected.candidate.url,
-            permanentUrl: uploadResult.url,
-            description: selected.description,
-            width: null, // cloudflare-service doesn't return dimensions yet
-            height: null,
-            format: ext,
-            sizeBytes: uploadResult.size || selected.candidate.sizeBytes,
-            relevanceScore: selected.score,
-            cached: false,
-          };
+        const image: ExtractedImage = {
+          originalUrl: selected.candidate.url,
+          permanentUrl: uploadResult.url,
+          description: selected.description,
+          width: null, // cloudflare-service doesn't return dimensions yet
+          height: null,
+          format: ext,
+          sizeBytes: uploadResult.size || selected.candidate.sizeBytes,
+          relevanceScore: selected.score,
+          cached: false,
+        };
 
-          images.push(image);
+        images.push(image);
 
-          // Store in DB
-          await upsertExtractedImage(
-            brandId,
-            cat.key,
-            {
-              ...image,
-              sourcePageUrl: selected.candidate.sourcePageUrl,
-            },
-            campaignId,
-          );
-        } catch (err: any) {
-          console.error(`[brand-service] [${brandId}] Failed to upload image ${selected.candidate.url}: ${err.message}`);
-        }
+        // Store in DB
+        await upsertExtractedImage(
+          brandId,
+          cat.key,
+          {
+            ...image,
+            sourcePageUrl: selected.candidate.sourcePageUrl,
+          },
+          campaignId,
+        );
       }
 
       freshResults.push({ category: cat.key, images });
