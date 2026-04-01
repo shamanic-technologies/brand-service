@@ -222,6 +222,8 @@ async function selectRelevantUrls(
         systemPrompt:
           'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON array of URLs.',
         message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}${contextBlock}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON array: ["url1", "url2", ...]`,
+        provider: 'google',
+        model: 'flash',
         responseFormat: 'json',
         temperature: 0,
         maxTokens: 1024,
@@ -269,6 +271,8 @@ async function extractFieldsFromContent(
       systemPrompt:
         'You are a brand information extraction assistant. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys.',
       message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${contextBlock}\n\nWebsite content:\n${combinedContent.substring(0, 100000)}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. Use null if information is not found. For array fields, return arrays.`,
+      provider: 'google',
+      model: 'flash',
       responseFormat: 'json',
       temperature: 0,
       maxTokens: 4096,
