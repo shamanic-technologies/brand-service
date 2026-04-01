@@ -79,8 +79,11 @@ describe('cloudflare-client', () => {
     expect(config.headers['x-campaign-id']).toBeUndefined();
   });
 
-  it('should throw on non-2xx response', async () => {
-    mockedAxios.post.mockRejectedValue(new Error('Request failed with status code 500'));
+  it('should throw immediately on non-transient errors (e.g. 400, 500)', async () => {
+    const error = Object.assign(new Error('Request failed with status code 400'), {
+      response: { status: 400 },
+    });
+    mockedAxios.post.mockRejectedValue(error);
 
     const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
 
@@ -89,6 +92,67 @@ describe('cloudflare-client', () => {
         { sourceUrl: 'https://example.com/img.png', folder: 'test', filename: 'test.png', contentType: 'image/png' },
         { orgId: 'org_123' },
       ),
-    ).rejects.toThrow('500');
+    ).rejects.toThrow('400');
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('should retry on 502 and succeed on second attempt', async () => {
+    const error502 = Object.assign(new Error('Request failed with status code 502'), {
+      response: { status: 502 },
+    });
+    mockedAxios.post
+      .mockRejectedValueOnce(error502)
+      .mockResolvedValueOnce({
+        data: { id: 'ok', url: 'https://cdn.test/ok.png', size: 100, contentType: 'image/png' },
+      });
+
+    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+
+    const result = await uploadToCloudflare(
+      { sourceUrl: 'https://example.com/img.png', folder: 'test', filename: 'test.png', contentType: 'image/png' },
+      { orgId: 'org_123' },
+    );
+
+    expect(result.id).toBe('ok');
+    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('should throw after exhausting retries on persistent 502', async () => {
+    const error502 = Object.assign(new Error('Request failed with status code 502'), {
+      response: { status: 502 },
+    });
+    mockedAxios.post.mockRejectedValue(error502);
+
+    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+
+    await expect(
+      uploadToCloudflare(
+        { sourceUrl: 'https://example.com/img.png', folder: 'test', filename: 'test.png', contentType: 'image/png' },
+        { orgId: 'org_123' },
+      ),
+    ).rejects.toThrow('502');
+
+    // 1 initial + 2 retries = 3 total
+    expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+  });
+
+  it('should retry on network errors like ECONNRESET', async () => {
+    const networkError = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+    mockedAxios.post
+      .mockRejectedValueOnce(networkError)
+      .mockResolvedValueOnce({
+        data: { id: 'ok', url: 'https://cdn.test/ok.png', size: 100, contentType: 'image/png' },
+      });
+
+    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+
+    const result = await uploadToCloudflare(
+      { sourceUrl: 'https://example.com/img.png', folder: 'test', filename: 'test.png', contentType: 'image/png' },
+      { orgId: 'org_123' },
+    );
+
+    expect(result.id).toBe('ok');
+    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
   });
 });
