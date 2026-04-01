@@ -488,6 +488,7 @@
         "properties": {
           "category": {
             "type": "string",
+            "description": "The category key matching one of the requested categories.",
             "example": "logo"
           },
           "images": {
@@ -495,7 +496,7 @@
             "items": {
               "$ref": "#/components/schemas/ExtractedImage"
             },
-            "description": "Primary images: the single brand's images (1 brand) or relevance-sorted merge across all brands (N brands)"
+            "description": "Primary images: the single brand's images (1 brand) or relevance-sorted merge across all brands (N brands). An empty array means no relevant images were found for this category — this is normal, not an error. If an image upload fails (e.g. cloudflare-service 502), the entire request fails with a 500 — you will never receive a partial result with missing images."
           },
           "byBrand": {
             "type": "object",
@@ -505,7 +506,7 @@
                 "$ref": "#/components/schemas/ExtractedImage"
               }
             },
-            "description": "Per-brand images keyed by brand domain. Each domain maps to the images extracted specifically from that brand."
+            "description": "Per-brand images keyed by brand domain. Each domain maps to the images extracted specifically from that brand. An empty array for a domain means no relevant images were found on that brand's website for this category."
           }
         },
         "required": [
@@ -1467,10 +1468,10 @@
             "description": "Brand not found"
           },
           "422": {
-            "description": "Site scraping failed"
+            "description": "Site scraping failed (e.g. domain unreachable, no sitemap)"
           },
           "500": {
-            "description": "Internal server error"
+            "description": "Internal server error. This includes image upload failures (e.g. cloudflare-service 502) — upload errors are not silently swallowed. If you get a 500, retry the entire request."
           }
         }
       }
