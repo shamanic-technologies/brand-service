@@ -148,7 +148,7 @@ async function consolidateFields(
         `For string fields, write a merged summary. For array fields, merge and deduplicate. ` +
         `For object fields, merge sensibly.`,
       provider: 'google',
-      model: 'flash',
+      model: 'pro',
       responseFormat: 'json',
       temperature: 0,
       maxTokens: 4096,

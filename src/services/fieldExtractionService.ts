@@ -272,7 +272,7 @@ async function extractFieldsFromContent(
         'You are a brand information extraction assistant. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys.',
       message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${contextBlock}\n\nWebsite content:\n${combinedContent.substring(0, 100000)}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. Use null if information is not found. For array fields, return arrays.`,
       provider: 'google',
-      model: 'flash',
+      model: 'pro',
       responseFormat: 'json',
       temperature: 0,
       maxTokens: 4096,
