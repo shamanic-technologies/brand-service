@@ -568,7 +568,11 @@ export async function extractImages(
             campaignId,
           );
         } catch (err: any) {
-          console.error(`[brand-service] [${brandId}] Failed to upload image ${selected.candidate.url}: ${err.message}`);
+          const reason = err.response?.data?.reason || err.response?.data?.error || '';
+          const status = err.response?.status || err.code || 'unknown';
+          console.error(
+            `[brand-service] [${brandId}] Failed to upload image ${selected.candidate.url}: ${status} ${err.message}${reason ? ` — reason: ${reason}` : ''}`,
+          );
         }
       }
 

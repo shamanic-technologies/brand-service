@@ -101,8 +101,9 @@ export async function uploadToCloudflare(
       if (isTransientError(error) && attempt < MAX_RETRIES) {
         const delay = BASE_DELAY_MS * Math.pow(2, attempt);
         const status = error.response?.status ?? error.code ?? 'unknown';
+        const reason = error.response?.data?.reason || error.response?.data?.error || '';
         console.warn(
-          `[brand-service] Transient error (${status}) uploading to cloudflare-service, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`,
+          `[brand-service] Transient error (${status}) uploading to cloudflare-service, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms${reason ? ` — reason: ${reason}` : ''}`,
         );
         await sleep(delay);
         continue;
