@@ -421,8 +421,13 @@ export const ExtractedImageSchema = z
 
 export const ExtractedImageCategoryResultSchema = z
   .object({
-    category: z.string(),
-    images: z.array(ExtractedImageSchema),
+    category: z.string().openapi({ description: 'The category key matching one of the requested categories.', example: 'logo' }),
+    images: z.array(ExtractedImageSchema).openapi({
+      description:
+        'Images found and uploaded for this category. ' +
+        'An empty array means no relevant images were found on the brand\'s website for this category — this is normal, not an error. ' +
+        'If an image upload fails (e.g. cloudflare-service 502), the entire request fails with a 500 — you will never receive a partial result with missing images.',
+    }),
   })
   .openapi('ExtractedImageCategoryResult');
 
@@ -462,9 +467,18 @@ export const ListExtractedImagesResponseSchema = z
 
 export const MultiBrandImageCategoryResultSchema = z
   .object({
-    category: z.string().openapi({ example: 'logo' }),
-    images: z.array(ExtractedImageSchema).openapi({ description: 'Primary images: the single brand\'s images (1 brand) or relevance-sorted merge across all brands (N brands)' }),
-    byBrand: z.record(z.string(), z.array(ExtractedImageSchema)).openapi({ description: 'Per-brand images keyed by brand domain. Each domain maps to the images extracted specifically from that brand.' }),
+    category: z.string().openapi({ description: 'The category key matching one of the requested categories.', example: 'logo' }),
+    images: z.array(ExtractedImageSchema).openapi({
+      description:
+        'Primary images: the single brand\'s images (1 brand) or relevance-sorted merge across all brands (N brands). ' +
+        'An empty array means no relevant images were found for this category — this is normal, not an error. ' +
+        'If an image upload fails (e.g. cloudflare-service 502), the entire request fails with a 500 — you will never receive a partial result with missing images.',
+    }),
+    byBrand: z.record(z.string(), z.array(ExtractedImageSchema)).openapi({
+      description:
+        'Per-brand images keyed by brand domain. Each domain maps to the images extracted specifically from that brand. ' +
+        'An empty array for a domain means no relevant images were found on that brand\'s website for this category.',
+    }),
   })
   .openapi('MultiBrandImageCategoryResult');
 
@@ -543,8 +557,8 @@ registry.registerPath({
     },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
     404: { description: 'Brand not found' },
-    422: { description: 'Site scraping failed' },
-    500: { description: 'Internal server error' },
+    422: { description: 'Site scraping failed (e.g. domain unreachable, no sitemap)' },
+    500: { description: 'Internal server error. This includes image upload failures (e.g. cloudflare-service 502) — upload errors are not silently swallowed. If you get a 500, retry the entire request.' },
   },
 });
 
