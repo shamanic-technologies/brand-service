@@ -226,7 +226,7 @@ async function selectRelevantUrls(
         model: 'flash',
         responseFormat: 'json',
         temperature: 0,
-        maxTokens: 1024,
+        maxTokens: 4096,
       },
       tracking,
     );
@@ -242,6 +242,7 @@ async function selectRelevantUrls(
     console.error('[field-extraction] URL selection error:', error.message);
   }
 
+  // Fallback: if AI selection fails, use first 10 URLs (homepage + top-level pages)
   return allUrls.slice(0, 10);
 }
 
@@ -275,7 +276,7 @@ async function extractFieldsFromContent(
       model: 'pro',
       responseFormat: 'json',
       temperature: 0,
-      maxTokens: 4096,
+      maxTokens: 16384,
     },
     tracking,
   );
