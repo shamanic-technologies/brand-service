@@ -13,6 +13,49 @@ import { resolve } from 'path';
  * 502 on sites with many URLs (56-60+). Bumped to 4096.
  */
 
+describe('URL selection prompts request JSON object format', () => {
+  // Regression: chat-service rejects bare JSON arrays when responseFormat: 'json'.
+  // The model returned ["url1", "url2", ...] but chat-service expected a JSON object.
+  // Fix: prompts now request {"urls": ["url1", ...]} format.
+
+  const fieldExtractionSrc = readFileSync(
+    resolve(__dirname, '../../src/services/fieldExtractionService.ts'),
+    'utf-8',
+  );
+  const imageExtractionSrc = readFileSync(
+    resolve(__dirname, '../../src/services/imageExtractionService.ts'),
+    'utf-8',
+  );
+
+  it('field extraction URL selection prompt asks for JSON object with "urls" key', () => {
+    // The systemPrompt and message in selectRelevantUrls should reference {"urls": [...]}
+    const selectBlock = fieldExtractionSrc.match(
+      /selectRelevantUrls[\s\S]*?chatComplete[\s\S]*?\},\s*\n\s*tracking/,
+    );
+    expect(selectBlock).not.toBeNull();
+    expect(selectBlock![0]).toContain('"urls"');
+    expect(selectBlock![0]).not.toMatch(/Return ONLY a JSON array/);
+  });
+
+  it('image extraction URL selection prompt asks for JSON object with "urls" key', () => {
+    const selectBlock = imageExtractionSrc.match(
+      /selectRelevantUrlsForImages[\s\S]*?chatComplete[\s\S]*?\},\s*\n\s*tracking/,
+    );
+    expect(selectBlock).not.toBeNull();
+    expect(selectBlock![0]).toContain('"urls"');
+    expect(selectBlock![0]).not.toMatch(/Return ONLY a JSON array/);
+  });
+
+  it('field extraction URL selection parses result.json.urls (object format)', () => {
+    // Verify the parsing code handles { urls: [...] } format
+    expect(fieldExtractionSrc).toContain('result.json as { urls?: string[] }');
+  });
+
+  it('image extraction URL selection parses result.json.urls (object format)', () => {
+    expect(imageExtractionSrc).toContain('result.json as { urls?: string[] }');
+  });
+});
+
 describe('extraction maxTokens regression', () => {
   // Read source files to verify maxTokens values
   const fieldExtractionSrc = readFileSync(

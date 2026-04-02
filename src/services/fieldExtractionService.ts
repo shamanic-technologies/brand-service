@@ -220,8 +220,8 @@ async function selectRelevantUrls(
     const result = await chatComplete(
       {
         systemPrompt:
-          'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON array of URLs.',
-        message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}${contextBlock}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON array: ["url1", "url2", ...]`,
+          'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON object with a "urls" key containing an array of URL strings.',
+        message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}${contextBlock}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON object: {"urls": ["url1", "url2", ...]}`,
         provider: 'google',
         model: 'flash',
         responseFormat: 'json',
@@ -231,8 +231,11 @@ async function selectRelevantUrls(
       tracking,
     );
 
-    if (result.json && Array.isArray(result.json)) {
-      return (result.json as string[]).slice(0, 10);
+    if (result.json) {
+      const urls = (result.json as { urls?: string[] }).urls;
+      if (Array.isArray(urls)) return urls.slice(0, 10);
+      // Fallback: model returned a bare array as the json field
+      if (Array.isArray(result.json)) return (result.json as string[]).slice(0, 10);
     }
 
     // Fallback: parse from content
