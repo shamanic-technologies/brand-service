@@ -213,14 +213,8 @@ async function selectRelevantUrlsForImages(
     .map((c) => `- ${c.key}: ${c.description}`)
     .join('\n');
 
-  // Truncate campaign context for URL selection — full context goes to the
-  // vision analysis calls that follow.  URL selection only needs a brief hint;
-  // the full JSON can be 30-40 KB and causes timeouts on chat-service.
-  const truncatedContext = campaignContext && campaignContext.length > 2000
-    ? campaignContext.slice(0, 2000) + '\n...(truncated)'
-    : campaignContext;
-  const contextBlock = truncatedContext
-    ? `\n\nCampaign context:\n${truncatedContext}\n`
+  const contextBlock = campaignContext
+    ? `\n\nCampaign context:\n${campaignContext}\n`
     : '';
 
   try {
