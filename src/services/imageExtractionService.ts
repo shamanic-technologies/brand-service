@@ -224,11 +224,11 @@ async function selectRelevantUrlsForImages(
           'You are a URL selection assistant. Given a list of website URLs and image categories to find, ' +
           'select the TOP 10 most relevant pages that are likely to contain these types of images. ' +
           'Prioritize: homepage, about page, team page, product pages, media/press pages. ' +
-          'Return ONLY a JSON array of URLs.',
+          'Return ONLY a JSON object with a "urls" key containing an array of URL strings.',
         message:
           `Select the 10 most relevant URLs for finding these image categories:\n${categoryDescriptions}${contextBlock}\n\n` +
           `URLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\n` +
-          `Return a JSON array: ["url1", "url2", ...]`,
+          `Return a JSON object: {"urls": ["url1", "url2", ...]}`,
         provider: 'google',
         model: 'flash',
         responseFormat: 'json',
@@ -238,8 +238,11 @@ async function selectRelevantUrlsForImages(
       tracking,
     );
 
-    if (result.json && Array.isArray(result.json)) {
-      return (result.json as string[]).slice(0, 10);
+    if (result.json) {
+      const urls = (result.json as { urls?: string[] }).urls;
+      if (Array.isArray(urls)) return urls.slice(0, 10);
+      // Fallback: model returned a bare array as the json field
+      if (Array.isArray(result.json)) return (result.json as string[]).slice(0, 10);
     }
 
     const match = result.content.match(/\[[\s\S]*\]/);
