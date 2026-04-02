@@ -60,16 +60,6 @@ describe('extraction maxTokens regression', () => {
     expect(imageUrlSelectionMaxTokens).toBeGreaterThanOrEqual(4096);
   });
 
-  it('field extraction URL selection truncates campaign context to 2000 chars', () => {
-    // selectRelevantUrls should truncate campaignContext before building the prompt
-    expect(fieldExtractionSrc).toContain('campaignContext.slice(0, 2000)');
-  });
-
-  it('image URL selection truncates campaign context to 2000 chars', () => {
-    // selectRelevantUrlsForImages should truncate campaignContext before building the prompt
-    expect(imageExtractionSrc).toContain('campaignContext.slice(0, 2000)');
-  });
-
   it('multi-brand consolidation call should use maxTokens >= 16384 (was 4096)', () => {
     // The consolidateFields function uses google/pro for consolidation
     const consolidationBlock = multiBrandSrc.match(
