@@ -212,8 +212,14 @@ async function selectRelevantUrls(
 ): Promise<string[]> {
   if (allUrls.length <= 10) return allUrls;
 
-  const contextBlock = campaignContext
-    ? `\n\nCampaign context (use this to prioritize which pages are most relevant):\n${campaignContext}\n`
+  // Truncate campaign context for URL selection — full context goes to the
+  // extraction call that follows.  URL selection only needs a brief hint to
+  // prioritise pages; the full JSON can be 30-40 KB and causes timeouts.
+  const truncatedContext = campaignContext && campaignContext.length > 2000
+    ? campaignContext.slice(0, 2000) + '\n...(truncated)'
+    : campaignContext;
+  const contextBlock = truncatedContext
+    ? `\n\nCampaign context (use this to prioritize which pages are most relevant):\n${truncatedContext}\n`
     : '';
 
   try {
