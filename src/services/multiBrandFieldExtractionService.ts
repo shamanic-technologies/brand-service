@@ -151,7 +151,7 @@ async function consolidateFields(
       model: 'pro',
       responseFormat: 'json',
       temperature: 0,
-      maxTokens: 4096,
+      maxTokens: 16384,
     },
     tracking,
   );
