@@ -530,47 +530,56 @@ export async function extractImages(
       const images: ExtractedImage[] = [];
 
       // 12. Upload selected images to R2
-      // Upload failures are real errors — let them propagate.
-      // "No images found" (empty scored list) is fine and returns images: [].
+      // Individual upload failures are non-fatal: source URLs are third-party
+      // and may be unreachable from cloudflare-service. Skipping one image
+      // preserves the rest of the (expensive) extraction pipeline.
       for (const selected of scored) {
-        const ext = getExtensionFromUrl(selected.candidate.url) || 'png';
-        const hash = crypto.createHash('md5').update(selected.candidate.url).digest('hex').slice(0, 12);
-        const filename = `${hash}.${ext}`;
+        try {
+          const ext = getExtensionFromUrl(selected.candidate.url) || 'png';
+          const hash = crypto.createHash('md5').update(selected.candidate.url).digest('hex').slice(0, 12);
+          const filename = `${hash}.${ext}`;
 
-        const uploadResult = await uploadToCloudflare(
-          {
-            sourceUrl: selected.candidate.url,
-            folder: `brands/${brandId}`,
-            filename,
-            contentType: selected.candidate.contentType,
-          },
-          cloudflareTracking,
-        );
+          const uploadResult = await uploadToCloudflare(
+            {
+              sourceUrl: selected.candidate.url,
+              folder: `brands/${brandId}`,
+              filename,
+              contentType: selected.candidate.contentType,
+            },
+            cloudflareTracking,
+          );
 
-        const image: ExtractedImage = {
-          originalUrl: selected.candidate.url,
-          permanentUrl: uploadResult.url,
-          description: selected.description,
-          width: null, // cloudflare-service doesn't return dimensions yet
-          height: null,
-          format: ext,
-          sizeBytes: uploadResult.size || selected.candidate.sizeBytes,
-          relevanceScore: selected.score,
-          cached: false,
-        };
+          const image: ExtractedImage = {
+            originalUrl: selected.candidate.url,
+            permanentUrl: uploadResult.url,
+            description: selected.description,
+            width: null, // cloudflare-service doesn't return dimensions yet
+            height: null,
+            format: ext,
+            sizeBytes: uploadResult.size || selected.candidate.sizeBytes,
+            relevanceScore: selected.score,
+            cached: false,
+          };
 
-        images.push(image);
+          images.push(image);
 
-        // Store in DB
-        await upsertExtractedImage(
-          brandId,
-          cat.key,
-          {
-            ...image,
-            sourcePageUrl: selected.candidate.sourcePageUrl,
-          },
-          campaignId,
-        );
+          // Store in DB
+          await upsertExtractedImage(
+            brandId,
+            cat.key,
+            {
+              ...image,
+              sourcePageUrl: selected.candidate.sourcePageUrl,
+            },
+            campaignId,
+          );
+        } catch (uploadError: any) {
+          const status = uploadError.response?.status ?? uploadError.code ?? 'unknown';
+          const reason = uploadError.response?.data?.reason || uploadError.response?.data?.error || uploadError.message || '';
+          console.warn(
+            `[brand-service] [${brandId}] Failed to upload image for category "${cat.key}" (${status}): ${reason} — skipping. Source: ${selected.candidate.url}`,
+          );
+        }
       }
 
       freshResults.push({ category: cat.key, images });
