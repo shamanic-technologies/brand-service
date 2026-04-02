@@ -3,13 +3,14 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
 /**
- * Regression test: field extraction and consolidation calls must use
- * sufficient maxTokens to avoid truncated JSON responses from chat-service.
+ * Regression test: extraction calls must use sufficient maxTokens to avoid
+ * truncated JSON responses from chat-service (which returns 502 on truncation).
  *
- * Root cause: chat-service returns 502 when the model output exceeds the
- * maxTokens limit and gets truncated mid-JSON. URL selection was set to 1024
- * (too low for 10 long URLs), and field extraction/consolidation were at 4096
- * (too low for large multi-field extractions).
+ * PR #121: bumped field extraction URL selection (1024→4096), field extraction
+ * (4096→16384), and multi-brand consolidation (4096→16384).
+ *
+ * This fix: image extraction URL selection was still at 1024, causing the same
+ * 502 on sites with many URLs (56-60+). Bumped to 4096.
  */
 
 describe('extraction maxTokens regression', () => {
@@ -20,6 +21,10 @@ describe('extraction maxTokens regression', () => {
   );
   const multiBrandSrc = readFileSync(
     resolve(__dirname, '../../src/services/multiBrandFieldExtractionService.ts'),
+    'utf-8',
+  );
+  const imageExtractionSrc = readFileSync(
+    resolve(__dirname, '../../src/services/imageExtractionService.ts'),
     'utf-8',
   );
 
@@ -43,6 +48,16 @@ describe('extraction maxTokens regression', () => {
     expect(extractionBlock).not.toBeNull();
     const extractionMaxTokens = parseInt(extractionBlock![1], 10);
     expect(extractionMaxTokens).toBeGreaterThanOrEqual(16384);
+  });
+
+  it('image URL selection call should use maxTokens >= 4096 (was 1024, caused 502)', () => {
+    // The selectRelevantUrlsForImages function uses google/flash for image URL selection
+    const imageUrlSelectionBlock = imageExtractionSrc.match(
+      /selectRelevantUrlsForImages[\s\S]*?model:\s*'flash'[\s\S]*?maxTokens:\s*(\d+)/,
+    );
+    expect(imageUrlSelectionBlock).not.toBeNull();
+    const imageUrlSelectionMaxTokens = parseInt(imageUrlSelectionBlock![1], 10);
+    expect(imageUrlSelectionMaxTokens).toBeGreaterThanOrEqual(4096);
   });
 
   it('multi-brand consolidation call should use maxTokens >= 16384 (was 4096)', () => {

@@ -233,7 +233,7 @@ async function selectRelevantUrlsForImages(
         model: 'flash',
         responseFormat: 'json',
         temperature: 0,
-        maxTokens: 1024,
+        maxTokens: 4096,
       },
       tracking,
     );
