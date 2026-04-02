@@ -117,6 +117,32 @@ describe('chat-client', () => {
     expect(body.maxTokens).toBeUndefined();
     expect(body.imageUrl).toBeUndefined();
     expect(body.imageContext).toBeUndefined();
+    expect(body.thinkingBudget).toBeUndefined();
+  });
+
+  it('should pass thinkingBudget when provided', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: { content: '{}', json: {}, tokensInput: 100, tokensOutput: 50, model: 'gemini-2.5-pro' },
+    });
+
+    const { chatComplete } = await import('../../src/lib/chat-client');
+
+    await chatComplete(
+      {
+        message: 'Extract fields',
+        systemPrompt: 'You are a brand extraction assistant.',
+        provider: 'google',
+        model: 'pro',
+        responseFormat: 'json',
+        maxTokens: 24000,
+        thinkingBudget: 8000,
+      },
+      { orgId: 'org_123' },
+    );
+
+    const body = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.thinkingBudget).toBe(8000);
+    expect(body.maxTokens).toBe(24000);
   });
 
   it('should pass imageUrl, imageContext, provider, and model when provided', async () => {

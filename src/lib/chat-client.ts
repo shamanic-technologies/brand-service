@@ -42,6 +42,8 @@ export interface ChatCompleteParams {
   imageUrl?: string;
   /** HTML metadata for the image — alt text, title, source URL. Injected into the prompt alongside the image. */
   imageContext?: { alt?: string; title?: string; sourceUrl?: string };
+  /** Token budget for model thinking/reasoning. 0 = disabled (default). Thinking tokens share the maxTokens budget. */
+  thinkingBudget?: number;
 }
 
 export interface ChatCompleteResult {
@@ -88,6 +90,7 @@ export async function chatComplete(
     ...(params.maxTokens !== undefined && { maxTokens: params.maxTokens }),
     ...(params.imageUrl && { imageUrl: params.imageUrl }),
     ...(params.imageContext && { imageContext: params.imageContext }),
+    ...(params.thinkingBudget !== undefined && { thinkingBudget: params.thinkingBudget }),
   };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
