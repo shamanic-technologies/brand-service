@@ -18,7 +18,7 @@ describe('POST /brands - Upsert Brand', () => {
 
   it('should return 401 without authentication', async () => {
     const response = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .send({ url: 'https://example.com' });
 
     expect(response.status).toBe(401);
@@ -27,7 +27,7 @@ describe('POST /brands - Upsert Brand', () => {
   it('should return 400 if url is missing', async () => {
     const orgId = `${testOrgPrefix}${randomUUID()}`;
     const response = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({});
 
@@ -40,7 +40,7 @@ describe('POST /brands - Upsert Brand', () => {
     const url = 'https://new-upsert-test.example.com';
 
     const response = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url });
 
@@ -64,7 +64,7 @@ describe('POST /brands - Upsert Brand', () => {
     const url = 'https://existing-upsert-test.example.com';
 
     const first = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url });
 
@@ -72,7 +72,7 @@ describe('POST /brands - Upsert Brand', () => {
     expect(first.body.created).toBe(true);
 
     const second = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url });
 
@@ -93,12 +93,12 @@ describe('POST /brands - Upsert Brand', () => {
     const url2 = 'https://brand-two.example.com';
 
     const first = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url: url1 });
 
     const second = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url: url2 });
 
@@ -120,7 +120,7 @@ describe('POST /brands - Upsert Brand', () => {
     const url = 'https://www.strip-www-test.example.com';
 
     const response = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url });
 
@@ -134,12 +134,12 @@ describe('POST /brands - Upsert Brand', () => {
     const url2 = 'https://reuse-org-two.example.com';
 
     await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url: url1 });
 
     await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url: url2 });
 
@@ -157,7 +157,7 @@ describe('POST /brands - Upsert Brand', () => {
     const url = 'https://shared-upsert-domain.example.com';
 
     const first = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId1, 'test-user-A'))
       .send({ url });
 
@@ -165,7 +165,7 @@ describe('POST /brands - Upsert Brand', () => {
     expect(first.body.created).toBe(true);
 
     const second = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId2, 'test-user-B'))
       .send({ url });
 

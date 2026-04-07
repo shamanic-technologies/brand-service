@@ -42,139 +42,142 @@ pnpm dev              # starts on PORT (default 3008)
 | `pnpm db:push` | Push schema directly (dev) |
 | `pnpm db:studio` | Open Drizzle Studio |
 
-## Authentication
+## Authentication & Route Tiers
 
-All endpoints require service-to-service auth via `X-API-Key` header. Public endpoints (`/`, `/health`, `/openapi.json`) are exempt.
+All routes follow the standard 4-tier convention:
 
-Every authenticated request must include identity headers:
-- `X-Org-Id` — internal org UUID from client-service
-- `X-User-Id` — internal user UUID from client-service
-- `X-Run-Id` — caller's run ID (used as parentRunId when creating child runs in runs-service)
+| Tier | Prefix | Middleware | Required Headers |
+|------|--------|-----------|-----------------|
+| Public | `/`, `/health`, `/openapi.json` | None | None |
+| Internal | `/internal/*` | `apiKeyAuth` | `X-API-Key` |
+| Org-scoped | `/orgs/*` | `apiKeyAuth` + `requireOrgId` | `X-API-Key`, `X-Org-Id` |
+
+Identity headers for org-scoped routes:
+- `X-Org-Id` (required) — internal org UUID from client-service
+- `X-User-Id` (optional) — internal user UUID
+- `X-Run-Id` (optional) — caller's run ID
 
 ## API Endpoints
 
-### OpenAPI
+### Public
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/openapi.json` | OpenAPI 3.0 spec (no auth required) |
+| GET | `/` | Service info |
+| GET | `/health` | Health check |
+| GET | `/openapi.json` | OpenAPI 3.0 spec |
 
-### Brands
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/brands` | Upsert brand by orgId + URL (no scraping) |
-| GET | `/brands` | List brands by orgId |
-| GET | `/brands/:id` | Get brand by ID |
-| GET | `/brands/:id/runs` | List extraction runs with costs (via runs-service) |
-
-### Field Extraction
+### Org-scoped (`/orgs/*` — require `X-Org-Id`)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/brands/extract-fields` | **Multi-brand** field extraction. Reads `x-brand-id` header (comma-separated UUIDs). Single brand → flat `{fields: {key: value}}`. Multiple brands → `{fields: {key: {consolidated, byBrand}}}` with domain-keyed per-brand results. |
-| POST | `/brands/:brandId/extract-fields` | **(Deprecated)** Use `POST /brands/extract-fields` with `x-brand-id` header instead. |
-| GET | `/brands/:brandId/extracted-fields` | List extracted fields for a brand. Optional `?campaignId=` query param filters by campaign; omit for non-campaign-scoped fields. |
+| POST | `/orgs/brands` | Upsert brand by orgId + URL |
+| GET | `/orgs/brands` | List brands by orgId |
+| POST | `/orgs/brands/extract-fields` | Multi-brand field extraction (reads `x-brand-id` header) |
+| POST | `/orgs/brands/extract-images` | Multi-brand image extraction (reads `x-brand-id` header) |
+| GET | `/orgs/public-information-map` | Public info URLs + descriptions |
+| POST | `/orgs/media-assets/:id/analyze` | AI-analyze media asset |
+| POST | `/orgs/media-assets/analyze-batch` | Batch AI analysis |
 
-### Image Extraction
+### Internal (`/internal/*` — API key only)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/brands/extract-images` | **Multi-brand** image extraction. Reads `x-brand-id` header (comma-separated UUIDs). Single brand → standard results. Multiple brands → `{results: [{category, consolidated, byBrand}]}` with domain-keyed per-brand images. |
-| POST | `/brands/:brandId/extract-images` | **(Deprecated)** Use `POST /brands/extract-images` with `x-brand-id` header instead. |
-| GET | `/brands/:brandId/extracted-images` | List extracted images for a brand. Optional `?campaignId=` filter. |
-
-### Organizations
+#### Brands
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/org-ids` | All org IDs (UUID-only) |
-| GET | `/by-org-id/:orgId` | Get org by ID |
-| PUT | `/set-url` | Set org URL |
-| GET | `/by-url` | Get org by URL |
-| GET | `/relations` | Get org relations by URL |
-| PUT | `/organizations` | Upsert org by organization ID |
-| POST | `/organizations` | Upsert org (alias) |
-| GET | `/organizations/:id/targets` | Target organizations |
-| GET | `/organizations/:id/individuals` | Org individuals + content |
-| GET | `/organizations/:id/content` | All org content |
-| POST | `/organizations/:id/individuals` | Add individual to org |
-| PATCH | `/organizations/:id/individuals/:iid/status` | Update individual status |
-| GET | `/organizations/:id/thesis` | Org thesis/ideas |
-| PATCH | `/organizations/:sid/relations/:tid/status` | Update relation status |
-| GET | `/organizations/:id/theses-for-llm` | Theses for LLM pitch drafting |
-| GET | `/organizations/:id/theses` | All theses for org |
-| PATCH | `/organizations/:id/theses/:tid/status` | Update thesis status |
-| DELETE | `/organizations/:id/theses` | Delete all org theses |
-| PATCH | `/organizations/logo` | Update org logo (deprecated) |
-| GET | `/organizations/exists` | Check if orgs exist |
+| GET | `/internal/brands/:id` | Get brand by ID |
+| GET | `/internal/brands/:id/runs` | List extraction runs with costs |
+| GET | `/internal/brands/:brandId/extracted-fields` | List extracted fields (optional `?campaignId=`) |
+| GET | `/internal/brands/:brandId/extracted-images` | List extracted images (optional `?campaignId=`) |
 
-### Admin
+#### Organizations
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/admin/organizations` | List all orgs |
-| GET | `/admin/organizations-descriptions` | Orgs with full info |
-| GET | `/admin/organization-relations` | All relations |
-| GET | `/admin/organization-individuals` | All org individuals |
-| DELETE | `/admin/organizations-descriptions/bulk` | Bulk delete orgs |
-| DELETE | `/admin/organizations/:id` | Delete org + related data |
+| GET | `/internal/org-ids` | All org IDs (UUID-only) |
+| GET | `/internal/by-org-id/:orgId` | Get org by ID |
+| PUT | `/internal/set-url` | Set org URL |
+| GET | `/internal/by-url` | Get org by URL |
+| GET | `/internal/relations` | Get org relations by URL |
+| PUT | `/internal/organizations` | Upsert org |
+| POST | `/internal/organizations` | Upsert org (alias) |
+| GET | `/internal/organizations/:id/targets` | Target organizations |
+| GET | `/internal/organizations/:id/individuals` | Org individuals + content |
+| GET | `/internal/organizations/:id/content` | All org content |
+| POST | `/internal/organizations/:id/individuals` | Add individual to org |
+| PATCH | `/internal/organizations/:id/individuals/:iid/status` | Update individual status |
+| GET | `/internal/organizations/:id/thesis` | Org thesis/ideas |
+| PATCH | `/internal/organizations/:sid/relations/:tid/status` | Update relation status |
+| GET | `/internal/organizations/:id/theses-for-llm` | Theses for LLM pitch drafting |
+| GET | `/internal/organizations/:id/theses` | All theses for org |
+| PATCH | `/internal/organizations/:id/theses/:tid/status` | Update thesis status |
+| DELETE | `/internal/organizations/:id/theses` | Delete all org theses |
+| PATCH | `/internal/organizations/logo` | Update org logo (deprecated) |
+| GET | `/internal/organizations/exists` | Check if orgs exist |
 
-### Media Assets
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/media-assets` | All media for org |
-| PATCH | `/media-assets/:id/shareable` | Toggle shareable |
-| PATCH | `/media-assets/by-url` | Update by URL |
-| PATCH | `/media-assets/:id` | Update caption |
-| DELETE | `/media-assets/:id` | Delete asset |
-| POST | `/media-assets/:id/analyze` | AI-analyze asset |
-| POST | `/media-assets/analyze-batch` | Batch AI analysis |
-
-### Upload
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/import-from-google-drive` | Import from Google Drive |
-| GET | `/import-jobs/:jobId` | Get job progress |
-| POST | `/upload-media` | Upload media file |
-
-### Thesis
+#### Admin
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/trigger-thesis-generation` | Trigger thesis generation |
-| GET | `/clients-theses-need-update` | Clients needing updates |
-| GET | `/theses-setup` | Thesis setup status |
+| GET | `/internal/admin/organizations` | List all orgs |
+| GET | `/internal/admin/organizations-descriptions` | Orgs with full info |
+| GET | `/internal/admin/organization-relations` | All relations |
+| GET | `/internal/admin/organization-individuals` | All org individuals |
+| DELETE | `/internal/admin/organizations-descriptions/bulk` | Bulk delete orgs |
+| DELETE | `/internal/admin/organizations/:id` | Delete org + related data |
 
-### Intake Forms
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/trigger-intake-form-generation` | Trigger form generation |
-| POST | `/intake-forms` | Upsert intake form |
-| GET | `/intake-forms/organization/:organizationId` | Get form by org |
-
-### Public Information
+#### Media Assets
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/public-information-map` | URLs + descriptions |
-| POST | `/public-information-content` | Fetch full content |
+| GET | `/internal/media-assets` | All media for org |
+| PATCH | `/internal/media-assets/:id/shareable` | Toggle shareable |
+| PATCH | `/internal/media-assets/by-url` | Update by URL |
+| PATCH | `/internal/media-assets/:id` | Update caption |
+| DELETE | `/internal/media-assets/:id` | Delete asset |
 
-### Email Data
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/email-data/public-info/:orgId` | Public info for email |
-| GET | `/email-data/theses/:orgId` | Theses for email |
-
-### Client Info
+#### Upload
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/trigger-client-info-workflow` | Trigger client info workflow |
+| POST | `/internal/import-from-google-drive` | Import from Google Drive |
+| GET | `/internal/import-jobs/:jobId` | Get job progress |
+| POST | `/internal/upload-media` | Upload media file |
+
+#### Thesis
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/internal/trigger-thesis-generation` | Trigger thesis generation |
+| GET | `/internal/clients-theses-need-update` | Clients needing updates |
+| GET | `/internal/theses-setup` | Thesis setup status |
+
+#### Intake Forms
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/internal/trigger-intake-form-generation` | Trigger form generation |
+| POST | `/internal/intake-forms` | Upsert intake form |
+| GET | `/internal/intake-forms/organization/:organizationId` | Get form by org |
+
+#### Public Information
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/internal/public-information-content` | Fetch full content for URLs |
+
+#### Email Data
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/internal/email-data/public-info/:orgId` | Public info for email |
+| GET | `/internal/email-data/theses/:orgId` | Theses for email |
+
+#### Client Info
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/internal/trigger-client-info-workflow` | Trigger client info workflow |
 
 ## Database
 

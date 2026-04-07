@@ -3,14 +3,16 @@ import { eq, sql } from 'drizzle-orm';
 import { db, brands, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
 import { PublicInfoContentRequestSchema } from '../schemas';
 
-const router = Router();
+// ── Org-scoped routes (require x-org-id) ──────────────────────────
+
+export const orgRouter = Router();
 
 /**
- * GET /public-information-map
+ * GET /orgs/public-information-map
  * Light version of public information that only returns URLs and short descriptions.
  */
-router.get('/public-information-map', async (req: Request, res: Response) => {
-  const orgId = req.orgId;
+orgRouter.get('/public-information-map', async (req: Request, res: Response) => {
+  const orgId = req.orgId!;
 
   try {
     // Get main brand basic info
@@ -71,6 +73,62 @@ router.get('/public-information-map', async (req: Request, res: Response) => {
     });
   }
 });
+
+// ── Internal routes (API key only, no x-org-id required) ──────────
+
+export const internalRouter = Router();
+
+/**
+ * POST /internal/public-information-content
+ * Fetch full content for selected URLs.
+ */
+internalRouter.post('/public-information-content', async (req: Request, res: Response) => {
+  const parsed = PublicInfoContentRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+  }
+  const { selected_urls } = parsed.data;
+
+  try {
+    const results = await Promise.all(
+      selected_urls.map(async (item: { url: string; source_type: string }) => {
+        const { url, source_type } = item;
+
+        try {
+          let content = null;
+
+          switch (source_type) {
+            case 'scraped_page':
+              content = await getScrapedPageContent(url);
+              break;
+            case 'linkedin_post':
+              content = await getLinkedinPostContent(url);
+              break;
+            case 'linkedin_article':
+              content = await getLinkedinArticleContent(url);
+              break;
+            default:
+              return { url, source_type, error: `Unknown source_type: ${source_type}`, content: null };
+          }
+
+          return { url, source_type, content };
+        } catch (err: any) {
+          return { url, source_type, error: err.message, content: null };
+        }
+      })
+    );
+
+    res.json({ contents: results });
+  } catch (error: any) {
+    console.error('Error fetching content for URLs:', error);
+    res.status(500).json({
+      error: 'An error occurred while fetching content',
+      details: error.message,
+    });
+  }
+});
+
+// ── Shared helpers ────────────────────────────────────────────────
 
 async function getOrganizationCompleteMap(brandId: string) {
   const [scrapedPages, linkedinPosts, linkedinArticles, individualsData] = await Promise.all([
@@ -220,56 +278,6 @@ async function getIndividualLinkedinArticlesMap(individualId: string) {
   return result;
 }
 
-/**
- * POST /public-information-content
- * Fetch full content for selected URLs.
- */
-router.post('/public-information-content', async (req: Request, res: Response) => {
-  const parsed = PublicInfoContentRequestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
-  }
-  const { selected_urls } = parsed.data;
-
-  try {
-    const results = await Promise.all(
-      selected_urls.map(async (item: { url: string; source_type: string }) => {
-        const { url, source_type } = item;
-
-        try {
-          let content = null;
-
-          switch (source_type) {
-            case 'scraped_page':
-              content = await getScrapedPageContent(url);
-              break;
-            case 'linkedin_post':
-              content = await getLinkedinPostContent(url);
-              break;
-            case 'linkedin_article':
-              content = await getLinkedinArticleContent(url);
-              break;
-            default:
-              return { url, source_type, error: `Unknown source_type: ${source_type}`, content: null };
-          }
-
-          return { url, source_type, content };
-        } catch (err: any) {
-          return { url, source_type, error: err.message, content: null };
-        }
-      })
-    );
-
-    res.json({ contents: results });
-  } catch (error: any) {
-    console.error('Error fetching content for URLs:', error);
-    res.status(500).json({
-      error: 'An error occurred while fetching content',
-      details: error.message,
-    });
-  }
-});
-
 async function getScrapedPageContent(url: string) {
   const result = await db
     .select({
@@ -396,5 +404,3 @@ async function getLinkedinArticleContent(url: string) {
 
   return null;
 }
-
-export default router;

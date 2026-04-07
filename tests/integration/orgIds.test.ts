@@ -19,13 +19,13 @@ describe('GET /org-ids', () => {
   });
 
   it('should require API key authentication', async () => {
-    const response = await request(app).get('/org-ids');
+    const response = await request(app).get('/internal/org-ids');
     expect(response.status).toBe(401);
   });
 
   it('should work with only API key (no identity headers)', async () => {
     const response = await request(app)
-      .get('/org-ids')
+      .get('/internal/org-ids')
       .set({
         'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
       });
@@ -54,7 +54,7 @@ describe('GET /org-ids', () => {
     });
 
     const response = await request(app)
-      .get('/org-ids')
+      .get('/internal/org-ids')
       .set(getAuthHeaders());
 
     expect(response.status).toBe(200);
@@ -81,7 +81,7 @@ describe('GET /org-ids', () => {
 describe('UUID validation on creation endpoints', () => {
   it('PUT /set-url should reject Clerk ID for organization_id', async () => {
     const response = await request(app)
-      .put('/set-url')
+      .put('/internal/set-url')
       .set(getAuthHeaders())
       .send({ organization_id: 'org_38y0ZSEvK2Pj1', url: 'https://example.com' });
 

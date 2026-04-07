@@ -11,7 +11,7 @@ describe('Media Assets Endpoints', () => {
 
   describe('GET /media-assets', () => {
     it('should require external_organization_id query param', async () => {
-      const response = await request(app).get('/media-assets').set(getAuthHeaders());
+      const response = await request(app).get('/internal/media-assets').set(getAuthHeaders());
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('Invalid request');
@@ -19,7 +19,7 @@ describe('Media Assets Endpoints', () => {
 
     it('should accept authenticated requests with query param', async () => {
       const response = await request(app)
-        .get('/media-assets')
+        .get('/internal/media-assets')
         .query({ external_organization_id: 'test-ext-org' })
         .set(getAuthHeaders());
 
@@ -30,7 +30,7 @@ describe('Media Assets Endpoints', () => {
 
     it('should reject unauthenticated requests', async () => {
       const response = await request(app)
-        .get('/media-assets')
+        .get('/internal/media-assets')
         .query({ external_organization_id: 'test-ext-org' });
 
       expect(response.status).toBe(401);
@@ -40,7 +40,7 @@ describe('Media Assets Endpoints', () => {
   describe('PATCH /media-assets/:id/shareable', () => {
     it('should require external_organization_id in body', async () => {
       const response = await request(app)
-        .patch('/media-assets/asset-123/shareable')
+        .patch('/internal/media-assets/asset-123/shareable')
         .set(getAuthHeaders())
         .send({ is_shareable: true });
 
@@ -50,7 +50,7 @@ describe('Media Assets Endpoints', () => {
 
     it('should require is_shareable as boolean', async () => {
       const response = await request(app)
-        .patch('/media-assets/asset-123/shareable')
+        .patch('/internal/media-assets/asset-123/shareable')
         .set(getAuthHeaders())
         .send({ external_organization_id: 'test-ext-org', is_shareable: 'yes' });
 
@@ -60,7 +60,7 @@ describe('Media Assets Endpoints', () => {
 
     it('should accept valid request', async () => {
       const response = await request(app)
-        .patch('/media-assets/asset-123/shareable')
+        .patch('/internal/media-assets/asset-123/shareable')
         .set(getAuthHeaders())
         .send({ external_organization_id: 'test-ext-org', is_shareable: true });
 
@@ -73,7 +73,7 @@ describe('Media Assets Endpoints', () => {
   describe('PATCH /media-assets/by-url', () => {
     it('should require X-External-Organization-Id header', async () => {
       const response = await request(app)
-        .patch('/media-assets/by-url')
+        .patch('/internal/media-assets/by-url')
         .set(getAuthHeaders())
         .send({ url: 'https://example.com/image.jpg', caption: 'Test caption' });
 
@@ -83,7 +83,7 @@ describe('Media Assets Endpoints', () => {
 
     it('should require url in body', async () => {
       const response = await request(app)
-        .patch('/media-assets/by-url')
+        .patch('/internal/media-assets/by-url')
         .set({ ...getAuthHeaders(), 'X-External-Organization-Id': 'test-ext-org' })
         .send({ caption: 'Test caption' });
 
@@ -93,7 +93,7 @@ describe('Media Assets Endpoints', () => {
 
     it('should require at least caption or alt_text', async () => {
       const response = await request(app)
-        .patch('/media-assets/by-url')
+        .patch('/internal/media-assets/by-url')
         .set({ ...getAuthHeaders(), 'X-External-Organization-Id': 'test-ext-org' })
         .send({ url: 'https://example.com/image.jpg' });
 
@@ -105,7 +105,7 @@ describe('Media Assets Endpoints', () => {
   describe('DELETE /media-assets/:id', () => {
     it('should require external_organization_id in body', async () => {
       const response = await request(app)
-        .delete('/media-assets/asset-123')
+        .delete('/internal/media-assets/asset-123')
         .set(getAuthHeaders())
         .send({});
 
@@ -115,7 +115,7 @@ describe('Media Assets Endpoints', () => {
 
     it('should accept valid delete request', async () => {
       const response = await request(app)
-        .delete('/media-assets/asset-123')
+        .delete('/internal/media-assets/asset-123')
         .set(getAuthHeaders())
         .send({ external_organization_id: 'test-ext-org' });
 

@@ -20,7 +20,7 @@ describe('GET /brands - List Brands', () => {
 
     // Create a brand first
     const createRes = await request(app)
-      .post('/brands')
+      .post('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'))
       .send({ url });
 
@@ -28,7 +28,7 @@ describe('GET /brands - List Brands', () => {
 
     // List brands — orgId comes from header now
     const listRes = await request(app)
-      .get('/brands')
+      .get('/orgs/brands')
       .set(getAuthHeaders(orgId, 'test-user-uuid'));
 
     expect(listRes.status).toBe(200);
@@ -39,7 +39,7 @@ describe('GET /brands - List Brands', () => {
 
   it('should return empty array for unknown orgId', async () => {
     const listRes = await request(app)
-      .get('/brands')
+      .get('/orgs/brands')
       .set(getAuthHeaders('nonexistent_org_id', 'test-user-uuid'));
 
     expect(listRes.status).toBe(200);
@@ -48,7 +48,7 @@ describe('GET /brands - List Brands', () => {
 
   it('should return 401 without authentication', async () => {
     const response = await request(app)
-      .get('/brands');
+      .get('/orgs/brands');
 
     expect(response.status).toBe(401);
   });

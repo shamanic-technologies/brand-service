@@ -5,23 +5,25 @@ import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand } from '../services/brandService';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema } from '../schemas';
 
-const router = Router();
-
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ── Org-scoped routes (require x-org-id) ──────────────────────────
+
+export const orgRouter = Router();
+
 /**
- * POST /brands
+ * POST /orgs/brands
  * Upsert a brand by orgId + URL. Lightweight — no scraping or AI.
  * Returns { brandId, domain, name, created }
  */
-router.post('/brands', async (req: Request, res: Response) => {
+orgRouter.post('/brands', async (req: Request, res: Response) => {
   try {
     const parsed = UpsertBrandRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
     const { url } = parsed.data;
-    const orgId = req.orgId;
+    const orgId = req.orgId!;
 
     // Extract domain to check if brand already exists
     let domain: string;
@@ -54,12 +56,12 @@ router.post('/brands', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /brands
+ * GET /orgs/brands
  * List all brands for an organization by orgId (from header)
  */
-router.get('/brands', async (req: Request, res: Response) => {
+orgRouter.get('/brands', async (req: Request, res: Response) => {
   try {
-    const orgId = req.orgId;
+    const orgId = req.orgId!;
 
     // Get all brands for this org
     const orgBrands = await db
@@ -84,11 +86,15 @@ router.get('/brands', async (req: Request, res: Response) => {
   }
 });
 
+// ── Internal routes (API key only, no x-org-id required) ──────────
+
+export const internalRouter = Router();
+
 /**
- * GET /brands/:id
+ * GET /internal/brands/:id
  * Get a single brand by ID
  */
-router.get('/brands/:id', async (req: Request, res: Response) => {
+internalRouter.get('/brands/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (!UUID_REGEX.test(id)) {
@@ -130,10 +136,10 @@ router.get('/brands/:id', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /brands/:id/runs
+ * GET /internal/brands/:id/runs
  * List runs-service runs for a brand (extraction history with costs)
  */
-router.get('/brands/:id/runs', async (req: Request, res: Response) => {
+internalRouter.get('/brands/:id/runs', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (!UUID_REGEX.test(id)) {
@@ -173,5 +179,3 @@ router.get('/brands/:id/runs', async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message || 'Failed to get brand runs' });
   }
 });
-
-export default router;

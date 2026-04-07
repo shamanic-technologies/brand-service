@@ -1080,7 +1080,7 @@
     }
   },
   "paths": {
-    "/brands": {
+    "/orgs/brands": {
       "post": {
         "summary": "Upsert a brand by orgId + URL (no scraping)",
         "requestBody": {
@@ -1133,7 +1133,7 @@
         }
       }
     },
-    "/brands/{id}": {
+    "/internal/brands/{id}": {
       "get": {
         "summary": "Get a single brand by ID",
         "parameters": [
@@ -1166,7 +1166,7 @@
         }
       }
     },
-    "/brands/{id}/runs": {
+    "/internal/brands/{id}/runs": {
       "get": {
         "summary": "List runs-service runs for a brand",
         "parameters": [
@@ -1208,7 +1208,7 @@
         }
       }
     },
-    "/brands/{brandId}/extracted-fields": {
+    "/internal/brands/{brandId}/extracted-fields": {
       "get": {
         "summary": "List all previously extracted fields for a brand",
         "description": "Returns every field that has been extracted and cached for this brand, with keys, values, source URLs, and timestamps. Use this to discover what data is already available before calling extract-fields. Optionally filter by campaignId; if omitted, returns only non-campaign-scoped fields.",
@@ -1257,7 +1257,7 @@
         }
       }
     },
-    "/brands/extract-fields": {
+    "/orgs/brands/extract-fields": {
       "post": {
         "summary": "Extract fields from one or more brands via AI",
         "description": "Multi-brand field extraction endpoint. Read brand IDs from the x-brand-id header (comma-separated UUIDs). Returns a unified format: `{ brands: [...], fields: { key: { value, byBrand } } }`. `value` is the single brand value (1 brand) or LLM-consolidated (N brands). `byBrand` is always present, keyed by domain. Same shape regardless of brand count. Results are cached per field for 30 days, scoped by (brandId, fieldKey, campaignId).",
@@ -1382,7 +1382,7 @@
         }
       }
     },
-    "/brands/extract-images": {
+    "/orgs/brands/extract-images": {
       "post": {
         "summary": "Extract images from one or more brands via AI",
         "description": "Multi-brand image extraction endpoint. Read brand IDs from the x-brand-id header (comma-separated UUIDs). Returns a unified format: `{ brands: [...], results: [{ category, images, byBrand }] }`. `images` is the brand images (1 brand) or relevance-sorted merge (N brands). `byBrand` is always present, keyed by domain. Same shape regardless of brand count. Images are classified via vision LLM and uploaded to Cloudflare R2. Results cached per (brandId, categoryKey, campaignId) for 30 days.",
@@ -1476,7 +1476,7 @@
         }
       }
     },
-    "/brands/{brandId}/extracted-images": {
+    "/internal/brands/{brandId}/extracted-images": {
       "get": {
         "summary": "List all previously extracted images for a brand",
         "description": "Returns every image that has been extracted and cached for this brand, with category, URLs, scores, and timestamps. Optionally filter by campaignId; if omitted, returns only non-campaign-scoped images.",
@@ -1525,7 +1525,7 @@
         }
       }
     },
-    "/org-ids": {
+    "/internal/org-ids": {
       "get": {
         "summary": "Get all organization IDs (only valid UUIDs)",
         "responses": {
@@ -1538,7 +1538,7 @@
         }
       }
     },
-    "/by-org-id/{orgId}": {
+    "/internal/by-org-id/{orgId}": {
       "get": {
         "summary": "Get organization by organization ID",
         "responses": {
@@ -1557,7 +1557,7 @@
         }
       }
     },
-    "/set-url": {
+    "/internal/set-url": {
       "put": {
         "summary": "Set organization URL (only if not already set)",
         "requestBody": {
@@ -1585,7 +1585,7 @@
         }
       }
     },
-    "/by-url": {
+    "/internal/by-url": {
       "get": {
         "summary": "Get organization by URL",
         "responses": {
@@ -1604,7 +1604,7 @@
         }
       }
     },
-    "/relations": {
+    "/internal/relations": {
       "get": {
         "summary": "Get organization relations by URL",
         "responses": {
@@ -1623,7 +1623,7 @@
         }
       }
     },
-    "/organizations": {
+    "/internal/organizations": {
       "put": {
         "summary": "Upsert organization by organization ID",
         "requestBody": {
@@ -1671,7 +1671,7 @@
         }
       }
     },
-    "/organizations/{organizationId}/targets": {
+    "/internal/organizations/{organizationId}/targets": {
       "get": {
         "summary": "Get target organizations by organization ID",
         "responses": {
@@ -1687,7 +1687,7 @@
         }
       }
     },
-    "/organizations/{organizationId}/individuals": {
+    "/internal/organizations/{organizationId}/individuals": {
       "get": {
         "summary": "Get all individuals and their content for an organization",
         "responses": {
@@ -1732,7 +1732,7 @@
         }
       }
     },
-    "/organizations/{organizationId}/content": {
+    "/internal/organizations/{organizationId}/content": {
       "get": {
         "summary": "Get all content for an organization",
         "responses": {
@@ -1751,7 +1751,7 @@
         }
       }
     },
-    "/organizations/{organizationId}/individuals/{individualId}/status": {
+    "/internal/organizations/{organizationId}/individuals/{individualId}/status": {
       "patch": {
         "summary": "Update individual status in organization",
         "requestBody": {
@@ -1779,7 +1779,7 @@
         }
       }
     },
-    "/organizations/{organizationId}/thesis": {
+    "/internal/organizations/{organizationId}/thesis": {
       "get": {
         "summary": "Get organization thesis/ideas",
         "responses": {
@@ -1798,7 +1798,7 @@
         }
       }
     },
-    "/organizations/{sourceOrgId}/relations/{targetOrgId}/status": {
+    "/internal/organizations/{sourceOrgId}/relations/{targetOrgId}/status": {
       "patch": {
         "summary": "Update organization relation status",
         "requestBody": {
@@ -1826,7 +1826,7 @@
         }
       }
     },
-    "/organizations/{organizationId}/theses-for-llm": {
+    "/internal/organizations/{organizationId}/theses-for-llm": {
       "get": {
         "summary": "Get theses for LLM pitch drafting",
         "responses": {
@@ -1842,7 +1842,7 @@
         }
       }
     },
-    "/organizations/{organizationId}/theses": {
+    "/internal/organizations/{organizationId}/theses": {
       "get": {
         "summary": "Get all theses for an organization",
         "responses": {
@@ -1872,7 +1872,7 @@
         }
       }
     },
-    "/organizations/{organizationId}/theses/{thesisId}/status": {
+    "/internal/organizations/{organizationId}/theses/{thesisId}/status": {
       "patch": {
         "summary": "Update thesis status",
         "requestBody": {
@@ -1900,7 +1900,7 @@
         }
       }
     },
-    "/organizations/logo": {
+    "/internal/organizations/logo": {
       "patch": {
         "summary": "Update organization logo (deprecated)",
         "requestBody": {
@@ -1928,7 +1928,7 @@
         }
       }
     },
-    "/admin/organizations": {
+    "/internal/admin/organizations": {
       "get": {
         "summary": "List all organizations (admin)",
         "parameters": [
@@ -1951,7 +1951,7 @@
         }
       }
     },
-    "/admin/organizations-descriptions": {
+    "/internal/admin/organizations-descriptions": {
       "get": {
         "summary": "List organizations with full descriptions (admin)",
         "parameters": [
@@ -1974,7 +1974,7 @@
         }
       }
     },
-    "/admin/organization-relations": {
+    "/internal/admin/organization-relations": {
       "get": {
         "summary": "Get all organization relations (admin)",
         "parameters": [
@@ -1997,7 +1997,7 @@
         }
       }
     },
-    "/admin/organization-individuals": {
+    "/internal/admin/organization-individuals": {
       "get": {
         "summary": "Get all organization individuals (admin)",
         "parameters": [
@@ -2020,7 +2020,7 @@
         }
       }
     },
-    "/admin/organizations-descriptions/bulk": {
+    "/internal/admin/organizations-descriptions/bulk": {
       "delete": {
         "summary": "Bulk delete organizations (admin)",
         "requestBody": {
@@ -2042,7 +2042,7 @@
         }
       }
     },
-    "/admin/organizations/{id}": {
+    "/internal/admin/organizations/{id}": {
       "delete": {
         "summary": "Delete an organization and related data (admin)",
         "responses": {
@@ -2061,7 +2061,7 @@
         }
       }
     },
-    "/organizations/exists": {
+    "/internal/organizations/exists": {
       "get": {
         "summary": "Check if organizations exist by org IDs",
         "parameters": [
@@ -2087,7 +2087,7 @@
         }
       }
     },
-    "/email-data/public-info/{orgId}": {
+    "/internal/email-data/public-info/{orgId}": {
       "get": {
         "summary": "Get public info formatted for lifecycle email",
         "responses": {
@@ -2106,7 +2106,7 @@
         }
       }
     },
-    "/email-data/theses/{orgId}": {
+    "/internal/email-data/theses/{orgId}": {
       "get": {
         "summary": "Get theses formatted for lifecycle email",
         "responses": {
@@ -2125,7 +2125,7 @@
         }
       }
     },
-    "/media-assets": {
+    "/internal/media-assets": {
       "get": {
         "summary": "Get all media assets for an organization",
         "parameters": [
@@ -2151,7 +2151,7 @@
         }
       }
     },
-    "/media-assets/{id}/shareable": {
+    "/internal/media-assets/{id}/shareable": {
       "patch": {
         "summary": "Update media asset shareable status",
         "requestBody": {
@@ -2179,7 +2179,7 @@
         }
       }
     },
-    "/media-assets/by-url": {
+    "/internal/media-assets/by-url": {
       "patch": {
         "summary": "Update media asset by URL",
         "requestBody": {
@@ -2207,7 +2207,7 @@
         }
       }
     },
-    "/media-assets/{id}": {
+    "/internal/media-assets/{id}": {
       "patch": {
         "summary": "Update media asset caption",
         "requestBody": {
@@ -2261,7 +2261,7 @@
         }
       }
     },
-    "/media-assets/{id}/analyze": {
+    "/orgs/media-assets/{id}/analyze": {
       "post": {
         "summary": "Analyze single media asset with AI",
         "requestBody": {
@@ -2289,7 +2289,7 @@
         }
       }
     },
-    "/media-assets/analyze-batch": {
+    "/orgs/media-assets/analyze-batch": {
       "post": {
         "summary": "Batch analyze media assets with AI",
         "requestBody": {
@@ -2314,7 +2314,7 @@
         }
       }
     },
-    "/import-from-google-drive": {
+    "/internal/import-from-google-drive": {
       "post": {
         "summary": "Import media from Google Drive (async)",
         "requestBody": {
@@ -2339,7 +2339,7 @@
         }
       }
     },
-    "/import-jobs/{jobId}": {
+    "/internal/import-jobs/{jobId}": {
       "get": {
         "summary": "Get import job progress",
         "responses": {
@@ -2355,7 +2355,7 @@
         }
       }
     },
-    "/upload-media": {
+    "/internal/upload-media": {
       "post": {
         "summary": "Upload media file",
         "responses": {
@@ -2371,7 +2371,7 @@
         }
       }
     },
-    "/trigger-client-info-workflow": {
+    "/internal/trigger-client-info-workflow": {
       "post": {
         "summary": "Trigger n8n client info workflow",
         "requestBody": {
@@ -2396,7 +2396,7 @@
         }
       }
     },
-    "/trigger-intake-form-generation": {
+    "/internal/trigger-intake-form-generation": {
       "post": {
         "summary": "Trigger intake form generation workflow",
         "requestBody": {
@@ -2424,7 +2424,7 @@
         }
       }
     },
-    "/intake-forms": {
+    "/internal/intake-forms": {
       "post": {
         "summary": "Upsert intake form data (auto-save)",
         "requestBody": {
@@ -2452,7 +2452,7 @@
         }
       }
     },
-    "/intake-forms/organization/{organizationId}": {
+    "/internal/intake-forms/organization/{organizationId}": {
       "get": {
         "summary": "Get intake form by organization ID",
         "responses": {
@@ -2471,7 +2471,7 @@
         }
       }
     },
-    "/trigger-thesis-generation": {
+    "/internal/trigger-thesis-generation": {
       "post": {
         "summary": "Trigger thesis generation workflow",
         "requestBody": {
@@ -2499,7 +2499,7 @@
         }
       }
     },
-    "/clients-theses-need-update": {
+    "/internal/clients-theses-need-update": {
       "get": {
         "summary": "Get clients that need thesis updates",
         "parameters": [
@@ -2522,7 +2522,7 @@
         }
       }
     },
-    "/theses-setup": {
+    "/internal/theses-setup": {
       "get": {
         "summary": "Get thesis setup status for all organizations",
         "responses": {
@@ -2535,7 +2535,7 @@
         }
       }
     },
-    "/public-information-map": {
+    "/orgs/public-information-map": {
       "get": {
         "summary": "Get public information map (URLs and descriptions)",
         "responses": {
@@ -2554,7 +2554,7 @@
         }
       }
     },
-    "/public-information-content": {
+    "/internal/public-information-content": {
       "post": {
         "summary": "Fetch full content for selected URLs",
         "requestBody": {

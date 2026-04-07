@@ -95,7 +95,7 @@ export const UpsertBrandResponseSchema = z
 
 registry.registerPath({
   method: 'post',
-  path: '/brands',
+  path: '/orgs/brands',
   summary: 'Upsert a brand by orgId + URL (no scraping)',
   request: { body: { content: { 'application/json': { schema: UpsertBrandRequestSchema } } } },
   responses: {
@@ -107,7 +107,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/brands',
+  path: '/orgs/brands',
   summary: 'List all brands for an organization',
   request: { query: ListBrandsQuerySchema },
   responses: {
@@ -119,7 +119,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/brands/{id}',
+  path: '/internal/brands/{id}',
   summary: 'Get a single brand by ID',
   request: { query: GetBrandQuerySchema },
   responses: {
@@ -131,7 +131,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/brands/{id}/runs',
+  path: '/internal/brands/{id}/runs',
   summary: 'List runs-service runs for a brand',
   request: { query: BrandRunsQuerySchema },
   responses: {
@@ -233,7 +233,7 @@ export const ListExtractedFieldsResponseSchema = z
 
 registry.registerPath({
   method: 'get',
-  path: '/brands/{brandId}/extracted-fields',
+  path: '/internal/brands/{brandId}/extracted-fields',
   summary: 'List all previously extracted fields for a brand',
   description: 'Returns every field that has been extracted and cached for this brand, with keys, values, source URLs, and timestamps. Use this to discover what data is already available before calling extract-fields. Optionally filter by campaignId; if omitted, returns only non-campaign-scoped fields.',
   request: {
@@ -293,7 +293,7 @@ export const MultiBrandExtractFieldsResponseSchema = z
 
 registry.registerPath({
   method: 'post',
-  path: '/brands/extract-fields',
+  path: '/orgs/brands/extract-fields',
   summary: 'Extract fields from one or more brands via AI',
   description:
     'Multi-brand field extraction endpoint. Read brand IDs from the x-brand-id header (comma-separated UUIDs). ' +
@@ -491,7 +491,7 @@ export const MultiBrandExtractImagesResponseSchema = z
 
 registry.registerPath({
   method: 'post',
-  path: '/brands/extract-images',
+  path: '/orgs/brands/extract-images',
   summary: 'Extract images from one or more brands via AI',
   description:
     'Multi-brand image extraction endpoint. Read brand IDs from the x-brand-id header (comma-separated UUIDs). ' +
@@ -564,7 +564,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/brands/{brandId}/extracted-images',
+  path: '/internal/brands/{brandId}/extracted-images',
   summary: 'List all previously extracted images for a brand',
   description:
     'Returns every image that has been extracted and cached for this brand, with category, URLs, scores, and timestamps. ' +
@@ -660,7 +660,7 @@ export const OrgIdsFilterQuerySchema = z
 
 registry.registerPath({
   method: 'get',
-  path: '/org-ids',
+  path: '/internal/org-ids',
   summary: 'Get all organization IDs (only valid UUIDs)',
   request: { query: OrgIdsFilterQuerySchema },
   responses: {
@@ -671,7 +671,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/by-org-id/{orgId}',
+  path: '/internal/by-org-id/{orgId}',
   summary: 'Get organization by organization ID',
   responses: {
     200: { description: 'Organization details' },
@@ -683,7 +683,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'put',
-  path: '/set-url',
+  path: '/internal/set-url',
   summary: 'Set organization URL (only if not already set)',
   request: { body: { content: { 'application/json': { schema: SetUrlRequestSchema } } } },
   responses: {
@@ -696,7 +696,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/by-url',
+  path: '/internal/by-url',
   summary: 'Get organization by URL',
   responses: {
     200: { description: 'Organization details' },
@@ -708,7 +708,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/relations',
+  path: '/internal/relations',
   summary: 'Get organization relations by URL',
   responses: {
     200: { description: 'Organization relations' },
@@ -720,7 +720,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'put',
-  path: '/organizations',
+  path: '/internal/organizations',
   summary: 'Upsert organization by organization ID',
   request: { body: { content: { 'application/json': { schema: UpsertOrganizationRequestSchema } } } },
   responses: {
@@ -732,7 +732,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'post',
-  path: '/organizations',
+  path: '/internal/organizations',
   summary: 'Upsert organization by organization ID (alias)',
   request: { body: { content: { 'application/json': { schema: UpsertOrganizationRequestSchema } } } },
   responses: {
@@ -744,7 +744,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/organizations/{organizationId}/targets',
+  path: '/internal/organizations/{organizationId}/targets',
   summary: 'Get target organizations by organization ID',
   responses: {
     200: { description: 'Target organizations' },
@@ -755,7 +755,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/organizations/{organizationId}/individuals',
+  path: '/internal/organizations/{organizationId}/individuals',
   summary: 'Get all individuals and their content for an organization',
   responses: {
     200: { description: 'Individuals and content' },
@@ -767,7 +767,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/organizations/{organizationId}/content',
+  path: '/internal/organizations/{organizationId}/content',
   summary: 'Get all content for an organization',
   responses: {
     200: { description: 'Organization content' },
@@ -779,7 +779,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'post',
-  path: '/organizations/{organizationId}/individuals',
+  path: '/internal/organizations/{organizationId}/individuals',
   summary: 'Add or upsert individual to organization',
   request: { body: { content: { 'application/json': { schema: AddIndividualRequestSchema } } } },
   responses: {
@@ -792,7 +792,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'patch',
-  path: '/organizations/{organizationId}/individuals/{individualId}/status',
+  path: '/internal/organizations/{organizationId}/individuals/{individualId}/status',
   summary: 'Update individual status in organization',
   request: { body: { content: { 'application/json': { schema: UpdateIndividualStatusRequestSchema } } } },
   responses: {
@@ -805,7 +805,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/organizations/{organizationId}/thesis',
+  path: '/internal/organizations/{organizationId}/thesis',
   summary: 'Get organization thesis/ideas',
   responses: {
     200: { description: 'Organization thesis' },
@@ -817,7 +817,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'patch',
-  path: '/organizations/{sourceOrgId}/relations/{targetOrgId}/status',
+  path: '/internal/organizations/{sourceOrgId}/relations/{targetOrgId}/status',
   summary: 'Update organization relation status',
   request: { body: { content: { 'application/json': { schema: UpdateRelationStatusRequestSchema } } } },
   responses: {
@@ -830,7 +830,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/organizations/{organizationId}/theses-for-llm',
+  path: '/internal/organizations/{organizationId}/theses-for-llm',
   summary: 'Get theses for LLM pitch drafting',
   responses: {
     200: { description: 'Validated theses for LLM context' },
@@ -841,7 +841,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/organizations/{organizationId}/theses',
+  path: '/internal/organizations/{organizationId}/theses',
   summary: 'Get all theses for an organization',
   responses: {
     200: { description: 'Organization theses' },
@@ -852,7 +852,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'patch',
-  path: '/organizations/{organizationId}/theses/{thesisId}/status',
+  path: '/internal/organizations/{organizationId}/theses/{thesisId}/status',
   summary: 'Update thesis status',
   request: { body: { content: { 'application/json': { schema: UpdateThesisStatusRequestSchema } } } },
   responses: {
@@ -865,7 +865,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'delete',
-  path: '/organizations/{organizationId}/theses',
+  path: '/internal/organizations/{organizationId}/theses',
   summary: 'Delete all theses for an organization',
   responses: {
     200: { description: 'Theses deleted' },
@@ -876,7 +876,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'patch',
-  path: '/organizations/logo',
+  path: '/internal/organizations/logo',
   summary: 'Update organization logo (deprecated)',
   request: { body: { content: { 'application/json': { schema: UpdateLogoRequestSchema } } } },
   responses: {
@@ -889,7 +889,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/admin/organizations',
+  path: '/internal/admin/organizations',
   summary: 'List all organizations (admin)',
   request: { query: FilterQuerySchema },
   responses: {
@@ -900,7 +900,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/admin/organizations-descriptions',
+  path: '/internal/admin/organizations-descriptions',
   summary: 'List organizations with full descriptions (admin)',
   request: { query: FilterQuerySchema },
   responses: {
@@ -911,7 +911,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/admin/organization-relations',
+  path: '/internal/admin/organization-relations',
   summary: 'Get all organization relations (admin)',
   request: { query: FilterQuerySchema },
   responses: {
@@ -922,7 +922,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/admin/organization-individuals',
+  path: '/internal/admin/organization-individuals',
   summary: 'Get all organization individuals (admin)',
   request: { query: FilterQuerySchema },
   responses: {
@@ -933,7 +933,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'delete',
-  path: '/admin/organizations-descriptions/bulk',
+  path: '/internal/admin/organizations-descriptions/bulk',
   summary: 'Bulk delete organizations (admin)',
   request: { body: { content: { 'application/json': { schema: BulkDeleteOrgsRequestSchema } } } },
   responses: {
@@ -944,7 +944,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'delete',
-  path: '/admin/organizations/{id}',
+  path: '/internal/admin/organizations/{id}',
   summary: 'Delete an organization and related data (admin)',
   responses: {
     200: { description: 'Organization deleted' },
@@ -956,7 +956,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/organizations/exists',
+  path: '/internal/organizations/exists',
   summary: 'Check if organizations exist by org IDs',
   request: { query: OrgIdsQuerySchema },
   responses: {
@@ -968,7 +968,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/email-data/public-info/{orgId}',
+  path: '/internal/email-data/public-info/{orgId}',
   summary: 'Get public info formatted for lifecycle email',
   responses: {
     200: { description: 'Email-formatted public info' },
@@ -980,7 +980,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/email-data/theses/{orgId}',
+  path: '/internal/email-data/theses/{orgId}',
   summary: 'Get theses formatted for lifecycle email',
   responses: {
     200: { description: 'Email-formatted theses' },
@@ -1027,7 +1027,7 @@ export const DeleteMediaAssetRequestSchema = z
 
 registry.registerPath({
   method: 'get',
-  path: '/media-assets',
+  path: '/internal/media-assets',
   summary: 'Get all media assets for an organization',
   request: { query: MediaAssetsQuerySchema },
   responses: {
@@ -1039,7 +1039,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'patch',
-  path: '/media-assets/{id}/shareable',
+  path: '/internal/media-assets/{id}/shareable',
   summary: 'Update media asset shareable status',
   request: { body: { content: { 'application/json': { schema: UpdateShareableRequestSchema } } } },
   responses: {
@@ -1052,7 +1052,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'patch',
-  path: '/media-assets/by-url',
+  path: '/internal/media-assets/by-url',
   summary: 'Update media asset by URL',
   request: { body: { content: { 'application/json': { schema: UpdateMediaByUrlRequestSchema } } } },
   responses: {
@@ -1065,7 +1065,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'patch',
-  path: '/media-assets/{id}',
+  path: '/internal/media-assets/{id}',
   summary: 'Update media asset caption',
   request: { body: { content: { 'application/json': { schema: UpdateMediaCaptionRequestSchema } } } },
   responses: {
@@ -1078,7 +1078,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'delete',
-  path: '/media-assets/{id}',
+  path: '/internal/media-assets/{id}',
   summary: 'Delete media asset',
   request: { body: { content: { 'application/json': { schema: DeleteMediaAssetRequestSchema } } } },
   responses: {
@@ -1101,7 +1101,7 @@ export const AnalyzeRequestSchema = z
 
 registry.registerPath({
   method: 'post',
-  path: '/media-assets/{id}/analyze',
+  path: '/orgs/media-assets/{id}/analyze',
   summary: 'Analyze single media asset with AI',
   request: { body: { content: { 'application/json': { schema: AnalyzeRequestSchema } } } },
   responses: {
@@ -1114,7 +1114,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'post',
-  path: '/media-assets/analyze-batch',
+  path: '/orgs/media-assets/analyze-batch',
   summary: 'Batch analyze media assets with AI',
   request: { body: { content: { 'application/json': { schema: AnalyzeRequestSchema } } } },
   responses: {
@@ -1137,7 +1137,7 @@ export const ImportFromGDriveRequestSchema = z
 
 registry.registerPath({
   method: 'post',
-  path: '/import-from-google-drive',
+  path: '/internal/import-from-google-drive',
   summary: 'Import media from Google Drive (async)',
   request: { body: { content: { 'application/json': { schema: ImportFromGDriveRequestSchema } } } },
   responses: {
@@ -1149,7 +1149,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/import-jobs/{jobId}',
+  path: '/internal/import-jobs/{jobId}',
   summary: 'Get import job progress',
   responses: {
     200: { description: 'Job status' },
@@ -1160,7 +1160,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'post',
-  path: '/upload-media',
+  path: '/internal/upload-media',
   summary: 'Upload media file',
   responses: {
     200: { description: 'File uploaded' },
@@ -1181,7 +1181,7 @@ export const TriggerWorkflowRequestSchema = z
 
 registry.registerPath({
   method: 'post',
-  path: '/trigger-client-info-workflow',
+  path: '/internal/trigger-client-info-workflow',
   summary: 'Trigger n8n client info workflow',
   request: { body: { content: { 'application/json': { schema: TriggerWorkflowRequestSchema } } } },
   responses: {
@@ -1204,7 +1204,7 @@ export const IntakeFormUpsertRequestSchema = z
 
 registry.registerPath({
   method: 'post',
-  path: '/trigger-intake-form-generation',
+  path: '/internal/trigger-intake-form-generation',
   summary: 'Trigger intake form generation workflow',
   request: { body: { content: { 'application/json': { schema: TriggerWorkflowRequestSchema } } } },
   responses: {
@@ -1217,7 +1217,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'post',
-  path: '/intake-forms',
+  path: '/internal/intake-forms',
   summary: 'Upsert intake form data (auto-save)',
   request: { body: { content: { 'application/json': { schema: IntakeFormUpsertRequestSchema } } } },
   responses: {
@@ -1230,7 +1230,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/intake-forms/organization/{organizationId}',
+  path: '/internal/intake-forms/organization/{organizationId}',
   summary: 'Get intake form by organization ID',
   responses: {
     200: { description: 'Intake form data' },
@@ -1246,7 +1246,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'post',
-  path: '/trigger-thesis-generation',
+  path: '/internal/trigger-thesis-generation',
   summary: 'Trigger thesis generation workflow',
   request: { body: { content: { 'application/json': { schema: TriggerWorkflowRequestSchema } } } },
   responses: {
@@ -1259,7 +1259,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/clients-theses-need-update',
+  path: '/internal/clients-theses-need-update',
   summary: 'Get clients that need thesis updates',
   request: { query: FilterQuerySchema },
   responses: {
@@ -1270,7 +1270,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/theses-setup',
+  path: '/internal/theses-setup',
   summary: 'Get thesis setup status for all organizations',
   responses: {
     200: { description: 'Thesis setup status' },
@@ -1299,7 +1299,7 @@ export const PublicInfoContentRequestSchema = z
 
 registry.registerPath({
   method: 'get',
-  path: '/public-information-map',
+  path: '/orgs/public-information-map',
   summary: 'Get public information map (URLs and descriptions)',
   request: { query: PublicInfoMapQuerySchema },
   responses: {
@@ -1312,7 +1312,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'post',
-  path: '/public-information-content',
+  path: '/internal/public-information-content',
   summary: 'Fetch full content for selected URLs',
   request: { body: { content: { 'application/json': { schema: PublicInfoContentRequestSchema } } } },
   responses: {

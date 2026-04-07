@@ -39,14 +39,14 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
 
   it('should return 401 without authentication', async () => {
     const response = await request(app)
-      .get(`/brands/${testBrandId}/runs`);
+      .get(`/internal/brands/${testBrandId}/runs`);
 
     expect(response.status).toBe(401);
   });
 
   it('should return 404 for non-existent brand', async () => {
     const response = await request(app)
-      .get('/brands/00000000-0000-0000-0000-000000000000/runs')
+      .get('/internal/brands/00000000-0000-0000-0000-000000000000/runs')
       .set(getAuthHeaders());
 
     expect(response.status).toBe(404);
@@ -54,7 +54,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
 
   it('should return runs list for valid brand', async () => {
     const response = await request(app)
-      .get(`/brands/${testBrandId}/runs`)
+      .get(`/internal/brands/${testBrandId}/runs`)
       .set(getAuthHeaders());
 
     expect(response.status).toBe(200);
@@ -66,7 +66,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
     const { listRuns } = await import('../../src/lib/runs-client');
 
     const response = await request(app)
-      .get(`/brands/${testBrandId}/runs`)
+      .get(`/internal/brands/${testBrandId}/runs`)
       .query({ taskName: 'sales-profile-extraction', limit: '10' })
       .set(getAuthHeaders());
 

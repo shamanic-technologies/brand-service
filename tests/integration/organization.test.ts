@@ -13,7 +13,7 @@ describe('Organization Endpoints', () => {
 
   describe('GET /org-ids', () => {
     it('should accept authenticated requests', async () => {
-      const response = await request(app).get('/org-ids').set(getAuthHeaders());
+      const response = await request(app).get('/internal/org-ids').set(getAuthHeaders());
 
       // Should not be auth error (200 or 500 depending on DB availability)
       expect(response.status).not.toBe(401);
@@ -23,7 +23,7 @@ describe('Organization Endpoints', () => {
 
   describe('GET /by-org-id/:orgId', () => {
     it('should accept authenticated requests with path param', async () => {
-      const response = await request(app).get('/by-org-id/org_test123').set(getAuthHeaders());
+      const response = await request(app).get('/internal/by-org-id/org_test123').set(getAuthHeaders());
 
       // Should not be auth error
       expect(response.status).not.toBe(401);
@@ -34,7 +34,7 @@ describe('Organization Endpoints', () => {
   describe('PUT /organizations', () => {
     it('should accept authenticated requests with body', async () => {
       const response = await request(app)
-        .put('/organizations')
+        .put('/internal/organizations')
         .set(getAuthHeaders())
         .send({ organizationId: 'org_test456' });
 
@@ -44,7 +44,7 @@ describe('Organization Endpoints', () => {
     }, 15000);
 
     it('should reject unauthenticated requests', async () => {
-      const response = await request(app).put('/organizations').send({ organizationId: 'org_test789' });
+      const response = await request(app).put('/internal/organizations').send({ organizationId: 'org_test789' });
 
       expect(response.status).toBe(401);
     });

@@ -53,7 +53,7 @@ describe('GET /brands/:brandId/extracted-fields', () => {
 
   it('should return all extracted fields for a brand', async () => {
     const res = await request(app)
-      .get(`/brands/${TEST_BRAND_ID}/extracted-fields`)
+      .get(`/internal/brands/${TEST_BRAND_ID}/extracted-fields`)
       .set(getAuthHeaders(TEST_ORG_ID));
 
     expect(res.status).toBe(200);
@@ -87,7 +87,7 @@ describe('GET /brands/:brandId/extracted-fields', () => {
 
     try {
       const res = await request(app)
-        .get(`/brands/${emptyBrandId}/extracted-fields`)
+        .get(`/internal/brands/${emptyBrandId}/extracted-fields`)
         .set(getAuthHeaders(TEST_ORG_ID));
 
       expect(res.status).toBe(200);
@@ -100,7 +100,7 @@ describe('GET /brands/:brandId/extracted-fields', () => {
 
   it('should return 400 for non-UUID brandId', async () => {
     const res = await request(app)
-      .get('/brands/not-a-uuid/extracted-fields')
+      .get('/internal/brands/not-a-uuid/extracted-fields')
       .set(getAuthHeaders());
 
     expect(res.status).toBe(400);
@@ -109,7 +109,7 @@ describe('GET /brands/:brandId/extracted-fields', () => {
 
   it('should return 404 for non-existent brand', async () => {
     const res = await request(app)
-      .get('/brands/00000000-0000-0000-0000-000000000099/extracted-fields')
+      .get('/internal/brands/00000000-0000-0000-0000-000000000099/extracted-fields')
       .set(getAuthHeaders());
 
     expect(res.status).toBe(404);
@@ -118,7 +118,7 @@ describe('GET /brands/:brandId/extracted-fields', () => {
 
   it('should return 401 without auth headers', async () => {
     const res = await request(app)
-      .get(`/brands/${TEST_BRAND_ID}/extracted-fields`);
+      .get(`/internal/brands/${TEST_BRAND_ID}/extracted-fields`);
 
     expect(res.status).toBe(401);
   });

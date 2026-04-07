@@ -6,19 +6,21 @@ import { SiteMapError } from '../lib/scraping-client';
 import { ExtractImagesRequestSchema } from '../schemas';
 import { db, brandExtractedImages } from '../db';
 
-const router = Router();
-
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ── Org-scoped routes (require x-org-id) ──────────────────────────
+
+export const orgRouter = Router();
+
 /**
- * POST /brands/extract-images
+ * POST /orgs/brands/extract-images
  *
  * Multi-brand image extraction endpoint. Reads brand IDs from x-brand-id header
  * (comma-separated UUIDs). Single brand → standard results. Multiple brands →
  * { results: [{ category, consolidated, byBrand }] } with domain-keyed per-brand
  * images and relevance-sorted consolidated set.
  */
-router.post('/brands/extract-images', async (req: Request, res: Response) => {
+orgRouter.post('/brands/extract-images', async (req: Request, res: Response) => {
   try {
     const brandIds = req.brandIds;
     if (!brandIds || brandIds.length === 0) {
@@ -39,7 +41,7 @@ router.post('/brands/extract-images', async (req: Request, res: Response) => {
     const result = await multiBrandExtractImages({
       brandIds,
       categories: parsed.data.categories,
-      orgId: req.orgId,
+      orgId: req.orgId!,
       userId: req.userId,
       parentRunId: req.runId!,
       campaignId: req.campaignId,
@@ -67,13 +69,17 @@ router.post('/brands/extract-images', async (req: Request, res: Response) => {
   }
 });
 
+// ── Internal routes (API key only, no x-org-id required) ──────────
+
+export const internalRouter = Router();
+
 /**
- * GET /brands/:brandId/extracted-images
+ * GET /internal/brands/:brandId/extracted-images
  *
  * List all previously extracted images for a brand.
  * Returns cached images with categories, URLs, scores, and timestamps.
  */
-router.get('/brands/:brandId/extracted-images', async (req: Request, res: Response) => {
+internalRouter.get('/brands/:brandId/extracted-images', async (req: Request, res: Response) => {
   try {
     const { brandId } = req.params;
     if (!UUID_REGEX.test(brandId)) {
@@ -116,5 +122,3 @@ router.get('/brands/:brandId/extracted-images', async (req: Request, res: Respon
     res.status(500).json({ error: error.message || 'Failed to list extracted images' });
   }
 });
-
-export default router;

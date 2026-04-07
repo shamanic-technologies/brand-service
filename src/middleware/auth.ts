@@ -1,22 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 
-const SKIP_PATHS = new Set(['/', '/health', '/openapi.json']);
-
-// Paths that require API key auth but NOT identity headers (cross-org admin endpoints)
-const SKIP_IDENTITY_PATHS = new Set(['/org-ids']);
-
 /**
- * Service-to-service authentication middleware
- * All services use X-API-Key header (standard)
- *
- * Validates against BRAND_SERVICE_API_KEY (primary) or API_KEY (legacy for ai-pr)
- * Also extracts and validates x-org-id and x-user-id headers.
+ * API key authentication middleware.
+ * Validates X-API-Key header against service API key(s).
+ * Used on ALL non-public routes (/internal/*, /orgs/*).
  */
-export function combinedAuth(req: Request, res: Response, next: NextFunction) {
-  if (SKIP_PATHS.has(req.path)) {
-    return next();
-  }
-
+export function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
   const apiKey = req.headers['x-api-key'];
 
   const validApiKey = process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY;
@@ -36,15 +25,22 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
     });
   }
 
-  // Cross-org admin endpoints: API key is enough, no identity headers needed
-  if (SKIP_IDENTITY_PATHS.has(req.path)) {
-    return next();
-  }
+  return next();
+}
 
-  // Extract identity headers — x-org-id is required, others are optional (for tracking)
+/**
+ * Org-scoped identity middleware.
+ * Extracts all 7 identity headers; requires x-org-id.
+ * Used on /orgs/* routes only.
+ */
+export function requireOrgId(req: Request, res: Response, next: NextFunction) {
   const orgId = req.headers['x-org-id'] as string | undefined;
   const userId = req.headers['x-user-id'] as string | undefined;
   const runId = req.headers['x-run-id'] as string | undefined;
+  const campaignId = req.headers['x-campaign-id'] as string | undefined;
+  const featureSlug = req.headers['x-feature-slug'] as string | undefined;
+  const brandIdHeader = req.headers['x-brand-id'] as string | undefined;
+  const workflowSlug = req.headers['x-workflow-slug'] as string | undefined;
 
   if (!orgId) {
     return res.status(400).json({
@@ -56,13 +52,6 @@ export function combinedAuth(req: Request, res: Response, next: NextFunction) {
   req.orgId = orgId;
   if (userId) req.userId = userId;
   if (runId) req.runId = runId;
-
-  // Extract optional workflow tracking headers (injected by workflow-service)
-  const campaignId = req.headers['x-campaign-id'] as string | undefined;
-  const featureSlug = req.headers['x-feature-slug'] as string | undefined;
-  const brandIdHeader = req.headers['x-brand-id'] as string | undefined;
-  const workflowSlug = req.headers['x-workflow-slug'] as string | undefined;
-
   if (campaignId) req.campaignId = campaignId;
   if (featureSlug) req.featureSlug = featureSlug;
   if (brandIdHeader) {
