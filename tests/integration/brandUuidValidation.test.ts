@@ -13,7 +13,7 @@ describe('Brand UUID validation', () => {
   describe('GET /brands/:id', () => {
     it('should return 400 for non-UUID id like "lifecycle"', async () => {
       const response = await request(app)
-        .get('/brands/lifecycle')
+        .get('/internal/brands/lifecycle')
         .set(getAuthHeaders());
 
       expect(response.status).toBe(400);
@@ -22,7 +22,7 @@ describe('Brand UUID validation', () => {
 
     it('should return 400 for other non-UUID strings', async () => {
       const response = await request(app)
-        .get('/brands/some-random-string')
+        .get('/internal/brands/some-random-string')
         .set(getAuthHeaders());
 
       expect(response.status).toBe(400);
@@ -31,7 +31,7 @@ describe('Brand UUID validation', () => {
 
     it('should accept valid UUID format', async () => {
       const response = await request(app)
-        .get('/brands/00000000-0000-0000-0000-000000000000')
+        .get('/internal/brands/00000000-0000-0000-0000-000000000000')
         .set(getAuthHeaders());
 
       // Should not be 400 - may be 404 (brand not found) which is fine
@@ -42,7 +42,7 @@ describe('Brand UUID validation', () => {
   describe('GET /brands/:id/runs', () => {
     it('should return 400 for non-UUID id', async () => {
       const response = await request(app)
-        .get('/brands/lifecycle/runs')
+        .get('/internal/brands/lifecycle/runs')
         .set(getAuthHeaders());
 
       expect(response.status).toBe(400);
@@ -51,7 +51,7 @@ describe('Brand UUID validation', () => {
 
     it('should accept valid UUID format', async () => {
       const response = await request(app)
-        .get('/brands/00000000-0000-0000-0000-000000000000/runs')
+        .get('/internal/brands/00000000-0000-0000-0000-000000000000/runs')
         .set(getAuthHeaders());
 
       expect(response.status).not.toBe(400);

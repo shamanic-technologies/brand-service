@@ -6,19 +6,21 @@ import { SiteMapError } from '../lib/scraping-client';
 import { ExtractFieldsRequestSchema } from '../schemas';
 import { db, brandExtractedFields } from '../db';
 
-const router = Router();
-
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ── Org-scoped routes (require x-org-id) ──────────────────────────
+
+export const orgRouter = Router();
+
 /**
- * POST /brands/extract-fields
+ * POST /orgs/brands/extract-fields
  *
  * Multi-brand field extraction endpoint. Reads brand IDs from x-brand-id header
  * (comma-separated UUIDs). Single brand → flat { fields: { key: value } }.
  * Multiple brands → { fields: { key: { consolidated, byBrand } } } with
  * domain-keyed per-brand results and LLM-consolidated merged view.
  */
-router.post('/brands/extract-fields', async (req: Request, res: Response) => {
+orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => {
   try {
     const brandIds = req.brandIds;
     if (!brandIds || brandIds.length === 0) {
@@ -39,7 +41,7 @@ router.post('/brands/extract-fields', async (req: Request, res: Response) => {
     const result = await multiBrandExtractFields({
       brandIds,
       fields: parsed.data.fields,
-      orgId: req.orgId,
+      orgId: req.orgId!,
       userId: req.userId,
       parentRunId: req.runId!,
       campaignId: req.campaignId,
@@ -65,13 +67,17 @@ router.post('/brands/extract-fields', async (req: Request, res: Response) => {
   }
 });
 
+// ── Internal routes (API key only, no x-org-id required) ──────────
+
+export const internalRouter = Router();
+
 /**
- * GET /brands/:brandId/extracted-fields
+ * GET /internal/brands/:brandId/extracted-fields
  *
  * List all previously extracted fields for a brand.
  * Returns cached field keys, values, source URLs, and timestamps.
  */
-router.get('/brands/:brandId/extracted-fields', async (req: Request, res: Response) => {
+internalRouter.get('/brands/:brandId/extracted-fields', async (req: Request, res: Response) => {
   try {
     const { brandId } = req.params;
     if (!UUID_REGEX.test(brandId)) {
@@ -107,5 +113,3 @@ router.get('/brands/:brandId/extracted-fields', async (req: Request, res: Respon
     res.status(500).json({ error: error.message || 'Failed to list extracted fields' });
   }
 });
-
-export default router;

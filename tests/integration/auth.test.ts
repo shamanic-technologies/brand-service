@@ -7,21 +7,21 @@ describe('Authentication', () => {
 
   describe('Protected endpoints', () => {
     it('should reject requests without auth headers', async () => {
-      const response = await request(app).get('/brands');
+      const response = await request(app).get('/orgs/brands');
 
       expect(response.status).toBe(401);
       expect(response.body.error).toBe('Missing authentication');
     });
 
     it('should reject requests with invalid X-API-Key', async () => {
-      const response = await request(app).get('/brands').set('X-API-Key', 'wrong-key');
+      const response = await request(app).get('/orgs/brands').set('X-API-Key', 'wrong-key');
 
       expect(response.status).toBe(403);
       expect(response.body.error).toBe('Invalid credentials');
     });
 
     it('should accept requests with valid X-API-Key and identity headers', async () => {
-      const response = await request(app).get('/brands').set(getAuthHeaders());
+      const response = await request(app).get('/orgs/brands').set(getAuthHeaders());
 
       // Should not be 401 or 403 (may be 200 or 500 depending on DB)
       expect(response.status).not.toBe(401);
@@ -32,7 +32,7 @@ describe('Authentication', () => {
   describe('Identity headers (x-org-id required, x-user-id and x-run-id optional)', () => {
     it('should reject requests missing x-org-id header', async () => {
       const response = await request(app)
-        .get('/brands')
+        .get('/orgs/brands')
         .set({
           'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
           'X-User-Id': 'test-user-uuid',
@@ -47,7 +47,7 @@ describe('Authentication', () => {
 
     it('should accept requests with only x-org-id (x-user-id and x-run-id optional)', async () => {
       const response = await request(app)
-        .get('/brands')
+        .get('/orgs/brands')
         .set({
           'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
           'X-Org-Id': 'test-org-uuid',
@@ -62,7 +62,7 @@ describe('Authentication', () => {
 
     it('should reject requests missing all identity headers', async () => {
       const response = await request(app)
-        .get('/brands')
+        .get('/orgs/brands')
         .set({
           'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
           'Content-Type': 'application/json',
@@ -74,7 +74,7 @@ describe('Authentication', () => {
 
     it('should accept requests with all required headers', async () => {
       const response = await request(app)
-        .get('/brands')
+        .get('/orgs/brands')
         .set(getAuthHeaders('test-org-id', 'test-user-id'));
 
       expect(response.status).not.toBe(400);
@@ -85,14 +85,14 @@ describe('Authentication', () => {
 
   describe('Cross-org admin endpoints (API key only, no identity headers)', () => {
     it('GET /org-ids should reject requests without API key', async () => {
-      const response = await request(app).get('/org-ids');
+      const response = await request(app).get('/internal/org-ids');
 
       expect(response.status).toBe(401);
       expect(response.body.error).toBe('Missing authentication');
     });
 
     it('GET /org-ids should reject requests with invalid API key', async () => {
-      const response = await request(app).get('/org-ids').set('X-API-Key', 'wrong-key');
+      const response = await request(app).get('/internal/org-ids').set('X-API-Key', 'wrong-key');
 
       expect(response.status).toBe(403);
       expect(response.body.error).toBe('Invalid credentials');
@@ -100,7 +100,7 @@ describe('Authentication', () => {
 
     it('GET /org-ids should succeed with valid API key and no identity headers', async () => {
       const response = await request(app)
-        .get('/org-ids')
+        .get('/internal/org-ids')
         .set({
           'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
         });
@@ -112,7 +112,7 @@ describe('Authentication', () => {
 
     it('GET /org-ids should also work with identity headers provided', async () => {
       const response = await request(app)
-        .get('/org-ids')
+        .get('/internal/org-ids')
         .set(getAuthHeaders());
 
       expect(response.status).not.toBe(400);

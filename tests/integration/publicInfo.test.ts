@@ -12,7 +12,7 @@ describe('Public Information Endpoints', () => {
   describe('GET /public-information-map', () => {
     it('should accept authenticated requests (orgId from header)', async () => {
       const response = await request(app)
-        .get('/public-information-map')
+        .get('/orgs/public-information-map')
         .set(getAuthHeaders('org_test123', 'user_test123'));
 
       // Not auth error (may be 404 if org not found)
@@ -22,7 +22,7 @@ describe('Public Information Endpoints', () => {
 
     it('should reject unauthenticated requests', async () => {
       const response = await request(app)
-        .get('/public-information-map');
+        .get('/orgs/public-information-map');
 
       expect(response.status).toBe(401);
     });
@@ -31,7 +31,7 @@ describe('Public Information Endpoints', () => {
   describe('POST /public-information-content', () => {
     it('should require selected_urls array in body', async () => {
       const response = await request(app)
-        .post('/public-information-content')
+        .post('/internal/public-information-content')
         .set(getAuthHeaders())
         .send({});
 
@@ -41,7 +41,7 @@ describe('Public Information Endpoints', () => {
 
     it('should reject non-array selected_urls', async () => {
       const response = await request(app)
-        .post('/public-information-content')
+        .post('/internal/public-information-content')
         .set(getAuthHeaders())
         .send({ selected_urls: 'not-an-array' });
 
@@ -51,7 +51,7 @@ describe('Public Information Endpoints', () => {
 
     it('should accept valid request with empty array', async () => {
       const response = await request(app)
-        .post('/public-information-content')
+        .post('/internal/public-information-content')
         .set(getAuthHeaders())
         .send({ selected_urls: [] });
 
@@ -61,7 +61,7 @@ describe('Public Information Endpoints', () => {
 
     it('should accept valid request with URLs', async () => {
       const response = await request(app)
-        .post('/public-information-content')
+        .post('/internal/public-information-content')
         .set(getAuthHeaders())
         .send({
           selected_urls: [
@@ -77,7 +77,7 @@ describe('Public Information Endpoints', () => {
 
     it('should reject unknown source_type', async () => {
       const response = await request(app)
-        .post('/public-information-content')
+        .post('/internal/public-information-content')
         .set(getAuthHeaders())
         .send({
           selected_urls: [{ url: 'https://example.com', source_type: 'unknown_type' }],

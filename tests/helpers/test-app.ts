@@ -1,15 +1,19 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { combinedAuth } from '../../src/middleware/serviceAuth';
+import { apiKeyAuth, requireOrgId } from '../../src/middleware/auth';
+
+// Import routes — mixed files export { orgRouter, internalRouter }
+import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes } from '../../src/routes/brands.routes';
+import { orgRouter as extractFieldsOrgRoutes, internalRouter as extractFieldsInternalRoutes } from '../../src/routes/extract-fields.routes';
+import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInternalRoutes } from '../../src/routes/extract-images.routes';
+import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from '../../src/routes/public-information.routes';
+
+// Import routes — single-tier files
 import organizationRoutes from '../../src/routes/organization.routes';
 import mediaAssetsRoutes from '../../src/routes/media-assets.routes';
 import analyzeRoutes from '../../src/routes/analyze.routes';
 import intakeFormRoutes from '../../src/routes/intake-form.routes';
-import publicInfoRoutes from '../../src/routes/public-information.routes';
-import extractFieldsRoutes from '../../src/routes/extract-fields.routes';
-import extractImagesRoutes from '../../src/routes/extract-images.routes';
-import brandsRoutes from '../../src/routes/brands.routes';
 
 /**
  * Create a test Express app instance
@@ -18,9 +22,8 @@ export function createTestApp() {
   const app = express();
 
   app.use(express.json());
-  app.use(combinedAuth);
 
-  // Health endpoints (no auth required - handled by combinedAuth skip)
+  // ── Public routes (no auth) ──────────────────────────────────
   app.get('/', (req, res) => {
     res.send('Brand Service API');
   });
@@ -29,7 +32,6 @@ export function createTestApp() {
     res.status(200).json({ status: 'ok', service: 'brand-service' });
   });
 
-  // OpenAPI spec endpoint
   app.get('/openapi.json', (req, res) => {
     const specPath = path.resolve(__dirname, '../../openapi.json');
     if (!fs.existsSync(specPath)) {
@@ -39,22 +41,28 @@ export function createTestApp() {
     res.json(spec);
   });
 
-  // Mount routes
-  app.use('/', organizationRoutes);
-  app.use('/media-assets', mediaAssetsRoutes);
-  app.use('/analyze', analyzeRoutes);
-  app.use('/', intakeFormRoutes);
-  app.use('/', publicInfoRoutes);
-  app.use('/', extractFieldsRoutes);
-  app.use('/', extractImagesRoutes);
-  app.use('/', brandsRoutes);
+  // ── Internal routes (API key only) ───────────────────────────
+  app.use('/internal', apiKeyAuth, brandsInternalRoutes);
+  app.use('/internal', apiKeyAuth, extractFieldsInternalRoutes);
+  app.use('/internal', apiKeyAuth, extractImagesInternalRoutes);
+  app.use('/internal', apiKeyAuth, publicInfoInternalRoutes);
+  app.use('/internal', apiKeyAuth, organizationRoutes);
+  app.use('/internal/media-assets', apiKeyAuth, mediaAssetsRoutes);
+  app.use('/internal', apiKeyAuth, intakeFormRoutes);
+
+  // ── Org-scoped routes (API key + x-org-id) ──────────────────
+  app.use('/orgs', apiKeyAuth, requireOrgId, brandsOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, extractFieldsOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, extractImagesOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
+  app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;
 }
 
 /**
- * Get auth headers for authenticated requests.
- * Includes x-org-id and x-user-id (required by combinedAuth middleware).
+ * Get auth headers for org-scoped requests (/orgs/* routes).
+ * Includes x-org-id and x-user-id (required by requireOrgId middleware).
  */
 export function getAuthHeaders(orgId = 'test-org-uuid', userId = 'test-user-uuid', runId = 'test-run-uuid') {
   return {
@@ -62,6 +70,17 @@ export function getAuthHeaders(orgId = 'test-org-uuid', userId = 'test-user-uuid
     'X-Org-Id': orgId,
     'X-User-Id': userId,
     'X-Run-Id': runId,
+    'Content-Type': 'application/json',
+  };
+}
+
+/**
+ * Get auth headers for internal requests (/internal/* routes).
+ * Only API key, no identity headers required.
+ */
+export function getInternalAuthHeaders() {
+  return {
+    'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
     'Content-Type': 'application/json',
   };
 }

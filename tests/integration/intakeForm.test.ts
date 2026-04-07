@@ -15,7 +15,7 @@ describe('Intake Form Endpoints', () => {
   describe('POST /trigger-intake-form-generation', () => {
     it('should require organization_id in body', async () => {
       const response = await request(app)
-        .post('/trigger-intake-form-generation')
+        .post('/internal/trigger-intake-form-generation')
         .set(getAuthHeaders())
         .send({});
 
@@ -25,7 +25,7 @@ describe('Intake Form Endpoints', () => {
 
     it('should accept valid request', async () => {
       const response = await request(app)
-        .post('/trigger-intake-form-generation')
+        .post('/internal/trigger-intake-form-generation')
         .set(getAuthHeaders())
         .send({ organization_id: TEST_UUID });
 
@@ -36,7 +36,7 @@ describe('Intake Form Endpoints', () => {
 
     it('should reject unauthenticated requests', async () => {
       const response = await request(app)
-        .post('/trigger-intake-form-generation')
+        .post('/internal/trigger-intake-form-generation')
         .send({ organization_id: TEST_UUID });
 
       expect(response.status).toBe(401);
@@ -46,7 +46,7 @@ describe('Intake Form Endpoints', () => {
   describe('POST /intake-forms', () => {
     it('should require organization_id in body', async () => {
       const response = await request(app)
-        .post('/intake-forms')
+        .post('/internal/intake-forms')
         .set(getAuthHeaders())
         .send({ company_name: 'Test Company' });
 
@@ -56,7 +56,7 @@ describe('Intake Form Endpoints', () => {
 
     it('should accept valid upsert request', async () => {
       const response = await request(app)
-        .post('/intake-forms')
+        .post('/internal/intake-forms')
         .set(getAuthHeaders())
         .send({
           organization_id: TEST_UUID,
@@ -73,7 +73,7 @@ describe('Intake Form Endpoints', () => {
   describe('GET /intake-forms/organization/:organizationId', () => {
     it('should accept authenticated requests', async () => {
       const response = await request(app)
-        .get(`/intake-forms/organization/${TEST_UUID}`)
+        .get(`/internal/intake-forms/organization/${TEST_UUID}`)
         .set(getAuthHeaders());
 
       // Not auth error (may be 404 if not found)
@@ -82,7 +82,7 @@ describe('Intake Form Endpoints', () => {
     });
 
     it('should reject unauthenticated requests', async () => {
-      const response = await request(app).get(`/intake-forms/organization/${TEST_UUID}`);
+      const response = await request(app).get(`/internal/intake-forms/organization/${TEST_UUID}`);
 
       expect(response.status).toBe(401);
     });
