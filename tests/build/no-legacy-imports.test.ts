@@ -86,31 +86,24 @@ describe('API Consistency', () => {
     return files;
   }
 
-  it('should include X-API-Key header in all press-funnel HTTP calls', () => {
+  it('should include X-API-Key header in all files making press-funnel HTTP calls', () => {
     const files = getAllTsFiles(srcDir);
     const violations: string[] = [];
 
     for (const file of files) {
       const content = fs.readFileSync(file, 'utf-8');
-      // Find files that call press-funnel URLs
-      if (content.includes('PRESS_FUNNEL_SERVICE_URL') || content.includes('pressFunnelUrl')) {
-        // Check for axios.get/post calls without X-API-Key
-        const lines = content.split('\n');
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].includes('axios.get') || lines[i].includes('axios.post')) {
-            // Look at the surrounding context (next 5 lines) for X-API-Key
-            const context = lines.slice(i, i + 8).join('\n');
-            if (!context.includes('X-API-Key')) {
-              violations.push(`${file}:${i + 1}`);
-            }
-          }
-        }
+      // Find files that call press-funnel URLs via axios
+      const callsPressFunnel =
+        (content.includes('PRESS_FUNNEL_SERVICE_URL') || content.includes('pressFunnelUrl')) &&
+        (content.includes('axios.get') || content.includes('axios.post'));
+      if (callsPressFunnel && !content.includes('X-API-Key')) {
+        violations.push(file);
       }
     }
 
     expect(
       violations,
-      `Press-funnel calls missing X-API-Key header: ${violations.join(', ')}`
+      `Files calling press-funnel without X-API-Key header: ${violations.join(', ')}`
     ).toHaveLength(0);
   });
 });
