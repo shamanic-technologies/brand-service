@@ -40,14 +40,14 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
 
   it('should return 401 without authentication', async () => {
     const response = await request(app)
-      .get(`/orgs/brands/${testBrandId}/runs`);
+      .get(`/internal/brands/${testBrandId}/runs`);
 
     expect(response.status).toBe(401);
   });
 
   it('should return 400 for non-UUID brand id', async () => {
     const response = await request(app)
-      .get('/orgs/brands/not-a-uuid/runs')
+      .get('/internal/brands/not-a-uuid/runs')
       .set(getAuthHeaders(testOrgId));
 
     expect(response.status).toBe(400);
@@ -55,7 +55,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
 
   it('should return 404 for non-existent brand', async () => {
     const response = await request(app)
-      .get(`/orgs/brands/${randomUUID()}/runs`)
+      .get(`/internal/brands/${randomUUID()}/runs`)
       .set(getAuthHeaders(testOrgId));
 
     expect(response.status).toBe(404);
@@ -63,7 +63,7 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
 
   it('should return runs for an existing brand', async () => {
     const response = await request(app)
-      .get(`/orgs/brands/${testBrandId}/runs`)
+      .get(`/internal/brands/${testBrandId}/runs`)
       .set(getAuthHeaders(testOrgId));
 
     expect(response.status).toBe(200);
