@@ -1,25 +1,27 @@
+import { randomUUID } from 'crypto';
 import { db, brands, mediaAssets, intakeForms } from '../../src/db';
-import { eq, like, sql } from 'drizzle-orm';
+import { eq, like, sql, inArray } from 'drizzle-orm';
 
 /**
  * Clean test data from database
  * Only cleans data created during tests (with test- prefix)
+ * Note: orgId and brandId are uuid columns — LIKE requires cast to text
  */
 export async function cleanTestData() {
   try {
     // Clean media assets for test brands first (foreign key constraint)
     await db.delete(mediaAssets).where(
-      like(mediaAssets.brandId, 'test-%')
+      sql`${mediaAssets.brandId}::text LIKE 'test-%'`
     );
 
     // Clean intake forms for test brands
     await db.delete(intakeForms).where(
-      like(intakeForms.brandId, 'test-%')
+      sql`${intakeForms.brandId}::text LIKE 'test-%'`
     );
 
     // Clean brands with test prefix org IDs
     await db.delete(brands).where(
-      like(brands.orgId, 'test-%')
+      sql`${brands.orgId}::text LIKE 'test-%'`
     );
 
     // Clean brands with test prefix external org ids (legacy)
@@ -104,8 +106,16 @@ export async function closeDb() {
 }
 
 /**
- * Generate a random test ID
+ * Generate a random test ID (UUID format for uuid columns)
  */
 export function randomTestId(): string {
-  return `test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+  return randomUUID();
+}
+
+/**
+ * Delete brands by a list of orgIds (for test cleanup)
+ */
+export async function deleteBrandsByOrgIds(orgIds: string[]) {
+  if (orgIds.length === 0) return;
+  await db.delete(brands).where(inArray(brands.orgId, orgIds));
 }

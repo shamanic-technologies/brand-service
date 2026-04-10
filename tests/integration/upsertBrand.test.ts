@@ -4,16 +4,17 @@ import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
 import { brands } from '../../src/db/schema';
-import { eq, like } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { deleteBrandsByOrgIds } from '../helpers/test-db';
 
 const app = createTestApp();
 
 describe('POST /brands - Upsert Brand', () => {
-  const testOrgPrefix = 'test-upsert-';
+  const createdOrgIds: string[] = [];
 
   afterEach(async () => {
-    // Delete brands with test prefix orgIds
-    await db.delete(brands).where(like(brands.orgId, `${testOrgPrefix}%`));
+    await deleteBrandsByOrgIds(createdOrgIds);
+    createdOrgIds.length = 0;
   });
 
   it('should return 401 without authentication', async () => {
@@ -25,10 +26,10 @@ describe('POST /brands - Upsert Brand', () => {
   });
 
   it('should return 400 if url is missing', async () => {
-    const orgId = `${testOrgPrefix}${randomUUID()}`;
+    const orgId = randomUUID();
     const response = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({});
 
     expect(response.status).toBe(400);
@@ -36,12 +37,13 @@ describe('POST /brands - Upsert Brand', () => {
   });
 
   it('should create a new brand and return created=true', async () => {
-    const orgId = `${testOrgPrefix}${randomUUID()}`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://new-upsert-test.example.com';
 
     const response = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url });
 
     expect(response.status).toBe(200);
@@ -60,12 +62,13 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should return existing brand with created=false on second call', async () => {
-    const orgId = `${testOrgPrefix}${randomUUID()}`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://existing-upsert-test.example.com';
 
     const first = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url });
 
     expect(first.status).toBe(200);
@@ -73,7 +76,7 @@ describe('POST /brands - Upsert Brand', () => {
 
     const second = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url });
 
     expect(second.status).toBe(200);
@@ -88,18 +91,19 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should create separate brands for different domains under same org', async () => {
-    const orgId = `${testOrgPrefix}${randomUUID()}`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url1 = 'https://brand-one.example.com';
     const url2 = 'https://brand-two.example.com';
 
     const first = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url: url1 });
 
     const second = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url: url2 });
 
     expect(first.status).toBe(200);
@@ -116,12 +120,13 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should strip www. from domain', async () => {
-    const orgId = `${testOrgPrefix}${randomUUID()}`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://www.strip-www-test.example.com';
 
     const response = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url });
 
     expect(response.status).toBe(200);
@@ -129,18 +134,19 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should reuse existing brand on second call with same URL', async () => {
-    const orgId = `${testOrgPrefix}${randomUUID()}`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url1 = 'https://reuse-org-one.example.com';
     const url2 = 'https://reuse-org-two.example.com';
 
     await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url: url1 });
 
     await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId, 'test-user-uuid'))
+      .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url: url2 });
 
     // Should have two brands (different domains)
@@ -152,13 +158,14 @@ describe('POST /brands - Upsert Brand', () => {
   }, 10000);
 
   it('should allow two different orgs to upsert brands with the same domain', async () => {
-    const orgId1 = `${testOrgPrefix}${randomUUID()}`;
-    const orgId2 = `${testOrgPrefix}${randomUUID()}`;
+    const orgId1 = randomUUID();
+    const orgId2 = randomUUID();
+    createdOrgIds.push(orgId1, orgId2);
     const url = 'https://shared-upsert-domain.example.com';
 
     const first = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId1, 'test-user-A'))
+      .set(getAuthHeaders(orgId1, randomUUID()))
       .send({ url });
 
     expect(first.status).toBe(200);
@@ -166,7 +173,7 @@ describe('POST /brands - Upsert Brand', () => {
 
     const second = await request(app)
       .post('/orgs/brands')
-      .set(getAuthHeaders(orgId2, 'test-user-B'))
+      .set(getAuthHeaders(orgId2, randomUUID()))
       .send({ url });
 
     expect(second.status).toBe(200);
