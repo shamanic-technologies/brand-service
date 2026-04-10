@@ -255,6 +255,7 @@ export const BrandMetaSchema = z
     brandId: z.string().uuid().openapi({ description: 'Brand UUID', example: '550e8400-e29b-41d4-a716-446655440000' }),
     domain: z.string().openapi({ description: 'Brand domain', example: 'acme.com' }),
     name: z.string().openapi({ description: 'Brand display name', example: 'Acme Corp' }),
+    brandUrl: z.string().openapi({ description: 'Full brand URL', example: 'https://acme.com' }),
   })
   .openapi('BrandMeta');
 
@@ -318,8 +319,8 @@ registry.registerPath({
           schema: MultiBrandExtractFieldsResponseSchema,
           example: {
             brands: [
-              { brandId: '550e8400-e29b-41d4-a716-446655440000', domain: 'acme.com', name: 'Acme Corp' },
-              { brandId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', domain: 'globex.io', name: 'Globex' },
+              { brandId: '550e8400-e29b-41d4-a716-446655440000', domain: 'acme.com', name: 'Acme Corp', brandUrl: 'https://acme.com' },
+              { brandId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', domain: 'globex.io', name: 'Globex', brandUrl: 'https://globex.io' },
             ],
             fields: {
               industry: {
@@ -516,7 +517,7 @@ registry.registerPath({
           schema: MultiBrandExtractImagesResponseSchema,
           example: {
             brands: [
-              { brandId: '550e8400-e29b-41d4-a716-446655440000', domain: 'acme.com', name: 'Acme Corp' },
+              { brandId: '550e8400-e29b-41d4-a716-446655440000', domain: 'acme.com', name: 'Acme Corp', brandUrl: 'https://acme.com' },
             ],
             results: [
               {

@@ -36,6 +36,7 @@ export interface BrandMeta {
   brandId: string;
   domain: string;
   name: string;
+  brandUrl: string;
 }
 
 export interface BrandFieldDetail {
@@ -200,6 +201,7 @@ export async function multiBrandExtractFields(
       brandId: id,
       domain: brand.domain || new URL(brand.url!).hostname,
       name: brand.name || brand.domain || new URL(brand.url!).hostname,
+      brandUrl: brand.url!,
     };
   });
 
