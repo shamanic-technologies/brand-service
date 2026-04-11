@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'crypto';
 import { db } from '../../src/db';
 import { brands } from '../../src/db/schema';
@@ -249,6 +249,10 @@ describe('getBrand - CRITICAL', () => {
 
 describe('Regression: new org without orgs-table row', () => {
   const testOrgId = 'b645207b-d8e9-40b0-9391-072b777cd9a9';
+
+  beforeEach(async () => {
+    await db.delete(brands).where(eq(brands.orgId, testOrgId));
+  });
 
   afterEach(async () => {
     await db.delete(brands).where(eq(brands.orgId, testOrgId));
