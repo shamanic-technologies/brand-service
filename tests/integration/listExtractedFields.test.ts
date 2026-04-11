@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm';
 
 const app = createTestApp();
 
-const TEST_ORG_ID = 'test-list-extracted-fields-org';
+const TEST_ORG_ID = '00000000-aaaa-bbbb-cccc-ffffffffffff';
 const TEST_BRAND_ID = '00000000-aaaa-bbbb-cccc-000000000001';
 
 describe('GET /brands/:brandId/extracted-fields', () => {

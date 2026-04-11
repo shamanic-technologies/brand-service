@@ -46,7 +46,7 @@ describe('OpenAPI Spec', () => {
 
   it('should have request body schemas on POST endpoints', () => {
     const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
-    const extractFieldsPost = spec.paths['/brands/{brandId}/extract-fields']?.post;
+    const extractFieldsPost = spec.paths['/orgs/brands/extract-fields']?.post;
     expect(extractFieldsPost?.requestBody?.content?.['application/json']?.schema).toBeDefined();
   });
 

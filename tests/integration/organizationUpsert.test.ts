@@ -1,23 +1,27 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { randomUUID } from 'crypto';
 import { db } from '../../src/db';
 import { brands } from '../../src/db/schema';
-import { eq, like, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { deleteBrandsByOrgIds } from '../helpers/test-db';
 import { getOrganizationIdByOrgId } from '../../src/services/organizationUpsertService';
 
 describe('getOrganizationIdByOrgId - cross-org isolation', () => {
-  const testPrefix = 'test-orgups-';
+  const createdOrgIds: string[] = [];
 
   afterEach(async () => {
     try {
-      await db.delete(brands).where(like(brands.orgId, `${testPrefix}%`));
+      await deleteBrandsByOrgIds(createdOrgIds);
+      createdOrgIds.length = 0;
     } catch (e) {
       console.error('Cleanup error:', e);
     }
   });
 
   it('should NOT steal a brand from another org when upserting with the same domain', async () => {
-    const orgIdA = `${testPrefix}${Date.now()}_orgA`;
-    const orgIdB = `${testPrefix}${Date.now()}_orgB`;
+    const orgIdA = randomUUID();
+    const orgIdB = randomUUID();
+    createdOrgIds.push(orgIdA, orgIdB);
     const sharedUrl = 'https://shared-upsert.example.com';
 
     // Org A creates a brand with this URL
@@ -40,7 +44,8 @@ describe('getOrganizationIdByOrgId - cross-org isolation', () => {
   }, 15000);
 
   it('should merge within the same org when skeleton brand exists', async () => {
-    const testOrgId = `${testPrefix}${Date.now()}_mergetest`;
+    const testOrgId = randomUUID();
+    createdOrgIds.push(testOrgId);
 
     // First call: no URL -> creates skeleton brand
     const brandId1 = await getOrganizationIdByOrgId(testOrgId, 'Skeleton Brand');

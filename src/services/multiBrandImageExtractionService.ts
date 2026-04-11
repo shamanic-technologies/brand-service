@@ -33,6 +33,7 @@ export interface BrandMeta {
   brandId: string;
   domain: string;
   name: string;
+  brandUrl: string;
 }
 
 /** Unified response: always brands + { images, byBrand } per category */
@@ -85,6 +86,7 @@ export async function multiBrandExtractImages(
       brandId: id,
       domain: brand.domain || new URL(brand.url!).hostname,
       name: brand.name || brand.domain || new URL(brand.url!).hostname,
+      brandUrl: brand.url!,
     };
   });
 
