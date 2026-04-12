@@ -248,7 +248,7 @@ describe('getBrand - CRITICAL', () => {
 });
 
 describe('Regression: new org without orgs-table row', () => {
-  const testOrgId = 'b645207b-d8e9-40b0-9391-072b777cd9a9';
+  const testOrgId = randomUUID();
 
   beforeEach(async () => {
     await db.delete(brands).where(eq(brands.orgId, testOrgId));

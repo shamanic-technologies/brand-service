@@ -103,6 +103,14 @@ jobs:
           files: ./coverage/coverage-final.json
           fail_ci_if_error: false
 
+      - name: Delete Neon branch
+        if: always() && github.event_name == 'pull_request' && steps.neon.outputs.db_url_pooled
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
   test-coverage-check:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
