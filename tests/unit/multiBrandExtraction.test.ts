@@ -136,7 +136,7 @@ describe('multiBrandExtractFields', () => {
     });
 
     expect(result).toEqual({
-      brands: [{ brandId: 'brand-1', domain: 'acme.com', name: 'Acme' }],
+      brands: [{ brandId: 'brand-1', domain: 'acme.com', name: 'Acme', brandUrl: 'https://acme.com' }],
       fields: {
         industry: {
           value: 'SaaS tools',
@@ -186,8 +186,8 @@ describe('multiBrandExtractFields', () => {
 
     expect(result).toEqual({
       brands: [
-        { brandId: 'brand-1', domain: 'acme.com', name: 'Acme' },
-        { brandId: 'brand-2', domain: 'finpay.io', name: 'FinPay' },
+        { brandId: 'brand-1', domain: 'acme.com', name: 'Acme', brandUrl: 'https://acme.com' },
+        { brandId: 'brand-2', domain: 'finpay.io', name: 'FinPay', brandUrl: 'https://finpay.io' },
       ],
       fields: {
         industry: {
@@ -359,7 +359,7 @@ describe('multiBrandExtractImages', () => {
     });
 
     expect(result).toEqual({
-      brands: [{ brandId: 'brand-1', domain: 'acme.com', name: 'Acme' }],
+      brands: [{ brandId: 'brand-1', domain: 'acme.com', name: 'Acme', brandUrl: 'https://acme.com' }],
       results: [{
         category: 'logo',
         images: [acmeLogo],
@@ -401,8 +401,8 @@ describe('multiBrandExtractImages', () => {
 
     expect(result).toEqual({
       brands: [
-        { brandId: 'brand-1', domain: 'acme.com', name: 'Acme' },
-        { brandId: 'brand-2', domain: 'finpay.io', name: 'FinPay' },
+        { brandId: 'brand-1', domain: 'acme.com', name: 'Acme', brandUrl: 'https://acme.com' },
+        { brandId: 'brand-2', domain: 'finpay.io', name: 'FinPay', brandUrl: 'https://finpay.io' },
       ],
       results: [{
         category: 'logo',

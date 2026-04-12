@@ -1,7 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { randomUUID } from 'crypto';
 import { db } from '../../src/db';
 import { brands } from '../../src/db/schema';
-import { eq, like } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { deleteBrandsByOrgIds } from '../helpers/test-db';
 import { getOrCreateBrand, getBrand } from '../../src/services/brandService';
 
 /**
@@ -11,19 +13,20 @@ import { getOrCreateBrand, getBrand } from '../../src/services/brandService';
  * If this fails, brands are NOT created and the entire pipeline breaks.
  */
 describe('getOrCreateBrand - CRITICAL', () => {
-  const testPrefix = 'test-gocb-';
+  const createdOrgIds: string[] = [];
 
-  // Clean up test data after each test
   afterEach(async () => {
     try {
-      await db.delete(brands).where(like(brands.orgId, `${testPrefix}%`));
+      await deleteBrandsByOrgIds(createdOrgIds);
+      createdOrgIds.length = 0;
     } catch (e) {
       console.error('Cleanup error:', e);
     }
   });
 
   it('should CREATE a new brand when none exists', async () => {
-    const orgId = `${testPrefix}${Date.now()}_new`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://new-brand-test.example.com';
     const expectedDomain = 'new-brand-test.example.com';
 
@@ -56,7 +59,8 @@ describe('getOrCreateBrand - CRITICAL', () => {
   }, 10000);
 
   it('should RETURN existing brand when orgId+domain already exists', async () => {
-    const orgId = `${testPrefix}${Date.now()}_existing`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://existing-brand.example.com';
 
     // First call creates the brand
@@ -79,7 +83,8 @@ describe('getOrCreateBrand - CRITICAL', () => {
   }, 10000);
 
   it('should UPDATE URL when brand exists with different URL (same domain)', async () => {
-    const orgId = `${testPrefix}${Date.now()}_update`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const originalUrl = 'https://update-test.example.com/original';
     const newUrl = 'https://update-test.example.com/new-path';
 
@@ -105,7 +110,8 @@ describe('getOrCreateBrand - CRITICAL', () => {
 
     for (let i = 0; i < testCases.length; i++) {
       const { url, expectedDomain } = testCases[i];
-      const orgId = `${testPrefix}${Date.now()}_domain_${i}`;
+      const orgId = randomUUID();
+      createdOrgIds.push(orgId);
 
       const result = await getOrCreateBrand(orgId, url);
       expect(result.domain).toBe(expectedDomain);
@@ -113,7 +119,8 @@ describe('getOrCreateBrand - CRITICAL', () => {
   }, 30000);
 
   it('should CREATE a second brand when same org uses a different domain', async () => {
-    const orgId = `${testPrefix}${Date.now()}_multi`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url1 = 'https://brandone.example.com';
     const url2 = 'https://growthservice.example.com';
 
@@ -143,7 +150,8 @@ describe('getOrCreateBrand - CRITICAL', () => {
   }, 10000);
 
   it('should RETURN existing brand when same org+domain is called again', async () => {
-    const orgId = `${testPrefix}${Date.now()}_same`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://same-domain.example.com';
 
     const brand1 = await getOrCreateBrand(orgId, url);
@@ -154,7 +162,8 @@ describe('getOrCreateBrand - CRITICAL', () => {
   }, 10000);
 
   it('should handle concurrent calls without creating duplicates', async () => {
-    const orgId = `${testPrefix}${Date.now()}_concurrent`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://concurrent-test.example.com';
 
     // Call getOrCreateBrand multiple times concurrently
@@ -177,8 +186,9 @@ describe('getOrCreateBrand - CRITICAL', () => {
   }, 15000);
 
   it('should allow two different orgs to create brands with the same domain (no cross-org leak)', async () => {
-    const orgId1 = `${testPrefix}${Date.now()}_orgA`;
-    const orgId2 = `${testPrefix}${Date.now()}_orgB`;
+    const orgId1 = randomUUID();
+    const orgId2 = randomUUID();
+    createdOrgIds.push(orgId1, orgId2);
     const url = 'https://shared-domain.example.com';
     const expectedDomain = 'shared-domain.example.com';
 
@@ -207,10 +217,11 @@ describe('getOrCreateBrand - CRITICAL', () => {
 });
 
 describe('getBrand - CRITICAL', () => {
-  const testPrefix = 'test-getbrand-';
+  const createdOrgIds: string[] = [];
 
   afterEach(async () => {
-    await db.delete(brands).where(like(brands.orgId, `${testPrefix}%`));
+    await deleteBrandsByOrgIds(createdOrgIds);
+    createdOrgIds.length = 0;
   });
 
   it('should return null for non-existent brandId', async () => {
@@ -219,7 +230,8 @@ describe('getBrand - CRITICAL', () => {
   });
 
   it('should return brand data for existing brandId', async () => {
-    const orgId = `${testPrefix}${Date.now()}`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://getbrand-test.example.com';
 
     // Create a brand first
@@ -238,14 +250,15 @@ describe('getBrand - CRITICAL', () => {
 describe('Regression: new org without orgs-table row', () => {
   const testOrgId = 'b645207b-d8e9-40b0-9391-072b777cd9a9';
 
+  beforeEach(async () => {
+    await db.delete(brands).where(eq(brands.orgId, testOrgId));
+  });
+
   afterEach(async () => {
     await db.delete(brands).where(eq(brands.orgId, testOrgId));
   });
 
   it('should create a brand for a UUID orgId that has no row in the legacy orgs table', async () => {
-    // This is the exact scenario reported: a new org calls POST /sales-profile
-    // but has never been registered in the legacy orgs table.
-    // Previously failed with: FK violation brands_org_id_fkey
     const url = 'https://regression-test-new-org.example.com';
 
     const brand = await getOrCreateBrand(testOrgId, url);
@@ -266,14 +279,16 @@ describe('Regression: new org without orgs-table row', () => {
 });
 
 describe('Full Flow Integration - CRITICAL', () => {
-  const testPrefix = 'test-fullflow-';
+  const createdOrgIds: string[] = [];
 
   afterEach(async () => {
-    await db.delete(brands).where(like(brands.orgId, `${testPrefix}%`));
+    await deleteBrandsByOrgIds(createdOrgIds);
+    createdOrgIds.length = 0;
   });
 
   it('should create brand and it should be queryable immediately', async () => {
-    const orgId = `${testPrefix}${Date.now()}_fullflow`;
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
     const url = 'https://fullflow-test.distribute.you';
 
     // Step 1: Verify no brand exists yet
