@@ -250,4 +250,31 @@ describe('chat-client', () => {
     expect(config.httpAgent).toBeDefined();
     expect(config.httpAgent.keepAlive).toBe(false);
   });
+
+  it('should use per-model timeouts aligned with chat-service', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: { content: 'test', tokensInput: 10, tokensOutput: 5, model: 'test' },
+    });
+
+    const { chatComplete } = await import('../../src/lib/chat-client');
+
+    const cases: Array<{ model: 'pro' | 'flash' | 'flash-lite' | 'sonnet' | 'haiku' | 'opus'; expectedMs: number }> = [
+      { model: 'pro', expectedMs: 15 * 60_000 },
+      { model: 'flash', expectedMs: 10 * 60_000 },
+      { model: 'flash-lite', expectedMs: 5 * 60_000 },
+      { model: 'sonnet', expectedMs: 10 * 60_000 },
+      { model: 'haiku', expectedMs: 10 * 60_000 },
+      { model: 'opus', expectedMs: 15 * 60_000 },
+    ];
+
+    for (const { model, expectedMs } of cases) {
+      mockedAxios.post.mockClear();
+      await chatComplete(
+        { message: 'test', systemPrompt: 'test', provider: 'google', model },
+        { orgId: 'org_123' },
+      );
+      const config = mockedAxios.post.mock.calls[0][2] as Record<string, any>;
+      expect(config.timeout).toBe(expectedMs);
+    }
+  });
 });
