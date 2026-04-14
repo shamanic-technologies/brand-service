@@ -442,6 +442,11 @@
             "maximum": 365,
             "description": "How many days to cache scraped page content and URL maps. Default 180 (6 months). Use lower values (e.g. 1–7) for fast-changing sites like client blogs. Use higher values (e.g. 180–365) for stable pages like journalist profiles or company about pages.",
             "example": 180
+          },
+          "resetCache": {
+            "type": "boolean",
+            "description": "When true, bypasses all cache layers (URL map, page scrape, field extraction, and consolidated caches) and re-runs the full pipeline from scratch. Use when the brand has updated their website and you need fresh data.",
+            "example": true
           }
         },
         "required": [
