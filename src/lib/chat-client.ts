@@ -17,6 +17,16 @@ const httpAgent = new http.Agent({ keepAlive: false });
 
 const MAX_RETRIES = 2;
 
+/** Aligned with chat-service's per-model timeouts (src/lib/gemini.ts). */
+const MODEL_TIMEOUT_MS: Record<ChatCompleteParams['model'], number> = {
+  pro: 15 * 60_000,        // 15 min
+  flash: 10 * 60_000,      // 10 min
+  'flash-lite': 5 * 60_000, // 5 min
+  sonnet: 10 * 60_000,     // 10 min (default)
+  haiku: 10 * 60_000,      // 10 min (default)
+  opus: 15 * 60_000,       // 15 min
+};
+
 function isSocketHangUp(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const code = (err as { code?: string }).code;
@@ -98,7 +108,7 @@ export async function chatComplete(
       const response = await axios.post<ChatCompleteResult>(
         `${CHAT_SERVICE_URL}/complete`,
         body,
-        { headers, timeout: 120_000, httpAgent },
+        { headers, timeout: MODEL_TIMEOUT_MS[params.model], httpAgent },
       );
       return response.data;
     } catch (err) {
