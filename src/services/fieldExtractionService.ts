@@ -380,45 +380,53 @@ export interface ExtractFieldsOptions {
   brandIdHeader?: string;
   workflowSlug?: string;
   scrapeCacheTtlDays?: number;
+  resetCache?: boolean;
 }
 
 export async function extractFields(
   options: ExtractFieldsOptions,
 ): Promise<ExtractedFieldResult[]> {
-  const { brandId, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowSlug } = options;
+  const { brandId, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowSlug, resetCache } = options;
   const scrapeTtlDays = options.scrapeCacheTtlDays ?? DEFAULT_SCRAPE_CACHE_TTL_DAYS;
 
   const fieldKeys = fields.map((f) => f.key);
 
-  // 1. Check cache (scoped by campaignId)
-  const cached = await getCachedFields(brandId, fieldKeys, campaignId);
+  // 1. Check cache (scoped by campaignId) — skip entirely when resetCache is true
   const cachedResults: ExtractedFieldResult[] = [];
-  const missingFields: FieldSpec[] = [];
+  let missingFields: FieldSpec[];
 
-  for (const field of fields) {
-    const hit = cached.get(field.key);
-    if (hit) {
-      cachedResults.push({
-        key: field.key,
-        value: hit.value,
-        cached: true,
-        extractedAt: hit.extractedAt,
-        expiresAt: hit.expiresAt,
-        sourceUrls: hit.sourceUrls,
-      });
-    } else {
-      missingFields.push(field);
-    }
-  }
-
-  // Log cache results
-  if (cachedResults.length > 0 && missingFields.length === 0) {
-    console.log(`[${brandId}] All ${cachedResults.length} fields served from cache (keys: ${cachedResults.map(r => r.key).join(', ')})`);
-    return cachedResults;
-  } else if (cachedResults.length > 0) {
-    console.log(`[${brandId}] Field cache: ${cachedResults.length} cached, ${missingFields.length} need extraction (missing: ${missingFields.map(f => f.key).join(', ')})`);
+  if (resetCache) {
+    console.log(`[${brandId}] resetCache=true — bypassing all caches, re-extracting ${fields.length} fields`);
+    missingFields = fields;
   } else {
-    console.log(`[${brandId}] Field cache: 0/${fields.length} cached, extracting all`);
+    const cached = await getCachedFields(brandId, fieldKeys, campaignId);
+
+    missingFields = [];
+    for (const field of fields) {
+      const hit = cached.get(field.key);
+      if (hit) {
+        cachedResults.push({
+          key: field.key,
+          value: hit.value,
+          cached: true,
+          extractedAt: hit.extractedAt,
+          expiresAt: hit.expiresAt,
+          sourceUrls: hit.sourceUrls,
+        });
+      } else {
+        missingFields.push(field);
+      }
+    }
+
+    // Log cache results
+    if (cachedResults.length > 0 && missingFields.length === 0) {
+      console.log(`[${brandId}] All ${cachedResults.length} fields served from cache (keys: ${cachedResults.map(r => r.key).join(', ')})`);
+      return cachedResults;
+    } else if (cachedResults.length > 0) {
+      console.log(`[${brandId}] Field cache: ${cachedResults.length} cached, ${missingFields.length} need extraction (missing: ${missingFields.map(f => f.key).join(', ')})`);
+    } else {
+      console.log(`[${brandId}] Field cache: 0/${fields.length} cached, extracting all`);
+    }
   }
 
   // 2. Need extraction — look up brand
@@ -474,7 +482,7 @@ export async function extractFields(
     let allUrls: string[];
     try {
       let primaryUrls: string[];
-      const cachedMap = await getCachedUrlMap(brand.url);
+      const cachedMap = resetCache ? null : await getCachedUrlMap(brand.url);
       if (cachedMap) {
         console.log(`[${brandId}] URL map cache hit for ${brand.url} (${cachedMap.length} URLs)`);
         primaryUrls = cachedMap;
@@ -490,7 +498,7 @@ export async function extractFields(
       // If the brand URL is on a subdomain, also map the root domain
       const rootDomainUrl = getRootDomainUrl(brand.url);
       if (rootDomainUrl && rootDomainUrl !== brand.url) {
-        const cachedRootMap = await getCachedUrlMap(rootDomainUrl);
+        const cachedRootMap = resetCache ? null : await getCachedUrlMap(rootDomainUrl);
         if (cachedRootMap) {
           console.log(`[${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
           mapResults.push(cachedRootMap);
@@ -529,7 +537,7 @@ export async function extractFields(
     const urlsToScrape: string[] = [];
     const cachedPages: { url: string; content: string }[] = [];
     for (const url of selectedUrls) {
-      const cachedContent = await getCachedPageContent(url);
+      const cachedContent = resetCache ? null : await getCachedPageContent(url);
       if (cachedContent) {
         cachedPages.push({ url, content: cachedContent });
       } else {

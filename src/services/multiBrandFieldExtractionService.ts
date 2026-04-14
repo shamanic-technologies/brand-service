@@ -30,6 +30,7 @@ export interface MultiBrandExtractFieldsOptions {
   brandIdHeader?: string;
   workflowSlug?: string;
   scrapeCacheTtlDays?: number;
+  resetCache?: boolean;
 }
 
 export interface BrandMeta {
@@ -177,7 +178,7 @@ async function consolidateFields(
 export async function multiBrandExtractFields(
   options: MultiBrandExtractFieldsOptions,
 ): Promise<MultiBrandFieldsResponse> {
-  const { brandIds, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowSlug, scrapeCacheTtlDays } = options;
+  const { brandIds, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowSlug, scrapeCacheTtlDays, resetCache } = options;
 
   // Look up all brands first to validate and get domains
   const brandLookups = await Promise.all(brandIds.map((id) => getBrand(id)));
@@ -219,6 +220,7 @@ export async function multiBrandExtractFields(
         brandIdHeader,
         workflowSlug,
         scrapeCacheTtlDays,
+        resetCache,
       }),
     ),
   );
@@ -252,7 +254,7 @@ export async function multiBrandExtractFields(
   } else {
     // Check DB-backed consolidated cache — keyed by brand IDs + field keys + campaign + per-brand values
     const cacheKey = buildConsolidatedCacheKey(brandIds, fieldKeys, valuesByDomain, campaignId);
-    const cachedConsolidated = await getCachedConsolidated(cacheKey);
+    const cachedConsolidated = resetCache ? null : await getCachedConsolidated(cacheKey);
 
     if (cachedConsolidated) {
       console.log(`[brand-service] Consolidated fields cache hit for ${brandIds.length} brands`);
