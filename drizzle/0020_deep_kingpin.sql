@@ -1,2 +1,2 @@
-CREATE UNIQUE INDEX "idx_extracted_fields_brand_key_no_campaign" ON "brand_extracted_fields" USING btree ("brand_id","field_key") WHERE "brand_extracted_fields"."campaign_id" IS NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX "idx_extracted_fields_brand_key_campaign" ON "brand_extracted_fields" USING btree ("brand_id","field_key","campaign_id") WHERE "brand_extracted_fields"."campaign_id" IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_extracted_fields_brand_key_no_campaign" ON "brand_extracted_fields" USING btree ("brand_id","field_key") WHERE "brand_extracted_fields"."campaign_id" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_extracted_fields_brand_key_campaign" ON "brand_extracted_fields" USING btree ("brand_id","field_key","campaign_id") WHERE "brand_extracted_fields"."campaign_id" IS NOT NULL;
