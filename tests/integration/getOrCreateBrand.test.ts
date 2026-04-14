@@ -254,10 +254,6 @@ describe('Regression: new org without orgs-table row', () => {
     await db.delete(brands).where(eq(brands.orgId, testOrgId));
   });
 
-  beforeEach(async () => {
-    await db.delete(brands).where(eq(brands.orgId, testOrgId));
-  });
-
   afterEach(async () => {
     await db.delete(brands).where(eq(brands.orgId, testOrgId));
   });
