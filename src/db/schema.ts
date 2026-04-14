@@ -273,6 +273,8 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 }, (table) => [
 	index("idx_extracted_fields_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
 	index("idx_extracted_fields_campaign").using("btree", table.campaignId.asc().nullsLast().op("uuid_ops")),
+	uniqueIndex("idx_extracted_fields_brand_key_no_campaign").on(table.brandId, table.fieldKey).where(sql`${table.campaignId} IS NULL`),
+	uniqueIndex("idx_extracted_fields_brand_key_campaign").on(table.brandId, table.fieldKey, table.campaignId).where(sql`${table.campaignId} IS NOT NULL`),
 	foreignKey({
 			columns: [table.brandId],
 			foreignColumns: [brands.id],
