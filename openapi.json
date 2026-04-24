@@ -1022,6 +1022,54 @@
         "required": [
           "selected_urls"
         ]
+      },
+      "TransferBrandResponse": {
+        "type": "object",
+        "properties": {
+          "updatedTables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tableName": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "tableName",
+                "count"
+              ]
+            }
+          }
+        },
+        "required": [
+          "updatedTables"
+        ]
+      },
+      "TransferBrandRequest": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceOrgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetOrgId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "brandId",
+          "sourceOrgId",
+          "targetOrgId"
+        ]
       }
     },
     "parameters": {
@@ -2586,6 +2634,38 @@
           },
           "400": {
             "description": "Missing selected_urls"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/transfer-brand": {
+      "post": {
+        "summary": "Transfer a brand from one org to another (solo-brand only)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferBrandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Brand transferred",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferBrandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
           },
           "500": {
             "description": "Internal server error"
