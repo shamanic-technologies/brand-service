@@ -3,7 +3,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db, brands } from '../db';
 import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand } from '../services/brandService';
-import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema } from '../schemas';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema } from '../schemas';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -177,5 +177,37 @@ internalRouter.get('/brands/:id/runs', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get brand runs error:', error);
     res.status(500).json({ error: error.message || 'Failed to get brand runs' });
+  }
+});
+
+/**
+ * POST /internal/transfer-brand
+ * Transfer a brand from one org to another (solo-brand only).
+ * Updates org_id on the brands table where id = brandId AND org_id = sourceOrgId.
+ * Idempotent: running twice with same params is a no-op.
+ */
+internalRouter.post('/transfer-brand', async (req: Request, res: Response) => {
+  try {
+    const parsed = TransferBrandRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+    const { brandId, sourceOrgId, targetOrgId } = parsed.data;
+
+    // Update brands table: the only table in brand-service with org_id
+    const result = await db
+      .update(brands)
+      .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
+      .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
+      .returning({ id: brands.id });
+
+    const updatedTables = [{ tableName: 'brands', count: result.length }];
+
+    console.log(`[brand-service] transfer-brand: brandId=${brandId} from=${sourceOrgId} to=${targetOrgId} updated=${result.length}`);
+
+    res.json({ updatedTables });
+  } catch (error: any) {
+    console.error('[brand-service] Transfer brand error:', error);
+    res.status(500).json({ error: error.message || 'Failed to transfer brand' });
   }
 });

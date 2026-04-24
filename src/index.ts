@@ -11,6 +11,7 @@ import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes } 
 import { orgRouter as extractFieldsOrgRoutes, internalRouter as extractFieldsInternalRoutes } from './routes/extract-fields.routes';
 import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInternalRoutes } from './routes/extract-images.routes';
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from './routes/public-information.routes';
+import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from './routes/transfer.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
 import organizationRoutes from './routes/organization.routes';
@@ -61,6 +62,7 @@ app.use('/internal', apiKeyAuth, brandsInternalRoutes);
 app.use('/internal', apiKeyAuth, extractFieldsInternalRoutes);
 app.use('/internal', apiKeyAuth, extractImagesInternalRoutes);
 app.use('/internal', apiKeyAuth, publicInfoInternalRoutes);
+app.use('/internal', apiKeyAuth, transferInternalRoutes);
 app.use('/internal', apiKeyAuth, organizationRoutes);
 app.use('/internal', apiKeyAuth, uploadRoutes);
 app.use('/internal/media-assets', apiKeyAuth, mediaAssetsRoutes);
@@ -75,6 +77,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, brandsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, extractFieldsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, extractImagesOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
 // Only start server if not in test environment

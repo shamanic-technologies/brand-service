@@ -8,6 +8,7 @@ import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes } 
 import { orgRouter as extractFieldsOrgRoutes, internalRouter as extractFieldsInternalRoutes } from '../../src/routes/extract-fields.routes';
 import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInternalRoutes } from '../../src/routes/extract-images.routes';
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from '../../src/routes/public-information.routes';
+import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from '../../src/routes/transfer.routes';
 
 // Import routes — single-tier files
 import organizationRoutes from '../../src/routes/organization.routes';
@@ -46,6 +47,7 @@ export function createTestApp() {
   app.use('/internal', apiKeyAuth, extractFieldsInternalRoutes);
   app.use('/internal', apiKeyAuth, extractImagesInternalRoutes);
   app.use('/internal', apiKeyAuth, publicInfoInternalRoutes);
+  app.use('/internal', apiKeyAuth, transferInternalRoutes);
   app.use('/internal', apiKeyAuth, organizationRoutes);
   app.use('/internal/media-assets', apiKeyAuth, mediaAssetsRoutes);
   app.use('/internal', apiKeyAuth, intakeFormRoutes);
@@ -55,6 +57,7 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, extractFieldsOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, extractImagesOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
   app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;

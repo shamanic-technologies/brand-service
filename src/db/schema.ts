@@ -892,6 +892,18 @@ export const consolidatedFieldCache = pgTable("consolidated_field_cache", {
 	index("idx_consolidated_field_cache_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
 ]);
 
+export const brandTransfers = pgTable("brand_transfers", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	sourceOrgId: uuid("source_org_id").notNull(),
+	targetOrgId: uuid("target_org_id").notNull(),
+	initiatedByUserId: uuid("initiated_by_user_id").notNull(),
+	serviceResults: jsonb("service_results").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_brand_transfers_brand_id").using("btree", table.brandId.asc().nullsLast().op("uuid_ops")),
+]);
+
 // Deprecated: tasks, tasks_runs, tasks_runs_costs tables removed from schema.
 // Run tracking is now handled by runs-service via src/lib/runs-client.ts.
 // The physical tables still exist in the database but are no longer used.
