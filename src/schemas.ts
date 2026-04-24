@@ -1408,7 +1408,6 @@ registry.registerPath({
   responses: {
     200: { description: 'Transfer completed', content: { 'application/json': { schema: OrchestrateTransferResponseSchema } } },
     400: { description: 'Invalid request or missing headers' },
-    403: { description: 'User is not a member of the target org' },
     404: { description: 'Brand not found or does not belong to source org' },
     409: { description: 'Target org already has a brand with the same domain' },
     500: { description: 'Internal server error' },

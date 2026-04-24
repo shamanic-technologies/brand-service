@@ -1,9 +1,9 @@
 /**
  * Transfer orchestration service.
  *
- * Discovers all services via api-registry, verifies membership
- * via client-service, then fans out /internal/transfer-brand
- * to every service (best-effort).
+ * Discovers all services via api-registry, then fans out
+ * /internal/transfer-brand to every service (best-effort).
+ * Membership verification is handled upstream by api-service.
  */
 
 interface ServiceInfo {
@@ -31,34 +31,6 @@ export async function discoverServices(): Promise<ServiceInfo[]> {
 
   const data = (await response.json()) as { services: ServiceInfo[] };
   return data.services;
-}
-
-/**
- * Verify a user is a member of the target org via client-service.
- * Returns true if member, false if 404. Throws on other errors.
- */
-export async function verifyMembership(
-  targetOrgId: string,
-  userId: string,
-): Promise<boolean> {
-  const url = process.env.CLIENT_SERVICE_URL;
-  const apiKey = process.env.CLIENT_SERVICE_API_KEY;
-  if (!url || !apiKey) {
-    throw new Error('CLIENT_SERVICE_URL and CLIENT_SERVICE_API_KEY must be set');
-  }
-
-  const response = await fetch(
-    `${url}/orgs/${targetOrgId}/members/${userId}`,
-    { headers: { 'x-api-key': apiKey } },
-  );
-
-  if (response.status === 404) return false;
-  if (!response.ok) {
-    throw new Error(
-      `[brand-service] client-service membership check returned ${response.status}`,
-    );
-  }
-  return true;
 }
 
 export type ServiceResult =

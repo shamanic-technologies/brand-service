@@ -58,12 +58,10 @@ vi.mock('../../src/lib/runs-client', () => ({
 }));
 
 const mockDiscoverServices = vi.fn();
-const mockVerifyMembership = vi.fn();
 const mockFanOutTransfer = vi.fn();
 
 vi.mock('../../src/services/transferService', () => ({
   discoverServices: (...args: any[]) => mockDiscoverServices(...args),
-  verifyMembership: (...args: any[]) => mockVerifyMembership(...args),
   fanOutTransfer: (...args: any[]) => mockFanOutTransfer(...args),
 }));
 
@@ -88,7 +86,6 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     mockSelect
       .mockResolvedValueOnce([{ id: brandId, orgId: sourceOrgId, domain: 'acme.com' }])
       .mockResolvedValueOnce([]);
-    mockVerifyMembership.mockResolvedValue(true);
     mockReturning.mockResolvedValue([{ id: brandId }]);
     mockInsertReturning.mockResolvedValue([{ id: transferId }]);
     mockDiscoverServices.mockResolvedValue([]);
@@ -185,17 +182,6 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
 
     expect(res.status).toBe(409);
     expect(res.body.error).toContain('acme.com');
-  });
-
-  it('should return 403 when user is not a member of target org', async () => {
-    mockVerifyMembership.mockResolvedValue(false);
-
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId });
-
-    expect(res.status).toBe(403);
   });
 
   it('should reject invalid brandId format', async () => {

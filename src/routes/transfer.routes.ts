@@ -4,7 +4,6 @@ import { db, brands, brandTransfers } from '../db';
 import { OrchestateTransferRequestSchema } from '../schemas';
 import {
   discoverServices,
-  verifyMembership,
   fanOutTransfer,
   ServiceResult,
 } from '../services/transferService';
@@ -68,13 +67,7 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       }
     }
 
-    // 3. Verify user is a member of the target org
-    const isMember = await verifyMembership(targetOrgId, userId);
-    if (!isMember) {
-      return res.status(403).json({ error: 'User is not a member of the target org' });
-    }
-
-    // 4. Update brand-service's own brands table inline
+    // 3. Update brand-service's own brands table inline
     const inlineResult = await db
       .update(brands)
       .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
@@ -87,7 +80,7 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       },
     };
 
-    // 5. Discover all services and fan out
+    // 4. Discover all services and fan out
     const services = await discoverServices();
     const fanOutResults = await fanOutTransfer(services, {
       brandId,
@@ -96,7 +89,7 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
     });
     Object.assign(serviceResults, fanOutResults);
 
-    // 6. Store audit log
+    // 5. Store audit log
     const [transfer] = await db
       .insert(brandTransfers)
       .values({

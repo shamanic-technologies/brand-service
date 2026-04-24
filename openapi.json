@@ -2869,9 +2869,6 @@
           "400": {
             "description": "Invalid request or missing headers"
           },
-          "403": {
-            "description": "User is not a member of the target org"
-          },
           "404": {
             "description": "Brand not found or does not belong to source org"
           },
