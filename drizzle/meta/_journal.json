@@ -148,6 +148,13 @@
       "when": 1776153243216,
       "tag": "0020_deep_kingpin",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1777013414027,
+      "tag": "0021_fancy_risque",
+      "breakpoints": true
     }
   ]
 }
