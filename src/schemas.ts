@@ -1366,6 +1366,88 @@ registry.registerPath({
   },
 });
 
+// ── Transfer Orchestration ──────────────────────────────────────
+
+export const OrchestateTransferRequestSchema = z
+  .object({
+    targetOrgId: z.string().uuid(),
+  })
+  .openapi('OrchestrateTransferRequest');
+
+export const ServiceTransferResultSchema = z
+  .union([
+    z.object({ updatedTables: z.array(z.object({ tableName: z.string(), count: z.number() })) }),
+    z.object({ error: z.string() }),
+    z.object({ skipped: z.literal(true) }),
+  ])
+  .openapi('ServiceTransferResult');
+
+export const OrchestrateTransferResponseSchema = z
+  .object({
+    transferId: z.string().uuid(),
+    brandId: z.string().uuid(),
+    sourceOrgId: z.string().uuid(),
+    targetOrgId: z.string().uuid(),
+    serviceResults: z.record(z.string(), ServiceTransferResultSchema),
+  })
+  .openapi('OrchestrateTransferResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/transfer',
+  summary: 'Orchestrate brand transfer across all services',
+  description:
+    'Transfers a brand from the current org (x-org-id) to a target org. ' +
+    'Verifies brand ownership, checks user membership in target org via client-service, ' +
+    'then fans out POST /internal/transfer-brand to every registered service. ' +
+    'Best-effort: services that 404 are skipped, 5xx are logged and continued.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: OrchestateTransferRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Transfer completed', content: { 'application/json': { schema: OrchestrateTransferResponseSchema } } },
+    400: { description: 'Invalid request or missing headers' },
+    403: { description: 'User is not a member of the target org' },
+    404: { description: 'Brand not found or does not belong to source org' },
+    409: { description: 'Target org already has a brand with the same domain' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ── Transfer History ────────────────────────────────────────────
+
+export const BrandTransferSchema = z
+  .object({
+    id: z.string().uuid(),
+    brandId: z.string().uuid(),
+    sourceOrgId: z.string().uuid(),
+    targetOrgId: z.string().uuid(),
+    initiatedByUserId: z.string().uuid(),
+    serviceResults: z.record(z.string(), ServiceTransferResultSchema),
+    createdAt: z.string(),
+  })
+  .openapi('BrandTransfer');
+
+export const BrandTransferHistoryResponseSchema = z
+  .object({
+    transfers: z.array(BrandTransferSchema),
+  })
+  .openapi('BrandTransferHistoryResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brand-transfers',
+  summary: 'Get transfer history for a brand',
+  request: {
+    query: z.object({ brandId: z.string().uuid() }),
+  },
+  responses: {
+    200: { description: 'Transfer history', content: { 'application/json': { schema: BrandTransferHistoryResponseSchema } } },
+    400: { description: 'Missing or invalid brandId' },
+    500: { description: 'Internal server error' },
+  },
+});
 // ============================================================
 // Health / Root
 // ============================================================
