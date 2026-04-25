@@ -61,7 +61,7 @@ const mockDiscoverServices = vi.fn();
 const mockFanOutTransfer = vi.fn();
 
 vi.mock('../../src/services/transferService', () => ({
-  discoverServices: (...args: any[]) => mockDiscoverServices(...args),
+  discoverTransferServices: (...args: any[]) => mockDiscoverServices(...args),
   fanOutTransfer: (...args: any[]) => mockFanOutTransfer(...args),
 }));
 

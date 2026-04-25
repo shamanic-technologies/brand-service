@@ -1,8 +1,8 @@
 /**
  * Transfer orchestration service.
  *
- * Discovers all services via api-registry, then fans out
- * /internal/transfer-brand to every service (best-effort).
+ * Discovers services that have POST /internal/transfer-brand via api-registry,
+ * then fans out to each one (best-effort).
  * Membership verification is handled upstream by api-service.
  */
 
@@ -11,26 +11,51 @@ interface ServiceInfo {
   baseUrl: string;
 }
 
+interface SearchResult {
+  service: string;
+  method: string;
+  path: string;
+}
+
 /**
- * Discover all registered services from api-registry.
+ * Discover services that expose POST /internal/transfer-brand via api-registry search.
+ * Only returns services that actually have the endpoint registered.
  */
-export async function discoverServices(): Promise<ServiceInfo[]> {
+export async function discoverTransferServices(): Promise<ServiceInfo[]> {
   const url = process.env.API_REGISTRY_SERVICE_URL;
   const apiKey = process.env.API_REGISTRY_SERVICE_API_KEY;
   if (!url || !apiKey) {
     throw new Error('API_REGISTRY_SERVICE_URL and API_REGISTRY_SERVICE_API_KEY must be set');
   }
 
-  const response = await fetch(`${url}/services`, {
+  // Get all services (for baseUrl lookup)
+  const servicesRes = await fetch(`${url}/services`, {
     headers: { 'x-api-key': apiKey },
   });
-
-  if (!response.ok) {
-    throw new Error(`[brand-service] api-registry /services returned ${response.status}`);
+  if (!servicesRes.ok) {
+    throw new Error(`[brand-service] api-registry /services returned ${servicesRes.status}`);
   }
+  const { services: allServices } = (await servicesRes.json()) as { services: ServiceInfo[] };
 
-  const data = (await response.json()) as { services: ServiceInfo[] };
-  return data.services;
+  // Search for services that have POST /internal/transfer-brand
+  const searchRes = await fetch(
+    `${url}/endpoints/search?query=transfer-brand&method=POST&pathPrefix=/internal/`,
+    { headers: { 'x-api-key': apiKey } },
+  );
+  if (!searchRes.ok) {
+    throw new Error(`[brand-service] api-registry /endpoints/search returned ${searchRes.status}`);
+  }
+  const { results } = (await searchRes.json()) as { results: SearchResult[] };
+
+  // Only keep services whose exact path is /internal/transfer-brand
+  const serviceNames = new Set(
+    results
+      .filter((r) => r.path === '/internal/transfer-brand' && r.method === 'POST')
+      .map((r) => r.service),
+  );
+
+  // Map service names to ServiceInfo (need baseUrl)
+  return allServices.filter((s) => serviceNames.has(s.name));
 }
 
 export type ServiceResult =
@@ -40,7 +65,7 @@ export type ServiceResult =
 
 /**
  * Call POST /internal/transfer-brand on a single service.
- * Returns the result or { skipped: true } on 404, { error } on 5xx.
+ * Returns the result or { error } on failure.
  */
 async function callTransferBrand(
   service: ServiceInfo,
@@ -64,10 +89,6 @@ async function callTransferBrand(
         body: JSON.stringify(body),
       },
     );
-
-    if (response.status === 404) {
-      return { skipped: true };
-    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');

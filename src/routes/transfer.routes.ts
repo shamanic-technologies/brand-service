@@ -3,7 +3,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db, brands, brandTransfers } from '../db';
 import { OrchestateTransferRequestSchema } from '../schemas';
 import {
-  discoverServices,
+  discoverTransferServices,
   fanOutTransfer,
   ServiceResult,
 } from '../services/transferService';
@@ -89,7 +89,7 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
     }
 
     // 4. Discover all services and fan out
-    const services = await discoverServices();
+    const services = await discoverTransferServices();
     const fanOutResults = await fanOutTransfer(services, {
       brandId,
       sourceOrgId,
