@@ -96,7 +96,7 @@ describe('transferService', () => {
 
   describe('fanOutTransfer', () => {
     const body = {
-      brandId: 'brand-1',
+      sourceBrandId: 'brand-1',
       sourceOrgId: 'src-org',
       targetOrgId: 'tgt-org',
     };

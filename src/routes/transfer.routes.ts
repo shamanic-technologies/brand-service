@@ -7,6 +7,7 @@ import {
   fanOutTransfer,
   ServiceResult,
 } from '../services/transferService';
+import { rewriteBrandReferences } from './brands.routes';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -52,8 +53,8 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       return res.status(404).json({ error: 'Brand not found or does not belong to source org' });
     }
 
-    // 2. Check for domain conflict in target org
-    let brandConflict: { skipped: true; existingBrandId: string; domain: string } | null = null;
+    // 2. Check for domain conflict in target org → resolve targetBrandId
+    let targetBrandId: string | undefined;
     const serviceResults: Record<string, ServiceResult> = {};
 
     if (brand.domain) {
@@ -64,9 +65,9 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
         .limit(1);
 
       if (conflict) {
-        brandConflict = { skipped: true, existingBrandId: conflict.id, domain: brand.domain };
+        targetBrandId = conflict.id;
         console.log(
-          `[brand-service] transfer: domain conflict for "${brand.domain}" — target org already has brand ${conflict.id}`,
+          `[brand-service] transfer: domain conflict for "${brand.domain}" — target org already has brand ${conflict.id}, will rewrite to targetBrandId`,
         );
       }
     }
@@ -74,9 +75,10 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
     // 3. Fan out to all downstream services FIRST
     const services = await discoverTransferServices();
     const fanOutResults = await fanOutTransfer(services, {
-      brandId,
+      sourceBrandId: brandId,
       sourceOrgId,
       targetOrgId,
+      ...(targetBrandId ? { targetBrandId } : {}),
     });
     Object.assign(serviceResults, fanOutResults);
 
@@ -92,12 +94,24 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       serviceResults['brand-service'] = {
         updatedTables: [{ tableName: 'brands', count: 0 }],
       };
-    } else if (brandConflict) {
-      // Target org already has this domain — no need to move the brand record
+    } else if (targetBrandId) {
+      // Target org already has this brand — rewrite brand_id on dependents, then delete source
+      const rewriteResults = await rewriteBrandReferences(brandId, targetBrandId);
+
+      const deleteResult = await db
+        .delete(brands)
+        .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
+        .returning({ id: brands.id });
+
+      console.log(
+        `[brand-service] transfer: rewrote brand refs ${brandId} → ${targetBrandId}, deleted source brand`,
+      );
+
       serviceResults['brand-service'] = {
-        updatedTables: [{ tableName: 'brands', count: 0 }],
+        updatedTables: [...rewriteResults, { tableName: 'brands', count: deleteResult.length }],
       };
     } else {
+      // No conflict — move brand to target org
       const inlineResult = await db
         .update(brands)
         .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
@@ -122,7 +136,7 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       .returning({ id: brandTransfers.id });
 
     console.log(
-      `[brand-service] transfer orchestrated: brandId=${brandId} from=${sourceOrgId} to=${targetOrgId} transferId=${transfer.id}`,
+      `[brand-service] transfer orchestrated: sourceBrandId=${brandId} from=${sourceOrgId} to=${targetOrgId}${targetBrandId ? ` targetBrandId=${targetBrandId}` : ''} transferId=${transfer.id}`,
     );
 
     const status = hasFailure ? 'partial' : 'completed';
@@ -130,10 +144,10 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
     res.status(hasFailure ? 207 : 200).json({
       transferId: transfer.id,
       status,
-      brandId,
+      sourceBrandId: brandId,
       sourceOrgId,
       targetOrgId,
-      ...(brandConflict ? { brandConflict } : {}),
+      ...(targetBrandId ? { targetBrandId } : {}),
       serviceResults,
     });
   } catch (error: any) {

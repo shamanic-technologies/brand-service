@@ -4,10 +4,11 @@ import { randomUUID } from 'crypto';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
-const { mockSelect, mockReturning, mockInsertReturning } = vi.hoisted(() => ({
+const { mockSelect, mockReturning, mockInsertReturning, mockDeleteReturning } = vi.hoisted(() => ({
   mockSelect: vi.fn(),
   mockReturning: vi.fn(),
   mockInsertReturning: vi.fn(),
+  mockDeleteReturning: vi.fn(),
 }));
 
 vi.mock('../../src/db', () => {
@@ -29,11 +30,18 @@ vi.mock('../../src/db', () => {
   }
   insertChain.returning = mockInsertReturning;
 
+  const deleteChain: Record<string, any> = {};
+  for (const method of ['where']) {
+    deleteChain[method] = vi.fn().mockReturnValue(deleteChain);
+  }
+  deleteChain.returning = mockDeleteReturning;
+
   return {
     db: {
       select: vi.fn().mockReturnValue(selectChain),
       update: vi.fn().mockReturnValue(updateChain),
       insert: vi.fn().mockReturnValue(insertChain),
+      delete: vi.fn().mockReturnValue(deleteChain),
     },
     brands: {
       id: 'brands.id',
@@ -52,6 +60,10 @@ vi.mock('../../src/db', () => {
     urlMapCache: { normalizedSiteUrl: 'umc.normalizedSiteUrl' },
   };
 });
+
+vi.mock('../../src/db/utils', () => ({
+  query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+}));
 
 vi.mock('../../src/lib/runs-client', () => ({
   createRun: vi.fn().mockResolvedValue({ id: 'run-123' }),
@@ -108,13 +120,13 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('completed');
     expect(res.body.transferId).toBe(transferId);
-    expect(res.body.brandId).toBe(brandId);
+    expect(res.body.sourceBrandId).toBe(brandId);
     expect(res.body.sourceOrgId).toBe(sourceOrgId);
     expect(res.body.targetOrgId).toBe(targetOrgId);
     expect(res.body.serviceResults['brand-service']).toEqual({
       updatedTables: [{ tableName: 'brands', count: 1 }],
     });
-    expect(res.body.brandConflict).toBeUndefined();
+    expect(res.body.targetBrandId).toBeUndefined();
   });
 
   it('should include fan-out results from other services', async () => {
@@ -173,13 +185,14 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     expect(res.status).toBe(404);
   });
 
-  it('should skip brands UPDATE on domain conflict but still fan out', async () => {
+  it('should rewrite brand refs and delete source brand on domain conflict, passing targetBrandId to fan-out', async () => {
     const existingBrandId = randomUUID();
     mockSelect.mockReset();
     mockSelect
       .mockResolvedValueOnce([{ id: brandId, orgId: sourceOrgId, domain: 'acme.com' }])
       .mockResolvedValueOnce([{ id: existingBrandId }]);
     mockInsertReturning.mockResolvedValue([{ id: transferId }]);
+    mockDeleteReturning.mockResolvedValue([{ id: brandId }]);
     mockDiscoverServices.mockResolvedValue([]);
     mockFanOutTransfer.mockResolvedValue({
       'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 2 }] },
@@ -191,18 +204,23 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
       .send({ targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.brandConflict).toEqual({
-      skipped: true,
-      existingBrandId,
-      domain: 'acme.com',
-    });
-    expect(res.body.serviceResults['brand-service']).toEqual({
-      updatedTables: [{ tableName: 'brands', count: 0 }],
-    });
+    expect(res.body.targetBrandId).toBe(existingBrandId);
+    // brand-service results should include rewrite tables + brands delete
+    const brandResults = res.body.serviceResults['brand-service'].updatedTables;
+    expect(brandResults).toContainEqual({ tableName: 'media_assets', count: 0 });
+    expect(brandResults).toContainEqual({ tableName: 'brand_extracted_fields', count: 0 });
+    expect(brandResults).toContainEqual({ tableName: 'brands', count: 1 });
     expect(res.body.serviceResults['campaign-service']).toEqual({
       updatedTables: [{ tableName: 'campaigns', count: 2 }],
     });
-    expect(mockFanOutTransfer).toHaveBeenCalled();
+    // Verify targetBrandId was passed in fan-out
+    expect(mockFanOutTransfer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ sourceBrandId: brandId, targetBrandId: existingBrandId }),
+    );
+    // Verify rewriteBrandReferences was called via query
+    const { query } = await import('../../src/db/utils');
+    expect(query).toHaveBeenCalled();
   });
 
   it('should NOT move brand when a downstream service fails (return 207)', async () => {

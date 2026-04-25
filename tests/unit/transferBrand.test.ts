@@ -14,7 +14,7 @@ vi.mock('../../src/db', () => {
     for (const method of [
       'select', 'from', 'where', 'innerJoin',
       'insert', 'values', 'onConflictDoUpdate', 'onConflictDoNothing',
-      'update', 'set', 'limit',
+      'update', 'set', 'limit', 'delete',
     ]) {
       chain[method] = vi.fn().mockReturnValue(chain);
     }
@@ -30,6 +30,10 @@ vi.mock('../../src/db', () => {
     urlMapCache: { normalizedSiteUrl: 'umc.normalizedSiteUrl' },
   };
 });
+
+vi.mock('../../src/db/utils', () => ({
+  query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+}));
 
 vi.mock('../../src/lib/runs-client', () => ({
   createRun: vi.fn().mockResolvedValue({ id: 'run-123' }),
@@ -59,7 +63,7 @@ describe('POST /internal/transfer-brand', () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
-      .send({ brandId });
+      .send({ sourceBrandId: brandId });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Invalid request');
@@ -69,7 +73,7 @@ describe('POST /internal/transfer-brand', () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
-      .send({ brandId: 'not-a-uuid', sourceOrgId, targetOrgId });
+      .send({ sourceBrandId: 'not-a-uuid', sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Invalid request');
@@ -81,7 +85,7 @@ describe('POST /internal/transfer-brand', () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
-      .send({ brandId, sourceOrgId, targetOrgId });
+      .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
     expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 1 }]);
@@ -93,7 +97,7 @@ describe('POST /internal/transfer-brand', () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
-      .send({ brandId, sourceOrgId, targetOrgId });
+      .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
     expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 0 }]);
@@ -105,7 +109,7 @@ describe('POST /internal/transfer-brand', () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
-      .send({ brandId: randomUUID(), sourceOrgId, targetOrgId });
+      .send({ sourceBrandId: randomUUID(), sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
     expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 0 }]);
@@ -114,9 +118,29 @@ describe('POST /internal/transfer-brand', () => {
   it('should require API key auth', async () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
-      .send({ brandId, sourceOrgId, targetOrgId });
+      .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(401);
+  });
+
+  it('should rewrite brand references and delete source brand when targetBrandId is provided', async () => {
+    const targetBrandId = randomUUID();
+    mockReturning.mockResolvedValueOnce([{ id: brandId }]);
+
+    const res = await request(app)
+      .post('/internal/transfer-brand')
+      .set(headers)
+      .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId, targetBrandId });
+
+    expect(res.status).toBe(200);
+    // Should include rewrite results for all dependent tables + brands delete
+    expect(res.body.updatedTables).toContainEqual({ tableName: 'media_assets', count: 0 });
+    expect(res.body.updatedTables).toContainEqual({ tableName: 'brand_extracted_fields', count: 0 });
+    expect(res.body.updatedTables).toContainEqual({ tableName: 'brands', count: 1 });
+    const { db } = await import('../../src/db');
+    expect(db.delete).toHaveBeenCalled();
+    const { query } = await import('../../src/db/utils');
+    expect(query).toHaveBeenCalled();
   });
 
   it('should return 500 on database error', async () => {
@@ -125,7 +149,7 @@ describe('POST /internal/transfer-brand', () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
-      .send({ brandId, sourceOrgId, targetOrgId });
+      .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(500);
     expect(res.body.error).toBe('connection refused');
