@@ -191,6 +191,7 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     mockSelect
       .mockResolvedValueOnce([{ id: brandId, orgId: sourceOrgId, domain: 'acme.com' }])
       .mockResolvedValueOnce([{ id: existingBrandId }]);
+    mockReturning.mockResolvedValue([{ id: brandId }]);
     mockInsertReturning.mockResolvedValue([{ id: transferId }]);
     mockDeleteReturning.mockResolvedValue([{ id: brandId }]);
     mockDiscoverServices.mockResolvedValue([]);
