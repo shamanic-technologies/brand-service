@@ -104,6 +104,7 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
       .send({ targetOrgId });
 
     expect(res.status).toBe(200);
+    expect(res.body.status).toBe('completed');
     expect(res.body.transferId).toBe(transferId);
     expect(res.body.brandId).toBe(brandId);
     expect(res.body.sourceOrgId).toBe(sourceOrgId);
@@ -200,6 +201,46 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
       updatedTables: [{ tableName: 'campaigns', count: 2 }],
     });
     expect(mockFanOutTransfer).toHaveBeenCalled();
+  });
+
+  it('should NOT move brand when a downstream service fails (return 207)', async () => {
+    mockFanOutTransfer.mockResolvedValue({
+      'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 3 }] },
+      'outlets-service': { error: 'HTTP 500' },
+    });
+
+    const res = await request(app)
+      .post(`/orgs/brands/${brandId}/transfer`)
+      .set(headers)
+      .send({ targetOrgId });
+
+    expect(res.status).toBe(207);
+    expect(res.body.status).toBe('partial');
+    // brand-service should NOT have updated the brand
+    expect(res.body.serviceResults['brand-service']).toEqual({
+      updatedTables: [{ tableName: 'brands', count: 0 }],
+    });
+    // db.update should NOT have been called (brand stays in source org)
+    const { db } = await import('../../src/db');
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('should move brand only when ALL downstream services succeed', async () => {
+    mockFanOutTransfer.mockResolvedValue({
+      'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 3 }] },
+      'outlets-service': { updatedTables: [{ tableName: 'outlets', count: 1 }] },
+    });
+
+    const res = await request(app)
+      .post(`/orgs/brands/${brandId}/transfer`)
+      .set(headers)
+      .send({ targetOrgId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('completed');
+    expect(res.body.serviceResults['brand-service']).toEqual({
+      updatedTables: [{ tableName: 'brands', count: 1 }],
+    });
   });
 
   it('should reject invalid brandId format', async () => {
