@@ -1090,6 +1090,9 @@
             "type": "string",
             "format": "uuid"
           },
+          "brandConflict": {
+            "$ref": "#/components/schemas/BrandConflict"
+          },
           "serviceResults": {
             "type": "object",
             "additionalProperties": {
@@ -1103,6 +1106,30 @@
           "sourceOrgId",
           "targetOrgId",
           "serviceResults"
+        ]
+      },
+      "BrandConflict": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "skipped": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "existingBrandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "skipped",
+          "existingBrandId",
+          "domain"
         ]
       },
       "ServiceTransferResult": {
@@ -2834,7 +2861,7 @@
     "/orgs/brands/{brandId}/transfer": {
       "post": {
         "summary": "Orchestrate brand transfer across all services",
-        "description": "Transfers a brand from the current org (x-org-id) to a target org. Verifies brand ownership, checks user membership in target org via client-service, then fans out POST /internal/transfer-brand to every registered service. Best-effort: services that 404 are skipped, 5xx are logged and continued.",
+        "description": "Transfers a brand from the current org (x-org-id) to a target org. Verifies brand ownership, then fans out POST /internal/transfer-brand to every registered service. If the target org already has a brand with the same domain, the brands table UPDATE is skipped but fan-out to other services still proceeds. The response includes a brandConflict field when this occurs. Best-effort: services that 404 are skipped, 5xx are logged and continued.",
         "parameters": [
           {
             "schema": {
@@ -2869,14 +2896,8 @@
           "400": {
             "description": "Invalid request or missing headers"
           },
-          "403": {
-            "description": "User is not a member of the target org"
-          },
           "404": {
             "description": "Brand not found or does not belong to source org"
-          },
-          "409": {
-            "description": "Target org already has a brand with the same domain"
           },
           "500": {
             "description": "Internal server error"
