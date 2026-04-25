@@ -142,6 +142,66 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
   }
 });
 
+/**
+ * GET /orgs/brand-transfers/outgoing?brandId=uuid (optional)
+ * Transfers initiated by the current org (org is source).
+ */
+orgRouter.get('/brand-transfers/outgoing', async (req: Request, res: Response) => {
+  try {
+    const orgId = req.orgId!;
+    const brandId = req.query.brandId as string | undefined;
+
+    const conditions = [eq(brandTransfers.sourceOrgId, orgId)];
+    if (brandId) {
+      if (!UUID_REGEX.test(brandId)) {
+        return res.status(400).json({ error: 'brandId must be a valid UUID' });
+      }
+      conditions.push(eq(brandTransfers.brandId, brandId));
+    }
+
+    const transfers = await db
+      .select()
+      .from(brandTransfers)
+      .where(and(...conditions))
+      .orderBy(desc(brandTransfers.createdAt));
+
+    res.json({ transfers });
+  } catch (error: any) {
+    console.error('[brand-service] Outgoing brand transfers error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get outgoing transfers' });
+  }
+});
+
+/**
+ * GET /orgs/brand-transfers/incoming?brandId=uuid (optional)
+ * Transfers received by the current org (org is target).
+ */
+orgRouter.get('/brand-transfers/incoming', async (req: Request, res: Response) => {
+  try {
+    const orgId = req.orgId!;
+    const brandId = req.query.brandId as string | undefined;
+
+    const conditions = [eq(brandTransfers.targetOrgId, orgId)];
+    if (brandId) {
+      if (!UUID_REGEX.test(brandId)) {
+        return res.status(400).json({ error: 'brandId must be a valid UUID' });
+      }
+      conditions.push(eq(brandTransfers.brandId, brandId));
+    }
+
+    const transfers = await db
+      .select()
+      .from(brandTransfers)
+      .where(and(...conditions))
+      .orderBy(desc(brandTransfers.createdAt));
+
+    res.json({ transfers });
+  } catch (error: any) {
+    console.error('[brand-service] Incoming brand transfers error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get incoming transfers' });
+  }
+});
+
 // ── Internal routes (API key only) ─────────────────────────────
 
 export const internalRouter = Router();

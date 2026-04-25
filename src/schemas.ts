@@ -1456,6 +1456,32 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brand-transfers/outgoing',
+  summary: 'Get transfers initiated by the current org (source)',
+  request: {
+    query: z.object({ brandId: z.string().uuid().optional() }),
+  },
+  responses: {
+    200: { description: 'Outgoing transfer history', content: { 'application/json': { schema: BrandTransferHistoryResponseSchema } } },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brand-transfers/incoming',
+  summary: 'Get transfers received by the current org (target)',
+  request: {
+    query: z.object({ brandId: z.string().uuid().optional() }),
+  },
+  responses: {
+    200: { description: 'Incoming transfer history', content: { 'application/json': { schema: BrandTransferHistoryResponseSchema } } },
+    500: { description: 'Internal server error' },
+  },
+});
 // ============================================================
 // Health / Root
 // ============================================================
