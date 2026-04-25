@@ -87,7 +87,7 @@ describe('transferService', () => {
       await expect(discoverTransferServices()).rejects.toThrow('500');
     });
 
-    it('should throw on /endpoints/search failure', async () => {
+    it('should throw on /search failure', async () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse({ ok: true, status: 200, body: { services: [] } }),
       );
