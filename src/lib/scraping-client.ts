@@ -2,7 +2,7 @@
  * HTTP client for scraping-service (site mapping + page scraping).
  */
 
-import axios from 'axios';
+import { fetchWithRetry } from './fetch-with-retry';
 
 const SCRAPING_SERVICE_URL =
   process.env.SCRAPING_SERVICE_URL || 'http://localhost:3010';
@@ -47,30 +47,30 @@ export async function mapSiteUrls(
   tracking?: ScrapingTrackingContext,
 ): Promise<string[]> {
   try {
-    const response = await axios.post(
+    const response = await fetchWithRetry(
       `${SCRAPING_SERVICE_URL}/map`,
       {
-        url,
-        limit: 100,
-        ...(tracking && {
-          brandId: tracking.brandId,
-          workflowSlug: tracking.workflowSlug,
+        method: 'POST',
+        headers: buildHeaders(tracking),
+        body: JSON.stringify({
+          url,
+          limit: 100,
+          ...(tracking && {
+            brandId: tracking.brandId,
+            workflowSlug: tracking.workflowSlug,
+          }),
         }),
+        label: 'scraping-service POST /map',
       },
-      { headers: buildHeaders(tracking), timeout: 30_000 },
     );
-    if (!response.data.success) throw new Error(response.data.error || 'Map failed');
-    return response.data.urls || [];
+    const data = await response.json() as { success: boolean; error?: string; urls?: string[] };
+    if (!data.success) throw new Error(data.error || 'Map failed');
+    return data.urls || [];
   } catch (error: any) {
-    console.error('Map site URLs error:', error.message, error.response?.data);
-    if (error.response && error.response.status >= 400 && error.response.status < 500) {
-      const detail =
-        error.response.data?.error ||
-        (error.response.data?.details
-          ? JSON.stringify(error.response.data.details)
-          : null) ||
-        error.message;
-      throw new SiteMapError(`Could not map site URLs: ${detail}`);
+    console.error('Map site URLs error:', error.message);
+    // AbortError from fetchWithRetry means 4xx — treat as SiteMapError
+    if (error.name === 'AbortError' || (error.message && error.message.includes('returned 4'))) {
+      throw new SiteMapError(`Could not map site URLs: ${error.message}`);
     }
     throw new Error(`Failed to map site: ${error.message}`);
   }
@@ -81,19 +81,24 @@ export async function scrapeUrl(
   tracking?: ScrapingTrackingContext,
 ): Promise<string | null> {
   try {
-    const response = await axios.post(
+    const response = await fetchWithRetry(
       `${SCRAPING_SERVICE_URL}/scrape`,
       {
-        url,
-        sourceService: 'brand-service',
-        ...(tracking && {
-          brandId: tracking.brandId,
-          workflowSlug: tracking.workflowSlug,
+        method: 'POST',
+        headers: buildHeaders(tracking),
+        body: JSON.stringify({
+          url,
+          sourceService: 'brand-service',
+          ...(tracking && {
+            brandId: tracking.brandId,
+            workflowSlug: tracking.workflowSlug,
+          }),
         }),
+        label: 'scraping-service POST /scrape',
       },
-      { headers: buildHeaders(tracking), timeout: 60_000 },
     );
-    return response.data.result?.rawMarkdown || null;
+    const data = await response.json() as { result?: { rawMarkdown?: string } };
+    return data.result?.rawMarkdown || null;
   } catch (error: any) {
     console.error(`Scrape error for ${url}:`, error.message);
     return null;

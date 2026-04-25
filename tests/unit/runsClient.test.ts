@@ -278,7 +278,7 @@ describe('runs-client', () => {
 
       await expect(
         createRun({ orgId: 'org_1', serviceName: 'test', taskName: 'test' })
-      ).rejects.toThrow('runs-service POST /v1/runs failed: 404');
+      ).rejects.toThrow('runs-service POST /v1/runs returned 404');
     });
 
     it('should include X-API-Key and identity headers in all requests', async () => {

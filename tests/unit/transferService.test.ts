@@ -39,14 +39,11 @@ describe('transferService', () => {
       const searchResults = [
         { service: 'brand', method: 'POST', path: '/internal/transfer-brand' },
         { service: 'campaign', method: 'POST', path: '/internal/transfer-brand' },
-        // cloudflare is NOT in search results — no transfer endpoint
       ];
 
-      // First call: GET /services
       mockFetch.mockResolvedValueOnce(
         mockResponse({ ok: true, status: 200, body: { services: allServices } }),
       );
-      // Second call: GET /endpoints/search
       mockFetch.mockResolvedValueOnce(
         mockResponse({ ok: true, status: 200, body: { results: searchResults } }),
       );
@@ -66,7 +63,6 @@ describe('transferService', () => {
         { name: 'lead', baseUrl: 'https://lead.test' },
       ];
       const searchResults = [
-        // api has a different path (proxy endpoint, not /internal/transfer-brand)
         { service: 'api', method: 'POST', path: '/v1/brands/{id}/transfer' },
         { service: 'lead', method: 'POST', path: '/internal/transfer-brand' },
       ];
@@ -83,7 +79,8 @@ describe('transferService', () => {
     });
 
     it('should throw on /services failure', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 500 }));
+      // 5xx triggers retries — mock all attempts
+      mockFetch.mockResolvedValue(mockResponse({ ok: false, status: 500 }));
       await expect(discoverTransferServices()).rejects.toThrow('500');
     });
 
@@ -91,7 +88,8 @@ describe('transferService', () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse({ ok: true, status: 200, body: { services: [] } }),
       );
-      mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 500 }));
+      // 5xx triggers retries — mock all remaining attempts
+      mockFetch.mockResolvedValue(mockResponse({ ok: false, status: 500 }));
       await expect(discoverTransferServices()).rejects.toThrow('500');
     });
   });
@@ -148,20 +146,24 @@ describe('transferService', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
-    it('should capture error on non-OK response', async () => {
+    it('should capture error on non-OK response after retries', async () => {
       const services = [{ name: 'failing-service', baseUrl: 'https://fail.test' }];
-      mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 502, body: 'bad gateway' }));
+      // 5xx triggers retries — mock all attempts
+      mockFetch.mockResolvedValue(mockResponse({ ok: false, status: 502, body: 'bad gateway' }));
 
       const results = await fanOutTransfer(services, body);
-      expect(results['failing-service']).toEqual({ error: 'HTTP 502' });
+      expect(results['failing-service']).toHaveProperty('error');
+      expect((results['failing-service'] as { error: string }).error).toContain('502');
     });
 
-    it('should capture network errors', async () => {
+    it('should capture network errors after retries', async () => {
       const services = [{ name: 'down-service', baseUrl: 'https://down.test' }];
-      mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      // Network errors trigger retries — mock all attempts
+      mockFetch.mockRejectedValue(new Error('ECONNREFUSED'));
 
       const results = await fanOutTransfer(services, body);
-      expect(results['down-service']).toEqual({ error: 'ECONNREFUSED' });
+      expect(results['down-service']).toHaveProperty('error');
+      expect((results['down-service'] as { error: string }).error).toContain('ECONNREFUSED');
     });
 
     it('should handle multiple services in parallel', async () => {
@@ -171,18 +173,25 @@ describe('transferService', () => {
         { name: 'svc-c', baseUrl: 'https://c.test' },
       ];
 
+      // svc-a succeeds
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, body: { updatedTables: [{ tableName: 'table_a', count: 1 }] } }),
+      );
+      // svc-b: 4xx (no retry, AbortError)
+      mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 400, body: 'bad request' }));
+      // svc-c: network error — retries will also fail
       mockFetch
-        .mockResolvedValueOnce(
-          mockResponse({ ok: true, status: 200, body: { updatedTables: [{ tableName: 'table_a', count: 1 }] } }),
-        )
-        .mockResolvedValueOnce(mockResponse({ ok: false, status: 500, body: 'error' }))
+        .mockRejectedValueOnce(new Error('timeout'))
+        .mockRejectedValueOnce(new Error('timeout'))
         .mockRejectedValueOnce(new Error('timeout'));
 
       const results = await fanOutTransfer(services, body);
 
       expect(results['svc-a']).toEqual({ updatedTables: [{ tableName: 'table_a', count: 1 }] });
-      expect(results['svc-b']).toEqual({ error: 'HTTP 500' });
-      expect(results['svc-c']).toEqual({ error: 'timeout' });
+      expect(results['svc-b']).toHaveProperty('error');
+      expect((results['svc-b'] as { error: string }).error).toContain('400');
+      expect(results['svc-c']).toHaveProperty('error');
+      expect((results['svc-c'] as { error: string }).error).toContain('timeout');
     });
   });
 });

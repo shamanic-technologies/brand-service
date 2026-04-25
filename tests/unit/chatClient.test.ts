@@ -1,34 +1,41 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import axios from 'axios';
-// Import AxiosError from the real module before mocking
-const { AxiosError: RealAxiosError } = await vi.importActual<typeof import('axios')>('axios');
 
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios, true);
-
-function makeSocketHangUpError() {
-  const err = new RealAxiosError('socket hang up');
-  err.code = 'ECONNRESET';
-  return err;
-}
+// Mock fetch globally before importing the module
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
 
 describe('chat-client', () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    mockFetch.mockReset();
   });
 
+  async function importClient() {
+    vi.resetModules();
+    vi.stubGlobal('fetch', mockFetch);
+    return import('../../src/lib/chat-client');
+  }
+
+  function mockResponse(data: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(data),
+      text: () => Promise.resolve(JSON.stringify(data)),
+    };
+  }
+
   it('should call chat-service /complete with correct headers and body', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: {
+    const { chatComplete } = await importClient();
+
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({
         content: '{"industry":"SaaS"}',
         json: { industry: 'SaaS' },
         tokensInput: 100,
         tokensOutput: 50,
         model: 'claude-sonnet-4-6',
-      },
-    });
-
-    const { chatComplete } = await import('../../src/lib/chat-client');
+      }),
+    );
 
     const result = await chatComplete(
       {
@@ -54,11 +61,11 @@ describe('chat-client', () => {
     expect(result.json).toEqual({ industry: 'SaaS' });
     expect(result.model).toBe('claude-sonnet-4-6');
 
-    const callArgs = mockedAxios.post.mock.calls[0];
-    expect(callArgs[0]).toContain('/complete');
+    const [calledUrl, calledOpts] = mockFetch.mock.calls[0];
+    expect(calledUrl).toContain('/complete');
 
     // Verify body
-    const body = callArgs[1] as Record<string, unknown>;
+    const body = JSON.parse(calledOpts.body);
     expect(body.message).toBe('Extract the industry');
     expect(body.systemPrompt).toBe('You are a brand extraction assistant.');
     expect(body.provider).toBe('google');
@@ -68,48 +75,48 @@ describe('chat-client', () => {
     expect(body.maxTokens).toBe(1024);
 
     // Verify headers
-    const config = callArgs[2] as Record<string, any>;
-    expect(config.headers['x-org-id']).toBe('org_123');
-    expect(config.headers['x-user-id']).toBe('user_456');
-    expect(config.headers['x-run-id']).toBe('run_789');
-    expect(config.headers['x-campaign-id']).toBe('campaign_1');
-    expect(config.headers['x-feature-slug']).toBe('feature_1');
-    expect(config.headers['x-brand-id']).toBe('brand_1');
-    expect(config.headers['x-workflow-slug']).toBe('discovery');
+    const headers = calledOpts.headers;
+    expect(headers['x-org-id']).toBe('org_123');
+    expect(headers['x-user-id']).toBe('user_456');
+    expect(headers['x-run-id']).toBe('run_789');
+    expect(headers['x-campaign-id']).toBe('campaign_1');
+    expect(headers['x-feature-slug']).toBe('feature_1');
+    expect(headers['x-brand-id']).toBe('brand_1');
+    expect(headers['x-workflow-slug']).toBe('discovery');
   });
 
   it('should omit optional headers when not provided', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: { content: 'test', tokensInput: 10, tokensOutput: 5, model: 'test' },
-    });
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({ content: 'test', tokensInput: 10, tokensOutput: 5, model: 'test' }),
+    );
 
     await chatComplete(
       { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
       { orgId: 'org_123' },
     );
 
-    const config = mockedAxios.post.mock.calls[0][2] as Record<string, any>;
-    expect(config.headers['x-org-id']).toBe('org_123');
-    expect(config.headers['x-user-id']).toBeUndefined();
-    expect(config.headers['x-run-id']).toBeUndefined();
-    expect(config.headers['x-campaign-id']).toBeUndefined();
+    const headers = mockFetch.mock.calls[0][1].headers;
+    expect(headers['x-org-id']).toBe('org_123');
+    expect(headers['x-user-id']).toBeUndefined();
+    expect(headers['x-run-id']).toBeUndefined();
+    expect(headers['x-campaign-id']).toBeUndefined();
   });
 
   it('should omit optional body fields when not provided', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: { content: 'test', tokensInput: 10, tokensOutput: 5, model: 'test' },
-    });
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({ content: 'test', tokensInput: 10, tokensOutput: 5, model: 'test' }),
+    );
 
     await chatComplete(
       { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
       { orgId: 'org_123' },
     );
 
-    const body = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.provider).toBe('google');
     expect(body.model).toBe('flash');
     expect(body.responseFormat).toBeUndefined();
@@ -121,11 +128,11 @@ describe('chat-client', () => {
   });
 
   it('should pass thinkingBudget when provided', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: { content: '{}', json: {}, tokensInput: 100, tokensOutput: 50, model: 'gemini-2.5-pro' },
-    });
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({ content: '{}', json: {}, tokensInput: 100, tokensOutput: 50, model: 'gemini-2.5-pro' }),
+    );
 
     await chatComplete(
       {
@@ -140,17 +147,17 @@ describe('chat-client', () => {
       { orgId: 'org_123' },
     );
 
-    const body = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.thinkingBudget).toBe(8000);
     expect(body.maxTokens).toBe(24000);
   });
 
   it('should pass imageUrl, imageContext, provider, and model when provided', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: { content: '{}', json: {}, tokensInput: 10, tokensOutput: 5, model: 'gemini-3.1-flash-lite-preview' },
-    });
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({ content: '{}', json: {}, tokensInput: 10, tokensOutput: 5, model: 'gemini-3.1-flash-lite-preview' }),
+    );
 
     await chatComplete(
       {
@@ -165,17 +172,20 @@ describe('chat-client', () => {
       { orgId: 'org_123' },
     );
 
-    const body = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.imageUrl).toBe('https://example.com/photo.jpg');
     expect(body.imageContext).toEqual({ alt: 'Team photo', sourceUrl: 'https://example.com/about' });
     expect(body.provider).toBe('google');
     expect(body.model).toBe('flash-lite');
   });
 
-  it('should throw on non-2xx response', async () => {
-    mockedAxios.post.mockRejectedValue(new Error('Request failed with status code 502'));
+  it('should throw on non-2xx response after retries', async () => {
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    // 5xx triggers retries — mock all attempts
+    mockFetch.mockResolvedValue(
+      mockResponse('Server Error', 502),
+    );
 
     await expect(
       chatComplete(
@@ -185,13 +195,13 @@ describe('chat-client', () => {
     ).rejects.toThrow('502');
   });
 
-  it('should retry on socket hang up and succeed on second attempt', async () => {
-    const successData = { content: 'ok', tokensInput: 10, tokensOutput: 5, model: 'test' };
-    mockedAxios.post
-      .mockRejectedValueOnce(makeSocketHangUpError())
-      .mockResolvedValueOnce({ data: successData });
+  it('should retry on 5xx and succeed on second attempt', async () => {
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    const successData = { content: 'ok', tokensInput: 10, tokensOutput: 5, model: 'test' };
+    mockFetch
+      .mockResolvedValueOnce(mockResponse('error', 502))
+      .mockResolvedValueOnce(mockResponse(successData));
 
     const result = await chatComplete(
       { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
@@ -199,82 +209,52 @@ describe('chat-client', () => {
     );
 
     expect(result).toEqual(successData);
-    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('should throw after exhausting retries on socket hang up', async () => {
-    mockedAxios.post
-      .mockRejectedValueOnce(makeSocketHangUpError())
-      .mockRejectedValueOnce(makeSocketHangUpError())
-      .mockRejectedValueOnce(makeSocketHangUpError());
+  it('should throw after exhausting retries on persistent 5xx', async () => {
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    mockFetch.mockResolvedValue(mockResponse('error', 502));
 
     await expect(
       chatComplete(
         { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
         { orgId: 'org_123' },
       ),
-    ).rejects.toThrow('socket hang up');
+    ).rejects.toThrow('502');
     // 1 initial + 2 retries = 3 total attempts
-    expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
-  it('should not retry on non-transient errors', async () => {
-    mockedAxios.post.mockRejectedValueOnce(new RealAxiosError('Bad Request', '400'));
+  it('should not retry on 4xx errors', async () => {
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    mockFetch.mockResolvedValueOnce(mockResponse('Bad Request', 400));
 
     await expect(
       chatComplete(
         { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
         { orgId: 'org_123' },
       ),
-    ).rejects.toThrow('Bad Request');
-    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    ).rejects.toThrow('400');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('should pass httpAgent in request config', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: { content: 'test', tokensInput: 10, tokensOutput: 5, model: 'test' },
-    });
+  it('should retry on network errors and succeed on second attempt', async () => {
+    const { chatComplete } = await importClient();
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    const successData = { content: 'ok', tokensInput: 10, tokensOutput: 5, model: 'test' };
+    mockFetch
+      .mockRejectedValueOnce(new Error('socket hang up'))
+      .mockResolvedValueOnce(mockResponse(successData));
 
-    await chatComplete(
+    const result = await chatComplete(
       { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
       { orgId: 'org_123' },
     );
 
-    const config = mockedAxios.post.mock.calls[0][2] as Record<string, any>;
-    expect(config.httpAgent).toBeDefined();
-    expect(config.httpAgent.keepAlive).toBe(false);
-  });
-
-  it('should use per-model timeouts aligned with chat-service', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: { content: 'test', tokensInput: 10, tokensOutput: 5, model: 'test' },
-    });
-
-    const { chatComplete } = await import('../../src/lib/chat-client');
-
-    const cases: Array<{ model: 'pro' | 'flash' | 'flash-lite' | 'sonnet' | 'haiku' | 'opus'; expectedMs: number }> = [
-      { model: 'pro', expectedMs: 15 * 60_000 },
-      { model: 'flash', expectedMs: 10 * 60_000 },
-      { model: 'flash-lite', expectedMs: 5 * 60_000 },
-      { model: 'sonnet', expectedMs: 10 * 60_000 },
-      { model: 'haiku', expectedMs: 10 * 60_000 },
-      { model: 'opus', expectedMs: 15 * 60_000 },
-    ];
-
-    for (const { model, expectedMs } of cases) {
-      mockedAxios.post.mockClear();
-      await chatComplete(
-        { message: 'test', systemPrompt: 'test', provider: 'google', model },
-        { orgId: 'org_123' },
-      );
-      const config = mockedAxios.post.mock.calls[0][2] as Record<string, any>;
-      expect(config.timeout).toBe(expectedMs);
-    }
+    expect(result).toEqual(successData);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });

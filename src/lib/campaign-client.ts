@@ -5,7 +5,7 @@
  * The cache never expires — featureInputs are immutable for the lifetime of a campaign.
  */
 
-import axios from 'axios';
+import { fetchWithRetry } from './fetch-with-retry';
 
 const CAMPAIGN_SERVICE_URL =
   process.env.CAMPAIGN_SERVICE_URL || 'https://campaign.distribute.you';
@@ -46,12 +46,16 @@ export async function getCampaignFeatureInputs(
     if (tracking.userId) headers['x-user-id'] = tracking.userId;
     if (tracking.runId) headers['x-run-id'] = tracking.runId;
 
-    const response = await axios.get<{ campaign: { featureInputs?: Record<string, unknown> | null } }>(
+    const response = await fetchWithRetry(
       `${CAMPAIGN_SERVICE_URL}/campaigns/${campaignId}`,
-      { headers, timeout: 10_000 },
+      {
+        headers,
+        label: `campaign-service GET /campaigns/${campaignId}`,
+      },
     );
 
-    const inputs = response.data.campaign?.featureInputs ?? null;
+    const data = (await response.json()) as { campaign: { featureInputs?: Record<string, unknown> | null } };
+    const inputs = data.campaign?.featureInputs ?? null;
     featureInputsCache.set(campaignId, inputs);
     return inputs;
   } catch (error: any) {

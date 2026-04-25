@@ -3,6 +3,8 @@
  * Vendored from @distribute/runs-client
  */
 
+import { fetchWithRetry } from './fetch-with-retry';
+
 const RUNS_SERVICE_URL =
   process.env.RUNS_SERVICE_URL || "https://runs.distribute.you";
 const RUNS_SERVICE_API_KEY = process.env.RUNS_SERVICE_API_KEY || "";
@@ -132,18 +134,12 @@ async function runsRequest<T>(
     headers["x-workflow-slug"] = workflowSlug;
   }
 
-  const response = await fetch(`${RUNS_SERVICE_URL}${path}`, {
+  const response = await fetchWithRetry(`${RUNS_SERVICE_URL}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    label: `runs-service ${method} ${path}`,
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `runs-service ${method} ${path} failed: ${response.status} - ${errorText}`
-    );
-  }
 
   return response.json() as Promise<T>;
 }

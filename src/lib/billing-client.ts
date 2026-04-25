@@ -39,6 +39,8 @@ export interface AuthorizeCreditsResult {
  * Returns `{ sufficient, balance_cents, required_cents }`.
  * Throws on network / unexpected errors so the caller can 502.
  */
+import { fetchWithRetry } from './fetch-with-retry';
+
 export async function authorizeCredits(
   params: AuthorizeCreditsParams
 ): Promise<AuthorizeCreditsResult> {
@@ -55,21 +57,15 @@ export async function authorizeCredits(
   if (params.brandId) headers["x-brand-id"] = params.brandId;
   if (params.workflowSlug) headers["x-workflow-slug"] = params.workflowSlug;
 
-  const response = await fetch(`${BILLING_SERVICE_URL}/v1/credits/authorize`, {
+  const response = await fetchWithRetry(`${BILLING_SERVICE_URL}/v1/credits/authorize`, {
     method: "POST",
     headers,
     body: JSON.stringify({
       items: params.items,
       description: params.description,
     }),
+    label: 'billing-service POST /v1/credits/authorize',
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `billing-service POST /v1/credits/authorize failed: ${response.status} - ${errorText}`
-    );
-  }
 
   return response.json() as Promise<AuthorizeCreditsResult>;
 }

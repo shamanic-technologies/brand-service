@@ -5,25 +5,10 @@
  * stores it in R2, and returns a permanent public URL.
  */
 
-import axios from 'axios';
+import { fetchWithRetry } from './fetch-with-retry';
 
 const CLOUDFLARE_SERVICE_URL = process.env.CLOUDFLARE_SERVICE_URL;
 const CLOUDFLARE_SERVICE_API_KEY = process.env.CLOUDFLARE_SERVICE_API_KEY;
-
-const TRANSIENT_STATUS_CODES = new Set([502, 503, 504]);
-const TRANSIENT_ERROR_CODES = new Set(['ECONNREFUSED', 'ETIMEDOUT', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN']);
-const MAX_RETRIES = 2;
-const BASE_DELAY_MS = 1000;
-
-function isTransientError(error: any): boolean {
-  if (TRANSIENT_ERROR_CODES.has(error.code)) return true;
-  if (error.response?.status && TRANSIENT_STATUS_CODES.has(error.response.status)) return true;
-  return false;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 export interface CloudflareUploadParams {
   sourceUrl: string;
@@ -84,33 +69,20 @@ export async function uploadToCloudflare(
     throw new Error('CLOUDFLARE_SERVICE_URL is not configured');
   }
 
-  const url = `${CLOUDFLARE_SERVICE_URL}/upload`;
-  const body = {
-    sourceUrl: params.sourceUrl,
-    folder: params.folder,
-    filename: params.filename,
-    contentType: params.contentType,
-  };
-  const config = { headers: buildHeaders(tracking), timeout: 60_000 };
+  const response = await fetchWithRetry(
+    `${CLOUDFLARE_SERVICE_URL}/upload`,
+    {
+      method: 'POST',
+      headers: buildHeaders(tracking),
+      body: JSON.stringify({
+        sourceUrl: params.sourceUrl,
+        folder: params.folder,
+        filename: params.filename,
+        contentType: params.contentType,
+      }),
+      label: 'cloudflare-service POST /upload',
+    },
+  );
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const response = await axios.post<CloudflareUploadResult>(url, body, config);
-      return response.data;
-    } catch (error: any) {
-      if (isTransientError(error) && attempt < MAX_RETRIES) {
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-        const status = error.response?.status ?? error.code ?? 'unknown';
-        const reason = error.response?.data?.reason || error.response?.data?.error || '';
-        console.warn(
-          `[brand-service] Transient error (${status}) uploading to cloudflare-service, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms${reason ? ` — reason: ${reason}` : ''}`,
-        );
-        await sleep(delay);
-        continue;
-      }
-      throw error;
-    }
-  }
-
-  throw new Error('uploadToCloudflare: unreachable');
+  return response.json() as Promise<CloudflareUploadResult>;
 }
