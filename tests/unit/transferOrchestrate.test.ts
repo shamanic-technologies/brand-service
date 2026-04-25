@@ -4,10 +4,11 @@ import { randomUUID } from 'crypto';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
-const { mockSelect, mockReturning, mockInsertReturning } = vi.hoisted(() => ({
+const { mockSelect, mockReturning, mockInsertReturning, mockDeleteReturning } = vi.hoisted(() => ({
   mockSelect: vi.fn(),
   mockReturning: vi.fn(),
   mockInsertReturning: vi.fn(),
+  mockDeleteReturning: vi.fn(),
 }));
 
 vi.mock('../../src/db', () => {
@@ -29,11 +30,18 @@ vi.mock('../../src/db', () => {
   }
   insertChain.returning = mockInsertReturning;
 
+  const deleteChain: Record<string, any> = {};
+  for (const method of ['where']) {
+    deleteChain[method] = vi.fn().mockReturnValue(deleteChain);
+  }
+  deleteChain.returning = mockDeleteReturning;
+
   return {
     db: {
       select: vi.fn().mockReturnValue(selectChain),
       update: vi.fn().mockReturnValue(updateChain),
       insert: vi.fn().mockReturnValue(insertChain),
+      delete: vi.fn().mockReturnValue(deleteChain),
     },
     brands: {
       id: 'brands.id',
@@ -108,13 +116,13 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('completed');
     expect(res.body.transferId).toBe(transferId);
-    expect(res.body.brandId).toBe(brandId);
+    expect(res.body.sourceBrandId).toBe(brandId);
     expect(res.body.sourceOrgId).toBe(sourceOrgId);
     expect(res.body.targetOrgId).toBe(targetOrgId);
     expect(res.body.serviceResults['brand-service']).toEqual({
       updatedTables: [{ tableName: 'brands', count: 1 }],
     });
-    expect(res.body.brandConflict).toBeUndefined();
+    expect(res.body.targetBrandId).toBeUndefined();
   });
 
   it('should include fan-out results from other services', async () => {
@@ -173,13 +181,14 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     expect(res.status).toBe(404);
   });
 
-  it('should skip brands UPDATE on domain conflict but still fan out', async () => {
+  it('should delete source brand on domain conflict and pass targetBrandId to fan-out', async () => {
     const existingBrandId = randomUUID();
     mockSelect.mockReset();
     mockSelect
       .mockResolvedValueOnce([{ id: brandId, orgId: sourceOrgId, domain: 'acme.com' }])
       .mockResolvedValueOnce([{ id: existingBrandId }]);
     mockInsertReturning.mockResolvedValue([{ id: transferId }]);
+    mockDeleteReturning.mockResolvedValue([{ id: brandId }]);
     mockDiscoverServices.mockResolvedValue([]);
     mockFanOutTransfer.mockResolvedValue({
       'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 2 }] },
@@ -191,18 +200,18 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
       .send({ targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.brandConflict).toEqual({
-      skipped: true,
-      existingBrandId,
-      domain: 'acme.com',
-    });
+    expect(res.body.targetBrandId).toBe(existingBrandId);
     expect(res.body.serviceResults['brand-service']).toEqual({
-      updatedTables: [{ tableName: 'brands', count: 0 }],
+      updatedTables: [{ tableName: 'brands', count: 1 }],
     });
     expect(res.body.serviceResults['campaign-service']).toEqual({
       updatedTables: [{ tableName: 'campaigns', count: 2 }],
     });
-    expect(mockFanOutTransfer).toHaveBeenCalled();
+    // Verify targetBrandId was passed in fan-out
+    expect(mockFanOutTransfer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ sourceBrandId: brandId, targetBrandId: existingBrandId }),
+    );
   });
 
   it('should NOT move brand when a downstream service fails (return 207)', async () => {

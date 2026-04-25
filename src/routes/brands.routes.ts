@@ -182,8 +182,9 @@ internalRouter.get('/brands/:id/runs', async (req: Request, res: Response) => {
 
 /**
  * POST /internal/transfer-brand
- * Transfer a brand from one org to another (solo-brand only).
- * Updates org_id on the brands table where id = brandId AND org_id = sourceOrgId.
+ * Transfer a brand from one org to another.
+ * When targetBrandId is absent: updates org_id on the brands table.
+ * When targetBrandId is present: deletes the source brand (FK cascades clean up dependents).
  * Idempotent: running twice with same params is a no-op.
  */
 internalRouter.post('/transfer-brand', async (req: Request, res: Response) => {
@@ -192,18 +193,28 @@ internalRouter.post('/transfer-brand', async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
-    const { brandId, sourceOrgId, targetOrgId } = parsed.data;
+    const { sourceBrandId, sourceOrgId, targetOrgId, targetBrandId } = parsed.data;
 
-    // Update brands table: the only table in brand-service with org_id
-    const result = await db
-      .update(brands)
-      .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
-      .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
-      .returning({ id: brands.id });
+    let result: { id: string }[];
+
+    if (targetBrandId) {
+      // Domain conflict: delete source brand, FK cascades handle dependents
+      result = await db
+        .delete(brands)
+        .where(and(eq(brands.id, sourceBrandId), eq(brands.orgId, sourceOrgId)))
+        .returning({ id: brands.id });
+    } else {
+      // No conflict: move brand to target org
+      result = await db
+        .update(brands)
+        .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
+        .where(and(eq(brands.id, sourceBrandId), eq(brands.orgId, sourceOrgId)))
+        .returning({ id: brands.id });
+    }
 
     const updatedTables = [{ tableName: 'brands', count: result.length }];
 
-    console.log(`[brand-service] transfer-brand: brandId=${brandId} from=${sourceOrgId} to=${targetOrgId} updated=${result.length}`);
+    console.log(`[brand-service] transfer-brand: sourceBrandId=${sourceBrandId}${targetBrandId ? ` targetBrandId=${targetBrandId}` : ''} from=${sourceOrgId} to=${targetOrgId} count=${result.length}`);
 
     res.json({ updatedTables });
   } catch (error: any) {
