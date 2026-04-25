@@ -46,8 +46,9 @@ async function callTransferBrand(
   service: ServiceInfo,
   body: { brandId: string; sourceOrgId: string; targetOrgId: string },
 ): Promise<ServiceResult> {
-  // Use the service's own API key convention: {SERVICE_NAME}_API_KEY env var
-  const envKey = service.name.toUpperCase().replace(/-/g, '_') + '_API_KEY';
+  // Env var convention: {NAME}_SERVICE_API_KEY (api-registry returns short names like "cloudflare", "campaign")
+  const base = service.name.toUpperCase().replace(/-/g, '_');
+  const envKey = base.endsWith('_SERVICE') ? `${base}_API_KEY` : `${base}_SERVICE_API_KEY`;
   const fallbackKey = process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || '';
   const apiKey = process.env[envKey] || fallbackKey;
 
@@ -100,7 +101,7 @@ export async function fanOutTransfer(
   const results: Record<string, ServiceResult> = {};
 
   const otherServices = services.filter(
-    (s) => s.name !== 'brand-service',
+    (s) => s.name !== 'brand' && s.name !== 'brand-service',
   );
 
   const entries = await Promise.all(
