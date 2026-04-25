@@ -10,7 +10,7 @@ process.env.API_REGISTRY_SERVICE_API_KEY = 'test-registry-key';
 process.env.BRAND_SERVICE_API_KEY = 'test-brand-key';
 
 import {
-  discoverServices,
+  discoverTransferServices,
   fanOutTransfer,
 } from '../../src/services/transferService';
 
@@ -29,25 +29,70 @@ describe('transferService', () => {
     vi.clearAllMocks();
   });
 
-  describe('discoverServices', () => {
-    it('should return services from api-registry', async () => {
-      const services = [
-        { name: 'brand-service', baseUrl: 'https://brand.test' },
-        { name: 'campaign-service', baseUrl: 'https://campaign.test' },
+  describe('discoverTransferServices', () => {
+    it('should return only services that have POST /internal/transfer-brand', async () => {
+      const allServices = [
+        { name: 'brand', baseUrl: 'https://brand.test' },
+        { name: 'campaign', baseUrl: 'https://campaign.test' },
+        { name: 'cloudflare', baseUrl: 'https://cloudflare.test' },
       ];
-      mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, status: 200, body: { services } }));
+      const searchResults = [
+        { service: 'brand', method: 'POST', path: '/internal/transfer-brand' },
+        { service: 'campaign', method: 'POST', path: '/internal/transfer-brand' },
+        // cloudflare is NOT in search results — no transfer endpoint
+      ];
 
-      const result = await discoverServices();
-      expect(result).toEqual(services);
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api-registry.test/services',
-        { headers: { 'x-api-key': 'test-registry-key' } },
+      // First call: GET /services
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, body: { services: allServices } }),
       );
+      // Second call: GET /endpoints/search
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, body: { results: searchResults } }),
+      );
+
+      const result = await discoverTransferServices();
+
+      expect(result).toEqual([
+        { name: 'brand', baseUrl: 'https://brand.test' },
+        { name: 'campaign', baseUrl: 'https://campaign.test' },
+      ]);
+      expect(result.find((s) => s.name === 'cloudflare')).toBeUndefined();
     });
 
-    it('should throw on non-OK response', async () => {
+    it('should filter out non-exact path matches from search results', async () => {
+      const allServices = [
+        { name: 'api', baseUrl: 'https://api.test' },
+        { name: 'lead', baseUrl: 'https://lead.test' },
+      ];
+      const searchResults = [
+        // api has a different path (proxy endpoint, not /internal/transfer-brand)
+        { service: 'api', method: 'POST', path: '/v1/brands/{id}/transfer' },
+        { service: 'lead', method: 'POST', path: '/internal/transfer-brand' },
+      ];
+
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, body: { services: allServices } }),
+      );
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, body: { results: searchResults } }),
+      );
+
+      const result = await discoverTransferServices();
+      expect(result).toEqual([{ name: 'lead', baseUrl: 'https://lead.test' }]);
+    });
+
+    it('should throw on /services failure', async () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 500 }));
-      await expect(discoverServices()).rejects.toThrow('500');
+      await expect(discoverTransferServices()).rejects.toThrow('500');
+    });
+
+    it('should throw on /endpoints/search failure', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, body: { services: [] } }),
+      );
+      mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 500 }));
+      await expect(discoverTransferServices()).rejects.toThrow('500');
     });
   });
 
@@ -103,15 +148,7 @@ describe('transferService', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
-    it('should mark services as skipped on 404', async () => {
-      const services = [{ name: 'some-service', baseUrl: 'https://some.test' }];
-      mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 404 }));
-
-      const results = await fanOutTransfer(services, body);
-      expect(results['some-service']).toEqual({ skipped: true });
-    });
-
-    it('should capture error on 5xx', async () => {
+    it('should capture error on non-OK response', async () => {
       const services = [{ name: 'failing-service', baseUrl: 'https://fail.test' }];
       mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 502, body: 'bad gateway' }));
 
@@ -138,13 +175,13 @@ describe('transferService', () => {
         .mockResolvedValueOnce(
           mockResponse({ ok: true, status: 200, body: { updatedTables: [{ tableName: 'table_a', count: 1 }] } }),
         )
-        .mockResolvedValueOnce(mockResponse({ ok: false, status: 404 }))
+        .mockResolvedValueOnce(mockResponse({ ok: false, status: 500, body: 'error' }))
         .mockRejectedValueOnce(new Error('timeout'));
 
       const results = await fanOutTransfer(services, body);
 
       expect(results['svc-a']).toEqual({ updatedTables: [{ tableName: 'table_a', count: 1 }] });
-      expect(results['svc-b']).toEqual({ skipped: true });
+      expect(results['svc-b']).toEqual({ error: 'HTTP 500' });
       expect(results['svc-c']).toEqual({ error: 'timeout' });
     });
   });
