@@ -4,7 +4,6 @@ import { db, brands, brandTransfers } from '../db';
 import { OrchestateTransferRequestSchema } from '../schemas';
 import {
   discoverServices,
-  verifyMembership,
   fanOutTransfer,
   ServiceResult,
 } from '../services/transferService';
@@ -54,6 +53,9 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
     }
 
     // 2. Check for domain conflict in target org
+    let brandConflict: { skipped: true; existingBrandId: string; domain: string } | null = null;
+    const serviceResults: Record<string, ServiceResult> = {};
+
     if (brand.domain) {
       const [conflict] = await db
         .select({ id: brands.id })
@@ -62,32 +64,31 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
         .limit(1);
 
       if (conflict) {
-        return res.status(409).json({
-          error: `Target org already has a brand with domain "${brand.domain}"`,
-        });
+        // Target org already has this domain — skip brands UPDATE, continue fan-out
+        brandConflict = { skipped: true, existingBrandId: conflict.id, domain: brand.domain };
+        serviceResults['brand-service'] = {
+          updatedTables: [{ tableName: 'brands', count: 0 }],
+        };
+        console.log(
+          `[brand-service] transfer: domain conflict for "${brand.domain}" — target org already has brand ${conflict.id}, skipping brands UPDATE`,
+        );
       }
     }
 
-    // 3. Verify user is a member of the target org
-    const isMember = await verifyMembership(targetOrgId, userId);
-    if (!isMember) {
-      return res.status(403).json({ error: 'User is not a member of the target org' });
+    // 3. Update brand-service's own brands table (unless domain conflict)
+    if (!brandConflict) {
+      const inlineResult = await db
+        .update(brands)
+        .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
+        .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
+        .returning({ id: brands.id });
+
+      serviceResults['brand-service'] = {
+        updatedTables: [{ tableName: 'brands', count: inlineResult.length }],
+      };
     }
 
-    // 4. Update brand-service's own brands table inline
-    const inlineResult = await db
-      .update(brands)
-      .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
-      .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
-      .returning({ id: brands.id });
-
-    const serviceResults: Record<string, ServiceResult> = {
-      'brand-service': {
-        updatedTables: [{ tableName: 'brands', count: inlineResult.length }],
-      },
-    };
-
-    // 5. Discover all services and fan out
+    // 4. Discover all services and fan out
     const services = await discoverServices();
     const fanOutResults = await fanOutTransfer(services, {
       brandId,
@@ -96,7 +97,7 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
     });
     Object.assign(serviceResults, fanOutResults);
 
-    // 6. Store audit log
+    // 5. Store audit log
     const [transfer] = await db
       .insert(brandTransfers)
       .values({
@@ -117,6 +118,7 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       brandId,
       sourceOrgId,
       targetOrgId,
+      ...(brandConflict ? { brandConflict } : {}),
       serviceResults,
     });
   } catch (error: any) {

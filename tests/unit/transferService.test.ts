@@ -7,13 +7,10 @@ vi.stubGlobal('fetch', mockFetch);
 // Set env vars before importing
 process.env.API_REGISTRY_URL = 'https://api-registry.test';
 process.env.API_REGISTRY_API_KEY = 'test-registry-key';
-process.env.CLIENT_SERVICE_URL = 'https://client.test';
-process.env.CLIENT_SERVICE_API_KEY = 'test-client-key';
 process.env.BRAND_SERVICE_API_KEY = 'test-brand-key';
 
 import {
   discoverServices,
-  verifyMembership,
   fanOutTransfer,
 } from '../../src/services/transferService';
 
@@ -51,25 +48,6 @@ describe('transferService', () => {
     it('should throw on non-OK response', async () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 500 }));
       await expect(discoverServices()).rejects.toThrow('500');
-    });
-  });
-
-  describe('verifyMembership', () => {
-    it('should return true when user is a member', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, status: 200 }));
-      const result = await verifyMembership('org-123', 'user-456');
-      expect(result).toBe(true);
-    });
-
-    it('should return false on 404', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 404 }));
-      const result = await verifyMembership('org-123', 'user-456');
-      expect(result).toBe(false);
-    });
-
-    it('should throw on other errors', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 500 }));
-      await expect(verifyMembership('org-123', 'user-456')).rejects.toThrow('500');
     });
   });
 
