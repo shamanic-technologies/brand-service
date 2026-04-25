@@ -117,7 +117,9 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: deleteBrandId, sourceOrgId: orgA, targetOrgId: randomUUID(), targetBrandId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 1 }]);
+    // rewriteBrandReferences returns all dependent tables (0 rows each) + brands delete (1 row)
+    const brandsEntry = res.body.updatedTables.find((t: any) => t.tableName === 'brands');
+    expect(brandsEntry).toEqual({ tableName: 'brands', count: 1 });
 
     // Verify the brand was deleted
     const remaining = await db
