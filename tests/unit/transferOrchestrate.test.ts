@@ -173,12 +173,13 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     expect(res.status).toBe(404);
   });
 
-  it('should skip brands UPDATE on domain conflict but still fan out', async () => {
+  it('should still move brand on domain conflict when all downstream services succeed', async () => {
     const existingBrandId = randomUUID();
     mockSelect.mockReset();
     mockSelect
       .mockResolvedValueOnce([{ id: brandId, orgId: sourceOrgId, domain: 'acme.com' }])
       .mockResolvedValueOnce([{ id: existingBrandId }]);
+    mockReturning.mockResolvedValue([{ id: brandId }]);
     mockInsertReturning.mockResolvedValue([{ id: transferId }]);
     mockDiscoverServices.mockResolvedValue([]);
     mockFanOutTransfer.mockResolvedValue({
@@ -196,13 +197,16 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
       existingBrandId,
       domain: 'acme.com',
     });
+    // Brand should be moved even with domain conflict
     expect(res.body.serviceResults['brand-service']).toEqual({
-      updatedTables: [{ tableName: 'brands', count: 0 }],
+      updatedTables: [{ tableName: 'brands', count: 1 }],
     });
     expect(res.body.serviceResults['campaign-service']).toEqual({
       updatedTables: [{ tableName: 'campaigns', count: 2 }],
     });
     expect(mockFanOutTransfer).toHaveBeenCalled();
+    const { db } = await import('../../src/db');
+    expect(db.update).toHaveBeenCalled();
   });
 
   it('should NOT move brand when a downstream service fails (return 207)', async () => {
