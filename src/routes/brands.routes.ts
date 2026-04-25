@@ -254,18 +254,18 @@ export async function rewriteBrandReferences(
     `DELETE FROM intake_forms WHERE brand_id = $1 AND EXISTS (SELECT 1 FROM intake_forms WHERE brand_id = $2)`,
     [sourceBrandId, targetBrandId],
   );
-  // organizations_individuals_aied_thesis: unique(brand_id, thesis_html, contrarian_level)
+  // brand_thesis: unique(brand_id, thesis_html, contrarian_level)
   await query(
-    `DELETE FROM organizations_individuals_aied_thesis WHERE brand_id = $1
+    `DELETE FROM brand_thesis WHERE brand_id = $1
      AND (thesis_html, contrarian_level) IN (
-       SELECT thesis_html, contrarian_level FROM organizations_individuals_aied_thesis WHERE brand_id = $2
+       SELECT thesis_html, contrarian_level FROM brand_thesis WHERE brand_id = $2
      )`,
     [sourceBrandId, targetBrandId],
   );
-  // organization_individuals: PK(brand_id, individual_id)
+  // brand_individuals: PK(brand_id, individual_id)
   await query(
-    `DELETE FROM organization_individuals WHERE brand_id = $1
-     AND individual_id IN (SELECT individual_id FROM organization_individuals WHERE brand_id = $2)`,
+    `DELETE FROM brand_individuals WHERE brand_id = $1
+     AND individual_id IN (SELECT individual_id FROM brand_individuals WHERE brand_id = $2)`,
     [sourceBrandId, targetBrandId],
   );
 
@@ -274,10 +274,10 @@ export async function rewriteBrandReferences(
     'media_assets',
     'brand_extracted_fields',
     'brand_extracted_images',
-    'organizations_linkedin_posts',
+    'brand_linkedin_posts',
     'intake_forms',
-    'organizations_individuals_aied_thesis',
-    'organization_individuals',
+    'brand_thesis',
+    'brand_individuals',
   ];
 
   const results: { tableName: string; count: number }[] = [];
