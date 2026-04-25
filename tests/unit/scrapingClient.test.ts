@@ -1,21 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import axios from 'axios';
 
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios, true);
+// Mock fetch globally before importing the module
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
 
 describe('scraping-client', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mockFetch.mockReset();
   });
+
+  async function importClient() {
+    vi.resetModules();
+    vi.stubGlobal('fetch', mockFetch);
+    return import('../../src/lib/scraping-client');
+  }
+
+  function mockResponse(data: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(data),
+      text: () => Promise.resolve(JSON.stringify(data)),
+    };
+  }
 
   describe('mapSiteUrls', () => {
     it('should return URLs from scraping-service /map', async () => {
-      mockedAxios.post.mockResolvedValue({
-        data: { success: true, urls: ['https://example.com', 'https://example.com/about'] },
-      });
+      const { mapSiteUrls } = await importClient();
 
-      const { mapSiteUrls } = await import('../../src/lib/scraping-client');
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ success: true, urls: ['https://example.com', 'https://example.com/about'] }),
+      );
 
       const urls = await mapSiteUrls('https://example.com', {
         brandId: 'brand-1',
@@ -24,35 +39,30 @@ describe('scraping-client', () => {
       });
 
       expect(urls).toEqual(['https://example.com', 'https://example.com/about']);
-      expect(mockedAxios.post).toHaveBeenCalledWith(
-        expect.stringContaining('/map'),
-        expect.objectContaining({ url: 'https://example.com', limit: 100 }),
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            'X-Org-Id': 'org_123',
-            'X-User-Id': 'user_456',
-          }),
-        }),
-      );
+
+      const [calledUrl, calledOpts] = mockFetch.mock.calls[0];
+      expect(calledUrl).toContain('/map');
+      const body = JSON.parse(calledOpts.body);
+      expect(body.url).toBe('https://example.com');
+      expect(body.limit).toBe(100);
+      expect(calledOpts.headers['X-Org-Id']).toBe('org_123');
+      expect(calledOpts.headers['X-User-Id']).toBe('user_456');
     });
 
     it('should throw SiteMapError on 4xx response', async () => {
-      mockedAxios.post.mockRejectedValue({
-        response: { status: 400, data: { error: 'Invalid URL' } },
-        message: 'Request failed',
-      });
+      const { mapSiteUrls, SiteMapError } = await importClient();
 
-      const { mapSiteUrls, SiteMapError } = await import('../../src/lib/scraping-client');
+      // 4xx → AbortError from fetchWithRetry, caught and re-thrown as SiteMapError
+      mockFetch.mockResolvedValueOnce(mockResponse({ error: 'Invalid URL' }, 400));
 
       await expect(mapSiteUrls('https://bad-url')).rejects.toThrow(SiteMapError);
     });
 
-    it('should throw generic error on 5xx response', async () => {
-      mockedAxios.post.mockRejectedValue({
-        message: 'Request failed with status code 500',
-      });
+    it('should throw generic error on persistent 5xx', async () => {
+      const { mapSiteUrls } = await importClient();
 
-      const { mapSiteUrls } = await import('../../src/lib/scraping-client');
+      // 5xx triggers retries — mock all attempts
+      mockFetch.mockResolvedValue(mockResponse('error', 500));
 
       await expect(mapSiteUrls('https://example.com')).rejects.toThrow('Failed to map site');
     });
@@ -60,31 +70,32 @@ describe('scraping-client', () => {
 
   describe('scrapeUrl', () => {
     it('should return rawMarkdown from scraping-service /scrape', async () => {
-      mockedAxios.post.mockResolvedValue({
-        data: { result: { rawMarkdown: '# Hello World' } },
-      });
+      const { scrapeUrl } = await importClient();
 
-      const { scrapeUrl } = await import('../../src/lib/scraping-client');
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ result: { rawMarkdown: '# Hello World' } }),
+      );
 
       const content = await scrapeUrl('https://example.com');
       expect(content).toBe('# Hello World');
     });
 
     it('should return null on error', async () => {
-      mockedAxios.post.mockRejectedValue(new Error('timeout'));
+      const { scrapeUrl } = await importClient();
 
-      const { scrapeUrl } = await import('../../src/lib/scraping-client');
+      // Network errors trigger retries — mock all attempts
+      mockFetch.mockRejectedValue(new Error('timeout'));
 
       const content = await scrapeUrl('https://example.com');
       expect(content).toBeNull();
     });
 
     it('should forward tracking headers', async () => {
-      mockedAxios.post.mockResolvedValue({
-        data: { result: { rawMarkdown: 'content' } },
-      });
+      const { scrapeUrl } = await importClient();
 
-      const { scrapeUrl } = await import('../../src/lib/scraping-client');
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ result: { rawMarkdown: 'content' } }),
+      );
 
       await scrapeUrl('https://example.com', {
         brandId: 'brand-1',
@@ -93,10 +104,10 @@ describe('scraping-client', () => {
         workflowSlug: 'discovery',
       });
 
-      const config = mockedAxios.post.mock.calls[0][2] as Record<string, any>;
-      expect(config.headers['X-Org-Id']).toBe('org_123');
-      expect(config.headers['X-Run-Id']).toBe('run_789');
-      expect(config.headers['X-Workflow-Slug']).toBe('discovery');
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers['X-Org-Id']).toBe('org_123');
+      expect(headers['X-Run-Id']).toBe('run_789');
+      expect(headers['X-Workflow-Slug']).toBe('discovery');
     });
   });
 });

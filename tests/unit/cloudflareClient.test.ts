@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import axios from 'axios';
 
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios, true);
+// Mock fetch globally before importing the module
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
 
 // Set env before importing
 process.env.CLOUDFLARE_SERVICE_URL = 'https://cloudflare.test';
@@ -10,20 +10,35 @@ process.env.CLOUDFLARE_SERVICE_API_KEY = 'test-cf-key';
 
 describe('cloudflare-client', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mockFetch.mockReset();
   });
 
+  async function importClient() {
+    vi.resetModules();
+    vi.stubGlobal('fetch', mockFetch);
+    return import('../../src/lib/cloudflare-client');
+  }
+
+  function mockResponse(data: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(data),
+      text: () => Promise.resolve(JSON.stringify(data)),
+    };
+  }
+
   it('should call cloudflare-service /upload with correct headers and body', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: {
+    const { uploadToCloudflare } = await importClient();
+
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({
         id: 'file-uuid',
         url: 'https://cloudflare.distribute.you/brands/brand-123/abc.png',
         size: 45200,
         contentType: 'image/png',
-      },
-    });
-
-    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+      }),
+    );
 
     const result = await uploadToCloudflare(
       {
@@ -43,49 +58,46 @@ describe('cloudflare-client', () => {
     expect(result.id).toBe('file-uuid');
     expect(result.url).toBe('https://cloudflare.distribute.you/brands/brand-123/abc.png');
 
-    const callArgs = mockedAxios.post.mock.calls[0];
-    expect(callArgs[0]).toBe('https://cloudflare.test/upload');
+    const [calledUrl, calledOpts] = mockFetch.mock.calls[0];
+    expect(calledUrl).toBe('https://cloudflare.test/upload');
 
-    const body = callArgs[1] as Record<string, unknown>;
+    const body = JSON.parse(calledOpts.body);
     expect(body.sourceUrl).toBe('https://example.com/logo.png');
     expect(body.folder).toBe('brands/brand-123');
     expect(body.filename).toBe('abc.png');
     expect(body.contentType).toBe('image/png');
 
-    const config = callArgs[2] as Record<string, any>;
-    expect(config.headers['X-API-Key']).toBe('test-cf-key');
-    expect(config.headers['x-org-id']).toBe('org_123');
-    expect(config.headers['x-user-id']).toBe('user_456');
-    expect(config.headers['x-run-id']).toBe('run_789');
-    expect(config.headers['x-brand-id']).toBe('brand_123');
+    const headers = calledOpts.headers;
+    expect(headers['X-API-Key']).toBe('test-cf-key');
+    expect(headers['x-org-id']).toBe('org_123');
+    expect(headers['x-user-id']).toBe('user_456');
+    expect(headers['x-run-id']).toBe('run_789');
+    expect(headers['x-brand-id']).toBe('brand_123');
   });
 
   it('should omit optional tracking headers when not provided', async () => {
-    mockedAxios.post.mockResolvedValue({
-      data: { id: 'x', url: 'x', size: 0, contentType: 'image/png' },
-    });
+    const { uploadToCloudflare } = await importClient();
 
-    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({ id: 'x', url: 'x', size: 0, contentType: 'image/png' }),
+    );
 
     await uploadToCloudflare(
       { sourceUrl: 'https://example.com/img.png', folder: 'test', filename: 'test.png', contentType: 'image/png' },
       { orgId: 'org_123' },
     );
 
-    const config = mockedAxios.post.mock.calls[0][2] as Record<string, any>;
-    expect(config.headers['x-org-id']).toBe('org_123');
-    expect(config.headers['x-user-id']).toBeUndefined();
-    expect(config.headers['x-run-id']).toBeUndefined();
-    expect(config.headers['x-campaign-id']).toBeUndefined();
+    const headers = mockFetch.mock.calls[0][1].headers;
+    expect(headers['x-org-id']).toBe('org_123');
+    expect(headers['x-user-id']).toBeUndefined();
+    expect(headers['x-run-id']).toBeUndefined();
+    expect(headers['x-campaign-id']).toBeUndefined();
   });
 
-  it('should throw immediately on non-transient errors (e.g. 400, 500)', async () => {
-    const error = Object.assign(new Error('Request failed with status code 400'), {
-      response: { status: 400 },
-    });
-    mockedAxios.post.mockRejectedValue(error);
+  it('should not retry on 4xx errors', async () => {
+    const { uploadToCloudflare } = await importClient();
 
-    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+    mockFetch.mockResolvedValueOnce(mockResponse('Bad Request', 400));
 
     await expect(
       uploadToCloudflare(
@@ -94,20 +106,17 @@ describe('cloudflare-client', () => {
       ),
     ).rejects.toThrow('400');
 
-    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('should retry on 502 and succeed on second attempt', async () => {
-    const error502 = Object.assign(new Error('Request failed with status code 502'), {
-      response: { status: 502 },
-    });
-    mockedAxios.post
-      .mockRejectedValueOnce(error502)
-      .mockResolvedValueOnce({
-        data: { id: 'ok', url: 'https://cdn.test/ok.png', size: 100, contentType: 'image/png' },
-      });
+    const { uploadToCloudflare } = await importClient();
 
-    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+    mockFetch
+      .mockResolvedValueOnce(mockResponse('error', 502))
+      .mockResolvedValueOnce(
+        mockResponse({ id: 'ok', url: 'https://cdn.test/ok.png', size: 100, contentType: 'image/png' }),
+      );
 
     const result = await uploadToCloudflare(
       { sourceUrl: 'https://example.com/img.png', folder: 'test', filename: 'test.png', contentType: 'image/png' },
@@ -115,16 +124,13 @@ describe('cloudflare-client', () => {
     );
 
     expect(result.id).toBe('ok');
-    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   it('should throw after exhausting retries on persistent 502', async () => {
-    const error502 = Object.assign(new Error('Request failed with status code 502'), {
-      response: { status: 502 },
-    });
-    mockedAxios.post.mockRejectedValue(error502);
+    const { uploadToCloudflare } = await importClient();
 
-    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+    mockFetch.mockResolvedValue(mockResponse('error', 502));
 
     await expect(
       uploadToCloudflare(
@@ -134,18 +140,17 @@ describe('cloudflare-client', () => {
     ).rejects.toThrow('502');
 
     // 1 initial + 2 retries = 3 total
-    expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
   it('should retry on network errors like ECONNRESET', async () => {
-    const networkError = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
-    mockedAxios.post
-      .mockRejectedValueOnce(networkError)
-      .mockResolvedValueOnce({
-        data: { id: 'ok', url: 'https://cdn.test/ok.png', size: 100, contentType: 'image/png' },
-      });
+    const { uploadToCloudflare } = await importClient();
 
-    const { uploadToCloudflare } = await import('../../src/lib/cloudflare-client');
+    mockFetch
+      .mockRejectedValueOnce(new Error('socket hang up'))
+      .mockResolvedValueOnce(
+        mockResponse({ id: 'ok', url: 'https://cdn.test/ok.png', size: 100, contentType: 'image/png' }),
+      );
 
     const result = await uploadToCloudflare(
       { sourceUrl: 'https://example.com/img.png', folder: 'test', filename: 'test.png', contentType: 'image/png' },
@@ -153,6 +158,6 @@ describe('cloudflare-client', () => {
     );
 
     expect(result.id).toBe('ok');
-    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
