@@ -43,6 +43,8 @@ vi.mock('../../src/db', () => {
     brandTransfers: {
       id: 'brandTransfers.id',
       brandId: 'brandTransfers.brandId',
+      sourceOrgId: 'brandTransfers.sourceOrgId',
+      targetOrgId: 'brandTransfers.targetOrgId',
       createdAt: 'brandTransfers.createdAt',
     },
     brandExtractedFields: { brandId: 'bef.brandId', fieldKey: 'bef.fieldKey', expiresAt: 'bef.expiresAt' },
@@ -280,6 +282,152 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toContain('api-registry');
+  });
+});
+
+describe('GET /orgs/brand-transfers/outgoing', () => {
+  const app = createTestApp();
+  const orgId = randomUUID();
+  const headers = getAuthHeaders(orgId);
+  const brandId = randomUUID();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should return outgoing transfers for the org', async () => {
+    const transfer = {
+      id: randomUUID(),
+      brandId,
+      sourceOrgId: orgId,
+      targetOrgId: randomUUID(),
+      initiatedByUserId: randomUUID(),
+      serviceResults: { 'brand-service': { updatedTables: [{ tableName: 'brands', count: 1 }] } },
+      createdAt: '2026-04-24T00:00:00.000Z',
+    };
+    mockSelect.mockReset();
+    mockSelect.mockResolvedValue([transfer]);
+
+    const res = await request(app)
+      .get('/orgs/brand-transfers/outgoing')
+      .set(headers);
+
+    expect(res.status).toBe(200);
+    expect(res.body.transfers).toEqual([transfer]);
+  });
+
+  it('should filter by brandId when provided', async () => {
+    mockSelect.mockReset();
+    mockSelect.mockResolvedValue([]);
+
+    const res = await request(app)
+      .get('/orgs/brand-transfers/outgoing')
+      .query({ brandId })
+      .set(headers);
+
+    expect(res.status).toBe(200);
+    expect(res.body.transfers).toEqual([]);
+  });
+
+  it('should reject invalid brandId', async () => {
+    const res = await request(app)
+      .get('/orgs/brand-transfers/outgoing')
+      .query({ brandId: 'not-a-uuid' })
+      .set(headers);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('should return empty array when no transfers exist', async () => {
+    mockSelect.mockReset();
+    mockSelect.mockResolvedValue([]);
+
+    const res = await request(app)
+      .get('/orgs/brand-transfers/outgoing')
+      .set(headers);
+
+    expect(res.status).toBe(200);
+    expect(res.body.transfers).toEqual([]);
+  });
+
+  it('should require auth', async () => {
+    const res = await request(app)
+      .get('/orgs/brand-transfers/outgoing');
+
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('GET /orgs/brand-transfers/incoming', () => {
+  const app = createTestApp();
+  const orgId = randomUUID();
+  const headers = getAuthHeaders(orgId);
+  const brandId = randomUUID();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should return incoming transfers for the org', async () => {
+    const transfer = {
+      id: randomUUID(),
+      brandId,
+      sourceOrgId: randomUUID(),
+      targetOrgId: orgId,
+      initiatedByUserId: randomUUID(),
+      serviceResults: { 'brand-service': { updatedTables: [{ tableName: 'brands', count: 1 }] } },
+      createdAt: '2026-04-24T00:00:00.000Z',
+    };
+    mockSelect.mockReset();
+    mockSelect.mockResolvedValue([transfer]);
+
+    const res = await request(app)
+      .get('/orgs/brand-transfers/incoming')
+      .set(headers);
+
+    expect(res.status).toBe(200);
+    expect(res.body.transfers).toEqual([transfer]);
+  });
+
+  it('should filter by brandId when provided', async () => {
+    mockSelect.mockReset();
+    mockSelect.mockResolvedValue([]);
+
+    const res = await request(app)
+      .get('/orgs/brand-transfers/incoming')
+      .query({ brandId })
+      .set(headers);
+
+    expect(res.status).toBe(200);
+    expect(res.body.transfers).toEqual([]);
+  });
+
+  it('should reject invalid brandId', async () => {
+    const res = await request(app)
+      .get('/orgs/brand-transfers/incoming')
+      .query({ brandId: 'not-a-uuid' })
+      .set(headers);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('should return empty array when no transfers exist', async () => {
+    mockSelect.mockReset();
+    mockSelect.mockResolvedValue([]);
+
+    const res = await request(app)
+      .get('/orgs/brand-transfers/incoming')
+      .set(headers);
+
+    expect(res.status).toBe(200);
+    expect(res.body.transfers).toEqual([]);
+  });
+
+  it('should require auth', async () => {
+    const res = await request(app)
+      .get('/orgs/brand-transfers/incoming');
+
+    expect(res.status).toBe(401);
   });
 });
 

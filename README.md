@@ -78,6 +78,9 @@ Identity headers for org-scoped routes:
 | GET | `/orgs/public-information-map` | Public info URLs + descriptions |
 | POST | `/orgs/media-assets/:id/analyze` | AI-analyze media asset |
 | POST | `/orgs/media-assets/analyze-batch` | Batch AI analysis |
+| POST | `/orgs/brands/:brandId/transfer` | Transfer brand to another org |
+| GET | `/orgs/brand-transfers/outgoing` | Transfers initiated by current org |
+| GET | `/orgs/brand-transfers/incoming` | Transfers received by current org |
 
 ### Internal (`/internal/*` — API key only)
 
