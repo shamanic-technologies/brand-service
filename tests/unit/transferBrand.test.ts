@@ -31,6 +31,10 @@ vi.mock('../../src/db', () => {
   };
 });
 
+vi.mock('../../src/db/utils', () => ({
+  query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+}));
+
 vi.mock('../../src/lib/runs-client', () => ({
   createRun: vi.fn().mockResolvedValue({ id: 'run-123' }),
   updateRun: vi.fn().mockResolvedValue({ id: 'run-123', status: 'completed' }),
@@ -119,7 +123,7 @@ describe('POST /internal/transfer-brand', () => {
     expect(res.status).toBe(401);
   });
 
-  it('should delete source brand when targetBrandId is provided', async () => {
+  it('should rewrite brand references and delete source brand when targetBrandId is provided', async () => {
     const targetBrandId = randomUUID();
     mockReturning.mockResolvedValueOnce([{ id: brandId }]);
 
@@ -129,9 +133,14 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId, targetBrandId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 1 }]);
+    // Should include rewrite results for all dependent tables + brands delete
+    expect(res.body.updatedTables).toContainEqual({ tableName: 'media_assets', count: 0 });
+    expect(res.body.updatedTables).toContainEqual({ tableName: 'brand_extracted_fields', count: 0 });
+    expect(res.body.updatedTables).toContainEqual({ tableName: 'brands', count: 1 });
     const { db } = await import('../../src/db');
     expect(db.delete).toHaveBeenCalled();
+    const { query } = await import('../../src/db/utils');
+    expect(query).toHaveBeenCalled();
   });
 
   it('should return 500 on database error', async () => {

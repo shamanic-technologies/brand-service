@@ -61,6 +61,10 @@ vi.mock('../../src/db', () => {
   };
 });
 
+vi.mock('../../src/db/utils', () => ({
+  query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+}));
+
 vi.mock('../../src/lib/runs-client', () => ({
   createRun: vi.fn().mockResolvedValue({ id: 'run-123' }),
   updateRun: vi.fn().mockResolvedValue({ id: 'run-123', status: 'completed' }),
@@ -181,7 +185,7 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     expect(res.status).toBe(404);
   });
 
-  it('should delete source brand on domain conflict and pass targetBrandId to fan-out', async () => {
+  it('should rewrite brand refs and delete source brand on domain conflict, passing targetBrandId to fan-out', async () => {
     const existingBrandId = randomUUID();
     mockSelect.mockReset();
     mockSelect
@@ -201,9 +205,11 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.targetBrandId).toBe(existingBrandId);
-    expect(res.body.serviceResults['brand-service']).toEqual({
-      updatedTables: [{ tableName: 'brands', count: 1 }],
-    });
+    // brand-service results should include rewrite tables + brands delete
+    const brandResults = res.body.serviceResults['brand-service'].updatedTables;
+    expect(brandResults).toContainEqual({ tableName: 'media_assets', count: 0 });
+    expect(brandResults).toContainEqual({ tableName: 'brand_extracted_fields', count: 0 });
+    expect(brandResults).toContainEqual({ tableName: 'brands', count: 1 });
     expect(res.body.serviceResults['campaign-service']).toEqual({
       updatedTables: [{ tableName: 'campaigns', count: 2 }],
     });
@@ -212,6 +218,9 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
       expect.anything(),
       expect.objectContaining({ sourceBrandId: brandId, targetBrandId: existingBrandId }),
     );
+    // Verify rewriteBrandReferences was called via query
+    const { query } = await import('../../src/db/utils');
+    expect(query).toHaveBeenCalled();
   });
 
   it('should NOT move brand when a downstream service fails (return 207)', async () => {

@@ -7,6 +7,7 @@ import {
   fanOutTransfer,
   ServiceResult,
 } from '../services/transferService';
+import { rewriteBrandReferences } from './brands.routes';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -94,18 +95,20 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
         updatedTables: [{ tableName: 'brands', count: 0 }],
       };
     } else if (targetBrandId) {
-      // Target org already has this brand — delete source brand (FK cascades clean up dependents)
+      // Target org already has this brand — rewrite brand_id on dependents, then delete source
+      const rewriteResults = await rewriteBrandReferences(brandId, targetBrandId);
+
       const deleteResult = await db
         .delete(brands)
         .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
         .returning({ id: brands.id });
 
       console.log(
-        `[brand-service] transfer: deleted source brand ${brandId} (target brand ${targetBrandId} already exists)`,
+        `[brand-service] transfer: rewrote brand refs ${brandId} → ${targetBrandId}, deleted source brand`,
       );
 
       serviceResults['brand-service'] = {
-        updatedTables: [{ tableName: 'brands', count: deleteResult.length }],
+        updatedTables: [...rewriteResults, { tableName: 'brands', count: deleteResult.length }],
       };
     } else {
       // No conflict — move brand to target org
