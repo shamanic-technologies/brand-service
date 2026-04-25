@@ -5,8 +5,8 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 // Set env vars before importing
-process.env.API_REGISTRY_URL = 'https://api-registry.test';
-process.env.API_REGISTRY_API_KEY = 'test-registry-key';
+process.env.API_REGISTRY_SERVICE_URL = 'https://api-registry.test';
+process.env.API_REGISTRY_SERVICE_API_KEY = 'test-registry-key';
 process.env.BRAND_SERVICE_API_KEY = 'test-brand-key';
 
 import {
