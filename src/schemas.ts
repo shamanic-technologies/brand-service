@@ -1337,9 +1337,10 @@ registry.registerPath({
 
 export const TransferBrandRequestSchema = z
   .object({
-    brandId: z.string().uuid(),
+    sourceBrandId: z.string().uuid(),
     sourceOrgId: z.string().uuid(),
     targetOrgId: z.string().uuid(),
+    targetBrandId: z.string().uuid().optional(),
   })
   .openapi('TransferBrandRequest');
 
@@ -1357,7 +1358,7 @@ export const TransferBrandResponseSchema = z
 registry.registerPath({
   method: 'post',
   path: '/internal/transfer-brand',
-  summary: 'Transfer a brand from one org to another (solo-brand only)',
+  summary: 'Transfer a brand from one org to another',
   request: { body: { content: { 'application/json': { schema: TransferBrandRequestSchema } } } },
   responses: {
     200: { description: 'Brand transferred', content: { 'application/json': { schema: TransferBrandResponseSchema } } },
@@ -1382,21 +1383,13 @@ export const ServiceTransferResultSchema = z
   ])
   .openapi('ServiceTransferResult');
 
-export const BrandConflictSchema = z
-  .object({
-    skipped: z.literal(true),
-    existingBrandId: z.string().uuid(),
-    domain: z.string(),
-  })
-  .openapi('BrandConflict');
-
 export const OrchestrateTransferResponseSchema = z
   .object({
     transferId: z.string().uuid(),
-    brandId: z.string().uuid(),
+    sourceBrandId: z.string().uuid(),
     sourceOrgId: z.string().uuid(),
     targetOrgId: z.string().uuid(),
-    brandConflict: BrandConflictSchema.nullable().optional(),
+    targetBrandId: z.string().uuid().optional(),
     serviceResults: z.record(z.string(), ServiceTransferResultSchema),
   })
   .openapi('OrchestrateTransferResponse');
@@ -1408,9 +1401,9 @@ registry.registerPath({
   description:
     'Transfers a brand from the current org (x-org-id) to a target org. ' +
     'Verifies brand ownership, then fans out POST /internal/transfer-brand to every registered service. ' +
-    'If the target org already has a brand with the same domain, the brands table UPDATE is skipped ' +
-    'but fan-out to other services still proceeds. The response includes a brandConflict field when this occurs. ' +
-    'Best-effort: services that 404 are skipped, 5xx are logged and continued.',
+    'If the target org already has a brand with the same domain, targetBrandId is resolved automatically ' +
+    'and passed to all services so they rewrite brand references. ' +
+    'If all services succeed, the source brand is deleted (cascade). If any fail, brand stays in source org.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: OrchestateTransferRequestSchema } } },

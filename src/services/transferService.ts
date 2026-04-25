@@ -67,7 +67,7 @@ export type ServiceResult =
  */
 async function callTransferBrand(
   service: ServiceInfo,
-  body: { brandId: string; sourceOrgId: string; targetOrgId: string },
+  body: { sourceBrandId: string; sourceOrgId: string; targetOrgId: string; targetBrandId?: string },
 ): Promise<ServiceResult> {
   // Env var convention: {NAME}_SERVICE_API_KEY (api-registry returns short names like "cloudflare", "campaign")
   const base = service.name.toUpperCase().replace(/-/g, '_');
@@ -110,7 +110,7 @@ async function callTransferBrand(
  */
 export async function fanOutTransfer(
   services: ServiceInfo[],
-  body: { brandId: string; sourceOrgId: string; targetOrgId: string },
+  body: { sourceBrandId: string; sourceOrgId: string; targetOrgId: string; targetBrandId?: string },
 ): Promise<Record<string, ServiceResult>> {
   const results: Record<string, ServiceResult> = {};
 

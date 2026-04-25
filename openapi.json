@@ -1052,7 +1052,7 @@
       "TransferBrandRequest": {
         "type": "object",
         "properties": {
-          "brandId": {
+          "sourceBrandId": {
             "type": "string",
             "format": "uuid"
           },
@@ -1063,10 +1063,14 @@
           "targetOrgId": {
             "type": "string",
             "format": "uuid"
+          },
+          "targetBrandId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
-          "brandId",
+          "sourceBrandId",
           "sourceOrgId",
           "targetOrgId"
         ]
@@ -1078,7 +1082,7 @@
             "type": "string",
             "format": "uuid"
           },
-          "brandId": {
+          "sourceBrandId": {
             "type": "string",
             "format": "uuid"
           },
@@ -1090,8 +1094,9 @@
             "type": "string",
             "format": "uuid"
           },
-          "brandConflict": {
-            "$ref": "#/components/schemas/BrandConflict"
+          "targetBrandId": {
+            "type": "string",
+            "format": "uuid"
           },
           "serviceResults": {
             "type": "object",
@@ -1102,34 +1107,10 @@
         },
         "required": [
           "transferId",
-          "brandId",
+          "sourceBrandId",
           "sourceOrgId",
           "targetOrgId",
           "serviceResults"
-        ]
-      },
-      "BrandConflict": {
-        "type": "object",
-        "nullable": true,
-        "properties": {
-          "skipped": {
-            "type": "boolean",
-            "enum": [
-              true
-            ]
-          },
-          "existingBrandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "domain": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "skipped",
-          "existingBrandId",
-          "domain"
         ]
       },
       "ServiceTransferResult": {
@@ -2828,7 +2809,7 @@
     },
     "/internal/transfer-brand": {
       "post": {
-        "summary": "Transfer a brand from one org to another (solo-brand only)",
+        "summary": "Transfer a brand from one org to another",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2861,7 +2842,7 @@
     "/orgs/brands/{brandId}/transfer": {
       "post": {
         "summary": "Orchestrate brand transfer across all services",
-        "description": "Transfers a brand from the current org (x-org-id) to a target org. Verifies brand ownership, then fans out POST /internal/transfer-brand to every registered service. If the target org already has a brand with the same domain, the brands table UPDATE is skipped but fan-out to other services still proceeds. The response includes a brandConflict field when this occurs. Best-effort: services that 404 are skipped, 5xx are logged and continued.",
+        "description": "Transfers a brand from the current org (x-org-id) to a target org. Verifies brand ownership, then fans out POST /internal/transfer-brand to every registered service. If the target org already has a brand with the same domain, targetBrandId is resolved automatically and passed to all services so they rewrite brand references. If all services succeed, the source brand is deleted (cascade). If any fail, brand stays in source org.",
         "parameters": [
           {
             "schema": {
