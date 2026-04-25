@@ -5,38 +5,11 @@
  * AI providers directly.
  */
 
-import axios from 'axios';
-import http from 'http';
+import { fetchWithRetry } from './fetch-with-retry';
 
 const CHAT_SERVICE_URL =
   process.env.CHAT_SERVICE_URL || 'https://chat.distribute.you';
 const CHAT_SERVICE_API_KEY = process.env.CHAT_SERVICE_API_KEY || '';
-
-/** Dedicated agent with keepAlive disabled to avoid stale-socket "hang up" errors on Railway internal networking. */
-const httpAgent = new http.Agent({ keepAlive: false });
-
-const MAX_RETRIES = 2;
-
-/** Aligned with chat-service's per-model timeouts (src/lib/gemini.ts). */
-const MODEL_TIMEOUT_MS: Record<ChatCompleteParams['model'], number> = {
-  pro: 15 * 60_000,        // 15 min
-  flash: 10 * 60_000,      // 10 min
-  'flash-lite': 5 * 60_000, // 5 min
-  sonnet: 10 * 60_000,     // 10 min (default)
-  haiku: 10 * 60_000,      // 10 min (default)
-  opus: 15 * 60_000,       // 15 min
-};
-
-function isSocketHangUp(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const code = (err as { code?: string }).code;
-  const msg = err.message;
-  return (
-    code === 'ECONNRESET' ||
-    code === 'EPIPE' ||
-    msg.includes('socket hang up')
-  );
-}
 
 export interface ChatCompleteParams {
   message: string;
@@ -103,25 +76,12 @@ export async function chatComplete(
     ...(params.thinkingBudget !== undefined && { thinkingBudget: params.thinkingBudget }),
   };
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const response = await axios.post<ChatCompleteResult>(
-        `${CHAT_SERVICE_URL}/complete`,
-        body,
-        { headers, timeout: MODEL_TIMEOUT_MS[params.model], httpAgent },
-      );
-      return response.data;
-    } catch (err) {
-      if (isSocketHangUp(err) && attempt < MAX_RETRIES) {
-        console.warn(
-          `[brand-service] Socket hang up on chat-service call (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying...`,
-        );
-        continue;
-      }
-      throw err;
-    }
-  }
+  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/complete`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    label: `chat-service POST /complete (${params.model})`,
+  });
 
-  // Unreachable — the loop always returns or throws — but satisfies TypeScript.
-  throw new Error('[brand-service] chatComplete: exhausted retries');
+  return response.json() as Promise<ChatCompleteResult>;
 }

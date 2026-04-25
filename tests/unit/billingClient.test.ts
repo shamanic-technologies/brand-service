@@ -132,16 +132,18 @@ describe('billing-client', () => {
 
     it('should throw on non-OK response', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockResolvedValueOnce(mockResponse('Internal Server Error', 500));
+      // 5xx triggers retries — mock all attempts
+      mockFetch.mockResolvedValue(mockResponse('Internal Server Error', 500));
 
       await expect(
         authorizeCredits({ items: [{ costName: 'test', quantity: 1 }], description: 'test', orgId: 'org-1' })
-      ).rejects.toThrow('billing-service POST /v1/credits/authorize failed: 500');
+      ).rejects.toThrow('returned 500');
     });
 
     it('should throw on network error', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockRejectedValueOnce(new Error('fetch failed'));
+      // Network errors trigger retries — mock all attempts
+      mockFetch.mockRejectedValue(new Error('fetch failed'));
 
       await expect(
         authorizeCredits({ items: [{ costName: 'test', quantity: 1 }], description: 'test', orgId: 'org-1' })

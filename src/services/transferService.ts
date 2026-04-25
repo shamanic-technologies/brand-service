@@ -6,6 +6,9 @@
  * Membership verification is handled upstream by api-service.
  */
 
+import { fetchWithRetry } from '../lib/fetch-with-retry';
+import { AbortError } from 'p-retry';
+
 interface ServiceInfo {
   name: string;
   baseUrl: string;
@@ -29,22 +32,17 @@ export async function discoverTransferServices(): Promise<ServiceInfo[]> {
   }
 
   // Get all services (for baseUrl lookup)
-  const servicesRes = await fetch(`${url}/services`, {
+  const servicesRes = await fetchWithRetry(`${url}/services`, {
     headers: { 'x-api-key': apiKey },
+    label: 'api-registry GET /services',
   });
-  if (!servicesRes.ok) {
-    throw new Error(`[brand-service] api-registry /services returned ${servicesRes.status}`);
-  }
   const { services: allServices } = (await servicesRes.json()) as { services: ServiceInfo[] };
 
   // Search for services that have POST /internal/transfer-brand
-  const searchRes = await fetch(
+  const searchRes = await fetchWithRetry(
     `${url}/search?q=transfer-brand&method=POST&pathPrefix=/internal/`,
-    { headers: { 'x-api-key': apiKey } },
+    { headers: { 'x-api-key': apiKey }, label: 'api-registry GET /search' },
   );
-  if (!searchRes.ok) {
-    throw new Error(`[brand-service] api-registry /search returned ${searchRes.status}`);
-  }
   const { results } = (await searchRes.json()) as { results: SearchResult[] };
 
   // Only keep services whose exact path is /internal/transfer-brand
@@ -78,7 +76,7 @@ async function callTransferBrand(
   const apiKey = process.env[envKey] || fallbackKey;
 
   try {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `${service.baseUrl}/internal/transfer-brand`,
       {
         method: 'POST',
@@ -87,26 +85,21 @@ async function callTransferBrand(
           'x-api-key': apiKey,
         },
         body: JSON.stringify(body),
+        label: `transfer-brand ${service.name}`,
       },
     );
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      console.error(
-        `[brand-service] transfer-brand ${service.name} returned ${response.status}: ${text}`,
-      );
-      return { error: `HTTP ${response.status}` };
-    }
 
     const data = (await response.json()) as {
       updatedTables: { tableName: string; count: number }[];
     };
     return { updatedTables: data.updatedTables };
   } catch (err: any) {
-    console.error(
-      `[brand-service] transfer-brand ${service.name} failed:`,
-      err.message,
-    );
+    // AbortError = 4xx, log as info not error
+    if (err instanceof AbortError) {
+      console.log(`[brand-service] transfer-brand ${service.name}: ${err.message}`);
+    } else {
+      console.error(`[brand-service] transfer-brand ${service.name} failed:`, err.message);
+    }
     return { error: err.message };
   }
 }
