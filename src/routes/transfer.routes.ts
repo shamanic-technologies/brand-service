@@ -92,11 +92,6 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       serviceResults['brand-service'] = {
         updatedTables: [{ tableName: 'brands', count: 0 }],
       };
-    } else if (brandConflict) {
-      // Target org already has this domain — no need to move the brand record
-      serviceResults['brand-service'] = {
-        updatedTables: [{ tableName: 'brands', count: 0 }],
-      };
     } else {
       const inlineResult = await db
         .update(brands)
