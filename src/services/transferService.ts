@@ -39,11 +39,11 @@ export async function discoverTransferServices(): Promise<ServiceInfo[]> {
 
   // Search for services that have POST /internal/transfer-brand
   const searchRes = await fetch(
-    `${url}/endpoints/search?query=transfer-brand&method=POST&pathPrefix=/internal/`,
+    `${url}/search?q=transfer-brand&method=POST&pathPrefix=/internal/`,
     { headers: { 'x-api-key': apiKey } },
   );
   if (!searchRes.ok) {
-    throw new Error(`[brand-service] api-registry /endpoints/search returned ${searchRes.status}`);
+    throw new Error(`[brand-service] api-registry /search returned ${searchRes.status}`);
   }
   const { results } = (await searchRes.json()) as { results: SearchResult[] };
 
