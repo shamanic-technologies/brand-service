@@ -15,10 +15,10 @@ interface ServiceInfo {
  * Discover all registered services from api-registry.
  */
 export async function discoverServices(): Promise<ServiceInfo[]> {
-  const url = process.env.API_REGISTRY_URL;
-  const apiKey = process.env.API_REGISTRY_API_KEY;
+  const url = process.env.API_REGISTRY_SERVICE_URL;
+  const apiKey = process.env.API_REGISTRY_SERVICE_API_KEY;
   if (!url || !apiKey) {
-    throw new Error('API_REGISTRY_URL and API_REGISTRY_API_KEY must be set');
+    throw new Error('API_REGISTRY_SERVICE_URL and API_REGISTRY_SERVICE_API_KEY must be set');
   }
 
   const response = await fetch(`${url}/services`, {
