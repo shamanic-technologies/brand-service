@@ -80,6 +80,29 @@ describe('transferService', () => {
       });
     });
 
+    it('should skip "brand" name (api-registry short name) in fan-out', async () => {
+      const services = [
+        { name: 'brand', baseUrl: 'https://brand.test' },
+        { name: 'campaign', baseUrl: 'https://campaign.test' },
+      ];
+
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          ok: true,
+          status: 200,
+          body: { updatedTables: [{ tableName: 'campaigns', count: 1 }] },
+        }),
+      );
+
+      const results = await fanOutTransfer(services, body);
+
+      expect(results['brand']).toBeUndefined();
+      expect(results['campaign']).toEqual({
+        updatedTables: [{ tableName: 'campaigns', count: 1 }],
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
     it('should mark services as skipped on 404', async () => {
       const services = [{ name: 'some-service', baseUrl: 'https://some.test' }];
       mockFetch.mockResolvedValueOnce(mockResponse({ ok: false, status: 404 }));
