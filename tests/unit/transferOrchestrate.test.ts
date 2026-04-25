@@ -111,6 +111,7 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     expect(res.body.serviceResults['brand-service']).toEqual({
       updatedTables: [{ tableName: 'brands', count: 1 }],
     });
+    expect(res.body.brandConflict).toBeUndefined();
   });
 
   it('should include fan-out results from other services', async () => {
@@ -169,19 +170,36 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
     expect(res.status).toBe(404);
   });
 
-  it('should return 409 when target org has domain conflict', async () => {
+  it('should skip brands UPDATE on domain conflict but still fan out', async () => {
+    const existingBrandId = randomUUID();
     mockSelect.mockReset();
     mockSelect
       .mockResolvedValueOnce([{ id: brandId, orgId: sourceOrgId, domain: 'acme.com' }])
-      .mockResolvedValueOnce([{ id: randomUUID() }]);
+      .mockResolvedValueOnce([{ id: existingBrandId }]);
+    mockInsertReturning.mockResolvedValue([{ id: transferId }]);
+    mockDiscoverServices.mockResolvedValue([]);
+    mockFanOutTransfer.mockResolvedValue({
+      'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 2 }] },
+    });
 
     const res = await request(app)
       .post(`/orgs/brands/${brandId}/transfer`)
       .set(headers)
       .send({ targetOrgId });
 
-    expect(res.status).toBe(409);
-    expect(res.body.error).toContain('acme.com');
+    expect(res.status).toBe(200);
+    expect(res.body.brandConflict).toEqual({
+      skipped: true,
+      existingBrandId,
+      domain: 'acme.com',
+    });
+    expect(res.body.serviceResults['brand-service']).toEqual({
+      updatedTables: [{ tableName: 'brands', count: 0 }],
+    });
+    expect(res.body.serviceResults['campaign-service']).toEqual({
+      updatedTables: [{ tableName: 'campaigns', count: 2 }],
+    });
+    expect(mockFanOutTransfer).toHaveBeenCalled();
   });
 
   it('should reject invalid brandId format', async () => {

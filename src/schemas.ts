@@ -1382,12 +1382,21 @@ export const ServiceTransferResultSchema = z
   ])
   .openapi('ServiceTransferResult');
 
+export const BrandConflictSchema = z
+  .object({
+    skipped: z.literal(true),
+    existingBrandId: z.string().uuid(),
+    domain: z.string(),
+  })
+  .openapi('BrandConflict');
+
 export const OrchestrateTransferResponseSchema = z
   .object({
     transferId: z.string().uuid(),
     brandId: z.string().uuid(),
     sourceOrgId: z.string().uuid(),
     targetOrgId: z.string().uuid(),
+    brandConflict: BrandConflictSchema.nullable().optional(),
     serviceResults: z.record(z.string(), ServiceTransferResultSchema),
   })
   .openapi('OrchestrateTransferResponse');
@@ -1398,8 +1407,9 @@ registry.registerPath({
   summary: 'Orchestrate brand transfer across all services',
   description:
     'Transfers a brand from the current org (x-org-id) to a target org. ' +
-    'Verifies brand ownership, checks user membership in target org via client-service, ' +
-    'then fans out POST /internal/transfer-brand to every registered service. ' +
+    'Verifies brand ownership, then fans out POST /internal/transfer-brand to every registered service. ' +
+    'If the target org already has a brand with the same domain, the brands table UPDATE is skipped ' +
+    'but fan-out to other services still proceeds. The response includes a brandConflict field when this occurs. ' +
     'Best-effort: services that 404 are skipped, 5xx are logged and continued.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
@@ -1409,7 +1419,6 @@ registry.registerPath({
     200: { description: 'Transfer completed', content: { 'application/json': { schema: OrchestrateTransferResponseSchema } } },
     400: { description: 'Invalid request or missing headers' },
     404: { description: 'Brand not found or does not belong to source org' },
-    409: { description: 'Target org already has a brand with the same domain' },
     500: { description: 'Internal server error' },
   },
 });
