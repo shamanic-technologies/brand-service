@@ -64,19 +64,40 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
         .limit(1);
 
       if (conflict) {
-        // Target org already has this domain — skip brands UPDATE, continue fan-out
         brandConflict = { skipped: true, existingBrandId: conflict.id, domain: brand.domain };
-        serviceResults['brand-service'] = {
-          updatedTables: [{ tableName: 'brands', count: 0 }],
-        };
         console.log(
-          `[brand-service] transfer: domain conflict for "${brand.domain}" — target org already has brand ${conflict.id}, skipping brands UPDATE`,
+          `[brand-service] transfer: domain conflict for "${brand.domain}" — target org already has brand ${conflict.id}`,
         );
       }
     }
 
-    // 3. Update brand-service's own brands table (unless domain conflict)
-    if (!brandConflict) {
+    // 3. Fan out to all downstream services FIRST
+    const services = await discoverTransferServices();
+    const fanOutResults = await fanOutTransfer(services, {
+      brandId,
+      sourceOrgId,
+      targetOrgId,
+    });
+    Object.assign(serviceResults, fanOutResults);
+
+    // 4. Only update brand-service's own brands table if ALL fan-out calls succeeded
+    const hasFailure = Object.values(serviceResults).some(
+      (r) => 'error' in r,
+    );
+
+    if (hasFailure) {
+      console.log(
+        `[brand-service] transfer: at least one downstream service failed — brand stays in source org ${sourceOrgId}`,
+      );
+      serviceResults['brand-service'] = {
+        updatedTables: [{ tableName: 'brands', count: 0 }],
+      };
+    } else if (brandConflict) {
+      // Target org already has this domain — no need to move the brand record
+      serviceResults['brand-service'] = {
+        updatedTables: [{ tableName: 'brands', count: 0 }],
+      };
+    } else {
       const inlineResult = await db
         .update(brands)
         .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
@@ -87,15 +108,6 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
         updatedTables: [{ tableName: 'brands', count: inlineResult.length }],
       };
     }
-
-    // 4. Discover all services and fan out
-    const services = await discoverTransferServices();
-    const fanOutResults = await fanOutTransfer(services, {
-      brandId,
-      sourceOrgId,
-      targetOrgId,
-    });
-    Object.assign(serviceResults, fanOutResults);
 
     // 5. Store audit log
     const [transfer] = await db
@@ -113,8 +125,11 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       `[brand-service] transfer orchestrated: brandId=${brandId} from=${sourceOrgId} to=${targetOrgId} transferId=${transfer.id}`,
     );
 
-    res.json({
+    const status = hasFailure ? 'partial' : 'completed';
+
+    res.status(hasFailure ? 207 : 200).json({
       transferId: transfer.id,
+      status,
       brandId,
       sourceOrgId,
       targetOrgId,
