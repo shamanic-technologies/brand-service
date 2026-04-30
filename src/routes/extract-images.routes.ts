@@ -5,6 +5,7 @@ import { multiBrandExtractImages } from '../services/multiBrandImageExtractionSe
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractImagesRequestSchema } from '../schemas';
 import { db, brandExtractedImages } from '../db';
+import { traceEvent } from '../lib/trace-event';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,6 +37,16 @@ orgRouter.post('/brands/extract-images', async (req: Request, res: Response) => 
     const parsed = ExtractImagesRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    if (req.runId) {
+      traceEvent(req.runId, {
+        service: 'brand-service',
+        event: 'extract-images-request',
+        detail: `Received extract-images request for ${brandIds.length} brand(s): ${brandIds.join(', ')} with ${parsed.data.categories.length} categories`,
+        level: 'info',
+        data: { brandIds, categoryCount: parsed.data.categories.length, categoryKeys: parsed.data.categories.map(c => c.key) },
+      }, req.headers).catch(() => {});
     }
 
     const result = await multiBrandExtractImages({

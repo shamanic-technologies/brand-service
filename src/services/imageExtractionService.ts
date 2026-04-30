@@ -17,6 +17,7 @@ import { ScrapingTrackingContext } from '../lib/scraping-client';
 import { uploadToCloudflare, isCloudflareConfigured, CloudflareTrackingHeaders } from '../lib/cloudflare-client';
 import { createRun, updateRun } from '../lib/runs-client';
 import { getCampaignFeatureInputs } from '../lib/campaign-client';
+import { traceEvent } from '../lib/trace-event';
 import { mapBrandUrls, scrapeSelectedPages } from './scrapeOrchestrator';
 import { parseImageUrls, isTrackingPixelDomain, getExtensionFromUrl } from '../lib/image-utils';
 
@@ -449,6 +450,23 @@ export async function extractImages(
     campaignId, featureSlug, brandId: brandIdHeader, workflowSlug,
   };
 
+  const traceHeaders: Record<string, string | undefined> = {
+    'x-org-id': orgId,
+    'x-user-id': userId,
+    'x-brand-id': brandIdHeader,
+    'x-campaign-id': campaignId,
+    'x-workflow-slug': workflowSlug,
+    'x-feature-slug': featureSlug,
+  };
+
+  traceEvent(run.id, {
+    service: 'brand-service',
+    event: 'image-extraction-start',
+    detail: `Extracting ${missingCategories.length} image categories for brand ${brandId} (${brand.url}): ${missingCategories.map(c => c.key).join(', ')}`,
+    level: 'info',
+    data: { brandId, categoryCount: missingCategories.length, cachedCount: cachedResults.length, url: brand.url },
+  }, traceHeaders).catch(() => {});
+
   try {
     // 4. Fetch campaign context
     const featureInputs = await getCampaignFeatureInputs(campaignId, { orgId, userId, runId: run.id });
@@ -506,6 +524,14 @@ export async function extractImages(
       .slice(0, MAX_CANDIDATE_IMAGES);
 
     console.log(`[brand-service] [${brandId}] ${validCandidates.length} images passed filtering`);
+
+    traceEvent(run.id, {
+      service: 'brand-service',
+      event: 'image-candidates-filtered',
+      detail: `${validCandidates.length} images passed filtering from ${allImageRefs.length} candidates across ${scrapedPages.length} pages`,
+      level: 'info',
+      data: { validCount: validCandidates.length, totalCandidates: allImageRefs.length, pagesScraped: scrapedPages.length },
+    }, traceHeaders).catch(() => {});
 
     if (validCandidates.length === 0) throw new Error('No valid images found after filtering');
 
@@ -595,8 +621,23 @@ export async function extractImages(
       console.warn(`[brand-service] [${brandId}] Failed to complete run ${run.id}:`, err);
     }
 
+    traceEvent(run.id, {
+      service: 'brand-service',
+      event: 'image-extraction-complete',
+      detail: `Completed: ${cachedResults.length} cached + ${freshResults.length} extracted categories, ${freshResults.reduce((sum, r) => sum + r.images.length, 0)} new images uploaded`,
+      level: 'info',
+      data: { cached: cachedResults.length, extracted: freshResults.length, totalImages: freshResults.reduce((sum, r) => sum + r.images.length, 0) },
+    }, traceHeaders).catch(() => {});
+
     return [...cachedResults, ...freshResults];
   } catch (error) {
+    traceEvent(run.id, {
+      service: 'brand-service',
+      event: 'image-extraction-error',
+      detail: `Image extraction failed: ${error instanceof Error ? error.message : String(error)}`,
+      level: 'error',
+      data: { brandId, error: error instanceof Error ? error.message : String(error) },
+    }, traceHeaders).catch(() => {});
     try {
       await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug });
     } catch (err) {

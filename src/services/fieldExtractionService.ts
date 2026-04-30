@@ -21,6 +21,7 @@ import {
 } from '../lib/scraping-client';
 import { createRun, updateRun } from '../lib/runs-client';
 import { getCampaignFeatureInputs } from '../lib/campaign-client';
+import { traceEvent } from '../lib/trace-event';
 
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180; // 6 months
@@ -446,6 +447,23 @@ export async function extractFields(
     workflowSlug,
   });
 
+  const traceHeaders: Record<string, string | undefined> = {
+    'x-org-id': orgId,
+    'x-user-id': userId,
+    'x-brand-id': brandIdHeader,
+    'x-campaign-id': campaignId,
+    'x-workflow-slug': workflowSlug,
+    'x-feature-slug': featureSlug,
+  };
+
+  traceEvent(run.id, {
+    service: 'brand-service',
+    event: 'field-extraction-start',
+    detail: `Extracting ${missingFields.length} fields for brand ${brandId} (${brand.url}): ${formatFieldPreview(missingFields.map(f => f.key))}`,
+    level: 'info',
+    data: { brandId, fieldCount: missingFields.length, cachedCount: cachedResults.length, url: brand.url },
+  }, traceHeaders).catch(() => {});
+
   const tracking: TrackingHeaders = {
     orgId,
     userId,
@@ -518,6 +536,13 @@ export async function extractFields(
 
       allUrls = [...new Set(mapResults.flat())];
       console.log(`[${brandId}] Found ${allUrls.length} unique URLs`);
+      traceEvent(run.id, {
+        service: 'brand-service',
+        event: 'url-map-complete',
+        detail: `Mapped ${allUrls.length} unique URLs for ${brand.url}`,
+        level: 'info',
+        data: { urlCount: allUrls.length, brandUrl: brand.url },
+      }, traceHeaders).catch(() => {});
     } catch (mapError: any) {
       console.warn(`[${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
       allUrls = [brand.url];
@@ -566,6 +591,13 @@ export async function extractFields(
     const pageContents = [...cachedPages, ...freshPages];
     const successfulScrapes = pageContents.filter((p) => p.content);
     console.log(`[${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
+    traceEvent(run.id, {
+      service: 'brand-service',
+      event: 'scrape-complete',
+      detail: `Scraped ${successfulScrapes.length}/${selectedUrls.length} pages (${cachedPages.length} from cache, ${urlsToScrape.length} fresh)`,
+      level: 'info',
+      data: { scraped: successfulScrapes.length, total: selectedUrls.length, cached: cachedPages.length, fresh: urlsToScrape.length },
+    }, traceHeaders).catch(() => {});
 
     if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
 
@@ -577,6 +609,14 @@ export async function extractFields(
       tracking,
       campaignContext,
     );
+
+    traceEvent(run.id, {
+      service: 'brand-service',
+      event: 'ai-extraction-complete',
+      detail: `Extracted ${missingFields.length} fields via AI: ${formatFieldPreview(missingFields.map(f => f.key))}`,
+      level: 'info',
+      data: { extractedKeys: Object.keys(extracted) },
+    }, traceHeaders).catch(() => {});
 
     // 7. Store results (with the URLs that were actually scraped)
     const scrapedSourceUrls = successfulScrapes.map((p) => p.url);
@@ -605,8 +645,23 @@ export async function extractFields(
       sourceUrls: scrapedSourceUrls,
     }));
 
+    traceEvent(run.id, {
+      service: 'brand-service',
+      event: 'field-extraction-complete',
+      detail: `Completed: ${cachedResults.length} cached + ${freshResults.length} extracted = ${cachedResults.length + freshResults.length} total fields`,
+      level: 'info',
+      data: { cached: cachedResults.length, extracted: freshResults.length, total: cachedResults.length + freshResults.length },
+    }, traceHeaders).catch(() => {});
+
     return [...cachedResults, ...freshResults];
   } catch (error) {
+    traceEvent(run.id, {
+      service: 'brand-service',
+      event: 'field-extraction-error',
+      detail: `Field extraction failed: ${error instanceof Error ? error.message : String(error)}`,
+      level: 'error',
+      data: { brandId, error: error instanceof Error ? error.message : String(error) },
+    }, traceHeaders).catch(() => {});
     try {
       await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug });
     } catch (err) {
