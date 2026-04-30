@@ -5,6 +5,7 @@ import { multiBrandExtractFields } from '../services/multiBrandFieldExtractionSe
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractFieldsRequestSchema } from '../schemas';
 import { db, brandExtractedFields } from '../db';
+import { traceEvent } from '../lib/trace-event';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,6 +37,16 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
     const parsed = ExtractFieldsRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    if (req.runId) {
+      traceEvent(req.runId, {
+        service: 'brand-service',
+        event: 'extract-fields-request',
+        detail: `Received extract-fields request for ${brandIds.length} brand(s): ${brandIds.join(', ')} with ${parsed.data.fields.length} fields`,
+        level: 'info',
+        data: { brandIds, fieldCount: parsed.data.fields.length, fieldKeys: parsed.data.fields.map(f => f.key) },
+      }, req.headers).catch(() => {});
     }
 
     const result = await multiBrandExtractFields({
