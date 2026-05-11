@@ -181,4 +181,64 @@ describe('POST /brands - Upsert Brand', () => {
     expect(second.body.brandId).not.toBe(first.body.brandId);
     expect(second.body.domain).toBe('shared-upsert-domain.example.com');
   }, 10000);
+
+  it('accepts a bare domain and normalizes URL + domain', async () => {
+    const orgId = randomUUID();
+    createdOrgIds.push(orgId);
+    const url = 'bare-domain-test.example.com';
+
+    const response = await request(app)
+      .post('/orgs/brands')
+      .set(getAuthHeaders(orgId, randomUUID()))
+      .send({ url });
+
+    expect(response.status).toBe(200);
+    expect(response.body.domain).toBe('bare-domain-test.example.com');
+  }, 10000);
+
+  it('rejects junk URL with structured INVALID_URL error', async () => {
+    const orgId = randomUUID();
+    const response = await request(app)
+      .post('/orgs/brands')
+      .set(getAuthHeaders(orgId, randomUUID()))
+      .send({ url: 'asdf' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('INVALID_URL');
+    expect(response.body.field).toBe('url');
+    expect(typeof response.body.message).toBe('string');
+  });
+
+  it('rejects localhost with INVALID_URL', async () => {
+    const orgId = randomUUID();
+    const response = await request(app)
+      .post('/orgs/brands')
+      .set(getAuthHeaders(orgId, randomUUID()))
+      .send({ url: 'http://localhost' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('INVALID_URL');
+  });
+
+  it('rejects IP literal with INVALID_URL', async () => {
+    const orgId = randomUUID();
+    const response = await request(app)
+      .post('/orgs/brands')
+      .set(getAuthHeaders(orgId, randomUUID()))
+      .send({ url: 'http://192.168.1.1' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('INVALID_URL');
+  });
+
+  it('rejects empty URL with INVALID_URL', async () => {
+    const orgId = randomUUID();
+    const response = await request(app)
+      .post('/orgs/brands')
+      .set(getAuthHeaders(orgId, randomUUID()))
+      .send({ url: '' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('INVALID_URL');
+  });
 });

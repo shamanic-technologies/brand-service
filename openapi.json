@@ -42,17 +42,43 @@
           "created"
         ]
       },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "code",
+          "field",
+          "message"
+        ]
+      },
       "UpsertBrandRequest": {
         "type": "object",
         "properties": {
           "url": {
-            "type": "string",
-            "format": "uri"
+            "type": "string"
           }
         },
         "required": [
           "url"
-        ]
+        ],
+        "description": "Brand website URL. Accepts either bare domain (acme.com) or full URL (https://acme.com). Normalized server-side. Rejects localhost, IP literals, and inputs without a valid TLD.",
+        "example": {
+          "url": "https://acme.com"
+        }
       },
       "ListBrandsResponse": {
         "type": "object",
@@ -733,8 +759,7 @@
             "format": "uuid"
           },
           "url": {
-            "type": "string",
-            "format": "uri"
+            "type": "string"
           }
         },
         "required": [
@@ -1308,6 +1333,7 @@
     "/orgs/brands": {
       "post": {
         "summary": "Upsert a brand by orgId + URL (no scraping)",
+        "description": "Creates or returns a brand for the given organization. URL may be a bare domain (acme.com) or full URL (https://acme.com); the service normalizes input and derives the domain. Rejects unparseable input, localhost, and IP literals with code INVALID_URL.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1329,7 +1355,14 @@
             }
           },
           "400": {
-            "description": "Missing required fields"
+            "description": "Invalid or missing URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "Internal server error"
