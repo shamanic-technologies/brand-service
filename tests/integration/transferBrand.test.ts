@@ -19,6 +19,7 @@ describe('POST /internal/transfer-brand', () => {
     await db.insert(brands).values({
       id: brandId,
       orgId: sourceOrgId,
+      url: `https://transfer-test-${brandId.slice(0, 8)}.com`,
       domain: `transfer-test-${brandId.slice(0, 8)}.com`,
       name: 'Transfer Test Brand',
     });
@@ -107,6 +108,7 @@ describe('POST /internal/transfer-brand', () => {
     await db.insert(brands).values({
       id: deleteBrandId,
       orgId: orgA,
+      url: `https://delete-test-${deleteBrandId.slice(0, 8)}.com`,
       domain: `delete-test-${deleteBrandId.slice(0, 8)}.com`,
       name: 'Delete Test Brand',
     });
