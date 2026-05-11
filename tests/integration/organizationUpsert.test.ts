@@ -5,6 +5,7 @@ import { brands } from '../../src/db/schema';
 import { eq } from 'drizzle-orm';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
 import { getOrganizationIdByOrgId } from '../../src/services/organizationUpsertService';
+import { UrlRequiredError, InvalidUrlError } from '../../src/lib/url-utils';
 
 describe('getOrganizationIdByOrgId - cross-org isolation', () => {
   const createdOrgIds: string[] = [];
@@ -43,21 +44,45 @@ describe('getOrganizationIdByOrgId - cross-org isolation', () => {
     expect(brandB.orgId).toBe(orgIdB);
   }, 15000);
 
-  it('should merge within the same org when skeleton brand exists', async () => {
+  it('throws UrlRequiredError when creating a new brand without URL', async () => {
     const testOrgId = randomUUID();
     createdOrgIds.push(testOrgId);
 
-    // First call: no URL -> creates skeleton brand
-    const brandId1 = await getOrganizationIdByOrgId(testOrgId, 'Skeleton Brand');
+    await expect(getOrganizationIdByOrgId(testOrgId, 'No URL')).rejects.toBeInstanceOf(UrlRequiredError);
+  }, 15000);
+
+  it('updates an existing brand without overwriting domain when called without URL', async () => {
+    const testOrgId = randomUUID();
+    createdOrgIds.push(testOrgId);
+
+    const brandId1 = await getOrganizationIdByOrgId(testOrgId, 'Initial', 'https://merge-test.example.com');
     expect(brandId1).toBeDefined();
 
-    // Second call: with URL -> should update the skeleton brand, not create a new one
-    const brandId2 = await getOrganizationIdByOrgId(testOrgId, 'Full Brand', 'https://merge-test.example.com');
+    const brandId2 = await getOrganizationIdByOrgId(testOrgId, 'Updated Name');
     expect(brandId2).toBe(brandId1);
 
-    // Verify the brand now has the domain
     const [brand] = await db.select().from(brands).where(eq(brands.id, brandId1));
     expect(brand.domain).toBe('merge-test.example.com');
     expect(brand.url).toBe('https://merge-test.example.com');
+    expect(brand.name).toBe('Updated Name');
+  }, 15000);
+
+  it('throws InvalidUrlError when called with junk URL', async () => {
+    const testOrgId = randomUUID();
+    createdOrgIds.push(testOrgId);
+
+    await expect(getOrganizationIdByOrgId(testOrgId, 'Bad', 'asdf')).rejects.toBeInstanceOf(InvalidUrlError);
+  }, 15000);
+
+  it('accepts bare domain and normalizes URL', async () => {
+    const testOrgId = randomUUID();
+    createdOrgIds.push(testOrgId);
+
+    const brandId = await getOrganizationIdByOrgId(testOrgId, 'Bare Domain', 'baretest-example.com');
+    expect(brandId).toBeDefined();
+
+    const [brand] = await db.select().from(brands).where(eq(brands.id, brandId));
+    expect(brand.domain).toBe('baretest-example.com');
+    expect(brand.url).toBe('https://baretest-example.com');
   }, 15000);
 });

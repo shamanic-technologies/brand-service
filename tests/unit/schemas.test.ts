@@ -74,10 +74,23 @@ describe('Zod Schemas', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should reject bare domain without protocol', () => {
+    it('should accept bare domain and normalize to https://', () => {
       const result = UpsertBrandRequestSchema.safeParse({
         url: 'pressbeat.io',
       });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.url).toBe('https://pressbeat.io');
+      }
+    });
+
+    it('should reject unparseable URL', () => {
+      const result = UpsertBrandRequestSchema.safeParse({ url: 'asdf' });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject localhost', () => {
+      const result = UpsertBrandRequestSchema.safeParse({ url: 'http://localhost' });
       expect(result.success).toBe(false);
     });
 
@@ -118,10 +131,21 @@ describe('Zod Schemas', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should reject bare domain without protocol', () => {
+    it('should accept bare domain and normalize to https://', () => {
       const result = SetUrlRequestSchema.safeParse({
         organization_id: TEST_UUID,
         url: 'example.com',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.url).toBe('https://example.com');
+      }
+    });
+
+    it('should reject unparseable URL', () => {
+      const result = SetUrlRequestSchema.safeParse({
+        organization_id: TEST_UUID,
+        url: 'asdf',
       });
       expect(result.success).toBe(false);
     });

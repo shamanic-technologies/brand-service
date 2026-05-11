@@ -198,11 +198,14 @@ export async function multiBrandExtractFields(
   // Build brands metadata array
   const brandsMeta: BrandMeta[] = brandIds.map((id) => {
     const brand = brandsMap.get(id)!;
+    if (!brand.url || !brand.domain) {
+      throw new Error(`Brand ${id} missing url or domain (data integrity error)`);
+    }
     return {
       brandId: id,
-      domain: brand.domain || new URL(brand.url!).hostname,
-      name: brand.name || brand.domain || new URL(brand.url!).hostname,
-      brandUrl: brand.url!,
+      domain: brand.domain,
+      name: brand.name || brand.domain,
+      brandUrl: brand.url,
     };
   });
 

@@ -2,7 +2,33 @@ import { Router, Request, Response } from 'express';
 import { getOrganizationRelationsByUrl } from '../services/organizationService';
 import { getOrganizationIdByOrgId } from '../services/organizationUpsertService';
 import { pool } from '../db/utils';
+import { InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { SetUrlRequestSchema, UpsertOrganizationRequestSchema, AddIndividualRequestSchema, UpdateIndividualStatusRequestSchema, UpdateRelationStatusRequestSchema, UpdateThesisStatusRequestSchema, UpdateLogoRequestSchema, BulkDeleteOrgsRequestSchema } from '../schemas';
+
+function respondValidationError(parsed: { error: { issues: any[]; flatten: () => unknown } }, res: Response) {
+  const issue = parsed.error.issues[0];
+  const { code, message } = parseZodIssueCode(issue?.message);
+  return res.status(400).json({
+    error: 'Invalid request',
+    code,
+    field: issue?.path?.join('.') ?? null,
+    message,
+    details: parsed.error.flatten(),
+  });
+}
+
+function respondUpsertError(error: unknown, res: Response): boolean {
+  if (error instanceof InvalidUrlError || error instanceof UrlRequiredError) {
+    res.status(400).json({
+      error: error.message,
+      code: error.code,
+      field: error.field,
+      message: error.message,
+    });
+    return true;
+  }
+  return false;
+}
 
 const router = Router();
 
@@ -85,7 +111,7 @@ router.get('/by-org-id/:orgId', async (req: Request, res: Response) => {
 router.put('/set-url', async (req: Request, res: Response) => {
   const parsed = SetUrlRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return respondValidationError(parsed as any, res);
   }
   const { organization_id, url } = parsed.data;
 
@@ -110,7 +136,7 @@ router.put('/set-url', async (req: Request, res: Response) => {
         LIMIT 1;
       `;
       const result = await pool.query(fetchQuery, [brandId]);
-      console.log(`[set-url] Created organization ${organization_id} with URL ${url}`);
+      console.log(`[brand-service] set-url: created organization ${organization_id} with URL ${url}`);
       return res.json(result.rows[0]);
     }
 
@@ -142,10 +168,11 @@ router.put('/set-url', async (req: Request, res: Response) => {
     `;
     const result = await pool.query(fetchQuery, [org.id]);
 
-    console.log(`[set-url] Set URL for ${organization_id}: ${url}`);
+    console.log(`[brand-service] set-url: set URL for ${organization_id}: ${url}`);
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error setting organization URL:', error);
+    if (respondUpsertError(error, res)) return;
+    console.error('[brand-service] Error setting organization URL:', error);
     res.status(500).send({ error: 'An error occurred while setting the URL.' });
   }
 });
@@ -201,12 +228,12 @@ router.get('/relations', async (req: Request, res: Response) => {
 router.put('/organizations', async (req: Request, res: Response) => {
   const parsed = UpsertOrganizationRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return respondValidationError(parsed as any, res);
   }
   const { organization_id, external_organization_id, name, url } = parsed.data;
 
   try {
-    console.log(`Upserting organization: ${organization_id}, external_id: ${external_organization_id}`);
+    console.log(`[brand-service] upsert organization=${organization_id} external_id=${external_organization_id ?? '-'}`);
 
     const organizationId = await getOrganizationIdByOrgId(
       organization_id,
@@ -229,7 +256,8 @@ router.put('/organizations', async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (error: any) {
-    console.error('Error upserting organization:', error);
+    if (respondUpsertError(error, res)) return;
+    console.error('[brand-service] Error upserting organization:', error);
     res.status(500).json({
       success: false,
       error: 'An error occurred while upserting organization.',
@@ -242,12 +270,12 @@ router.put('/organizations', async (req: Request, res: Response) => {
 router.post('/organizations', async (req: Request, res: Response) => {
   const parsed = UpsertOrganizationRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return respondValidationError(parsed as any, res);
   }
   const { organization_id, external_organization_id, name, url } = parsed.data;
 
   try {
-    console.log(`Upserting organization: ${organization_id}, external_id: ${external_organization_id}`);
+    console.log(`[brand-service] upsert organization=${organization_id} external_id=${external_organization_id ?? '-'}`);
 
     const organizationId = await getOrganizationIdByOrgId(
       organization_id,
@@ -270,7 +298,8 @@ router.post('/organizations', async (req: Request, res: Response) => {
       data: result.rows[0],
     });
   } catch (error: any) {
-    console.error('Error upserting organization:', error);
+    if (respondUpsertError(error, res)) return;
+    console.error('[brand-service] Error upserting organization:', error);
     res.status(500).json({
       success: false,
       error: 'An error occurred while upserting organization.',

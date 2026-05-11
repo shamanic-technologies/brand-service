@@ -71,7 +71,7 @@ Identity headers for org-scoped routes:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/orgs/brands` | Upsert brand by orgId + URL |
+| POST | `/orgs/brands` | Upsert brand by orgId + URL (accepts bare domain or full URL) |
 | GET | `/orgs/brands` | List brands by orgId |
 | POST | `/orgs/brands/extract-fields` | Multi-brand field extraction (reads `x-brand-id` header) |
 | POST | `/orgs/brands/extract-images` | Multi-brand image extraction (reads `x-brand-id` header) |
@@ -99,7 +99,7 @@ Identity headers for org-scoped routes:
 |--------|------|-------------|
 | GET | `/internal/org-ids` | All org IDs (UUID-only) |
 | GET | `/internal/by-org-id/:orgId` | Get org by ID |
-| PUT | `/internal/set-url` | Set org URL |
+| PUT | `/internal/set-url` | Set org URL (accepts bare domain or full URL) |
 | GET | `/internal/by-url` | Get org by URL |
 | GET | `/internal/relations` | Get org relations by URL |
 | PUT | `/internal/organizations` | Upsert org |
