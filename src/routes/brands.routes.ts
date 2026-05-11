@@ -4,6 +4,7 @@ import { db, brands } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand } from '../services/brandService';
+import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema } from '../schemas';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,19 +22,20 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
   try {
     const parsed = UpsertBrandRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      const issue = parsed.error.issues[0];
+      const { code, message } = parseZodIssueCode(issue?.message);
+      return res.status(400).json({
+        error: 'Invalid request',
+        code,
+        field: issue?.path?.join('.') ?? 'url',
+        message,
+        details: parsed.error.flatten(),
+      });
     }
     const { url } = parsed.data;
     const orgId = req.orgId!;
 
-    // Extract domain to check if brand already exists
-    let domain: string;
-    try {
-      const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`);
-      domain = urlObj.hostname.replace(/^www\./, '').toLowerCase();
-    } catch {
-      domain = url.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
-    }
+    const domain = extractDomain(url);
 
     // Check if brand already exists by orgId + domain
     const existing = await db
@@ -50,9 +52,18 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
       name: brand.name,
       created: existing.length === 0,
     });
-  } catch (error: any) {
-    console.error('Upsert brand error:', error);
-    res.status(500).json({ error: error.message || 'Failed to upsert brand' });
+  } catch (error: unknown) {
+    if (error instanceof InvalidUrlError || error instanceof UrlRequiredError) {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code,
+        field: error.field,
+        message: error.message,
+      });
+    }
+    console.error('[brand-service] Upsert brand error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to upsert brand';
+    res.status(500).json({ error: message });
   }
 });
 

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, brands } from '../db';
 import { getOrganizationIdByOrgId } from '../services/organizationUpsertService';
+import { InvalidUrlError, UrlRequiredError } from '../lib/url-utils';
 import { TriggerWorkflowRequestSchema } from '../schemas';
 
 const router = Router();
@@ -9,21 +10,27 @@ const router = Router();
 /**
  * POST /trigger-client-info-workflow
  * Triggers the n8n workflow to process client information.
- * Creates the organization if it doesn't exist (upsert pattern).
+ * Requires an existing brand for the organization — does NOT auto-create a skeleton.
+ * Call POST /orgs/brands first if the brand doesn't exist yet.
  */
 router.post('/trigger-client-info-workflow', async (req: Request, res: Response) => {
-  console.log(`[${new Date().toISOString()}] Request body for /trigger-client-info-workflow:`, req.body);
+  console.log(`[brand-service] /trigger-client-info-workflow body=${JSON.stringify(req.body)}`);
   const parsed = TriggerWorkflowRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    const issue = parsed.error.issues[0];
+    return res.status(400).json({
+      error: 'Invalid request',
+      code: 'INVALID_REQUEST',
+      field: issue?.path?.join('.') ?? null,
+      message: issue?.message ?? 'Invalid request',
+      details: parsed.error.flatten(),
+    });
   }
   const { organization_id } = parsed.data;
 
   try {
-    // Get or create the brand (upsert pattern)
     const brandId = await getOrganizationIdByOrgId(organization_id);
 
-    // Get brand details
     const brandResult = await db
       .select({
         id: brands.id,
@@ -35,12 +42,11 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
 
     const externalOrganizationId = brandResult[0]?.externalOrganizationId;
 
-    // Trigger the n8n webhook (still uses external_organization_id for n8n compatibility)
     const webhookUrl = process.env.N8N_CREATE_CLIENT_INFORMATION_WEBHOOK_URL || 'https://pressbeat.app.n8n.cloud/webhook/49564dce-bc15-41c3-bb88-a6b075f42737';
     const webhookSecret = process.env.N8N_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
-      console.error('N8N webhook secret is not configured.');
+      console.error('[brand-service] N8N webhook secret is not configured.');
       return res.status(500).json({ error: 'Webhook configuration error' });
     }
 
@@ -52,14 +58,14 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
       },
     ];
 
-    console.log(`[${new Date().toISOString()}] Triggering n8n workflow for organization ${organization_id}`);
+    console.log(`[brand-service] Triggering n8n workflow for organization ${organization_id}`);
 
     fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }).catch((error) => {
-      console.error('Webhook call failed in background:', error);
+      console.error('[brand-service] Webhook call failed in background:', error);
     });
 
     return res.status(200).json({
@@ -68,8 +74,16 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
       status: 'generating',
       generating_started_at: new Date().toISOString(),
     });
-  } catch (error) {
-    console.error('Error triggering client info workflow:', error);
+  } catch (error: unknown) {
+    if (error instanceof UrlRequiredError || error instanceof InvalidUrlError) {
+      return res.status(400).json({
+        error: 'Brand has not been created for this organization yet. Call POST /orgs/brands first.',
+        code: error.code,
+        field: error.field,
+        message: error.message,
+      });
+    }
+    console.error('[brand-service] Error triggering client info workflow:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

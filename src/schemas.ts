@@ -3,6 +3,7 @@ import {
   OpenAPIRegistry,
   extendZodWithOpenApi,
 } from '@asteasolutions/zod-to-openapi';
+import { BrandUrlSchema, OptionalBrandUrlSchema } from './lib/url-utils';
 
 extendZodWithOpenApi(z);
 
@@ -13,8 +14,22 @@ export const registry = new OpenAPIRegistry();
 // ============================================================
 
 export const ErrorResponseSchema = z
-  .object({ error: z.string() })
+  .object({
+    error: z.string(),
+    code: z.string().optional(),
+    field: z.string().optional(),
+    message: z.string().optional(),
+  })
   .openapi('ErrorResponse');
+
+export const ValidationErrorResponseSchema = z
+  .object({
+    error: z.string(),
+    code: z.string(),
+    field: z.string(),
+    message: z.string(),
+  })
+  .openapi('ValidationErrorResponse');
 
 export const SuccessResponseSchema = z
   .object({ success: z.boolean(), message: z.string() })
@@ -80,9 +95,13 @@ export const BrandRunsQuerySchema = z
 
 export const UpsertBrandRequestSchema = z
   .object({
-    url: z.string().url(),
+    url: BrandUrlSchema,
   })
-  .openapi('UpsertBrandRequest');
+  .openapi('UpsertBrandRequest', {
+    description:
+      'Brand website URL. Accepts either bare domain (acme.com) or full URL (https://acme.com). Normalized server-side. Rejects localhost, IP literals, and inputs without a valid TLD.',
+    example: { url: 'https://acme.com' },
+  });
 
 export const UpsertBrandResponseSchema = z
   .object({
@@ -97,10 +116,15 @@ registry.registerPath({
   method: 'post',
   path: '/orgs/brands',
   summary: 'Upsert a brand by orgId + URL (no scraping)',
+  description:
+    'Creates or returns a brand for the given organization. URL may be a bare domain (acme.com) or full URL (https://acme.com); the service normalizes input and derives the domain. Rejects unparseable input, localhost, and IP literals with code INVALID_URL.',
   request: { body: { content: { 'application/json': { schema: UpsertBrandRequestSchema } } } },
   responses: {
     200: { description: 'Brand found or created', content: { 'application/json': { schema: UpsertBrandResponseSchema } } },
-    400: { description: 'Missing required fields' },
+    400: {
+      description: 'Invalid or missing URL',
+      content: { 'application/json': { schema: ValidationErrorResponseSchema } },
+    },
     500: { description: 'Internal server error' },
   },
 });
@@ -597,7 +621,7 @@ registry.registerPath({
 export const SetUrlRequestSchema = z
   .object({
     organization_id: z.string().uuid(),
-    url: z.string().url(),
+    url: BrandUrlSchema,
   })
   .openapi('SetUrlRequest');
 
@@ -606,7 +630,7 @@ export const UpsertOrganizationRequestSchema = z
     organization_id: z.string().uuid(),
     external_organization_id: z.string().optional(),
     name: z.string().optional(),
-    url: z.string().optional(),
+    url: OptionalBrandUrlSchema,
   })
   .openapi('UpsertOrganizationRequest');
 
