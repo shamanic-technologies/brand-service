@@ -56,7 +56,7 @@ vi.mock('../../src/lib/cloudflare-client', () => ({
 }));
 
 vi.mock('../../src/lib/chat-client', () => ({
-  chatComplete: vi.fn().mockResolvedValue({
+  chat: vi.fn().mockResolvedValue({
     content: '{"scores":{"brand":0.9,"team":0.1},"description":"A brand photo"}',
     json: { scores: { brand: 0.9, team: 0.1 }, description: 'A brand photo' },
     tokensInput: 100,
@@ -119,9 +119,7 @@ describe('image extraction — upload error handling', () => {
     const results = await extractImages({
       brandId: 'brand-1',
       categories: [{ key: 'brand', description: 'Brand images', maxCount: 5 }],
-      orgId: 'org-1',
-      userId: 'user-1',
-      parentRunId: 'parent-run-1',
+      caller: { mode: 'org', orgId: 'org-1', userId: 'user-1', runId: 'parent-run-1' },
     });
 
     // Should return empty images for the category (the one image failed to upload)
@@ -146,8 +144,8 @@ describe('image extraction — upload error handling', () => {
 
   it('should return images: [] when no images score above threshold', async () => {
     // Vision returns low scores for the requested category
-    const { chatComplete } = await import('../../src/lib/chat-client');
-    vi.mocked(chatComplete).mockResolvedValueOnce({
+    const { chat } = await import('../../src/lib/chat-client');
+    vi.mocked(chat).mockResolvedValueOnce({
       content: '{"scores":{"brand":0.1},"description":"Irrelevant decorative element"}',
       json: { scores: { brand: 0.1 }, description: 'Irrelevant decorative element' },
       tokensInput: 100,
@@ -161,9 +159,7 @@ describe('image extraction — upload error handling', () => {
     const results = await extractImages({
       brandId: 'brand-1',
       categories: [{ key: 'brand', description: 'Brand images', maxCount: 5 }],
-      orgId: 'org-1',
-      userId: 'user-1',
-      parentRunId: 'parent-run-1',
+      caller: { mode: 'org', orgId: 'org-1', userId: 'user-1', runId: 'parent-run-1' },
     });
 
     expect(results).toHaveLength(1);
@@ -181,9 +177,7 @@ describe('image extraction — upload error handling', () => {
     const results = await extractImages({
       brandId: 'brand-1',
       categories: [{ key: 'brand', description: 'Brand images', maxCount: 5 }],
-      orgId: 'org-1',
-      userId: 'user-1',
-      parentRunId: 'parent-run-1',
+      caller: { mode: 'org', orgId: 'org-1', userId: 'user-1', runId: 'parent-run-1' },
     });
 
     expect(results).toHaveLength(1);
@@ -204,8 +198,8 @@ describe('image extraction — upload error handling', () => {
     ] as any);
 
     // Vision scores both images highly
-    const { chatComplete } = await import('../../src/lib/chat-client');
-    vi.mocked(chatComplete)
+    const { chat } = await import('../../src/lib/chat-client');
+    vi.mocked(chat)
       // URL selection call (if > 10 URLs)
       .mockResolvedValueOnce({
         content: '{"scores":{"brand":0.9},"description":"Good photo"}',
@@ -239,9 +233,7 @@ describe('image extraction — upload error handling', () => {
     const results = await extractImages({
       brandId: 'brand-1',
       categories: [{ key: 'brand', description: 'Brand images', maxCount: 5 }],
-      orgId: 'org-1',
-      userId: 'user-1',
-      parentRunId: 'parent-run-1',
+      caller: { mode: 'org', orgId: 'org-1', userId: 'user-1', runId: 'parent-run-1' },
     });
 
     // Should return only the successfully uploaded image

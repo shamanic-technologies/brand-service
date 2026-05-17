@@ -49,16 +49,26 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
       }, req.headers).catch(() => {});
     }
 
+    if (!req.userId) {
+      return res.status(400).json({ error: 'x-user-id header is required' });
+    }
+    if (!req.runId) {
+      return res.status(400).json({ error: 'x-run-id header is required' });
+    }
+
     const result = await multiBrandExtractFields({
       brandIds,
       fields: parsed.data.fields,
-      orgId: req.orgId!,
-      userId: req.userId,
-      parentRunId: req.runId!,
-      campaignId: req.campaignId,
-      featureSlug: req.featureSlug,
-      brandIdHeader: req.brandIdHeader,
-      workflowSlug: req.workflowSlug,
+      caller: {
+        mode: 'org',
+        orgId: req.orgId!,
+        userId: req.userId,
+        runId: req.runId,
+        campaignId: req.campaignId,
+        featureSlug: req.featureSlug,
+        brandIdHeader: req.brandIdHeader,
+        workflowSlug: req.workflowSlug,
+      },
       scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
       resetCache: parsed.data.resetCache,
     });

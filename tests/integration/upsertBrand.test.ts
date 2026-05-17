@@ -241,4 +241,36 @@ describe('POST /brands - Upsert Brand', () => {
     expect(response.status).toBe(400);
     expect(response.body.code).toBe('INVALID_URL');
   });
+
+  it('returns 400 when x-user-id header is missing', async () => {
+    const orgId = randomUUID();
+    const response = await request(app)
+      .post('/orgs/brands')
+      .set({
+        'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
+        'X-Org-Id': orgId,
+        'X-Run-Id': randomUUID(),
+        'Content-Type': 'application/json',
+      })
+      .send({ url: 'https://no-userid-test.example.com' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('x-user-id header is required');
+  });
+
+  it('returns 400 when x-run-id header is missing', async () => {
+    const orgId = randomUUID();
+    const response = await request(app)
+      .post('/orgs/brands')
+      .set({
+        'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
+        'X-Org-Id': orgId,
+        'X-User-Id': randomUUID(),
+        'Content-Type': 'application/json',
+      })
+      .send({ url: 'https://no-runid-test.example.com' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('x-run-id header is required');
+  });
 });

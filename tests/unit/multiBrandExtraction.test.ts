@@ -27,7 +27,7 @@ vi.mock('../../src/db', () => ({
 }));
 
 vi.mock('../../src/lib/chat-client', () => ({
-  chatComplete: vi.fn(),
+  chat: vi.fn(),
 }));
 
 vi.mock('../../src/lib/scraping-client', () => ({
@@ -73,13 +73,15 @@ import { multiBrandExtractFields } from '../../src/services/multiBrandFieldExtra
 import { multiBrandExtractImages } from '../../src/services/multiBrandImageExtractionService';
 import { extractFields, getBrand } from '../../src/services/fieldExtractionService';
 import { extractImages, getBrandForImages } from '../../src/services/imageExtractionService';
-import { chatComplete } from '../../src/lib/chat-client';
+import { chat } from '../../src/lib/chat-client';
 
 const mockedGetBrand = vi.mocked(getBrand);
 const mockedExtractFields = vi.mocked(extractFields);
 const mockedGetBrandForImages = vi.mocked(getBrandForImages);
 const mockedExtractImages = vi.mocked(extractImages);
-const mockedChatComplete = vi.mocked(chatComplete);
+const mockedChat = vi.mocked(chat);
+
+const orgCaller = { mode: 'org' as const, orgId: 'org-1', userId: 'user-1', runId: 'run-1' };
 
 // Helper to set up DB mock chain for consolidated cache
 function mockDbCacheHit(values: Record<string, unknown>) {
@@ -131,8 +133,7 @@ describe('multiBrandExtractFields', () => {
     const result = await multiBrandExtractFields({
       brandIds: ['brand-1'],
       fields: [{ key: 'industry', description: 'test' }, { key: 'size', description: 'test' }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
     });
 
     expect(result).toEqual({
@@ -158,8 +159,8 @@ describe('multiBrandExtractFields', () => {
     mockDbCacheMiss();
 
     mockedGetBrand
-      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
-      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
 
     mockedExtractFields
       .mockResolvedValueOnce([
@@ -169,7 +170,7 @@ describe('multiBrandExtractFields', () => {
         { key: 'industry', value: 'FinTech payment processing', cached: true, extractedAt: '2024-01-05', expiresAt: '2024-02-04', sourceUrls: ['https://finpay.io/'] },
       ]);
 
-    mockedChatComplete.mockResolvedValue({
+    mockedChat.mockResolvedValue({
       content: '',
       json: { industry: 'SaaS & FinTech solutions for SMBs' },
       tokensInput: 100,
@@ -180,8 +181,7 @@ describe('multiBrandExtractFields', () => {
     const result = await multiBrandExtractFields({
       brandIds: ['brand-1', 'brand-2'],
       fields: [{ key: 'industry', description: 'test' }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
     });
 
     expect(result).toEqual({
@@ -211,8 +211,7 @@ describe('multiBrandExtractFields', () => {
       multiBrandExtractFields({
         brandIds: ['brand-nonexistent'],
         fields: [{ key: 'industry', description: 'test' }],
-        orgId: 'org-1',
-        parentRunId: 'run-1',
+        caller: orgCaller,
       }),
     ).rejects.toThrow('Brand not found');
   });
@@ -229,8 +228,7 @@ describe('multiBrandExtractFields', () => {
       multiBrandExtractFields({
         brandIds: ['brand-1'],
         fields: [{ key: 'industry', description: 'test' }],
-        orgId: 'org-1',
-        parentRunId: 'run-1',
+        caller: orgCaller,
       }),
     ).rejects.toThrow('Brand has no URL');
   });
@@ -240,10 +238,10 @@ describe('multiBrandExtractFields', () => {
 
     // Set up two brands for multi-brand
     mockedGetBrand
-      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
-      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' })
-      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
-      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
 
     mockedExtractFields
       .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS tools', cached: true, extractedAt: '2024-01-01', expiresAt: futureExpiry, sourceUrls: ['https://acme.com/about'] }])
@@ -253,7 +251,7 @@ describe('multiBrandExtractFields', () => {
 
     // First call: cache miss → LLM consolidation → DB write
     mockDbCacheMiss();
-    mockedChatComplete.mockResolvedValue({
+    mockedChat.mockResolvedValue({
       content: '',
       json: { industry: 'SaaS & FinTech' },
       tokensInput: 100,
@@ -264,19 +262,18 @@ describe('multiBrandExtractFields', () => {
     const opts = {
       brandIds: ['brand-1', 'brand-2'],
       fields: [{ key: 'industry', description: 'test' }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
     };
 
     await multiBrandExtractFields(opts);
-    expect(mockedChatComplete).toHaveBeenCalledTimes(1);
+    expect(mockedChat).toHaveBeenCalledTimes(1);
     expect(mockInsert).toHaveBeenCalledTimes(1);
 
     // Second call: DB cache hit → NO LLM call
     mockDbCacheHit({ industry: 'SaaS & FinTech' });
 
     const result2 = await multiBrandExtractFields(opts);
-    expect(mockedChatComplete).toHaveBeenCalledTimes(1); // still 1, not 2
+    expect(mockedChat).toHaveBeenCalledTimes(1); // still 1, not 2
     expect(result2.fields.industry.value).toBe('SaaS & FinTech');
   });
 
@@ -284,10 +281,10 @@ describe('multiBrandExtractFields', () => {
     const futureExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     mockedGetBrand
-      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
-      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' })
-      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
-      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
 
     mockedExtractFields
       .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS tools', cached: true, extractedAt: '2024-01-01', expiresAt: futureExpiry, sourceUrls: [] }])
@@ -296,7 +293,7 @@ describe('multiBrandExtractFields', () => {
       .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS tools', cached: true, extractedAt: '2024-01-01', expiresAt: futureExpiry, sourceUrls: [] }])
       .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech v2 updated', cached: false, extractedAt: '2024-01-10', expiresAt: futureExpiry, sourceUrls: [] }]);
 
-    mockedChatComplete
+    mockedChat
       .mockResolvedValueOnce({ content: '', json: { industry: 'Consolidated v1' }, tokensInput: 100, tokensOutput: 50, model: 'test' })
       .mockResolvedValueOnce({ content: '', json: { industry: 'Consolidated v2' }, tokensInput: 100, tokensOutput: 50, model: 'test' });
 
@@ -306,8 +303,7 @@ describe('multiBrandExtractFields', () => {
     const opts = {
       brandIds: ['brand-1', 'brand-2'],
       fields: [{ key: 'industry', description: 'test' }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
     };
 
     const result1 = await multiBrandExtractFields(opts);
@@ -320,7 +316,7 @@ describe('multiBrandExtractFields', () => {
     expect(result2.fields.industry.value).toBe('Consolidated v2');
 
     // Both calls triggered LLM because per-brand values differ
-    expect(mockedChatComplete).toHaveBeenCalledTimes(2);
+    expect(mockedChat).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -354,8 +350,7 @@ describe('multiBrandExtractImages', () => {
     const result = await multiBrandExtractImages({
       brandIds: ['brand-1'],
       categories: [{ key: 'logo', description: 'Company logo', maxCount: 1 }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
     });
 
     expect(result).toEqual({
@@ -370,8 +365,8 @@ describe('multiBrandExtractImages', () => {
 
   it('should return unified format with merged images for multiple brands', async () => {
     mockedGetBrandForImages
-      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
-      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
 
     const acmeLogo = {
       originalUrl: 'https://acme.com/logo.png',
@@ -395,8 +390,7 @@ describe('multiBrandExtractImages', () => {
     const result = await multiBrandExtractImages({
       brandIds: ['brand-1', 'brand-2'],
       categories: [{ key: 'logo', description: 'Company logo', maxCount: 2 }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
     });
 
     expect(result).toEqual({
@@ -422,8 +416,7 @@ describe('multiBrandExtractImages', () => {
       multiBrandExtractImages({
         brandIds: ['brand-nonexistent'],
         categories: [{ key: 'logo', description: 'Logo', maxCount: 1 }],
-        orgId: 'org-1',
-        parentRunId: 'run-1',
+        caller: orgCaller,
       }),
     ).rejects.toThrow('Brand not found');
   });

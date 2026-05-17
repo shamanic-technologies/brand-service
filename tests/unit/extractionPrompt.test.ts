@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockChatComplete = vi.fn();
+const mockChat = vi.fn();
 vi.mock('../../src/lib/chat-client', () => ({
-  chatComplete: (...args: unknown[]) => mockChatComplete(...args),
+  chat: (...args: unknown[]) => mockChat(...args),
 }));
 
 const mockMapSiteUrls = vi.fn();
@@ -89,7 +89,7 @@ describe('extractFields LLM prompt — never null/empty', () => {
     mockMapSiteUrls.mockResolvedValue(['https://example.com']);
     mockScrapeUrl.mockResolvedValue('page content');
     // Both calls (URL selection + extraction) must return valid JSON.
-    mockChatComplete.mockResolvedValue({
+    mockChat.mockResolvedValue({
       content: '{"industry":"SaaS"}',
       json: { industry: 'SaaS' },
       tokensInput: 100,
@@ -101,18 +101,17 @@ describe('extractFields LLM prompt — never null/empty', () => {
   it("instructs the LLM never to return null/empty and to fall back to 'Unknown'", async () => {
     setDbSequence([
       [], // cache miss
-      [{ id: 'brand-x', url: 'https://example.com', name: 'Test', domain: 'example.com' }], // getBrand
+      [{ id: 'brand-x', url: 'https://example.com', name: 'Test', domain: 'example.com', orgId: 'org-x' }], // getBrand
     ]);
 
     await extractFields({
       brandId: 'brand-x',
-      orgId: 'org-x',
-      parentRunId: undefined,
+      caller: { mode: 'org', orgId: 'org-x', userId: 'user-x', runId: 'run-x' },
       fields: [{ key: 'industry', description: 'industry vertical' }],
     });
 
     // Locate the extraction call (system prompt identifies it).
-    const extractionCall = mockChatComplete.mock.calls.find((call) => {
+    const extractionCall = mockChat.mock.calls.find((call) => {
       const params = call[0] as { systemPrompt?: string };
       return params.systemPrompt?.includes('brand information extraction');
     });

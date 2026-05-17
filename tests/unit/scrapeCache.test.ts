@@ -8,7 +8,7 @@ vi.mock('../../src/db', () => ({
   pageScrapeCache: { normalizedUrl: 'psc.normalizedUrl', content: 'psc.content', expiresAt: 'psc.expiresAt', url: 'psc.url', scrapedAt: 'psc.scrapedAt', updatedAt: 'psc.updatedAt' },
   urlMapCache: { normalizedSiteUrl: 'umc.normalizedSiteUrl', urls: 'umc.urls', expiresAt: 'umc.expiresAt', siteUrl: 'umc.siteUrl', mappedAt: 'umc.mappedAt', updatedAt: 'umc.updatedAt' },
 }));
-vi.mock('../../src/lib/chat-client', () => ({ chatComplete: vi.fn() }));
+vi.mock('../../src/lib/chat-client', () => ({ chat: vi.fn() }));
 vi.mock('../../src/lib/scraping-client', () => ({
   mapSiteUrls: vi.fn(),
   scrapeUrl: vi.fn(),

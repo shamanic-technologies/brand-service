@@ -54,8 +54,19 @@ All routes follow the standard 4-tier convention:
 
 Identity headers for org-scoped routes:
 - `X-Org-Id` (required) — internal org UUID from client-service
-- `X-User-Id` (optional) — internal user UUID
-- `X-Run-Id` (optional) — caller's run ID
+- `X-User-Id` (optional, but **required** for routes that hit chat-service: `POST /orgs/brands`, `POST /orgs/brands/extract-fields`, `POST /orgs/brands/extract-images`)
+- `X-Run-Id` (optional, but **required** for the same chat-service-bound routes)
+
+### chat-service dispatch
+
+The brand-service mirrors its inbound route tier when calling chat-service:
+
+| Inbound tier | chat-service endpoint | Headers forwarded |
+|--------------|----------------------|-------------------|
+| `/orgs/*` | `POST /complete` | `X-Org-Id`, `X-User-Id`, `X-Run-Id` + tracking |
+| `/internal/*` (lazy fills) | `POST /internal/platform-complete` | `X-API-Key` only |
+
+This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET /internal/brands/:id` populating a null `brands.name`) while keeping org-scoped flows fully tracked and billed. See `src/lib/chat-client.ts` (`Caller` union, `chat()` entry point).
 
 ## API Endpoints
 

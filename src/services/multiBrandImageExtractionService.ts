@@ -6,6 +6,7 @@
  */
 
 import { extractImages, getBrandForImages, ImageCategorySpec, ExtractedImageCategoryResult, ExtractedImage } from './imageExtractionService';
+import { OrgCaller } from '../lib/chat-client';
 
 interface Brand {
   id: string;
@@ -17,13 +18,10 @@ interface Brand {
 export interface MultiBrandExtractImagesOptions {
   brandIds: string[];
   categories: ImageCategorySpec[];
-  orgId: string;
-  userId?: string;
-  parentRunId: string;
-  campaignId?: string;
-  featureSlug?: string;
-  brandIdHeader?: string;
-  workflowSlug?: string;
+  /**
+   * Org caller — multi-brand image extraction is only exposed on `/orgs/*` routes.
+   */
+  caller: OrgCaller;
   scrapeCacheTtlDays?: number;
   maxWidth?: number;
   maxHeight?: number;
@@ -58,11 +56,7 @@ export interface MultiBrandImagesResponse {
 export async function multiBrandExtractImages(
   options: MultiBrandExtractImagesOptions,
 ): Promise<MultiBrandImagesResponse> {
-  const {
-    brandIds, categories, orgId, userId, parentRunId,
-    campaignId, featureSlug, brandIdHeader, workflowSlug,
-    scrapeCacheTtlDays, maxWidth, maxHeight,
-  } = options;
+  const { brandIds, categories, caller, scrapeCacheTtlDays, maxWidth, maxHeight } = options;
 
   // Validate all brands first
   const brandLookups = await Promise.all(brandIds.map((id) => getBrandForImages(id)));
@@ -99,13 +93,7 @@ export async function multiBrandExtractImages(
       extractImages({
         brandId,
         categories,
-        orgId,
-        userId,
-        parentRunId,
-        campaignId,
-        featureSlug,
-        brandIdHeader,
-        workflowSlug,
+        caller,
         scrapeCacheTtlDays,
         maxWidth,
         maxHeight,
