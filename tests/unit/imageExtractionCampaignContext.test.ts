@@ -61,7 +61,7 @@ vi.mock('../../src/lib/cloudflare-client', () => ({
 }));
 
 vi.mock('../../src/lib/chat-client', () => ({
-  chatComplete: vi.fn(),
+  chat: vi.fn(),
 }));
 
 vi.mock('./../../src/services/scrapeOrchestrator', () => ({
@@ -92,10 +92,10 @@ vi.mock('axios', () => ({
 
 import { extractImages } from '../../src/services/imageExtractionService';
 import { getCampaignFeatureInputs } from '../../src/lib/campaign-client';
-import { chatComplete } from '../../src/lib/chat-client';
+import { chat } from '../../src/lib/chat-client';
 
 const mockedGetCampaignFeatureInputs = vi.mocked(getCampaignFeatureInputs);
-const mockedChatComplete = vi.mocked(chatComplete);
+const mockedChat = vi.mocked(chat);
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ describe('image extraction — campaign context in vision analysis', () => {
 
     // With ≤ 10 URLs, selectRelevantUrlsForImages short-circuits (no LLM call).
     // So the only chatComplete call is the vision analysis.
-    mockedChatComplete.mockResolvedValueOnce({
+    mockedChat.mockResolvedValueOnce({
       content: '{"scores":{"logo":0.9},"description":"A hero image"}',
       json: { scores: { logo: 0.9 }, description: 'A hero image' },
       tokensInput: 100,
@@ -121,15 +121,12 @@ describe('image extraction — campaign context in vision analysis', () => {
     await extractImages({
       brandId: 'brand-1',
       categories: [{ key: 'logo', description: 'Company logo', maxCount: 1 }],
-      orgId: 'org-1',
-      userId: 'user-1',
-      parentRunId: 'parent-run-1',
-      campaignId: 'campaign-1',
+      caller: { mode: 'org', orgId: 'org-1', userId: 'user-1', runId: 'parent-run-1', campaignId: 'campaign-1' },
     });
 
-    expect(mockedChatComplete).toHaveBeenCalledTimes(1);
+    expect(mockedChat).toHaveBeenCalledTimes(1);
 
-    const visionCall = mockedChatComplete.mock.calls[0];
+    const visionCall = mockedChat.mock.calls[0];
     const visionMessage = visionCall[0].message;
 
     // Campaign context must appear in the vision prompt
@@ -141,7 +138,7 @@ describe('image extraction — campaign context in vision analysis', () => {
   it('should NOT include campaign context block when no campaignId', async () => {
     mockedGetCampaignFeatureInputs.mockResolvedValue(null);
 
-    mockedChatComplete.mockResolvedValueOnce({
+    mockedChat.mockResolvedValueOnce({
       content: '{"scores":{"logo":0.5},"description":"An image"}',
       json: { scores: { logo: 0.5 }, description: 'An image' },
       tokensInput: 100,
@@ -152,15 +149,12 @@ describe('image extraction — campaign context in vision analysis', () => {
     await extractImages({
       brandId: 'brand-1',
       categories: [{ key: 'logo', description: 'Company logo', maxCount: 1 }],
-      orgId: 'org-1',
-      userId: 'user-1',
-      parentRunId: 'parent-run-1',
-      // no campaignId
+      caller: { mode: 'org', orgId: 'org-1', userId: 'user-1', runId: 'parent-run-1' },
     });
 
-    expect(mockedChatComplete).toHaveBeenCalledTimes(1);
+    expect(mockedChat).toHaveBeenCalledTimes(1);
 
-    const visionCall = mockedChatComplete.mock.calls[0];
+    const visionCall = mockedChat.mock.calls[0];
     const visionMessage = visionCall[0].message;
 
     expect(visionMessage).not.toContain('Campaign context');

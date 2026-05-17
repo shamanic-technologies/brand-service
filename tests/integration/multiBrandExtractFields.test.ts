@@ -89,4 +89,36 @@ describe('POST /brands/extract-fields (multi-brand, header-based)', () => {
     expect(res.status).toBe(401);
   });
 
+  it('returns 400 when x-user-id header is missing', async () => {
+    const res = await request(app)
+      .post('/orgs/brands/extract-fields')
+      .set({
+        'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
+        'X-Org-Id': '00000000-0000-0000-0000-000000000000',
+        'X-Run-Id': '00000000-0000-0000-0000-000000000000',
+        'X-Brand-Id': '00000000-0000-0000-0000-000000000001',
+        'Content-Type': 'application/json',
+      })
+      .send({ fields: [{ key: 'industry', description: 'test' }] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('x-user-id header is required');
+  });
+
+  it('returns 400 when x-run-id header is missing', async () => {
+    const res = await request(app)
+      .post('/orgs/brands/extract-fields')
+      .set({
+        'X-API-Key': process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key',
+        'X-Org-Id': '00000000-0000-0000-0000-000000000000',
+        'X-User-Id': '00000000-0000-0000-0000-000000000000',
+        'X-Brand-Id': '00000000-0000-0000-0000-000000000001',
+        'Content-Type': 'application/json',
+      })
+      .send({ fields: [{ key: 'industry', description: 'test' }] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('x-run-id header is required');
+  });
+
 });

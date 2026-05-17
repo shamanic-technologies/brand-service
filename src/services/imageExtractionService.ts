@@ -12,7 +12,7 @@ import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
 import axios from 'axios';
 import { db, brands, brandExtractedImages } from '../db';
-import { chatComplete, TrackingHeaders } from '../lib/chat-client';
+import { chat, OrgCaller } from '../lib/chat-client';
 import { ScrapingTrackingContext } from '../lib/scraping-client';
 import { uploadToCloudflare, isCloudflareConfigured, CloudflareTrackingHeaders } from '../lib/cloudflare-client';
 import { createRun, updateRun } from '../lib/runs-client';
@@ -121,7 +121,7 @@ async function probeImage(url: string): Promise<{ contentType: string; sizeBytes
 async function analyzeImageWithVision(
   candidate: ImageCandidate,
   categories: ImageCategorySpec[],
-  tracking: TrackingHeaders,
+  chatCaller: OrgCaller,
   campaignContext: string | null,
 ): Promise<VisionAnalysis> {
   const categoryDescriptions = categories
@@ -132,7 +132,7 @@ async function analyzeImageWithVision(
     ? `\n\nCampaign context (use this to refine your scoring — prioritize images that align with this campaign):\n${campaignContext}\n`
     : '';
 
-  const result = await chatComplete(
+  const result = await chat(
     {
       systemPrompt:
         'You are an image classification assistant for brand/company imagery. ' +
@@ -155,7 +155,7 @@ async function analyzeImageWithVision(
       temperature: 0,
       maxTokens: 512,
     },
-    tracking,
+    chatCaller,
   );
 
   if (result.json) {
@@ -174,7 +174,7 @@ async function analyzeImageWithVision(
 async function batchAnalyzeImages(
   candidates: ImageCandidate[],
   categories: ImageCategorySpec[],
-  tracking: TrackingHeaders,
+  chatCaller: OrgCaller,
   campaignContext: string | null,
 ): Promise<Array<{ candidate: ImageCandidate; analysis: VisionAnalysis }>> {
   const results: Array<{ candidate: ImageCandidate; analysis: VisionAnalysis }> = [];
@@ -184,7 +184,7 @@ async function batchAnalyzeImages(
     const batch = candidates.slice(i, i + VISION_BATCH_SIZE);
     const batchResults = await Promise.allSettled(
       batch.map(async (candidate) => {
-        const analysis = await analyzeImageWithVision(candidate, categories, tracking, campaignContext);
+        const analysis = await analyzeImageWithVision(candidate, categories, chatCaller, campaignContext);
         return { candidate, analysis };
       }),
     );
@@ -205,7 +205,7 @@ async function batchAnalyzeImages(
 async function selectRelevantUrlsForImages(
   allUrls: string[],
   categories: ImageCategorySpec[],
-  tracking: TrackingHeaders,
+  chatCaller: OrgCaller,
   campaignContext: string | null,
 ): Promise<string[]> {
   if (allUrls.length <= 10) return allUrls;
@@ -219,7 +219,7 @@ async function selectRelevantUrlsForImages(
     : '';
 
   try {
-    const result = await chatComplete(
+    const result = await chat(
       {
         systemPrompt:
           'You are a URL selection assistant. Given a list of website URLs and image categories to find, ' +
@@ -236,7 +236,7 @@ async function selectRelevantUrlsForImages(
         temperature: 0,
         maxTokens: 4096,
       },
-      tracking,
+      chatCaller,
     );
 
     if (result.json) {
@@ -358,13 +358,12 @@ async function getBrand(brandId: string): Promise<Brand | null> {
 export interface ExtractImagesOptions {
   brandId: string;
   categories: ImageCategorySpec[];
-  orgId: string;
-  userId?: string;
-  parentRunId: string;
-  campaignId?: string;
-  featureSlug?: string;
-  brandIdHeader?: string;
-  workflowSlug?: string;
+  /**
+   * Org caller — image extraction is only exposed on `/orgs/*` routes and
+   * requires user identity (vision LLM is billed per-org). Platform mode is
+   * not supported here.
+   */
+  caller: OrgCaller;
   scrapeCacheTtlDays?: number;
   maxWidth?: number;
   maxHeight?: number;
@@ -375,11 +374,16 @@ export { getBrand as getBrandForImages };
 export async function extractImages(
   options: ExtractImagesOptions,
 ): Promise<ExtractedImageCategoryResult[]> {
-  const {
-    brandId, categories, orgId, userId, parentRunId,
-    campaignId, featureSlug, brandIdHeader, workflowSlug,
-  } = options;
+  const { brandId, categories, caller } = options;
   const scrapeTtlDays = options.scrapeCacheTtlDays ?? DEFAULT_SCRAPE_CACHE_TTL_DAYS;
+
+  const orgId = caller.orgId;
+  const userId = caller.userId;
+  const parentRunId = caller.runId;
+  const campaignId = caller.campaignId;
+  const featureSlug = caller.featureSlug;
+  const brandIdHeader = caller.brandIdHeader;
+  const workflowSlug = caller.workflowSlug;
 
   const categoryKeys = categories.map((c) => c.key);
 
@@ -435,10 +439,10 @@ export async function extractImages(
     workflowSlug,
   });
 
-  const tracking: TrackingHeaders = {
-    orgId, userId, runId: run.id,
-    campaignId, featureSlug, brandId: brandIdHeader, workflowSlug,
-  };
+  // Chat caller for downstream chat-service calls. Image extraction always uses
+  // org mode (mounted on /orgs/* with full identity). Swap caller.runId for our
+  // own run.id so chat-service runs nest under THIS brand-service run.
+  const chatCaller: OrgCaller = { ...caller, runId: run.id };
 
   const scrapingTracking: ScrapingTrackingContext = {
     brandId, orgId, userId, workflowSlug,
@@ -481,7 +485,7 @@ export async function extractImages(
     const allUrls = await mapBrandUrls(brand.url, brandId, scrapeTtlDays, scrapingTracking);
 
     // 6. Select relevant URLs for images
-    const selectedUrls = await selectRelevantUrlsForImages(allUrls, missingCategories, tracking, campaignContext);
+    const selectedUrls = await selectRelevantUrlsForImages(allUrls, missingCategories, chatCaller, campaignContext);
     console.log(`[brand-service] [${brandId}] Selected ${selectedUrls.length} URLs for image extraction`);
 
     // 7. Scrape pages (reusing shared cache)
@@ -537,7 +541,7 @@ export async function extractImages(
 
     // 10. Vision analysis
     console.log(`[brand-service] [${brandId}] Analyzing ${validCandidates.length} images with vision...`);
-    const analyzed = await batchAnalyzeImages(validCandidates, missingCategories, tracking, campaignContext);
+    const analyzed = await batchAnalyzeImages(validCandidates, missingCategories, chatCaller, campaignContext);
     console.log(`[brand-service] [${brandId}] Vision analysis returned ${analyzed.length} results`);
 
     // 11. Select best images per category

@@ -11,9 +11,9 @@ vi.mock('../../src/lib/runs-client', () => ({
   addCosts: vi.fn(),
 }));
 
-const mockChatComplete = vi.fn();
+const mockChat = vi.fn();
 vi.mock('../../src/lib/chat-client', () => ({
-  chatComplete: (...args: unknown[]) => mockChatComplete(...args),
+  chat: (...args: unknown[]) => mockChat(...args),
 }));
 
 const mockMapSiteUrls = vi.fn();
@@ -67,7 +67,8 @@ vi.mock('../../src/db', () => {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('Mandatory run tracking — extractFields', () => {
-  const brandRow = { id: 'brand-1', url: 'https://example.com', name: 'Test', domain: 'example.com' };
+  const brandRow = { id: 'brand-1', url: 'https://example.com', name: 'Test', domain: 'example.com', orgId: 'org_123' };
+  const orgCaller = { mode: 'org' as const, orgId: 'org_123', userId: 'user_456', runId: 'parent-run-1' };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,7 +77,7 @@ describe('Mandatory run tracking — extractFields', () => {
     mockUpdateRun.mockResolvedValue({ id: 'run-123', status: 'completed' });
     mockMapSiteUrls.mockResolvedValue(['https://example.com']);
     mockScrapeUrl.mockResolvedValue('page content here');
-    mockChatComplete.mockResolvedValue({
+    mockChat.mockResolvedValue({
       content: '{"industry":"SaaS"}',
       json: { industry: 'SaaS' },
       tokensInput: 100,
@@ -99,8 +100,7 @@ describe('Mandatory run tracking — extractFields', () => {
       extractFields({
         brandId: 'brand-1',
         fields: [{ key: 'industry', description: 'Brand industry' }],
-        orgId: 'org_123',
-        parentRunId: 'parent-run-1',
+        caller: orgCaller,
       }),
     ).rejects.toThrow('runs-service POST /v1/runs failed: 401');
   });
@@ -116,8 +116,7 @@ describe('Mandatory run tracking — extractFields', () => {
     const results = await extractFields({
       brandId: 'brand-1',
       fields: [{ key: 'industry', description: 'Brand industry' }],
-      orgId: 'org_123',
-      parentRunId: 'parent-run-1',
+      caller: orgCaller,
     });
 
     expect(results).toHaveLength(1);
@@ -147,8 +146,7 @@ describe('Mandatory run tracking — extractFields', () => {
     const results = await extractFields({
       brandId: 'brand-1',
       fields: [{ key: 'industry', description: 'Brand industry' }],
-      orgId: 'org_123',
-      parentRunId: 'parent-run-1',
+      caller: orgCaller,
     });
 
     expect(results).toHaveLength(1);
@@ -172,9 +170,7 @@ describe('Mandatory run tracking — extractFields', () => {
     await extractFields({
       brandId: 'brand-1',
       fields: [{ key: 'industry', description: 'Brand industry' }],
-      orgId: 'org_123',
-      parentRunId: 'parent-run-1',
-      workflowSlug: 'discovery-campaign',
+      caller: { ...orgCaller, workflowSlug: 'discovery-campaign' },
     });
 
     expect(mockCreateRun).toHaveBeenCalledWith(expect.objectContaining({
@@ -193,10 +189,7 @@ describe('Mandatory run tracking — extractFields', () => {
     await extractFields({
       brandId: 'brand-1',
       fields: [{ key: 'industry', description: 'Brand industry' }],
-      orgId: 'org_123',
-      userId: 'user_456',
-      parentRunId: 'parent-run-1',
-      workflowSlug: 'discovery-campaign',
+      caller: { ...orgCaller, workflowSlug: 'discovery-campaign' },
     });
 
     // mapSiteUrls should receive tracking context
@@ -223,7 +216,7 @@ describe('Mandatory run tracking — extractFields', () => {
   });
 
   it('should map both subdomain and root domain in parallel', async () => {
-    const subdomainBrand = { id: 'brand-1', url: 'https://bnb.sortes.fun/path', name: 'Test', domain: 'bnb.sortes.fun' };
+    const subdomainBrand = { id: 'brand-1', url: 'https://bnb.sortes.fun/path', name: 'Test', domain: 'bnb.sortes.fun', orgId: 'org_123' };
     setDbSequence([
       [],              // no cached fields
       [subdomainBrand], // getBrand
@@ -238,8 +231,7 @@ describe('Mandatory run tracking — extractFields', () => {
     await extractFields({
       brandId: 'brand-1',
       fields: [{ key: 'industry', description: 'Brand industry' }],
-      orgId: 'org_123',
-      parentRunId: 'parent-run-1',
+      caller: orgCaller,
     });
 
     expect(mockMapSiteUrls).toHaveBeenCalledTimes(2);
@@ -266,8 +258,7 @@ describe('Mandatory run tracking — extractFields', () => {
     const results = await extractFields({
       brandId: 'brand-1',
       fields: [{ key: 'industry', description: 'Brand industry' }],
-      orgId: 'org_123',
-      parentRunId: 'parent-run-1',
+      caller: orgCaller,
     });
 
     expect(results).toHaveLength(1);
@@ -293,8 +284,7 @@ describe('Mandatory run tracking — extractFields', () => {
     await extractFields({
       brandId: 'brand-1',
       fields: [{ key: 'industry', description: 'Brand industry' }],
-      orgId: 'org_123',
-      parentRunId: 'parent-run-1',
+      caller: orgCaller,
     });
 
     expect(logSpy).toHaveBeenCalledWith(
@@ -315,8 +305,7 @@ describe('Mandatory run tracking — extractFields', () => {
     await extractFields({
       brandId: 'brand-1',
       fields: [{ key: 'industry', description: 'Brand industry' }],
-      orgId: 'org_123',
-      parentRunId: 'parent-run-1',
+      caller: orgCaller,
     });
 
     expect(mockMapSiteUrls).toHaveBeenCalledTimes(1);

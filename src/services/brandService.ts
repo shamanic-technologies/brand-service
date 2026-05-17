@@ -10,6 +10,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db, brands } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { extractFields } from './fieldExtractionService';
+import { Caller, OrgCaller } from '../lib/chat-client';
 
 interface Brand {
   id: string;
@@ -48,10 +49,15 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
  *
  * The LLM prompt is instructed to return "Unknown" rather than null/empty,
  * so the return value is always a non-empty string.
+ *
+ * @param caller — Mirrors the brand-service caller endpoint:
+ *   - `OrgCaller` when invoked from a `/orgs/*` route → chat-service `/complete`.
+ *   - `PlatformCaller` when invoked from an `/internal/*` route → chat-service
+ *     `/internal/platform-complete` (platform-billed, no run tracking).
  */
 export async function ensureBrandName(
   brandId: string,
-  parentRunId?: string,
+  caller: Caller,
 ): Promise<string> {
   const [row] = await db
     .select({
@@ -82,9 +88,8 @@ export async function ensureBrandName(
 
   const results = await extractFields({
     brandId,
-    orgId: row.orgId,
-    parentRunId,
     fields: [{ key: BRAND_NAME_FIELD_KEY, description: BRAND_NAME_FIELD_DESCRIPTION }],
+    caller,
   });
 
   const raw = results[0]?.value;
@@ -104,10 +109,15 @@ export async function ensureBrandName(
   return name;
 }
 
+/**
+ * Find an existing brand by `orgId + domain` or create one, then lazy-fill its name.
+ *
+ * Org-only — exposed via `POST /orgs/brands` which always has a user-identified caller.
+ */
 export async function getOrCreateBrand(
   orgId: string,
   url: string,
-  parentRunId?: string,
+  caller: OrgCaller,
 ): Promise<Brand> {
   const normalizedUrl = normalizeUrl(url);
   const domain = extractDomain(normalizedUrl);
@@ -131,7 +141,7 @@ export async function getOrCreateBrand(
       brand.url = normalizedUrl;
     }
     console.log(`[brand-service] Found existing brand by orgId+domain: ${brand.id}`);
-    brand.name = await ensureBrandName(brand.id, parentRunId);
+    brand.name = await ensureBrandName(brand.id, caller);
     return brand;
   }
 
@@ -150,7 +160,7 @@ export async function getOrCreateBrand(
   if (inserted.length > 0) {
     const brand = inserted[0];
     console.log(`[brand-service] Created NEW brand for org ${orgId} with domain ${domain}: ${brand.id}`);
-    brand.name = await ensureBrandName(brand.id, parentRunId);
+    brand.name = await ensureBrandName(brand.id, caller);
     return brand;
   }
 
@@ -162,6 +172,6 @@ export async function getOrCreateBrand(
     .limit(1);
 
   console.log(`[brand-service] Re-fetched brand after conflict for org ${orgId}: ${refetched.id}`);
-  refetched.name = await ensureBrandName(refetched.id, parentRunId);
+  refetched.name = await ensureBrandName(refetched.id, caller);
   return refetched;
 }
