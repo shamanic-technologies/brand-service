@@ -3,7 +3,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db, brands } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand } from '../services/brandService';
+import { getOrCreateBrand, ensureBrandName } from '../services/brandService';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema } from '../schemas';
 
@@ -15,7 +15,9 @@ export const orgRouter = Router();
 
 /**
  * POST /orgs/brands
- * Upsert a brand by orgId + URL. Lightweight — no scraping or AI.
+ * Upsert a brand by orgId + URL. Triggers a synchronous scrape via
+ * extractFields when the brand is new (or had a null name) so the
+ * returned `name` is always populated.
  * Returns { brandId, domain, name, created }
  */
 orgRouter.post('/brands', async (req: Request, res: Response) => {
@@ -44,7 +46,7 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
       .where(and(eq(brands.orgId, orgId), eq(brands.domain, domain)))
       .limit(1);
 
-    const brand = await getOrCreateBrand(orgId, url);
+    const brand = await getOrCreateBrand(orgId, url, req.runId);
 
     res.json({
       brandId: brand.id,
@@ -138,6 +140,11 @@ internalRouter.get('/brands/:id', async (req: Request, res: Response) => {
 
     if (!brand) {
       return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    if (!brand.name) {
+      const runIdHeader = req.headers['x-run-id'] as string | undefined;
+      brand.name = await ensureBrandName(id, runIdHeader);
     }
 
     res.json({ brand });

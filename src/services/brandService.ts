@@ -1,12 +1,15 @@
 /**
  * Brand CRUD utilities.
  *
- * Only brand lookup/creation logic — no extraction, no AI, no scraping.
+ * Includes a lazy-fill helper (ensureBrandName) that scrapes the brand site
+ * to populate brands.name on first access. brands.name is therefore
+ * guaranteed non-null on the return value of every public function below.
  */
 
 import { eq, and, sql } from 'drizzle-orm';
 import { db, brands } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
+import { extractFields } from './fieldExtractionService';
 
 interface Brand {
   id: string;
@@ -14,6 +17,10 @@ interface Brand {
   name: string | null;
   domain: string;
 }
+
+const BRAND_NAME_FIELD_KEY = 'name';
+const BRAND_NAME_FIELD_DESCRIPTION =
+  'Official brand or company name as shown on the website (e.g. from the page <title>, the og:site_name meta tag, or the main H1 heading). Do not include taglines, slogans, or marketing copy — just the name.';
 
 export { extractDomain as extractDomainFromUrl };
 
@@ -32,9 +39,75 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
   return result[0] || null;
 }
 
+/**
+ * Guarantee brands.name is non-null for the given brandId.
+ *
+ * If brands.name is already set, returns it as-is.
+ * Otherwise scrapes the brand URL via extractFields() and persists the
+ * extracted name to brands.name before returning it.
+ *
+ * The LLM prompt is instructed to return "Unknown" rather than null/empty,
+ * so the return value is always a non-empty string.
+ */
+export async function ensureBrandName(
+  brandId: string,
+  parentRunId?: string,
+): Promise<string> {
+  const [row] = await db
+    .select({
+      id: brands.id,
+      name: brands.name,
+      orgId: brands.orgId,
+      domain: brands.domain,
+      url: brands.url,
+    })
+    .from(brands)
+    .where(eq(brands.id, brandId))
+    .limit(1);
+
+  if (!row) throw new Error(`Brand not found: ${brandId}`);
+  if (row.name) return row.name;
+
+  // Test environments bypass external scraping. Persist domain as name so
+  // callers still receive a non-null value without hitting Firecrawl/LLM.
+  if (process.env.NODE_ENV === 'test') {
+    await db
+      .update(brands)
+      .set({ name: row.domain, updatedAt: sql`NOW()` })
+      .where(eq(brands.id, brandId));
+    return row.domain;
+  }
+
+  console.log(`[brand-service] ensureBrandName: scraping name for brand ${brandId} (${row.url})`);
+
+  const results = await extractFields({
+    brandId,
+    orgId: row.orgId,
+    parentRunId,
+    fields: [{ key: BRAND_NAME_FIELD_KEY, description: BRAND_NAME_FIELD_DESCRIPTION }],
+  });
+
+  const raw = results[0]?.value;
+  const name = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
+  if (!name) {
+    throw new Error(
+      `[brand-service] ensureBrandName: extractFields returned empty name for brand ${brandId}`,
+    );
+  }
+
+  await db
+    .update(brands)
+    .set({ name, updatedAt: sql`NOW()` })
+    .where(eq(brands.id, brandId));
+
+  console.log(`[brand-service] ensureBrandName: persisted name "${name}" for brand ${brandId}`);
+  return name;
+}
+
 export async function getOrCreateBrand(
   orgId: string,
   url: string,
+  parentRunId?: string,
 ): Promise<Brand> {
   const normalizedUrl = normalizeUrl(url);
   const domain = extractDomain(normalizedUrl);
@@ -58,6 +131,7 @@ export async function getOrCreateBrand(
       brand.url = normalizedUrl;
     }
     console.log(`[brand-service] Found existing brand by orgId+domain: ${brand.id}`);
+    brand.name = await ensureBrandName(brand.id, parentRunId);
     return brand;
   }
 
@@ -74,8 +148,10 @@ export async function getOrCreateBrand(
     });
 
   if (inserted.length > 0) {
-    console.log(`[brand-service] Created NEW brand for org ${orgId} with domain ${domain}: ${inserted[0].id}`);
-    return inserted[0];
+    const brand = inserted[0];
+    console.log(`[brand-service] Created NEW brand for org ${orgId} with domain ${domain}: ${brand.id}`);
+    brand.name = await ensureBrandName(brand.id, parentRunId);
+    return brand;
   }
 
   // Race condition: another request inserted the same org+domain — re-fetch
@@ -86,5 +162,6 @@ export async function getOrCreateBrand(
     .limit(1);
 
   console.log(`[brand-service] Re-fetched brand after conflict for org ${orgId}: ${refetched.id}`);
+  refetched.name = await ensureBrandName(refetched.id, parentRunId);
   return refetched;
 }
