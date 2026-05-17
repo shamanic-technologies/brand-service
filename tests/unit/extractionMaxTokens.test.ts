@@ -30,7 +30,7 @@ describe('URL selection prompts request JSON object format', () => {
   it('field extraction URL selection prompt asks for JSON object with "urls" key', () => {
     // The systemPrompt and message in selectRelevantUrls should reference {"urls": [...]}
     const selectBlock = fieldExtractionSrc.match(
-      /selectRelevantUrls[\s\S]*?chatComplete[\s\S]*?\},\s*\n\s*tracking/,
+      /selectRelevantUrls[\s\S]*?chat\([\s\S]*?\},\s*\n\s*chatCaller/,
     );
     expect(selectBlock).not.toBeNull();
     expect(selectBlock![0]).toContain('"urls"');
@@ -39,7 +39,7 @@ describe('URL selection prompts request JSON object format', () => {
 
   it('image extraction URL selection prompt asks for JSON object with "urls" key', () => {
     const selectBlock = imageExtractionSrc.match(
-      /selectRelevantUrlsForImages[\s\S]*?chatComplete[\s\S]*?\},\s*\n\s*tracking/,
+      /selectRelevantUrlsForImages[\s\S]*?chat\([\s\S]*?\},\s*\n\s*chatCaller/,
     );
     expect(selectBlock).not.toBeNull();
     expect(selectBlock![0]).toContain('"urls"');
@@ -73,7 +73,6 @@ describe('extraction maxTokens regression', () => {
 
   it('URL selection call should use maxTokens >= 4096 (was 1024, caused 502)', () => {
     // The selectRelevantUrls function uses google/flash for URL selection
-    // Find the chatComplete call in selectRelevantUrls (uses model: 'flash')
     const urlSelectionBlock = fieldExtractionSrc.match(
       /selectRelevantUrls[\s\S]*?model:\s*'flash'[\s\S]*?maxTokens:\s*(\d+)/,
     );
@@ -83,8 +82,6 @@ describe('extraction maxTokens regression', () => {
   });
 
   it('field extraction call should use maxTokens >= 16384 (was 4096, caused truncated JSON)', () => {
-    // The extractFieldsFromContent function uses google/pro for extraction
-    // Find the chatComplete call that uses model: 'pro' (extraction, not URL selection)
     const extractionBlock = fieldExtractionSrc.match(
       /extractFieldsFromContent[\s\S]*?model:\s*'pro'[\s\S]*?maxTokens:\s*(\d+)/,
     );
@@ -94,7 +91,6 @@ describe('extraction maxTokens regression', () => {
   });
 
   it('image URL selection call should use maxTokens >= 4096 (was 1024, caused 502)', () => {
-    // The selectRelevantUrlsForImages function uses google/flash for image URL selection
     const imageUrlSelectionBlock = imageExtractionSrc.match(
       /selectRelevantUrlsForImages[\s\S]*?model:\s*'flash'[\s\S]*?maxTokens:\s*(\d+)/,
     );
@@ -104,7 +100,6 @@ describe('extraction maxTokens regression', () => {
   });
 
   it('multi-brand consolidation call should use maxTokens >= 16384 (was 4096)', () => {
-    // The consolidateFields function uses google/pro for consolidation
     const consolidationBlock = multiBrandSrc.match(
       /consolidateFields[\s\S]*?model:\s*'pro'[\s\S]*?maxTokens:\s*(\d+)/,
     );
@@ -115,20 +110,20 @@ describe('extraction maxTokens regression', () => {
 });
 
 describe('URL selection fallback behavior', () => {
-  const { mockChatComplete } = vi.hoisted(() => ({
-    mockChatComplete: vi.fn(),
+  const { mockChat } = vi.hoisted(() => ({
+    mockChat: vi.fn(),
   }));
 
   vi.mock('../../src/lib/chat-client', () => ({
-    chatComplete: (...args: unknown[]) => mockChatComplete(...args),
+    chat: (...args: unknown[]) => mockChat(...args),
   }));
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('chatComplete for URL selection should receive maxTokens: 4096', async () => {
-    mockChatComplete.mockResolvedValue({
+  it('chat() for URL selection should receive maxTokens: 4096', async () => {
+    mockChat.mockResolvedValue({
       content: '["https://example.com"]',
       json: ['https://example.com'],
       tokensInput: 50,
@@ -136,13 +131,10 @@ describe('URL selection fallback behavior', () => {
       model: 'gemini-flash',
     });
 
-    // Import the module to get the selectRelevantUrls function
-    // Since it's not exported, we test indirectly via chatComplete mock args
-    const { chatComplete } = await import('../../src/lib/chat-client');
+    const { chat } = await import('../../src/lib/chat-client');
 
-    // Simulate what selectRelevantUrls does
     const urls = Array.from({ length: 20 }, (_, i) => `https://example.com/page-${i}`);
-    await chatComplete(
+    await chat(
       {
         systemPrompt: 'test',
         message: `URLs:\n${urls.map((u, i) => `${i + 1}. ${u}`).join('\n')}`,
@@ -152,9 +144,9 @@ describe('URL selection fallback behavior', () => {
         temperature: 0,
         maxTokens: 4096,
       },
-      { orgId: 'test' },
+      { mode: 'org', orgId: 'org-x', userId: 'user-x', runId: 'run-x' },
     );
 
-    expect(mockChatComplete.mock.calls[0][0].maxTokens).toBe(4096);
+    expect(mockChat.mock.calls[0][0].maxTokens).toBe(4096);
   });
 });

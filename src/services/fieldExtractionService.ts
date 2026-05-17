@@ -13,7 +13,7 @@
 
 import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
 import { db, brands, brandExtractedFields, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
-import { chatComplete, TrackingHeaders } from '../lib/chat-client';
+import { chat, Caller, OrgCaller } from '../lib/chat-client';
 import {
   mapSiteUrls,
   scrapeUrl,
@@ -164,6 +164,7 @@ interface Brand {
   url: string | null;
   name: string | null;
   domain: string | null;
+  orgId: string;
 }
 
 // ─── Field cache ─────────────────────────────────────────────────────────────
@@ -208,7 +209,7 @@ async function getCachedFields(
 async function selectRelevantUrls(
   allUrls: string[],
   fieldsDescription: string,
-  tracking: TrackingHeaders,
+  chatCaller: Caller,
   campaignContext: string | null,
 ): Promise<string[]> {
   if (allUrls.length <= 10) return allUrls;
@@ -218,7 +219,7 @@ async function selectRelevantUrls(
     : '';
 
   try {
-    const result = await chatComplete(
+    const result = await chat(
       {
         systemPrompt:
           'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON object with a "urls" key containing an array of URL strings.',
@@ -229,7 +230,7 @@ async function selectRelevantUrls(
         temperature: 0,
         maxTokens: 4096,
       },
-      tracking,
+      chatCaller,
     );
 
     if (result.json) {
@@ -243,7 +244,7 @@ async function selectRelevantUrls(
     const match = result.content.match(/\[[\s\S]*\]/);
     if (match) return JSON.parse(match[0]).slice(0, 10);
   } catch (error: any) {
-    console.error('[field-extraction] URL selection error:', error.message);
+    console.error('[brand-service] URL selection error:', error.message);
   }
 
   // Fallback: if AI selection fails, use first 10 URLs (homepage + top-level pages)
@@ -255,7 +256,7 @@ async function selectRelevantUrls(
 async function extractFieldsFromContent(
   pageContents: { url: string; content: string }[],
   fields: FieldSpec[],
-  tracking: TrackingHeaders,
+  chatCaller: Caller,
   campaignContext: string | null,
 ): Promise<Record<string, unknown>> {
   const combinedContent = pageContents
@@ -271,7 +272,7 @@ async function extractFieldsFromContent(
     ? `\n\nCampaign context (use this to guide and refine your extraction):\n${campaignContext}\n`
     : '';
 
-  const result = await chatComplete(
+  const result = await chat(
     {
       systemPrompt:
         'You are a brand information extraction assistant. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys. NEVER return null, undefined, or empty values — if information is not present in the content, return the string "Unknown" for string fields and ["Unknown"] for array fields.',
@@ -283,7 +284,7 @@ async function extractFieldsFromContent(
       maxTokens: 24000,
       thinkingBudget: 8000,
     },
-    tracking,
+    chatCaller,
   );
 
   if (result.json) return result.json;
@@ -362,6 +363,7 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
+      orgId: brands.orgId,
     })
     .from(brands)
     .where(eq(brands.id, brandId))
@@ -373,13 +375,15 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
 export interface ExtractFieldsOptions {
   brandId: string;
   fields: FieldSpec[];
-  orgId: string;
-  userId?: string;
-  parentRunId?: string;
-  campaignId?: string;
-  featureSlug?: string;
-  brandIdHeader?: string;
-  workflowSlug?: string;
+  /**
+   * Identifies the upstream caller of brand-service.
+   * - `mode: 'org'` (org-scoped routes): `caller.runId` is the upstream run id. extractFields
+   *   creates its own brand-service run as a child of `caller.runId` and forwards its OWN
+   *   run.id to chat-service as x-run-id.
+   * - `mode: 'platform'` (internal routes): chat-service is hit via /internal/platform-complete
+   *   with only x-api-key (no org/user/run tracking).
+   */
+  caller: Caller;
   scrapeCacheTtlDays?: number;
   resetCache?: boolean;
 }
@@ -387,8 +391,10 @@ export interface ExtractFieldsOptions {
 export async function extractFields(
   options: ExtractFieldsOptions,
 ): Promise<ExtractedFieldResult[]> {
-  const { brandId, fields, orgId, userId, parentRunId, campaignId, featureSlug, brandIdHeader, workflowSlug, resetCache } = options;
+  const { brandId, fields, caller, resetCache } = options;
   const scrapeTtlDays = options.scrapeCacheTtlDays ?? DEFAULT_SCRAPE_CACHE_TTL_DAYS;
+
+  const campaignId = caller.mode === 'org' ? caller.campaignId : undefined;
 
   const fieldKeys = fields.map((f) => f.key);
 
@@ -397,7 +403,7 @@ export async function extractFields(
   let missingFields: FieldSpec[];
 
   if (resetCache) {
-    console.log(`[${brandId}] resetCache=true — bypassing all caches, re-extracting ${fields.length} fields`);
+    console.log(`[brand-service] [${brandId}] resetCache=true — bypassing all caches, re-extracting ${fields.length} fields`);
     missingFields = fields;
   } else {
     const cached = await getCachedFields(brandId, fieldKeys, campaignId);
@@ -421,12 +427,12 @@ export async function extractFields(
 
     // Log cache results
     if (cachedResults.length > 0 && missingFields.length === 0) {
-      console.log(`[${brandId}] All ${cachedResults.length} fields served from cache (keys: ${cachedResults.map(r => r.key).join(', ')})`);
+      console.log(`[brand-service] [${brandId}] All ${cachedResults.length} fields served from cache (keys: ${cachedResults.map(r => r.key).join(', ')})`);
       return cachedResults;
     } else if (cachedResults.length > 0) {
-      console.log(`[${brandId}] Field cache: ${cachedResults.length} cached, ${missingFields.length} need extraction (missing: ${missingFields.map(f => f.key).join(', ')})`);
+      console.log(`[brand-service] [${brandId}] Field cache: ${cachedResults.length} cached, ${missingFields.length} need extraction (missing: ${missingFields.map(f => f.key).join(', ')})`);
     } else {
-      console.log(`[${brandId}] Field cache: 0/${fields.length} cached, extracting all`);
+      console.log(`[brand-service] [${brandId}] Field cache: 0/${fields.length} cached, extracting all`);
     }
   }
 
@@ -435,23 +441,42 @@ export async function extractFields(
   if (!brand) throw new Error('Brand not found');
   if (!brand.url) throw new Error('Brand has no URL');
 
+  // Build the identity context used for tracking infrastructure (runs-service,
+  // scraping-service, trace events). For org mode this comes from the caller.
+  // For platform mode the brand's own orgId is used so the run still appears
+  // under the right org's audit trail, with no user attribution.
+  const trackingOrgId = caller.mode === 'org' ? caller.orgId : brand.orgId;
+  const trackingUserId = caller.mode === 'org' ? caller.userId : undefined;
+  const parentRunId = caller.mode === 'org' ? caller.runId : undefined;
+  const campaignIdForRun = caller.mode === 'org' ? caller.campaignId : undefined;
+  const featureSlug = caller.mode === 'org' ? caller.featureSlug : undefined;
+  const brandIdHeader = caller.mode === 'org' ? caller.brandIdHeader : undefined;
+  const workflowSlug = caller.mode === 'org' ? caller.workflowSlug : undefined;
+
   // Create run
   const run = await createRun({
-    orgId,
-    userId,
+    orgId: trackingOrgId,
+    userId: trackingUserId,
     brandId,
-    campaignId,
+    campaignId: campaignIdForRun,
     serviceName: 'brand-service',
     taskName: 'field-extraction',
     parentRunId,
     workflowSlug,
   });
 
+  // Chat caller for downstream chat-service calls. For org mode we swap
+  // caller.runId (upstream run) for our own run.id so the chat-service run
+  // becomes a child of THIS brand-service run.
+  const chatCaller: Caller = caller.mode === 'org'
+    ? { ...caller, runId: run.id } satisfies OrgCaller
+    : { mode: 'platform' };
+
   const traceHeaders: Record<string, string | undefined> = {
-    'x-org-id': orgId,
-    'x-user-id': userId,
+    'x-org-id': trackingOrgId,
+    'x-user-id': trackingUserId,
     'x-brand-id': brandIdHeader,
-    'x-campaign-id': campaignId,
+    'x-campaign-id': campaignIdForRun,
     'x-workflow-slug': workflowSlug,
     'x-feature-slug': featureSlug,
   };
@@ -464,22 +489,12 @@ export async function extractFields(
     data: { brandId, fieldCount: missingFields.length, cachedCount: cachedResults.length, url: brand.url },
   }, traceHeaders).catch(() => {});
 
-  const tracking: TrackingHeaders = {
-    orgId,
-    userId,
-    runId: run.id,
-    campaignId,
-    featureSlug,
-    brandId: brandIdHeader,
-    workflowSlug,
-  };
-
   const scrapingTracking: ScrapingTrackingContext = {
     brandId,
-    orgId,
-    userId,
+    orgId: trackingOrgId,
+    userId: trackingUserId,
     workflowSlug,
-    campaignId,
+    campaignId: campaignIdForRun,
     featureSlug,
     brandIdHeader,
     runId: run.id,
@@ -487,27 +502,27 @@ export async function extractFields(
 
   try {
     // 2b. Fetch campaign context for LLM enrichment
-    const featureInputs = await getCampaignFeatureInputs(campaignId, { orgId, userId, runId: run.id });
+    const featureInputs = await getCampaignFeatureInputs(campaignIdForRun, { orgId: trackingOrgId, userId: trackingUserId, runId: run.id });
     const campaignContext = featureInputs && Object.keys(featureInputs).length > 0
       ? JSON.stringify(featureInputs, null, 2)
       : null;
     if (campaignContext) {
-      console.log(`[${brandId}] Using campaign context from campaign ${campaignId}`);
+      console.log(`[brand-service] [${brandId}] Using campaign context from campaign ${campaignIdForRun}`);
     }
 
     // 3. Map site URLs (DB-cached to survive redeploys)
-    console.log(`[${brandId}] Mapping site URLs for: ${brand.url}`);
+    console.log(`[brand-service] [${brandId}] Mapping site URLs for: ${brand.url}`);
     let allUrls: string[];
     try {
       let primaryUrls: string[];
       const cachedMap = resetCache ? null : await getCachedUrlMap(brand.url);
       if (cachedMap) {
-        console.log(`[${brandId}] URL map cache hit for ${brand.url} (${cachedMap.length} URLs)`);
+        console.log(`[brand-service] [${brandId}] URL map cache hit for ${brand.url} (${cachedMap.length} URLs)`);
         primaryUrls = cachedMap;
       } else {
         primaryUrls = await mapSiteUrls(brand.url, scrapingTracking);
         await upsertUrlMap(brand.url, primaryUrls, scrapeTtlDays).catch((err) =>
-          console.warn(`[${brandId}] Failed to cache URL map: ${err.message}`),
+          console.warn(`[brand-service] [${brandId}] Failed to cache URL map: ${err.message}`),
         );
       }
 
@@ -518,24 +533,24 @@ export async function extractFields(
       if (rootDomainUrl && rootDomainUrl !== brand.url) {
         const cachedRootMap = resetCache ? null : await getCachedUrlMap(rootDomainUrl);
         if (cachedRootMap) {
-          console.log(`[${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
+          console.log(`[brand-service] [${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
           mapResults.push(cachedRootMap);
         } else {
-          console.log(`[${brandId}] Also mapping root domain: ${rootDomainUrl}`);
+          console.log(`[brand-service] [${brandId}] Also mapping root domain: ${rootDomainUrl}`);
           try {
             const rootUrls = await mapSiteUrls(rootDomainUrl, scrapingTracking);
             await upsertUrlMap(rootDomainUrl, rootUrls, scrapeTtlDays).catch((err) =>
-              console.warn(`[${brandId}] Failed to cache root URL map: ${err.message}`),
+              console.warn(`[brand-service] [${brandId}] Failed to cache root URL map: ${err.message}`),
             );
             mapResults.push(rootUrls);
           } catch (err: any) {
-            console.warn(`[${brandId}] Root domain mapping failed: ${err.message}`);
+            console.warn(`[brand-service] [${brandId}] Root domain mapping failed: ${err.message}`);
           }
         }
       }
 
       allUrls = [...new Set(mapResults.flat())];
-      console.log(`[${brandId}] Found ${allUrls.length} unique URLs`);
+      console.log(`[brand-service] [${brandId}] Found ${allUrls.length} unique URLs`);
       traceEvent(run.id, {
         service: 'brand-service',
         event: 'url-map-complete',
@@ -544,7 +559,7 @@ export async function extractFields(
         data: { urlCount: allUrls.length, brandUrl: brand.url },
       }, traceHeaders).catch(() => {});
     } catch (mapError: any) {
-      console.warn(`[${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
+      console.warn(`[brand-service] [${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
       allUrls = [brand.url];
     }
     if (allUrls.length === 0) allUrls = [brand.url];
@@ -554,9 +569,9 @@ export async function extractFields(
       .map((f) => `- ${f.key}: ${f.description}`)
       .join('\n');
 
-    console.log(`[${brandId}] Selecting relevant URLs...`);
-    const selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, tracking, campaignContext);
-    console.log(`[${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
+    console.log(`[brand-service] [${brandId}] Selecting relevant URLs...`);
+    const selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, chatCaller, campaignContext);
+    console.log(`[brand-service] [${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
     // 5. Scrape pages (DB-cached to survive redeploys)
     const urlsToScrape: string[] = [];
@@ -570,18 +585,18 @@ export async function extractFields(
       }
     }
     if (cachedPages.length > 0) {
-      console.log(`[${brandId}] Page cache hit for ${cachedPages.length}/${selectedUrls.length} URLs`);
+      console.log(`[brand-service] [${brandId}] Page cache hit for ${cachedPages.length}/${selectedUrls.length} URLs`);
     }
     if (urlsToScrape.length > 0) {
-      console.log(`[${brandId}] Scraping ${urlsToScrape.length} pages (${cachedPages.length} cached)...`);
+      console.log(`[brand-service] [${brandId}] Scraping ${urlsToScrape.length} pages (${cachedPages.length} cached)...`);
     } else {
-      console.log(`[${brandId}] All ${selectedUrls.length} pages served from cache`);
+      console.log(`[brand-service] [${brandId}] All ${selectedUrls.length} pages served from cache`);
     }
     const scrapePromises = urlsToScrape.map((url) =>
       scrapeUrl(url, scrapingTracking).then(async (content) => {
         if (content) {
           await upsertPageContent(url, content, scrapeTtlDays).catch((err) =>
-            console.warn(`[${brandId}] Failed to cache page content for ${url}: ${err.message}`),
+            console.warn(`[brand-service] [${brandId}] Failed to cache page content for ${url}: ${err.message}`),
           );
         }
         return { url, content: content || '' };
@@ -590,7 +605,7 @@ export async function extractFields(
     const freshPages = await Promise.all(scrapePromises);
     const pageContents = [...cachedPages, ...freshPages];
     const successfulScrapes = pageContents.filter((p) => p.content);
-    console.log(`[${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
+    console.log(`[brand-service] [${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
     traceEvent(run.id, {
       service: 'brand-service',
       event: 'scrape-complete',
@@ -602,11 +617,11 @@ export async function extractFields(
     if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
 
     // 6. Extract fields via chat-service
-    console.log(`[${brandId}] Extracting ${missingFields.length} fields with AI (cache miss: ${formatFieldPreview(missingFields.map(f => f.key))})`);
+    console.log(`[brand-service] [${brandId}] Extracting ${missingFields.length} fields with AI (cache miss: ${formatFieldPreview(missingFields.map(f => f.key))})`);
     const extracted = await extractFieldsFromContent(
       successfulScrapes,
       missingFields,
-      tracking,
+      chatCaller,
       campaignContext,
     );
 
@@ -624,13 +639,13 @@ export async function extractFields(
       key: f.key,
       value: extracted[f.key] ?? null,
     }));
-    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, campaignId);
+    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, campaignIdForRun);
 
     // 8. Complete run
     try {
-      await updateRun(run.id, 'completed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug });
+      await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug });
     } catch (err) {
-      console.warn(`[${brandId}] Failed to complete run ${run.id}:`, err);
+      console.warn(`[brand-service] [${brandId}] Failed to complete run ${run.id}:`, err);
     }
 
     // 9. Combine cached + fresh results
@@ -663,9 +678,9 @@ export async function extractFields(
       data: { brandId, error: error instanceof Error ? error.message : String(error) },
     }, traceHeaders).catch(() => {});
     try {
-      await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug });
+      await updateRun(run.id, 'failed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug });
     } catch (err) {
-      console.warn(`[${brandId}] Failed to mark run as failed:`, err);
+      console.warn(`[brand-service] [${brandId}] Failed to mark run as failed:`, err);
     }
     throw error;
   }

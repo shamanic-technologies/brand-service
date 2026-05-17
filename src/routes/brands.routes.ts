@@ -36,6 +36,12 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
     }
     const { url } = parsed.data;
     const orgId = req.orgId!;
+    if (!req.userId) {
+      return res.status(400).json({ error: 'x-user-id header is required' });
+    }
+    if (!req.runId) {
+      return res.status(400).json({ error: 'x-run-id header is required' });
+    }
 
     const domain = extractDomain(url);
 
@@ -46,7 +52,16 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
       .where(and(eq(brands.orgId, orgId), eq(brands.domain, domain)))
       .limit(1);
 
-    const brand = await getOrCreateBrand(orgId, url, req.runId);
+    const brand = await getOrCreateBrand(orgId, url, {
+      mode: 'org',
+      orgId,
+      userId: req.userId,
+      runId: req.runId,
+      campaignId: req.campaignId,
+      featureSlug: req.featureSlug,
+      brandIdHeader: req.brandIdHeader,
+      workflowSlug: req.workflowSlug,
+    });
 
     res.json({
       brandId: brand.id,
@@ -143,8 +158,7 @@ internalRouter.get('/brands/:id', async (req: Request, res: Response) => {
     }
 
     if (!brand.name) {
-      const runIdHeader = req.headers['x-run-id'] as string | undefined;
-      brand.name = await ensureBrandName(id, runIdHeader);
+      brand.name = await ensureBrandName(id, { mode: 'platform' });
     }
 
     res.json({ brand });

@@ -83,7 +83,7 @@ vi.mock('../../src/db', () => ({
 }));
 
 vi.mock('../../src/lib/chat-client', () => ({
-  chatComplete: vi.fn(),
+  chat: vi.fn(),
 }));
 
 vi.mock('../../src/lib/scraping-client', () => ({
@@ -144,12 +144,15 @@ describe('multiBrandExtractFields with resetCache', () => {
     vi.clearAllMocks();
   });
 
+  const orgCaller = { mode: 'org' as const, orgId: 'org-1', userId: 'user-1', runId: 'run-1' };
+
   it('should pass resetCache=true through to extractFields for single brand', async () => {
     mockedGetBrand.mockResolvedValue({
       id: 'brand-1',
       url: 'https://acme.com',
       name: 'Acme',
       domain: 'acme.com',
+      orgId: 'org-1',
     });
     mockedExtractFields.mockResolvedValue([
       { key: 'industry', value: 'SaaS tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/about'] },
@@ -158,8 +161,7 @@ describe('multiBrandExtractFields with resetCache', () => {
     await multiBrandExtractFields({
       brandIds: ['brand-1'],
       fields: [{ key: 'industry', description: 'test' }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
       resetCache: true,
     });
 
@@ -172,8 +174,8 @@ describe('multiBrandExtractFields with resetCache', () => {
     mockDbCacheMiss();
 
     mockedGetBrand
-      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' })
-      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io' });
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
 
     mockedExtractFields
       .mockResolvedValueOnce([
@@ -183,8 +185,8 @@ describe('multiBrandExtractFields with resetCache', () => {
         { key: 'industry', value: 'FinTech payments', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://finpay.io/'] },
       ]);
 
-    const { chatComplete } = await import('../../src/lib/chat-client');
-    vi.mocked(chatComplete).mockResolvedValue({
+    const { chat } = await import('../../src/lib/chat-client');
+    vi.mocked(chat).mockResolvedValue({
       content: '',
       json: { industry: 'SaaS & FinTech' },
       tokensInput: 100,
@@ -195,20 +197,12 @@ describe('multiBrandExtractFields with resetCache', () => {
     await multiBrandExtractFields({
       brandIds: ['brand-1', 'brand-2'],
       fields: [{ key: 'industry', description: 'test' }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
       resetCache: true,
     });
 
-    // With resetCache=true, the consolidated cache SELECT should NOT be called.
-    // Only the INSERT (to cache the new consolidated result) should happen.
-    // mockSelect should not have been called (consolidated cache was skipped).
     expect(mockSelect).not.toHaveBeenCalled();
-
-    // But the consolidation LLM call should still happen
-    expect(chatComplete).toHaveBeenCalledTimes(1);
-
-    // And the result should still be cached for future non-reset calls
+    expect(chat).toHaveBeenCalledTimes(1);
     expect(mockInsert).toHaveBeenCalledTimes(1);
   });
 
@@ -218,6 +212,7 @@ describe('multiBrandExtractFields with resetCache', () => {
       url: 'https://acme.com',
       name: 'Acme',
       domain: 'acme.com',
+      orgId: 'org-1',
     });
     mockedExtractFields.mockResolvedValue([
       { key: 'industry', value: 'SaaS tools', cached: true, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/about'] },
@@ -226,8 +221,7 @@ describe('multiBrandExtractFields with resetCache', () => {
     await multiBrandExtractFields({
       brandIds: ['brand-1'],
       fields: [{ key: 'industry', description: 'test' }],
-      orgId: 'org-1',
-      parentRunId: 'run-1',
+      caller: orgCaller,
     });
 
     expect(mockedExtractFields).toHaveBeenCalledWith(

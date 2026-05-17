@@ -1,8 +1,11 @@
 /**
  * HTTP client for chat-service (LLM completions).
  *
- * All LLM calls go through chat-service — brand-service never calls
- * AI providers directly.
+ * Mirrors the caller-side endpoint convention:
+ * - OrgCaller (mode: 'org')      → POST /complete                   (x-org-id, x-user-id, x-run-id + tracking)
+ * - PlatformCaller (mode: 'platform') → POST /internal/platform-complete (x-api-key only, no billing, no run tracking)
+ *
+ * The single public entry point `chat()` dispatches on `caller.mode`.
  */
 
 import { fetchWithRetry } from './fetch-with-retry';
@@ -11,7 +14,7 @@ const CHAT_SERVICE_URL =
   process.env.CHAT_SERVICE_URL || 'https://chat.distribute.you';
 const CHAT_SERVICE_API_KEY = process.env.CHAT_SERVICE_API_KEY || '';
 
-export interface ChatCompleteParams {
+export interface ChatParams {
   message: string;
   systemPrompt: string;
   /** LLM provider — 'google' (Gemini) or 'anthropic' (Claude). */
@@ -21,15 +24,15 @@ export interface ChatCompleteParams {
   responseFormat?: 'json';
   temperature?: number;
   maxTokens?: number;
-  /** URL of an image for vision analysis. Requires a vision-capable model. */
+  /** URL of an image for vision analysis. Requires a vision-capable model. Only supported on /complete (org mode). */
   imageUrl?: string;
-  /** HTML metadata for the image — alt text, title, source URL. Injected into the prompt alongside the image. */
+  /** HTML metadata for the image — alt text, title, source URL. Only supported on /complete (org mode). */
   imageContext?: { alt?: string; title?: string; sourceUrl?: string };
-  /** Token budget for model thinking/reasoning. 0 = disabled (default). Thinking tokens share the maxTokens budget. */
+  /** Token budget for model thinking/reasoning. 0 = disabled (default). */
   thinkingBudget?: number;
 }
 
-export interface ChatCompleteResult {
+export interface ChatResult {
   content: string;
   json?: Record<string, unknown>;
   tokensInput: number;
@@ -37,33 +40,84 @@ export interface ChatCompleteResult {
   model: string;
 }
 
-export interface TrackingHeaders {
+/**
+ * Caller invoked on a brand-service `/orgs/*` route. Maps to chat-service `POST /complete`.
+ * `runId` is forwarded as `x-run-id` — typically brand-service's own run id (so the chat
+ * call is registered as a child of brand-service's run).
+ */
+export interface OrgCaller {
+  mode: 'org';
   orgId: string;
-  userId?: string;
-  runId?: string;
+  userId: string;
+  runId: string;
   campaignId?: string;
   featureSlug?: string;
-  brandId?: string;
+  brandIdHeader?: string;
   workflowSlug?: string;
 }
 
-export async function chatComplete(
-  params: ChatCompleteParams,
-  tracking: TrackingHeaders,
-): Promise<ChatCompleteResult> {
+/**
+ * Caller invoked on a brand-service `/internal/*` route. Maps to chat-service
+ * `POST /internal/platform-complete` — no org/user/run tracking, platform-billed.
+ */
+export interface PlatformCaller {
+  mode: 'platform';
+}
+
+export type Caller = OrgCaller | PlatformCaller;
+
+/**
+ * Synchronous LLM completion. Dispatches to chat-service's org-scoped or
+ * platform endpoint based on `caller.mode`.
+ */
+export async function chat(params: ChatParams, caller: Caller): Promise<ChatResult> {
+  if (caller.mode === 'org') {
+    return chatOrg(params, caller);
+  }
+  return chatPlatform(params);
+}
+
+async function chatOrg(params: ChatParams, caller: OrgCaller): Promise<ChatResult> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-API-Key': CHAT_SERVICE_API_KEY,
-    'x-org-id': tracking.orgId,
+    'x-org-id': caller.orgId,
+    'x-user-id': caller.userId,
+    'x-run-id': caller.runId,
   };
-  if (tracking.userId) headers['x-user-id'] = tracking.userId;
-  if (tracking.runId) headers['x-run-id'] = tracking.runId;
-  if (tracking.campaignId) headers['x-campaign-id'] = tracking.campaignId;
-  if (tracking.featureSlug) headers['x-feature-slug'] = tracking.featureSlug;
-  if (tracking.brandId) headers['x-brand-id'] = tracking.brandId;
-  if (tracking.workflowSlug) headers['x-workflow-slug'] = tracking.workflowSlug;
+  if (caller.campaignId) headers['x-campaign-id'] = caller.campaignId;
+  if (caller.featureSlug) headers['x-feature-slug'] = caller.featureSlug;
+  if (caller.brandIdHeader) headers['x-brand-id'] = caller.brandIdHeader;
+  if (caller.workflowSlug) headers['x-workflow-slug'] = caller.workflowSlug;
 
-  const body = {
+  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/complete`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(buildBody(params)),
+    label: `chat-service POST /complete (${params.model})`,
+  });
+
+  return response.json() as Promise<ChatResult>;
+}
+
+async function chatPlatform(params: ChatParams): Promise<ChatResult> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-API-Key': CHAT_SERVICE_API_KEY,
+  };
+
+  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/internal/platform-complete`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(buildBody(params)),
+    label: `chat-service POST /internal/platform-complete (${params.model})`,
+  });
+
+  return response.json() as Promise<ChatResult>;
+}
+
+function buildBody(params: ChatParams): Record<string, unknown> {
+  return {
     message: params.message,
     systemPrompt: params.systemPrompt,
     provider: params.provider,
@@ -75,13 +129,4 @@ export async function chatComplete(
     ...(params.imageContext && { imageContext: params.imageContext }),
     ...(params.thinkingBudget !== undefined && { thinkingBudget: params.thinkingBudget }),
   };
-
-  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/complete`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    label: `chat-service POST /complete (${params.model})`,
-  });
-
-  return response.json() as Promise<ChatCompleteResult>;
 }

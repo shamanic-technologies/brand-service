@@ -68,6 +68,16 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import { ensureBrandName } from '../../src/services/brandService';
+import type { OrgCaller, PlatformCaller } from '../../src/lib/chat-client';
+
+const platformCaller: PlatformCaller = { mode: 'platform' };
+
+const orgCaller: OrgCaller = {
+  mode: 'org',
+  orgId: 'org-99',
+  userId: 'user-99',
+  runId: 'run-99',
+};
 
 describe('ensureBrandName', () => {
   const originalNodeEnv = process.env.NODE_ENV;
@@ -88,7 +98,7 @@ describe('ensureBrandName', () => {
       [{ id: 'brand-1', name: 'Acme Inc', orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
     ]);
 
-    const result = await ensureBrandName('brand-1');
+    const result = await ensureBrandName('brand-1', platformCaller);
 
     expect(result).toBe('Acme Inc');
     expect(mockExtractFields).not.toHaveBeenCalled();
@@ -99,13 +109,13 @@ describe('ensureBrandName', () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([[]]);
 
-    await expect(ensureBrandName('missing-brand')).rejects.toThrow(
+    await expect(ensureBrandName('missing-brand', platformCaller)).rejects.toThrow(
       /Brand not found: missing-brand/,
     );
     expect(mockExtractFields).not.toHaveBeenCalled();
   });
 
-  it('extracts and persists when name is null (production env)', async () => {
+  it('forwards platform caller to extractFields when name is null', async () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
       [{ id: 'brand-2', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
@@ -121,15 +131,14 @@ describe('ensureBrandName', () => {
       },
     ]);
 
-    const result = await ensureBrandName('brand-2', 'parent-run-1');
+    const result = await ensureBrandName('brand-2', platformCaller);
 
     expect(result).toBe('Pressbeat');
     expect(mockExtractFields).toHaveBeenCalledTimes(1);
     expect(mockExtractFields).toHaveBeenCalledWith(
       expect.objectContaining({
         brandId: 'brand-2',
-        orgId: 'org-2',
-        parentRunId: 'parent-run-1',
+        caller: { mode: 'platform' },
         fields: [
           expect.objectContaining({ key: 'name' }),
         ],
@@ -137,6 +146,32 @@ describe('ensureBrandName', () => {
     );
     expect(updateSetMock).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Pressbeat' }),
+    );
+  });
+
+  it('forwards org caller to extractFields when name is null', async () => {
+    process.env.NODE_ENV = 'production';
+    setDbSequence([
+      [{ id: 'brand-2b', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
+    ]);
+    mockExtractFields.mockResolvedValueOnce([
+      {
+        key: 'name',
+        value: 'Pressbeat',
+        cached: false,
+        extractedAt: '2026-05-17T11:00:00.000Z',
+        expiresAt: null,
+        sourceUrls: ['https://pressbeat.io'],
+      },
+    ]);
+
+    await ensureBrandName('brand-2b', orgCaller);
+
+    expect(mockExtractFields).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brandId: 'brand-2b',
+        caller: orgCaller,
+      }),
     );
   });
 
@@ -149,7 +184,7 @@ describe('ensureBrandName', () => {
       { key: 'name', value: '   ', cached: false, extractedAt: '2026-05-17T11:00:00.000Z', expiresAt: null, sourceUrls: [] },
     ]);
 
-    await expect(ensureBrandName('brand-3')).rejects.toThrow(
+    await expect(ensureBrandName('brand-3', platformCaller)).rejects.toThrow(
       /extractFields returned empty name/,
     );
     expect(updateSetMock).not.toHaveBeenCalled();
@@ -161,7 +196,7 @@ describe('ensureBrandName', () => {
       [{ id: 'brand-4', name: null, orgId: 'org-4', domain: 'testdomain.com', url: 'https://testdomain.com' }],
     ]);
 
-    const result = await ensureBrandName('brand-4');
+    const result = await ensureBrandName('brand-4', platformCaller);
 
     expect(result).toBe('testdomain.com');
     expect(mockExtractFields).not.toHaveBeenCalled();
