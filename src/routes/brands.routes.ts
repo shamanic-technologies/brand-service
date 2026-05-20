@@ -3,7 +3,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db, brands } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, ensureBrandName } from '../services/brandService';
+import { getOrCreateBrand, ensureBrandName, ensureBrandLogoUrl } from '../services/brandService';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema } from '../schemas';
 
@@ -119,11 +119,22 @@ orgRouter.get('/brands', async (req: Request, res: Response) => {
 
 export const internalRouter = Router();
 
+// ── Public routes (no auth) ────────────────────────────────────────
+
+export const publicRouter = Router();
+
 /**
- * GET /internal/brands/:id
- * Get a single brand by ID
+ * Shared handler for GET /internal/brands/:id and GET /public/brands/:id.
+ *
+ * Returns the canonical minimal brand shape: identity + lazy-filled name
+ * and logoUrl. All business fields (bio, categories, mission, etc.) live
+ * in brand_extracted_fields and must be fetched via extract-fields.
+ *
+ * Lazy fills:
+ * - `name` null → extractFields (platform mode) and persist.
+ * - `logoUrl` null → deterministic logo.dev URL from domain and persist.
  */
-internalRouter.get('/brands/:id', async (req: Request, res: Response) => {
+async function handleGetBrand(req: Request, res: Response) {
   try {
     const { id } = req.params;
     if (!UUID_REGEX.test(id)) {
@@ -134,39 +145,46 @@ internalRouter.get('/brands/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
-    const [brand] = await db
+    const [row] = await db
       .select({
         id: brands.id,
         domain: brands.domain,
+        url: brands.url,
         name: brands.name,
-        brandUrl: brands.url,
+        logoUrl: brands.logoUrl,
         createdAt: brands.createdAt,
         updatedAt: brands.updatedAt,
-        logoUrl: brands.logoUrl,
-        elevatorPitch: brands.elevatorPitch,
-        bio: brands.bio,
-        mission: brands.mission,
-        location: brands.location,
-        categories: brands.categories,
       })
       .from(brands)
       .where(eq(brands.id, id))
       .limit(1);
 
-    if (!brand) {
+    if (!row) {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    if (!brand.name) {
-      brand.name = await ensureBrandName(id, { mode: 'platform' });
-    }
+    const name = row.name ?? (await ensureBrandName(id, { mode: 'platform' }));
+    const logoUrl = row.logoUrl ?? (await ensureBrandLogoUrl(id));
 
-    res.json({ brand });
+    res.json({
+      brand: {
+        id: row.id,
+        domain: row.domain,
+        url: row.url,
+        name,
+        logoUrl,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      },
+    });
   } catch (error: any) {
-    console.error('Get brand error:', error);
+    console.error('[brand-service] Get brand error:', error);
     res.status(500).json({ error: error.message || 'Failed to get brand' });
   }
-});
+}
+
+internalRouter.get('/brands/:id', handleGetBrand);
+publicRouter.get('/brands/:id', handleGetBrand);
 
 /**
  * GET /internal/brands/:id/runs

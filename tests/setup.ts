@@ -13,6 +13,7 @@ if (!process.env.BRAND_SERVICE_DATABASE_URL) {
 process.env.BRAND_SERVICE_API_KEY = process.env.BRAND_SERVICE_API_KEY || 'test-secret-key';
 process.env.COMPANY_SERVICE_API_KEY = process.env.COMPANY_SERVICE_API_KEY || 'test-secret-key';
 process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-gemini-key';
+process.env.LOGO_DEV_TOKEN = process.env.LOGO_DEV_TOKEN || 'test-logo-dev-token';
 
 // Ensure DATABASE_URL fallback
 if (!process.env.BRAND_SERVICE_DATABASE_URL && process.env.COMPANY_SERVICE_DATABASE_URL) {

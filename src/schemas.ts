@@ -64,20 +64,22 @@ export const GetBrandQuerySchema = z
   .object({ orgId: z.string().optional() })
   .openapi('GetBrandQuery');
 
+/**
+ * Canonical minimal brand shape returned by GET /internal/brands/{id} and
+ * GET /public/brands/{id}. Identity columns plus lazy-filled name and
+ * logoUrl. All other business fields (industry, target audience, mission,
+ * etc.) are retrieved on demand via POST /orgs/brands/extract-fields or
+ * POST /internal/brands/extract-fields and never live on this row.
+ */
 export const BrandDetailSchema = z
   .object({
-    id: z.string(),
-    domain: z.string().nullable(),
-    name: z.string().nullable(),
-    brandUrl: z.string().nullable(),
-    createdAt: z.string().nullable(),
-    updatedAt: z.string().nullable(),
-    logoUrl: z.string().nullable(),
-    elevatorPitch: z.string().nullable(),
-    bio: z.string().nullable(),
-    mission: z.string().nullable(),
-    location: z.string().nullable(),
-    categories: z.string().nullable(),
+    id: z.string().openapi({ description: 'Brand UUID' }),
+    domain: z.string().openapi({ description: 'Normalized domain (subdomains preserved, www stripped)' }),
+    url: z.string().openapi({ description: 'Full brand website URL' }),
+    name: z.string().openapi({ description: 'Brand display name. Lazy-extracted from the website on first read if missing.' }),
+    logoUrl: z.string().openapi({ description: 'Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing.' }),
+    createdAt: z.string().openapi({ description: 'ISO timestamp when the brand row was created.' }),
+    updatedAt: z.string().openapi({ description: 'ISO timestamp when the brand row was last updated.' }),
   })
   .openapi('BrandDetail');
 
@@ -145,6 +147,27 @@ registry.registerPath({
   method: 'get',
   path: '/internal/brands/{id}',
   summary: 'Get a single brand by ID',
+  description:
+    'Returns the canonical minimal brand shape (identity + name + logoUrl). All business fields ' +
+    '(industry, target audience, mission, etc.) must be fetched via POST /internal/brands/extract-fields. ' +
+    'Lazy fills name (via extract-fields, platform-billed) and logoUrl (via deterministic logo.dev URL) ' +
+    'when null in the database.',
+  request: { query: GetBrandQuerySchema },
+  responses: {
+    200: { description: 'Brand details', content: { 'application/json': { schema: GetBrandResponseSchema } } },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/public/brands/{id}',
+  summary: 'Get a single brand by ID (public, no auth)',
+  description:
+    'Public mirror of GET /internal/brands/{id}. Identical response shape — identity + lazy-filled ' +
+    'name and logoUrl. Use this when no API key is available (dashboards, embeddable widgets). ' +
+    'Business fields must still be fetched via POST /orgs/brands/extract-fields (org auth required).',
   request: { query: GetBrandQuerySchema },
   responses: {
     200: { description: 'Brand details', content: { 'application/json': { schema: GetBrandResponseSchema } } },
@@ -397,6 +420,36 @@ registry.registerPath({
           },
         },
       },
+    },
+    400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
+    404: { description: 'Brand not found' },
+    422: { description: 'Site scraping failed' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/brands/extract-fields',
+  summary: 'Extract fields from one or more brands via AI (internal, no x-org-id)',
+  description:
+    'Mirror of POST /orgs/brands/extract-fields for service-to-service callers without an org identity. ' +
+    'Uses chat-service /internal/platform-complete (platform-billed, no run tracking). ' +
+    'Brand IDs are still read from the comma-separated x-brand-id header. ' +
+    'Response shape is identical to the orgs route.',
+  request: {
+    headers: z.object({
+      'x-brand-id': z.string().openapi({
+        description: 'Comma-separated brand UUIDs',
+        example: '550e8400-e29b-41d4-a716-446655440000',
+      }),
+    }),
+    body: { content: { 'application/json': { schema: ExtractFieldsRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Extracted fields with brands metadata',
+      content: { 'application/json': { schema: MultiBrandExtractFieldsResponseSchema } },
     },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
     404: { description: 'Brand not found' },

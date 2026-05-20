@@ -9,7 +9,7 @@
 import crypto from 'crypto';
 import { eq, gt, sql, and } from 'drizzle-orm';
 import { extractFields, getBrand, FieldSpec, ExtractedFieldResult } from './fieldExtractionService';
-import { chat, OrgCaller } from '../lib/chat-client';
+import { chat, Caller, OrgCaller, PlatformCaller } from '../lib/chat-client';
 import { db, consolidatedFieldCache } from '../db';
 
 interface Brand {
@@ -24,10 +24,11 @@ export interface MultiBrandExtractFieldsOptions {
   brandIds: string[];
   fields: FieldSpec[];
   /**
-   * Org caller — multi-brand extraction is only exposed on `/orgs/*` routes, so the
-   * caller always has org identity. Platform-mode is not supported here.
+   * Brand-service caller — `OrgCaller` for `/orgs/brands/extract-fields`,
+   * `PlatformCaller` for `/internal/brands/extract-fields`. The latter bypasses
+   * org/user/run tracking and bills chat-service to the platform account.
    */
-  caller: OrgCaller;
+  caller: Caller;
   scrapeCacheTtlDays?: number;
   resetCache?: boolean;
 }
@@ -128,7 +129,7 @@ async function setCachedConsolidated(
 async function consolidateFields(
   fieldKeys: string[],
   byBrand: Record<string, Record<string, unknown>>,
-  chatCaller: OrgCaller,
+  chatCaller: Caller,
 ): Promise<Record<string, unknown>> {
   const perBrandSummary = Object.entries(byBrand)
     .map(([domain, fields]) => `Brand "${domain}":\n${JSON.stringify(fields, null, 2)}`)
@@ -249,7 +250,8 @@ export async function multiBrandExtractFields(
     valueMap = { ...valuesByDomain[domain] };
   } else {
     // Check DB-backed consolidated cache — keyed by brand IDs + field keys + campaign + per-brand values
-    const cacheKey = buildConsolidatedCacheKey(brandIds, fieldKeys, valuesByDomain, caller.campaignId);
+    const consolidationCampaignId = caller.mode === 'org' ? caller.campaignId : undefined;
+    const cacheKey = buildConsolidatedCacheKey(brandIds, fieldKeys, valuesByDomain, consolidationCampaignId);
     const cachedConsolidated = resetCache ? null : await getCachedConsolidated(cacheKey);
 
     if (cachedConsolidated) {
@@ -266,7 +268,7 @@ export async function multiBrandExtractFields(
         .filter((t) => t !== Infinity);
       const minExpiry = allExpiries.length > 0 ? Math.min(...allExpiries) : Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      await setCachedConsolidated(cacheKey, valueMap, new Date(minExpiry), brandIds, fieldKeys, caller.campaignId);
+      await setCachedConsolidated(cacheKey, valueMap, new Date(minExpiry), brandIds, fieldKeys, consolidationCampaignId);
     }
   }
 

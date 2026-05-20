@@ -11,6 +11,7 @@ import { db, brands } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { extractFields } from './fieldExtractionService';
 import { Caller, OrgCaller } from '../lib/chat-client';
+import { buildLogoDevUrl } from '../lib/logo-dev';
 
 interface Brand {
   id: string;
@@ -107,6 +108,35 @@ export async function ensureBrandName(
 
   console.log(`[brand-service] ensureBrandName: persisted name "${name}" for brand ${brandId}`);
   return name;
+}
+
+/**
+ * Guarantee brands.logo_url is non-null for the given brandId.
+ *
+ * If brands.logo_url is already set, returns it as-is.
+ * Otherwise computes a deterministic logo.dev URL from the brand's domain,
+ * persists it, and returns it. logo.dev returns a logo image for any domain;
+ * no network call is required to compute the URL.
+ */
+export async function ensureBrandLogoUrl(brandId: string): Promise<string> {
+  const [row] = await db
+    .select({ id: brands.id, logoUrl: brands.logoUrl, domain: brands.domain })
+    .from(brands)
+    .where(eq(brands.id, brandId))
+    .limit(1);
+
+  if (!row) throw new Error(`Brand not found: ${brandId}`);
+  if (row.logoUrl) return row.logoUrl;
+
+  const logoUrl = buildLogoDevUrl(row.domain);
+
+  await db
+    .update(brands)
+    .set({ logoUrl, updatedAt: sql`NOW()` })
+    .where(eq(brands.id, brandId));
+
+  console.log(`[brand-service] ensureBrandLogoUrl: persisted logo.dev URL for brand ${brandId} (${row.domain})`);
+  return logoUrl;
 }
 
 /**
