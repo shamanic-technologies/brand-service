@@ -1,11 +1,14 @@
 import { Router, Request, Response } from 'express';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand, ensureBrandName, ensureBrandLogoUrl } from '../services/brandService';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema } from '../schemas';
+
+/** Max brand ids accepted per batch request. ~3.7KB query string at 36-char UUIDs. */
+const MAX_BATCH_IDS = 100;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -124,16 +127,55 @@ export const internalRouter = Router();
 
 export const publicRouter = Router();
 
+interface BrandMinimal {
+  id: string;
+  domain: string;
+  url: string;
+  name: string;
+  logoUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Project a silver brand row into the canonical minimal response shape,
+ * lazy-filling `name` (via extract-fields, platform-billed) and `logoUrl`
+ * (via deterministic logo.dev URL) when null.
+ */
+async function loadBrandMinimal(brandId: string): Promise<BrandMinimal | null> {
+  const [row] = await db
+    .select({
+      id: brands.id,
+      domain: brands.domain,
+      url: brands.url,
+      name: brands.name,
+      logoUrl: brands.logoUrl,
+      createdAt: brands.createdAt,
+      updatedAt: brands.updatedAt,
+    })
+    .from(brands)
+    .where(eq(brands.id, brandId))
+    .limit(1);
+
+  if (!row) return null;
+
+  const name = row.name ?? (await ensureBrandName(brandId, { mode: 'platform' }));
+  const logoUrl = row.logoUrl ?? (await ensureBrandLogoUrl(brandId));
+
+  return {
+    id: row.id,
+    domain: row.domain,
+    url: row.url,
+    name,
+    logoUrl,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 /**
  * Shared handler for GET /internal/brands/:id and GET /public/brands/:id.
- *
- * Returns the canonical minimal brand shape: identity + lazy-filled name
- * and logoUrl. All business fields (bio, categories, mission, etc.) live
- * in brand_extracted_fields and must be fetched via extract-fields.
- *
- * Lazy fills:
- * - `name` null → extractFields (platform mode) and persist.
- * - `logoUrl` null → deterministic logo.dev URL from domain and persist.
+ * Returns the canonical minimal brand shape with lazy fills.
  */
 async function handleGetBrand(req: Request, res: Response) {
   try {
@@ -146,38 +188,12 @@ async function handleGetBrand(req: Request, res: Response) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
-    const [row] = await db
-      .select({
-        id: brands.id,
-        domain: brands.domain,
-        url: brands.url,
-        name: brands.name,
-        logoUrl: brands.logoUrl,
-        createdAt: brands.createdAt,
-        updatedAt: brands.updatedAt,
-      })
-      .from(brands)
-      .where(eq(brands.id, id))
-      .limit(1);
-
-    if (!row) {
+    const brand = await loadBrandMinimal(id);
+    if (!brand) {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    const name = row.name ?? (await ensureBrandName(id, { mode: 'platform' }));
-    const logoUrl = row.logoUrl ?? (await ensureBrandLogoUrl(id));
-
-    res.json({
-      brand: {
-        id: row.id,
-        domain: row.domain,
-        url: row.url,
-        name,
-        logoUrl,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-      },
-    });
+    res.json({ brand });
   } catch (error: any) {
     console.error('[brand-service] Get brand error:', error);
     res.status(500).json({ error: error.message || 'Failed to get brand' });
@@ -186,6 +202,51 @@ async function handleGetBrand(req: Request, res: Response) {
 
 internalRouter.get('/brands/:id', handleGetBrand);
 publicRouter.get('/brands/:id', handleGetBrand);
+
+/**
+ * Shared handler for GET /internal/brands and GET /public/brands.
+ *
+ * Batch lookup by comma-separated `?ids=` query param. Returns the canonical
+ * minimal shape for each brand that exists; silently omits ids that don't
+ * resolve (no 404, no error). Callers map the response array by `id`.
+ *
+ * Capped at MAX_BATCH_IDS ids per request to keep query strings under common
+ * HTTP server limits.
+ */
+async function handleGetBrandsBatch(req: Request, res: Response) {
+  try {
+    const idsParam = req.query.ids;
+    if (typeof idsParam !== 'string') {
+      return res.status(400).json({ error: 'Missing ids query param' });
+    }
+    const ids = idsParam.split(',').map((s) => s.trim()).filter(Boolean);
+    if (ids.length === 0) {
+      return res.status(400).json({ error: 'Empty ids query param' });
+    }
+    if (ids.length > MAX_BATCH_IDS) {
+      return res.status(400).json({ error: `Too many ids (max ${MAX_BATCH_IDS})` });
+    }
+    for (const id of ids) {
+      if (!UUID_REGEX.test(id)) {
+        return res.status(400).json({ error: `Invalid brand ID format in ids: ${id}` });
+      }
+    }
+
+    // De-dupe in case a caller passes the same id twice. Order is arbitrary
+    // — callers map by `id`.
+    const uniqueIds = Array.from(new Set(ids));
+    const loaded = await Promise.all(uniqueIds.map(loadBrandMinimal));
+    const brandsResponse = loaded.filter((b): b is BrandMinimal => b !== null);
+
+    res.json({ brands: brandsResponse });
+  } catch (error: any) {
+    console.error('[brand-service] Get brands batch error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get brands' });
+  }
+}
+
+internalRouter.get('/brands', handleGetBrandsBatch);
+publicRouter.get('/brands', handleGetBrandsBatch);
 
 /**
  * GET /internal/brands/:id/runs
