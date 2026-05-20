@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getInternalAuthHeaders } from '../helpers/test-app';
-import { db, brands } from '../../src/db';
-import { eq } from 'drizzle-orm';
+import { db, brands, orgBrands } from '../../src/db';
+import { eq, and } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
+/**
+ * Under the silver/gold model a transfer is a membership swap on
+ * `org_brands`, not an `org_id` update on the brand row itself.
+ */
 describe('POST /internal/transfer-brand', () => {
   const app = createTestApp();
   const headers = getInternalAuthHeaders();
@@ -15,22 +19,22 @@ describe('POST /internal/transfer-brand', () => {
   const otherOrgId = randomUUID();
 
   beforeAll(async () => {
-    // Insert a test brand owned by sourceOrgId
+    // Silver brand row + membership for sourceOrgId.
     await db.insert(brands).values({
       id: brandId,
-      orgId: sourceOrgId,
       url: `https://transfer-test-${brandId.slice(0, 8)}.com`,
       domain: `transfer-test-${brandId.slice(0, 8)}.com`,
       name: 'Transfer Test Brand',
     });
+    await db.insert(orgBrands).values({ orgId: sourceOrgId, brandId });
   });
 
   afterAll(async () => {
-    // Clean up
+    await db.delete(orgBrands).where(eq(orgBrands.brandId, brandId));
     await db.delete(brands).where(eq(brands.id, brandId));
   });
 
-  it('should reject requests with missing fields', async () => {
+  it('rejects requests with missing fields', async () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
@@ -40,7 +44,7 @@ describe('POST /internal/transfer-brand', () => {
     expect(res.body.error).toBe('Invalid request');
   });
 
-  it('should reject requests with invalid UUIDs', async () => {
+  it('rejects requests with invalid UUIDs', async () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
@@ -50,89 +54,113 @@ describe('POST /internal/transfer-brand', () => {
     expect(res.body.error).toBe('Invalid request');
   });
 
-  it('should update org_id when brand matches sourceOrgId', async () => {
+  it('swaps org_brands membership when brand matches sourceOrgId', async () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 1 }]);
+    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 1 }]);
 
-    // Verify the brand now belongs to targetOrgId
-    const [updated] = await db
-      .select({ orgId: brands.orgId })
-      .from(brands)
-      .where(eq(brands.id, brandId));
+    const targetMembership = await db
+      .select()
+      .from(orgBrands)
+      .where(and(eq(orgBrands.orgId, targetOrgId), eq(orgBrands.brandId, brandId)));
+    expect(targetMembership.length).toBe(1);
 
-    expect(updated.orgId).toBe(targetOrgId);
+    const sourceMembership = await db
+      .select()
+      .from(orgBrands)
+      .where(and(eq(orgBrands.orgId, sourceOrgId), eq(orgBrands.brandId, brandId)));
+    expect(sourceMembership.length).toBe(0);
   });
 
-  it('should be idempotent — second call with same params is a no-op', async () => {
-    // Brand is now owned by targetOrgId, so sourceOrgId no longer matches
+  it('is idempotent — second call with same params returns count 0', async () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 0 }]);
+    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 0 }]);
   });
 
-  it('should not update if brand belongs to a different org', async () => {
+  it('does not change membership if the brand is not claimed by sourceOrgId', async () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
       .send({ sourceBrandId: brandId, sourceOrgId: otherOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 0 }]);
+    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 0 }]);
   });
 
-  it('should not update a non-existent brand', async () => {
+  it('does not change membership for a non-existent brand', async () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
       .send({ sourceBrandId: randomUUID(), sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 0 }]);
+    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 0 }]);
   });
 
-  it('should delete source brand when targetBrandId is provided', async () => {
-    // Re-insert the brand for this test (previous test moved it to targetOrgId)
-    const deleteBrandId = randomUUID();
+  it('merges into targetBrandId when provided, swapping membership without deleting the brand row', { timeout: 30000 }, async () => {
+    const sourceBrandId = randomUUID();
     const targetBrandId = randomUUID();
     const orgA = randomUUID();
+    const orgB = randomUUID();
 
     await db.insert(brands).values({
-      id: deleteBrandId,
-      orgId: orgA,
-      url: `https://delete-test-${deleteBrandId.slice(0, 8)}.com`,
-      domain: `delete-test-${deleteBrandId.slice(0, 8)}.com`,
-      name: 'Delete Test Brand',
+      id: sourceBrandId,
+      url: `https://merge-source-${sourceBrandId.slice(0, 8)}.com`,
+      domain: `merge-source-${sourceBrandId.slice(0, 8)}.com`,
+      name: 'Merge Source',
     });
+    await db.insert(brands).values({
+      id: targetBrandId,
+      url: `https://merge-target-${targetBrandId.slice(0, 8)}.com`,
+      domain: `merge-target-${targetBrandId.slice(0, 8)}.com`,
+      name: 'Merge Target',
+    });
+    await db.insert(orgBrands).values({ orgId: orgA, brandId: sourceBrandId });
 
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
-      .send({ sourceBrandId: deleteBrandId, sourceOrgId: orgA, targetOrgId: randomUUID(), targetBrandId });
+      .send({ sourceBrandId, sourceOrgId: orgA, targetOrgId: orgB, targetBrandId });
 
     expect(res.status).toBe(200);
-    // rewriteBrandReferences returns all dependent tables (0 rows each) + brands delete (1 row)
-    const brandsEntry = res.body.updatedTables.find((t: any) => t.tableName === 'brands');
-    expect(brandsEntry).toEqual({ tableName: 'brands', count: 1 });
+    const membershipEntry = res.body.updatedTables.find((t: { tableName: string }) => t.tableName === 'org_brands');
+    expect(membershipEntry).toEqual({ tableName: 'org_brands', count: 1 });
 
-    // Verify the brand was deleted
-    const remaining = await db
-      .select({ id: brands.id })
-      .from(brands)
-      .where(eq(brands.id, deleteBrandId));
+    // Source brand row STILL EXISTS — no deletes during transfer.
+    const sourceRows = await db.select({ id: brands.id }).from(brands).where(eq(brands.id, sourceBrandId));
+    expect(sourceRows.length).toBe(1);
 
-    expect(remaining).toHaveLength(0);
+    // Target org now has membership on targetBrandId.
+    const targetMembership = await db
+      .select()
+      .from(orgBrands)
+      .where(and(eq(orgBrands.orgId, orgB), eq(orgBrands.brandId, targetBrandId)));
+    expect(targetMembership.length).toBe(1);
+
+    // Source org no longer claims the source brand.
+    const oldMembership = await db
+      .select()
+      .from(orgBrands)
+      .where(and(eq(orgBrands.orgId, orgA), eq(orgBrands.brandId, sourceBrandId)));
+    expect(oldMembership.length).toBe(0);
+
+    // Cleanup
+    await db.delete(orgBrands).where(eq(orgBrands.brandId, sourceBrandId));
+    await db.delete(orgBrands).where(eq(orgBrands.brandId, targetBrandId));
+    await db.delete(brands).where(eq(brands.id, sourceBrandId));
+    await db.delete(brands).where(eq(brands.id, targetBrandId));
   });
 
-  it('should require API key auth', async () => {
+  it('requires API key auth', async () => {
     const res = await request(app)
       .post('/internal/transfer-brand')
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });

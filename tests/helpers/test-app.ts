@@ -4,7 +4,7 @@ import path from 'path';
 import { apiKeyAuth, requireOrgId } from '../../src/middleware/auth';
 
 // Import routes — mixed files export { orgRouter, internalRouter }
-import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes } from '../../src/routes/brands.routes';
+import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes, publicRouter as brandsPublicRoutes } from '../../src/routes/brands.routes';
 import { orgRouter as extractFieldsOrgRoutes, internalRouter as extractFieldsInternalRoutes } from '../../src/routes/extract-fields.routes';
 import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInternalRoutes } from '../../src/routes/extract-images.routes';
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from '../../src/routes/public-information.routes';
@@ -41,6 +41,9 @@ export function createTestApp() {
     const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
     res.json(spec);
   });
+
+  // ── Public brand-info routes (no auth) ───────────────────────
+  app.use('/public', brandsPublicRoutes);
 
   // ── Internal routes (API key only) ───────────────────────────
   app.use('/internal', apiKeyAuth, brandsInternalRoutes);

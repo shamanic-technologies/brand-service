@@ -63,8 +63,15 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // GET all organization_ids (only valid UUIDs, for cross-service compatibility)
 router.get('/org-ids', async (req: Request, res: Response) => {
   try {
+    // Source-of-truth for org_id is now `org_brands` (gold membership).
+    // Falls back to `brands_old.org_id` only as a transitional read while
+    // consumers migrate off legacy callers.
     const result = await pool.query(
-      `SELECT DISTINCT org_id AS organization_id FROM brands`
+      `SELECT DISTINCT org_id AS organization_id FROM (
+         SELECT org_id FROM org_brands
+         UNION
+         SELECT org_id FROM brands_old
+       ) merged`
     );
 
     // Filter to only valid UUIDs (exclude legacy Clerk IDs, "system", etc.)

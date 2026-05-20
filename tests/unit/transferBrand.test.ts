@@ -24,7 +24,9 @@ vi.mock('../../src/db', () => {
   };
   return {
     db: chainable(),
-    brands: { id: 'brands.id', orgId: 'brands.orgId', name: 'brands.name', domain: 'brands.domain' },
+    brands: { id: 'brands.id', name: 'brands.name', domain: 'brands.domain' },
+    brandsOld: { id: 'brands_old.id', orgId: 'brands_old.orgId', name: 'brands_old.name', domain: 'brands_old.domain' },
+    orgBrands: { orgId: 'ob.orgId', brandId: 'ob.brandId' },
     brandExtractedFields: { brandId: 'bef.brandId', fieldKey: 'bef.fieldKey', expiresAt: 'bef.expiresAt' },
     pageScrapeCache: { normalizedUrl: 'psc.normalizedUrl' },
     urlMapCache: { normalizedSiteUrl: 'umc.normalizedSiteUrl' },
@@ -88,7 +90,7 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 1 }]);
+    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 1 }]);
   });
 
   it('should be idempotent — no matching rows returns count 0', async () => {
@@ -100,7 +102,7 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 0 }]);
+    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 0 }]);
   });
 
   it('should not update a non-existent brand', async () => {
@@ -112,7 +114,7 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: randomUUID(), sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'brands', count: 0 }]);
+    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 0 }]);
   });
 
   it('should require API key auth', async () => {
@@ -133,10 +135,10 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId, targetBrandId });
 
     expect(res.status).toBe(200);
-    // Should include rewrite results for all dependent tables + brands delete
+    // Should include rewrite results for all dependent tables + org_brands membership move
     expect(res.body.updatedTables).toContainEqual({ tableName: 'media_assets', count: 0 });
     expect(res.body.updatedTables).toContainEqual({ tableName: 'brand_extracted_fields', count: 0 });
-    expect(res.body.updatedTables).toContainEqual({ tableName: 'brands', count: 1 });
+    expect(res.body.updatedTables).toContainEqual({ tableName: 'org_brands', count: 1 });
     const { db } = await import('../../src/db');
     expect(db.delete).toHaveBeenCalled();
     const { query } = await import('../../src/db/utils');

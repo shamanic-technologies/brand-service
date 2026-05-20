@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
-import { db, brands, brandTransfers } from '../db';
+// LEGACY: this transfer flow still operates on the brands_old org_id model.
+// The new transfer semantics live in brands.routes.ts (org_brands membership swap).
+import { db, brandsOld as brands, brandTransfers } from '../db';
 import { OrchestateTransferRequestSchema } from '../schemas';
 import {
   discoverTransferServices,

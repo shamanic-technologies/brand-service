@@ -7,10 +7,11 @@
  */
 
 import { eq, and, sql } from 'drizzle-orm';
-import { db, brands } from '../db';
+import { db, brands, orgBrands } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { extractFields } from './fieldExtractionService';
 import { Caller, OrgCaller } from '../lib/chat-client';
+import { buildLogoDevUrl } from '../lib/logo-dev';
 
 interface Brand {
   id: string;
@@ -63,7 +64,6 @@ export async function ensureBrandName(
     .select({
       id: brands.id,
       name: brands.name,
-      orgId: brands.orgId,
       domain: brands.domain,
       url: brands.url,
     })
@@ -110,9 +110,45 @@ export async function ensureBrandName(
 }
 
 /**
- * Find an existing brand by `orgId + domain` or create one, then lazy-fill its name.
+ * Guarantee brands.logo_url is non-null for the given brandId.
  *
- * Org-only — exposed via `POST /orgs/brands` which always has a user-identified caller.
+ * If brands.logo_url is already set, returns it as-is.
+ * Otherwise computes a deterministic logo.dev URL from the brand's domain,
+ * persists it, and returns it. logo.dev returns a logo image for any domain;
+ * no network call is required to compute the URL.
+ */
+export async function ensureBrandLogoUrl(brandId: string): Promise<string> {
+  const [row] = await db
+    .select({ id: brands.id, logoUrl: brands.logoUrl, domain: brands.domain })
+    .from(brands)
+    .where(eq(brands.id, brandId))
+    .limit(1);
+
+  if (!row) throw new Error(`Brand not found: ${brandId}`);
+  if (row.logoUrl) return row.logoUrl;
+
+  // Test environments bypass key-service. Persist a deterministic stub URL so
+  // tests can verify the lazy-fill code path without a live key-service.
+  const logoUrl = process.env.NODE_ENV === 'test'
+    ? `https://img.logo.dev/${encodeURIComponent(row.domain)}?token=test-logo-dev-token&size=256&format=png`
+    : await buildLogoDevUrl(row.domain);
+
+  await db
+    .update(brands)
+    .set({ logoUrl, updatedAt: sql`NOW()` })
+    .where(eq(brands.id, brandId));
+
+  console.log(`[brand-service] ensureBrandLogoUrl: persisted logo.dev URL for brand ${brandId} (${row.domain})`);
+  return logoUrl;
+}
+
+/**
+ * Find the silver brand row for a normalized domain or create it, then
+ * ensure `org_brands` membership exists for `(orgId, brand.id)` and
+ * lazy-fill the brand name.
+ *
+ * The brand row itself is global (no org column). Membership tracking lives
+ * in the `org_brands` gold table.
  */
 export async function getOrCreateBrand(
   orgId: string,
@@ -122,8 +158,8 @@ export async function getOrCreateBrand(
   const normalizedUrl = normalizeUrl(url);
   const domain = extractDomain(normalizedUrl);
 
-  // CASE 1: Find existing brand by orgId + domain
-  const existingByBoth = await db
+  // CASE 1: brand already exists for this domain.
+  const existing = await db
     .select({
       id: brands.id,
       url: brands.url,
@@ -131,47 +167,50 @@ export async function getOrCreateBrand(
       domain: brands.domain,
     })
     .from(brands)
-    .where(and(eq(brands.orgId, orgId), eq(brands.domain, domain)))
+    .where(eq(brands.domain, domain))
     .limit(1);
 
-  if (existingByBoth.length > 0) {
-    const brand = existingByBoth[0];
+  let brand: Brand;
+  if (existing.length > 0) {
+    brand = existing[0];
     if (brand.url !== normalizedUrl) {
       await db.update(brands).set({ url: normalizedUrl, updatedAt: sql`NOW()` }).where(eq(brands.id, brand.id));
       brand.url = normalizedUrl;
     }
-    console.log(`[brand-service] Found existing brand by orgId+domain: ${brand.id}`);
-    brand.name = await ensureBrandName(brand.id, caller);
-    return brand;
+    console.log(`[brand-service] Found existing brand by domain ${domain}: ${brand.id}`);
+  } else {
+    // CASE 2: create new brand. Race-safe insert via ON CONFLICT on the unique domain index.
+    const inserted = await db
+      .insert(brands)
+      .values({ url: normalizedUrl, domain })
+      .onConflictDoNothing({ target: brands.domain })
+      .returning({
+        id: brands.id,
+        url: brands.url,
+        name: brands.name,
+        domain: brands.domain,
+      });
+
+    if (inserted.length > 0) {
+      brand = inserted[0];
+      console.log(`[brand-service] Created NEW brand for domain ${domain}: ${brand.id}`);
+    } else {
+      const [refetched] = await db
+        .select({ id: brands.id, url: brands.url, name: brands.name, domain: brands.domain })
+        .from(brands)
+        .where(eq(brands.domain, domain))
+        .limit(1);
+      brand = refetched;
+      console.log(`[brand-service] Re-fetched brand after conflict for domain ${domain}: ${brand.id}`);
+    }
   }
 
-  // CASE 2: Create new brand
-  const inserted = await db
-    .insert(brands)
-    .values({ url: normalizedUrl, domain, orgId })
-    .onConflictDoNothing()
-    .returning({
-      id: brands.id,
-      url: brands.url,
-      name: brands.name,
-      domain: brands.domain,
-    });
+  // Upsert org_brands membership. Idempotent on (orgId, brandId).
+  await db
+    .insert(orgBrands)
+    .values({ orgId, brandId: brand.id })
+    .onConflictDoNothing({ target: [orgBrands.orgId, orgBrands.brandId] });
 
-  if (inserted.length > 0) {
-    const brand = inserted[0];
-    console.log(`[brand-service] Created NEW brand for org ${orgId} with domain ${domain}: ${brand.id}`);
-    brand.name = await ensureBrandName(brand.id, caller);
-    return brand;
-  }
-
-  // Race condition: another request inserted the same org+domain — re-fetch
-  const [refetched] = await db
-    .select({ id: brands.id, url: brands.url, name: brands.name, domain: brands.domain })
-    .from(brands)
-    .where(and(eq(brands.orgId, orgId), eq(brands.domain, domain)))
-    .limit(1);
-
-  console.log(`[brand-service] Re-fetched brand after conflict for org ${orgId}: ${refetched.id}`);
-  refetched.name = await ensureBrandName(refetched.id, caller);
-  return refetched;
+  brand.name = await ensureBrandName(brand.id, caller);
+  return brand;
 }

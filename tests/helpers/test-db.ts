@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { db, brands, mediaAssets, intakeForms } from '../../src/db';
+import { db, brands, brandsOld, orgBrands, mediaAssets, intakeForms } from '../../src/db';
 import { eq, like, sql, inArray } from 'drizzle-orm';
 
 /**
@@ -19,14 +19,17 @@ export async function cleanTestData() {
       sql`${intakeForms.brandId}::text LIKE 'test-%'`
     );
 
-    // Clean brands with test prefix org IDs
-    await db.delete(brands).where(
-      sql`${brands.orgId}::text LIKE 'test-%'`
+    // Clean memberships for test orgs (then brand cascades via FK).
+    await db.delete(orgBrands).where(
+      sql`${orgBrands.orgId}::text LIKE 'test-%'`,
     );
 
-    // Clean brands with test prefix external org ids (legacy)
-    await db.delete(brands).where(
-      like(brands.externalOrganizationId, 'test-%')
+    // Clean legacy brands rows with test prefix org IDs / external IDs.
+    await db.delete(brandsOld).where(
+      sql`${brandsOld.orgId}::text LIKE 'test-%'`,
+    );
+    await db.delete(brandsOld).where(
+      like(brandsOld.externalOrganizationId, 'test-%'),
     );
   } catch (error) {
     // Table might not exist or connection issue, ignore in tests
@@ -35,7 +38,10 @@ export async function cleanTestData() {
 }
 
 /**
- * Insert a test brand directly (orgId is now client-service UUID, no orgs table indirection)
+ * Insert a test brand directly. Writes the silver brand row, the org_brands
+ * membership, and the legacy `brands_old` row (with the same id + org_id)
+ * so that legacy-bridge routes that still read brands_old keep working in
+ * tests.
  */
 export async function insertTestBrand(data: {
   orgId: string;
@@ -45,19 +51,26 @@ export async function insertTestBrand(data: {
   domain?: string;
 }) {
   const id = randomTestId();
-  const result = await db
-    .insert(brands)
+  const url = data.url || 'https://test.example.com';
+  const domain = data.domain || 'test.example.com';
+  const name = data.name || 'Test Brand';
+  const externalOrganizationId = data.externalOrganizationId || `test-ext-${Date.now()}`;
+
+  await db.insert(brands).values({ id, url, domain, name });
+  await db.insert(orgBrands).values({ orgId: data.orgId, brandId: id }).onConflictDoNothing();
+  const legacy = await db
+    .insert(brandsOld)
     .values({
       id,
       orgId: data.orgId,
-      externalOrganizationId: data.externalOrganizationId || `test-ext-${Date.now()}`,
-      name: data.name || 'Test Brand',
-      url: data.url || 'https://test.example.com',
-      domain: data.domain || 'test.example.com',
+      externalOrganizationId,
+      name,
+      url,
+      domain,
     })
     .returning();
 
-  return result[0];
+  return legacy[0];
 }
 
 /**
@@ -113,9 +126,31 @@ export function randomTestId(): string {
 }
 
 /**
- * Delete brands by a list of orgIds (for test cleanup)
+ * Delete brands by a list of orgIds (for test cleanup). Removes the gold
+ * memberships, the legacy `brands_old` rows, and any silver brand row
+ * orphaned by the membership delete.
  */
 export async function deleteBrandsByOrgIds(orgIds: string[]) {
   if (orgIds.length === 0) return;
-  await db.delete(brands).where(inArray(brands.orgId, orgIds));
+  const memberRows = await db
+    .select({ brandId: orgBrands.brandId })
+    .from(orgBrands)
+    .where(inArray(orgBrands.orgId, orgIds));
+  const brandIds = Array.from(new Set(memberRows.map((m) => m.brandId)));
+
+  await db.delete(orgBrands).where(inArray(orgBrands.orgId, orgIds));
+  await db.delete(brandsOld).where(inArray(brandsOld.orgId, orgIds));
+
+  if (brandIds.length > 0) {
+    // Drop silver brand rows that no longer have any membership.
+    const stillReferenced = await db
+      .select({ brandId: orgBrands.brandId })
+      .from(orgBrands)
+      .where(inArray(orgBrands.brandId, brandIds));
+    const referencedSet = new Set(stillReferenced.map((r) => r.brandId));
+    const orphaned = brandIds.filter((id) => !referencedSet.has(id));
+    if (orphaned.length > 0) {
+      await db.delete(brands).where(inArray(brands.id, orphaned));
+    }
+  }
 }

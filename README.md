@@ -77,6 +77,7 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | GET | `/` | Service info |
 | GET | `/health` | Health check |
 | GET | `/openapi.json` | OpenAPI 3.0 spec |
+| GET | `/public/brands/:id` | Get brand by ID — no auth. Identical shape to `GET /internal/brands/:id`. |
 
 ### Org-scoped (`/orgs/*` — require `X-Org-Id`)
 
@@ -99,8 +100,9 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/internal/brands/:id` | Get brand by ID |
+| GET | `/internal/brands/:id` | Get brand by ID — minimal shape (id, domain, url, name, logoUrl, createdAt, updatedAt). Business fields are not returned; call `extract-fields` for them. Lazy-fills `name` (via extract-fields, platform-billed) and `logoUrl` (via logo.dev) when null. |
 | GET | `/internal/brands/:id/runs` | List extraction runs with costs |
+| POST | `/internal/brands/extract-fields` | Mirror of `POST /orgs/brands/extract-fields` for service-to-service callers without an org identity. Uses chat-service `/internal/platform-complete`. Reads `x-brand-id` header. |
 | GET | `/internal/brands/:brandId/extracted-fields` | List extracted fields (optional `?campaignId=`) |
 | GET | `/internal/brands/:brandId/extracted-images` | List extracted images (optional `?campaignId=`) |
 
@@ -227,6 +229,7 @@ See `.env.example` for all required variables:
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage
 - `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` - Google Drive
 - `BRAND_SERVICE_URL` - Public URL for OpenAPI spec (used in generated spec, defaults to localhost)
+- `KEY_SERVICE_URL` / `KEY_SERVICE_API_KEY` - Key resolution (used for logo.dev platform key via `GET /keys/platform/logo-dev/decrypt`, and BYOK provider keys)
 - `PORT` - Server port (default 3008)
 
 ## CI/CD

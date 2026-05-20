@@ -1,5 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, brands, intakeForms } from '../db';
+// LEGACY: reads `brands_old` for org_id / business columns.
+import { db, brandsOld as brands, intakeForms } from '../db';
 
 export interface IntakeFormData {
   organization_id: string;
