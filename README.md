@@ -229,7 +229,7 @@ See `.env.example` for all required variables:
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage
 - `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` - Google Drive
 - `BRAND_SERVICE_URL` - Public URL for OpenAPI spec (used in generated spec, defaults to localhost)
-- `LOGO_DEV_TOKEN` - logo.dev publishable token, used to lazy-fill `brands.logo_url` from the brand's domain
+- `KEY_SERVICE_URL` / `KEY_SERVICE_API_KEY` - Key resolution (used for logo.dev platform key via `GET /keys/platform/logo-dev/decrypt`, and BYOK provider keys)
 - `PORT` - Server port (default 3008)
 
 ## CI/CD

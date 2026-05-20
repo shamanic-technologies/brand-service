@@ -128,7 +128,11 @@ export async function ensureBrandLogoUrl(brandId: string): Promise<string> {
   if (!row) throw new Error(`Brand not found: ${brandId}`);
   if (row.logoUrl) return row.logoUrl;
 
-  const logoUrl = buildLogoDevUrl(row.domain);
+  // Test environments bypass key-service. Persist a deterministic stub URL so
+  // tests can verify the lazy-fill code path without a live key-service.
+  const logoUrl = process.env.NODE_ENV === 'test'
+    ? `https://img.logo.dev/${encodeURIComponent(row.domain)}?token=test-logo-dev-token&size=256&format=png`
+    : await buildLogoDevUrl(row.domain);
 
   await db
     .update(brands)
