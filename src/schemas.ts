@@ -87,6 +87,28 @@ export const GetBrandResponseSchema = z
   .object({ brand: BrandDetailSchema })
   .openapi('GetBrandResponse');
 
+export const BatchBrandsQuerySchema = z
+  .object({
+    ids: z.string().openapi({
+      description:
+        'Comma-separated brand UUIDs to batch-resolve. Max 100 ids per request. ' +
+        'Missing ids are silently omitted from the response; the caller maps the ' +
+        'result array by `id`.',
+      example: '550e8400-e29b-41d4-a716-446655440000,6ba7b810-9dad-11d1-80b4-00c04fd430c8',
+    }),
+  })
+  .openapi('BatchBrandsQuery');
+
+export const ListBrandsBatchResponseSchema = z
+  .object({
+    brands: z.array(BrandDetailSchema).openapi({
+      description:
+        'Brands resolved from the requested ids, in arbitrary order. Brands that did ' +
+        'not exist are omitted (not returned as 404). Map by `id` on the caller side.',
+    }),
+  })
+  .openapi('ListBrandsBatchResponse');
+
 export const BrandRunsQuerySchema = z
   .object({
     taskName: z.string().optional(),
@@ -172,6 +194,40 @@ registry.registerPath({
   responses: {
     200: { description: 'Brand details', content: { 'application/json': { schema: GetBrandResponseSchema } } },
     404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands',
+  summary: 'Batch-resolve brands by ids (internal, API key only)',
+  description:
+    'Batch lookup. Pass a comma-separated list of brand UUIDs in `?ids=`. Returns the same minimal ' +
+    'shape as GET /internal/brands/{id} for each brand that exists. Missing ids are silently omitted ' +
+    '(no 404); callers map the result by `id`. Capped at 100 ids per request. Use this instead of ' +
+    'fanning out parallel GET /internal/brands/{id} calls — it avoids N+1 round-trips and lets ' +
+    'brand-service own the lazy-fill cache hit path centrally.',
+  request: { query: BatchBrandsQuerySchema },
+  responses: {
+    200: { description: 'Brands resolved in arbitrary order', content: { 'application/json': { schema: ListBrandsBatchResponseSchema } } },
+    400: { description: 'Missing/empty ids, more than 100 ids, or an entry is not a valid UUID' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/public/brands',
+  summary: 'Batch-resolve brands by ids (public, no auth)',
+  description:
+    'Public mirror of GET /internal/brands. Identical response shape — same comma-separated `?ids=` ' +
+    'param, same minimal shape per brand, same omit-on-miss semantics, same 100-id cap. Use this when ' +
+    'no API key is available.',
+  request: { query: BatchBrandsQuerySchema },
+  responses: {
+    200: { description: 'Brands resolved in arbitrary order', content: { 'application/json': { schema: ListBrandsBatchResponseSchema } } },
+    400: { description: 'Missing/empty ids, more than 100 ids, or an entry is not a valid UUID' },
     500: { description: 'Internal server error' },
   },
 });
