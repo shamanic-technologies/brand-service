@@ -4,7 +4,7 @@ import request from 'supertest';
 import { eq } from 'drizzle-orm';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands } from '../../src/db/schema';
+import { brands, orgBrands } from '../../src/db/schema';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
 
 const app = createTestApp();
@@ -48,13 +48,8 @@ describe('brands.name lazy-fill', () => {
     const domain = 'lazyfill-get.example.com';
 
     // Insert a brand with name explicitly null to simulate legacy rows.
-    await db.insert(brands).values({
-      id,
-      orgId,
-      url,
-      domain,
-      name: null,
-    });
+    await db.insert(brands).values({ id, url, domain, name: null });
+    await db.insert(orgBrands).values({ orgId, brandId: id });
 
     const before = await db.select({ name: brands.name }).from(brands).where(eq(brands.id, id));
     expect(before[0].name).toBeNull();
@@ -82,7 +77,8 @@ describe('brands.name lazy-fill', () => {
     const domain = 'lazyfill-noop.example.com';
     const name = 'My Existing Brand';
 
-    await db.insert(brands).values({ id, orgId, url, domain, name });
+    await db.insert(brands).values({ id, url, domain, name });
+    await db.insert(orgBrands).values({ orgId, brandId: id });
 
     const res = await request(app)
       .get(`/internal/brands/${id}`)

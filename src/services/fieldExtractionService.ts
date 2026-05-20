@@ -12,8 +12,8 @@
  */
 
 import crypto from 'crypto';
-import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
-import { db, brands, brandExtractedFields, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
+import { eq, and, gt, inArray, sql, isNull, asc } from 'drizzle-orm';
+import { db, brands, brandExtractedFields, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import { chat, Caller, OrgCaller } from '../lib/chat-client';
 import {
   mapSiteUrls,
@@ -390,13 +390,23 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
-      orgId: brands.orgId,
     })
     .from(brands)
     .where(eq(brands.id, brandId))
     .limit(1);
 
-  return result[0] || null;
+  if (result.length === 0) return null;
+  // Platform-mode callers need an orgId for run tracking — pick the oldest
+  // membership in org_brands. Returns '' when no org has claimed the brand
+  // yet (rare; callers that need orgId will surface a clear failure).
+  const membership = await db
+    .select({ orgId: orgBrands.orgId })
+    .from(orgBrands)
+    .where(eq(orgBrands.brandId, brandId))
+    .orderBy(asc(orgBrands.claimedAt))
+    .limit(1);
+
+  return { ...result[0], orgId: membership[0]?.orgId ?? '' };
 }
 
 export interface ExtractFieldsOptions {

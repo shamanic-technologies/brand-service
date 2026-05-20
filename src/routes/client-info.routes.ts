@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
-import { db, brands } from '../db';
+// LEGACY: reads `brands_old` for external_organization_id semantics.
+import { db, brandsOld as brands } from '../db';
 import { getOrganizationIdByOrgId } from '../services/organizationUpsertService';
 import { InvalidUrlError, UrlRequiredError } from '../lib/url-utils';
 import { TriggerWorkflowRequestSchema } from '../schemas';

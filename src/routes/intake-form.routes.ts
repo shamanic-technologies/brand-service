@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
-import { db, brands, intakeForms } from '../db';
+// LEGACY: reads brands_old for org_id / external_organization_id semantics.
+import { db, brandsOld as brands, intakeForms } from '../db';
 import { intakeFormService } from '../services/intakeFormService';
 import { TriggerWorkflowRequestSchema, IntakeFormUpsertRequestSchema } from '../schemas';
 

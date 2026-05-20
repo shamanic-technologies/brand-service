@@ -3,8 +3,8 @@ import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands } from '../../src/db/schema';
-import { eq } from 'drizzle-orm';
+import { brands, orgBrands } from '../../src/db/schema';
+import { eq, and } from 'drizzle-orm';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
 
 const app = createTestApp();
@@ -51,14 +51,13 @@ describe('POST /brands - Upsert Brand', () => {
     expect(response.body.domain).toBe('new-upsert-test.example.com');
     expect(response.body.created).toBe(true);
 
-    // Verify brand exists in DB with orgId set
-    const dbBrands = await db
+    // Verify silver brand exists + org_brands membership.
+    const memberships = await db
       .select()
-      .from(brands)
-      .where(eq(brands.orgId, orgId));
-    expect(dbBrands.length).toBe(1);
-    expect(dbBrands[0].id).toBe(response.body.brandId);
-    expect(dbBrands[0].orgId).toBe(orgId);
+      .from(orgBrands)
+      .where(eq(orgBrands.orgId, orgId));
+    expect(memberships.length).toBe(1);
+    expect(memberships[0].brandId).toBe(response.body.brandId);
   }, 10000);
 
   it('should return existing brand with created=false on second call', async () => {
@@ -83,11 +82,11 @@ describe('POST /brands - Upsert Brand', () => {
     expect(second.body.brandId).toBe(first.body.brandId);
     expect(second.body.created).toBe(false);
 
-    const dbBrands = await db
+    const memberships = await db
       .select()
-      .from(brands)
-      .where(eq(brands.orgId, orgId));
-    expect(dbBrands.length).toBe(1);
+      .from(orgBrands)
+      .where(eq(orgBrands.orgId, orgId));
+    expect(memberships.length).toBe(1);
   }, 10000);
 
   it('should create separate brands for different domains under same org', async () => {
@@ -112,11 +111,11 @@ describe('POST /brands - Upsert Brand', () => {
     expect(first.body.created).toBe(true);
     expect(second.body.created).toBe(true);
 
-    const dbBrands = await db
+    const memberships = await db
       .select()
-      .from(brands)
-      .where(eq(brands.orgId, orgId));
-    expect(dbBrands.length).toBe(2);
+      .from(orgBrands)
+      .where(eq(orgBrands.orgId, orgId));
+    expect(memberships.length).toBe(2);
   }, 10000);
 
   it('should strip www. from domain', async () => {
@@ -150,18 +149,19 @@ describe('POST /brands - Upsert Brand', () => {
       .send({ url: url2 });
 
     // Should have two brands (different domains)
-    const dbBrands = await db
+    const memberships = await db
       .select()
-      .from(brands)
-      .where(eq(brands.orgId, orgId));
-    expect(dbBrands.length).toBe(2);
+      .from(orgBrands)
+      .where(eq(orgBrands.orgId, orgId));
+    expect(memberships.length).toBe(2);
   }, 10000);
 
-  it('should allow two different orgs to upsert brands with the same domain', async () => {
+  it('two orgs upserting the same domain share one silver brand + two memberships', async () => {
     const orgId1 = randomUUID();
     const orgId2 = randomUUID();
     createdOrgIds.push(orgId1, orgId2);
-    const url = 'https://shared-upsert-domain.example.com';
+    const uniqueDomain = `shared-upsert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.example.com`;
+    const url = `https://${uniqueDomain}`;
 
     const first = await request(app)
       .post('/orgs/brands')
@@ -178,8 +178,17 @@ describe('POST /brands - Upsert Brand', () => {
 
     expect(second.status).toBe(200);
     expect(second.body.created).toBe(true);
-    expect(second.body.brandId).not.toBe(first.body.brandId);
-    expect(second.body.domain).toBe('shared-upsert-domain.example.com');
+    // Same canonical silver brand under the new silver model.
+    expect(second.body.brandId).toBe(first.body.brandId);
+    expect(second.body.domain).toBe(uniqueDomain);
+
+    // Two memberships exist on the shared brand.
+    const memberships = await db
+      .select()
+      .from(orgBrands)
+      .where(eq(orgBrands.brandId, first.body.brandId));
+    const memberOrgIds = memberships.map((m) => m.orgId).sort();
+    expect(memberOrgIds).toEqual([orgId1, orgId2].sort());
   }, 10000);
 
   it('accepts a bare domain and normalizes URL + domain', async () => {

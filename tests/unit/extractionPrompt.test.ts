@@ -53,6 +53,9 @@ vi.mock('../../src/db', () => {
       'onConflictDoNothing',
       'update',
       'set',
+      'innerJoin',
+      'leftJoin',
+      'orderBy',
     ]) {
       chain[method] = vi.fn().mockReturnValue(chain);
     }
@@ -71,8 +74,9 @@ vi.mock('../../src/db', () => {
   };
   return {
     db: chainable(),
-    brands: { id: 'brands.id', orgId: 'brands.orgId', name: 'brands.name', url: 'brands.url', domain: 'brands.domain' },
-    brandExtractedFields: { brandId: 'bef.brandId', fieldKey: 'bef.fieldKey', expiresAt: 'bef.expiresAt', campaignId: 'bef.campaignId' },
+    brands: { id: 'brands.id', name: 'brands.name', url: 'brands.url', domain: 'brands.domain' },
+    orgBrands: { orgId: 'ob.orgId', brandId: 'ob.brandId', claimedAt: 'ob.claimedAt' },
+    brandExtractedFields: { brandId: 'bef.brandId', fieldKey: 'bef.fieldKey', fieldDescriptionHash: 'bef.fieldDescriptionHash', expiresAt: 'bef.expiresAt', campaignId: 'bef.campaignId' },
     pageScrapeCache: { normalizedUrl: 'psc.normalizedUrl', content: 'psc.content', expiresAt: 'psc.expiresAt', url: 'psc.url', scrapedAt: 'psc.scrapedAt', updatedAt: 'psc.updatedAt' },
     urlMapCache: { normalizedSiteUrl: 'umc.normalizedSiteUrl', urls: 'umc.urls', expiresAt: 'umc.expiresAt', siteUrl: 'umc.siteUrl', mappedAt: 'umc.mappedAt', updatedAt: 'umc.updatedAt' },
   };

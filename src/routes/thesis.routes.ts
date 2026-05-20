@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { eq, sql } from 'drizzle-orm';
-import { db, brands, brandThesis } from '../db';
+// LEGACY: reads brands_old for org_id / external_organization_id semantics.
+import { db, brandsOld as brands, brandThesis } from '../db';
 import { TriggerWorkflowRequestSchema } from '../schemas';
 
 const router = Router();

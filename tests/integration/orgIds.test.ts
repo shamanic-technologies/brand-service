@@ -4,7 +4,8 @@ import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
 import { db } from '../../src/db';
-import { brands } from '../../src/db/schema';
+// /internal/org-ids still reads from the legacy brands_old.org_id column.
+import { brandsOld as brands } from '../../src/db/schema';
 import { eq } from 'drizzle-orm';
 
 const app = createTestApp();

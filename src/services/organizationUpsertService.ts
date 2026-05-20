@@ -1,5 +1,8 @@
 import { eq, and, sql } from 'drizzle-orm';
-import { db, brands } from '../db';
+// LEGACY: this service still upserts brands_old with org_id semantics.
+// It powers /internal/by-org-id and related "treat-brand-row-as-org" endpoints,
+// which must migrate to the new brands + org_brands model in a follow-up PR.
+import { db, brandsOld as brands } from '../db';
 import { extractDomain, normalizeUrl, UrlRequiredError } from '../lib/url-utils';
 
 /**

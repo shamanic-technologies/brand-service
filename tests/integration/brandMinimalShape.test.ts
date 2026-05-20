@@ -5,7 +5,7 @@ import request from 'supertest';
 import { eq, and } from 'drizzle-orm';
 import { createTestApp, getInternalAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands, brandExtractedFields } from '../../src/db/schema';
+import { brands, brandExtractedFields, orgBrands } from '../../src/db/schema';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
 
 const md5 = (s: string) => crypto.createHash('md5').update(s).digest('hex');
@@ -29,18 +29,12 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
 
     await db.insert(brands).values({
       id,
-      orgId,
       url,
       domain,
       name: 'Minimal Shape Brand',
       logoUrl: 'https://img.logo.dev/minimalshape.example.com?token=preexisting',
-      // Business fields populated to confirm they are NOT returned.
-      bio: 'should-not-leak',
-      categories: 'should-not-leak',
-      mission: 'should-not-leak',
-      elevatorPitch: 'should-not-leak',
-      location: 'should-not-leak',
     });
+    await db.insert(orgBrands).values({ orgId, brandId: id });
 
     const res = await request(app)
       .get(`/internal/brands/${id}`)
@@ -66,12 +60,12 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
 
     await db.insert(brands).values({
       id,
-      orgId,
       url,
       domain,
       name: 'Parity Brand',
       logoUrl: 'https://img.logo.dev/publicparity.example.com?token=preexisting',
     });
+    await db.insert(orgBrands).values({ orgId, brandId: id });
 
     const [internalRes, publicRes] = await Promise.all([
       request(app).get(`/internal/brands/${id}`).set(getInternalAuthHeaders()),
@@ -92,12 +86,12 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
 
     await db.insert(brands).values({
       id,
-      orgId,
       url,
       domain,
       name: 'Lazy Logo Brand',
       logoUrl: null,
     });
+    await db.insert(orgBrands).values({ orgId, brandId: id });
 
     const before = await db.select({ logoUrl: brands.logoUrl }).from(brands).where(eq(brands.id, id));
     expect(before[0].logoUrl).toBeNull();
@@ -132,11 +126,11 @@ describe('brand_extracted_fields — cache key includes field_description_hash',
 
     await db.insert(brands).values({
       id: brandId,
-      orgId,
       url: `https://${domain}`,
       domain,
       name: 'Cache Key Brand',
     });
+    await db.insert(orgBrands).values({ orgId, brandId });
 
     const fieldKey = 'industry';
     const descA = 'Primary industry vertical';
@@ -179,11 +173,11 @@ describe('brand_extracted_fields — cache key includes field_description_hash',
 
     await db.insert(brands).values({
       id: brandId,
-      orgId,
       url: `https://${domain}`,
       domain,
       name: 'Collide Brand',
     });
+    await db.insert(orgBrands).values({ orgId, brandId });
 
     const fieldKey = 'industry';
     const description = 'Primary industry vertical';

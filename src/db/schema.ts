@@ -15,7 +15,31 @@ export const pgmigrations = pgTable("pgmigrations", {
 	runOn: timestamp("run_on", { mode: 'string' }).notNull(),
 });
 
+/**
+ * Silver brand table. Global identity — one row per normalized domain.
+ * No `org_id` — membership lives in `org_brands` (gold). No business
+ * columns — they are fetched on demand via brand_extracted_fields.
+ */
 export const brands = pgTable("brands", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	domain: text().notNull(),
+	url: text().notNull(),
+	name: text(),
+	logoUrl: text("logo_url"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+	uniqueIndex("brands_domain_key").on(table.domain),
+]);
+
+/**
+ * Legacy `brands_old` table, preserved as a safety net during the
+ * silver/gold/bronze migration. Holds the previous schema with `org_id` and
+ * all business columns. New code MUST NOT read from this table — the only
+ * supported access is read-only diagnostic queries until it is dropped in a
+ * follow-up PR.
+ */
+export const brandsOld = pgTable("brands_old", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	name: text(),
 	url: text().notNull(),
@@ -42,14 +66,60 @@ export const brands = pgTable("brands", {
 	socialMedia: jsonb("social_media"),
 	logoUrl: text("logo_url"),
 	orgId: uuid("org_id").notNull(),
+});
+
+/**
+ * Gold membership table: which org claims which brand. N:N — multiple orgs
+ * may track the same brand and each org tracks many brands.
+ */
+export const orgBrands = pgTable("org_brands", {
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	claimedAt: timestamp("claimed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	uniqueIndex("idx_brands_org_domain").using("btree", table.orgId.asc().nullsLast().op("text_ops"), table.domain.asc().nullsLast().op("text_ops")),
-	index("idx_brands_org_id").using("btree", table.orgId.asc().nullsLast().op("uuid_ops")),
-	index("idx_organizations_categories").using("btree", table.categories.asc().nullsLast().op("text_ops")).where(sql`(categories IS NOT NULL)`),
-	index("organizations_logo_url_index").using("btree", table.logoUrl.asc().nullsLast().op("text_ops")).where(sql`(logo_url IS NOT NULL)`),
-	index("organizations_status_index").using("btree", table.status.asc().nullsLast().op("text_ops")).where(sql`(status IS NOT NULL)`),
-	unique("organizations_external_organization_id_key").on(table.externalOrganizationId),
-	check("organizations_status_check", sql`(status IS NULL) OR (status = 'generating'::text)`),
+	primaryKey({ columns: [table.orgId, table.brandId] }),
+	index("org_brands_brand_id_idx").on(table.brandId),
+	index("org_brands_org_id_idx").on(table.orgId),
+	foreignKey({
+			columns: [table.brandId],
+			foreignColumns: [brands.id],
+			name: "org_brands_brand_id_fkey",
+		}).onDelete("cascade"),
+]);
+
+/**
+ * Helper table populated during the 0024 migration: maps every legacy
+ * brand id to the canonical silver brand id (after dedup by normalized
+ * domain). Code can use it to resolve outdated brand ids to the canonical
+ * silver id when needed.
+ */
+export const brandIdRemap = pgTable("brand_id_remap", {
+	oldBrandId: uuid("old_brand_id").primaryKey().notNull(),
+	newBrandId: uuid("new_brand_id").notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.newBrandId],
+			foreignColumns: [brands.id],
+			name: "brand_id_remap_new_brand_id_fkey",
+		}).onDelete("cascade"),
+]);
+
+/**
+ * Bronze append-only raw scrape payload table. Future writes go here;
+ * existing scrape caches live on `_old` tables until consumers migrate.
+ */
+export const scrapeRaw = pgTable("scrape_raw", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	url: text().notNull(),
+	normalizedUrl: text("normalized_url").notNull(),
+	source: text().notNull(),
+	payload: jsonb().notNull(),
+	fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("scrape_raw_normalized_url_fetched_at_key").on(table.normalizedUrl, table.fetchedAt),
+	index("scrape_raw_normalized_url_idx").on(table.normalizedUrl),
+	index("scrape_raw_fetched_at_idx").on(table.fetchedAt.desc()),
 ]);
 
 export const individualsPdlEnrichment = pgTable("individuals_pdl_enrichment", {
@@ -259,10 +329,17 @@ export const brandLinkedinPosts = pgTable("brand_linkedin_posts", {
 	unique("organizations_linkedin_posts_linkedin_post_id_key").on(table.linkedinPostId),
 ]);
 
+/**
+ * Silver extracted-fields cache. Keyed by (brand_id, field_key,
+ * field_description_hash[, campaign_id]) so two callers asking for the same
+ * `field_key` with different prompt descriptions resolve to distinct rows.
+ */
 export const brandExtractedFields = pgTable("brand_extracted_fields", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	brandId: uuid("brand_id").notNull(),
 	fieldKey: text("field_key").notNull(),
+	fieldDescription: text("field_description").notNull().default(''),
+	fieldDescriptionHash: text("field_description_hash").notNull().default(sql`md5('')`),
 	fieldValue: jsonb("field_value"),
 	sourceUrls: jsonb("source_urls"),
 	campaignId: uuid("campaign_id"),
@@ -270,8 +347,6 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	fieldDescription: text("field_description").notNull().default(''),
-	fieldDescriptionHash: text("field_description_hash").notNull().default(sql`md5('')`),
 }, (table) => [
 	index("idx_extracted_fields_expires").using("btree", table.expiresAt.asc().nullsLast().op("timestamptz_ops")),
 	index("idx_extracted_fields_campaign").using("btree", table.campaignId.asc().nullsLast().op("uuid_ops")),
@@ -283,6 +358,25 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 			name: "brand_extracted_fields_brand_id_fkey"
 		}).onDelete("cascade"),
 ]);
+
+/**
+ * Legacy `brand_extracted_fields_old`. Preserved as a safety net during the
+ * silver/gold/bronze migration. New code MUST NOT read from this table.
+ */
+export const brandExtractedFieldsOld = pgTable("brand_extracted_fields_old", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	fieldKey: text("field_key").notNull(),
+	fieldDescription: text("field_description").notNull().default(''),
+	fieldDescriptionHash: text("field_description_hash").notNull().default(sql`md5('')`),
+	fieldValue: jsonb("field_value"),
+	sourceUrls: jsonb("source_urls"),
+	campaignId: uuid("campaign_id"),
+	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+});
 
 export const pageScrapeCache = pgTable("page_scrape_cache", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
