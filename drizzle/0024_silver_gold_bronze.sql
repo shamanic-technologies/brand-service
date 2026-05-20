@@ -16,28 +16,58 @@
 
 -- ── Rename old tables ──────────────────────────────────────────────
 
-ALTER TABLE "brands" RENAME TO "brands_old";
---> statement-breakpoint
-ALTER TABLE "brand_extracted_fields" RENAME TO "brand_extracted_fields_old";
+-- Idempotent table rename: only rename if the legacy column (org_id) is
+-- still present on `brands` AND `brands_old` does not yet exist. On a DB
+-- where the migration already ran (manually or via prior boot), this is a
+-- no-op.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'brands' AND column_name = 'org_id')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_schema = 'public' AND table_name = 'brands_old') THEN
+    EXECUTE 'ALTER TABLE "brands" RENAME TO "brands_old"';
+  END IF;
+END $$;
 --> statement-breakpoint
 
--- Rename existing indexes on _old tables so that the original index names are
--- free for the new silver tables. Index renames are best-effort; missing
--- indexes are skipped via DO blocks.
+-- brand_extracted_fields rename uses the presence of `brand_id_remap` as the
+-- "this migration already ran" sentinel — that helper table is created only
+-- by this migration and is the cleanest cross-statement marker.
 DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_brand_key_desc_no_campaign') THEN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables
+                 WHERE table_schema = 'public' AND table_name = 'brand_id_remap')
+     AND EXISTS (SELECT 1 FROM information_schema.tables
+                 WHERE table_schema = 'public' AND table_name = 'brand_extracted_fields')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.tables
+                     WHERE table_schema = 'public' AND table_name = 'brand_extracted_fields_old') THEN
+    EXECUTE 'ALTER TABLE "brand_extracted_fields" RENAME TO "brand_extracted_fields_old"';
+  END IF;
+END $$;
+--> statement-breakpoint
+
+-- Idempotent index renames: only rename when source exists AND target does
+-- not. On a freshly-cold DB the source lives on the just-renamed `_old`
+-- table; on a DB where the migration already ran, the `_old` suffix is
+-- already in place and this block is a no-op.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_brand_key_desc_no_campaign' AND tablename = 'brand_extracted_fields_old')
+     AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_brand_key_desc_no_campaign_old') THEN
     EXECUTE 'ALTER INDEX "idx_extracted_fields_brand_key_desc_no_campaign" RENAME TO "idx_extracted_fields_brand_key_desc_no_campaign_old"';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_brand_key_desc_campaign') THEN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_brand_key_desc_campaign' AND tablename = 'brand_extracted_fields_old')
+     AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_brand_key_desc_campaign_old') THEN
     EXECUTE 'ALTER INDEX "idx_extracted_fields_brand_key_desc_campaign" RENAME TO "idx_extracted_fields_brand_key_desc_campaign_old"';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_expires') THEN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_expires' AND tablename = 'brand_extracted_fields_old')
+     AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_expires_old') THEN
     EXECUTE 'ALTER INDEX "idx_extracted_fields_expires" RENAME TO "idx_extracted_fields_expires_old"';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_campaign') THEN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_campaign' AND tablename = 'brand_extracted_fields_old')
+     AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_extracted_fields_campaign_old') THEN
     EXECUTE 'ALTER INDEX "idx_extracted_fields_campaign" RENAME TO "idx_extracted_fields_campaign_old"';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'brands_domain_key') THEN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'brands_domain_key' AND tablename = 'brands_old')
+     AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'brands_domain_key_old') THEN
     EXECUTE 'ALTER INDEX "brands_domain_key" RENAME TO "brands_domain_key_old"';
   END IF;
 END $$;
