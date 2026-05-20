@@ -11,8 +11,9 @@
  * Default scrape cache TTL is 180 days; callers can override via scrapeCacheTtlDays.
  */
 
-import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
-import { db, brands, brandExtractedFields, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
+import crypto from 'crypto';
+import { eq, and, gt, inArray, sql, isNull, asc } from 'drizzle-orm';
+import { db, brands, brandExtractedFields, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import { chat, Caller, OrgCaller } from '../lib/chat-client';
 import {
   mapSiteUrls,
@@ -169,16 +170,32 @@ interface Brand {
 
 // ─── Field cache ─────────────────────────────────────────────────────────────
 
+/**
+ * Stable md5 hash of a field description. Used as part of the cache key so
+ * the same `field_key` with different prompt descriptions resolves to
+ * different cache slots — two callers asking for `industry` with different
+ * extraction prompts do not pollute each other's cached value.
+ */
+export function hashFieldDescription(description: string): string {
+  return crypto.createHash('md5').update(description).digest('hex');
+}
+
 async function getCachedFields(
   brandId: string,
-  fieldKeys: string[],
+  fields: FieldSpec[],
   campaignId?: string,
 ): Promise<Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>> {
-  if (fieldKeys.length === 0) return new Map();
+  if (fields.length === 0) return new Map();
 
   const campaignFilter = campaignId
     ? eq(brandExtractedFields.campaignId, campaignId)
     : isNull(brandExtractedFields.campaignId);
+
+  // Expected (key → description hash) from the request. Within a single
+  // request each field_key appears at most once, so the map is unambiguous.
+  const expectedHashByKey = new Map<string, string>(
+    fields.map((f) => [f.key, hashFieldDescription(f.description)]),
+  );
 
   const rows = await db
     .select()
@@ -186,7 +203,8 @@ async function getCachedFields(
     .where(
       and(
         eq(brandExtractedFields.brandId, brandId),
-        inArray(brandExtractedFields.fieldKey, fieldKeys),
+        inArray(brandExtractedFields.fieldKey, fields.map((f) => f.key)),
+        inArray(brandExtractedFields.fieldDescriptionHash, Array.from(expectedHashByKey.values())),
         gt(brandExtractedFields.expiresAt, sql`NOW()`),
         campaignFilter,
       ),
@@ -194,6 +212,8 @@ async function getCachedFields(
 
   const map = new Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>();
   for (const row of rows) {
+    // Only accept the row when its (key, description hash) matches the request.
+    if (expectedHashByKey.get(row.fieldKey) !== row.fieldDescriptionHash) continue;
     map.set(row.fieldKey, {
       value: row.fieldValue,
       extractedAt: row.extractedAt,
@@ -298,19 +318,22 @@ async function extractFieldsFromContent(
 
 async function upsertExtractedFields(
   brandId: string,
-  fields: Array<{ key: string; value: unknown }>,
+  fields: Array<{ key: string; description: string; value: unknown }>,
   sourceUrls: string[],
   campaignId?: string,
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
 
   for (const field of fields) {
+    const descriptionHash = hashFieldDescription(field.description);
     if (campaignId) {
       await db
         .insert(brandExtractedFields)
         .values({
           brandId,
           fieldKey: field.key,
+          fieldDescription: field.description,
+          fieldDescriptionHash: descriptionHash,
           fieldValue: field.value,
           sourceUrls,
           campaignId,
@@ -318,9 +341,10 @@ async function upsertExtractedFields(
           expiresAt,
         })
         .onConflictDoUpdate({
-          target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey, brandExtractedFields.campaignId],
+          target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey, brandExtractedFields.fieldDescriptionHash, brandExtractedFields.campaignId],
           targetWhere: sql`${brandExtractedFields.campaignId} IS NOT NULL`,
           set: {
+            fieldDescription: field.description,
             fieldValue: field.value,
             sourceUrls,
             extractedAt: sql`NOW()`,
@@ -334,15 +358,18 @@ async function upsertExtractedFields(
         .values({
           brandId,
           fieldKey: field.key,
+          fieldDescription: field.description,
+          fieldDescriptionHash: descriptionHash,
           fieldValue: field.value,
           sourceUrls,
           extractedAt: sql`NOW()`,
           expiresAt,
         })
         .onConflictDoUpdate({
-          target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey],
+          target: [brandExtractedFields.brandId, brandExtractedFields.fieldKey, brandExtractedFields.fieldDescriptionHash],
           targetWhere: sql`${brandExtractedFields.campaignId} IS NULL`,
           set: {
+            fieldDescription: field.description,
             fieldValue: field.value,
             sourceUrls,
             extractedAt: sql`NOW()`,
@@ -363,13 +390,23 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
-      orgId: brands.orgId,
     })
     .from(brands)
     .where(eq(brands.id, brandId))
     .limit(1);
 
-  return result[0] || null;
+  if (result.length === 0) return null;
+  // Platform-mode callers need an orgId for run tracking — pick the oldest
+  // membership in org_brands. Returns '' when no org has claimed the brand
+  // yet (rare; callers that need orgId will surface a clear failure).
+  const membership = await db
+    .select({ orgId: orgBrands.orgId })
+    .from(orgBrands)
+    .where(eq(orgBrands.brandId, brandId))
+    .orderBy(asc(orgBrands.claimedAt))
+    .limit(1);
+
+  return { ...result[0], orgId: membership[0]?.orgId ?? '' };
 }
 
 export interface ExtractFieldsOptions {
@@ -406,7 +443,7 @@ export async function extractFields(
     console.log(`[brand-service] [${brandId}] resetCache=true — bypassing all caches, re-extracting ${fields.length} fields`);
     missingFields = fields;
   } else {
-    const cached = await getCachedFields(brandId, fieldKeys, campaignId);
+    const cached = await getCachedFields(brandId, fields, campaignId);
 
     missingFields = [];
     for (const field of fields) {
@@ -637,6 +674,7 @@ export async function extractFields(
     const scrapedSourceUrls = successfulScrapes.map((p) => p.url);
     const fieldsToStore = missingFields.map((f) => ({
       key: f.key,
+      description: f.description,
       value: extracted[f.key] ?? null,
     }));
     await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, campaignIdForRun);

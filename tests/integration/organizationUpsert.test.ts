@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { randomUUID } from 'crypto';
 import { db } from '../../src/db';
-import { brands } from '../../src/db/schema';
+// This suite tests the legacy organizationUpsertService which still writes
+// to brands_old. Read from the same table to verify.
+import { brandsOld as brands } from '../../src/db/schema';
 import { eq } from 'drizzle-orm';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
 import { getOrganizationIdByOrgId } from '../../src/services/organizationUpsertService';

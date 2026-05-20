@@ -94,6 +94,60 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
 export const internalRouter = Router();
 
 /**
+ * POST /internal/brands/extract-fields
+ *
+ * Mirror of `POST /orgs/brands/extract-fields` for service-to-service callers
+ * without an org identity. Uses chat-service `/internal/platform-complete`,
+ * skips run tracking, and does not require `x-org-id` / `x-user-id` / `x-run-id`.
+ * Brand IDs are still read from the comma-separated `x-brand-id` header.
+ */
+internalRouter.post('/brands/extract-fields', async (req: Request, res: Response) => {
+  try {
+    const rawHeader = req.headers['x-brand-id'];
+    const brandIdHeader = typeof rawHeader === 'string' ? rawHeader : Array.isArray(rawHeader) ? rawHeader[0] : '';
+    const brandIds = brandIdHeader
+      ? brandIdHeader.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+    if (brandIds.length === 0) {
+      return res.status(400).json({ error: 'Missing x-brand-id header' });
+    }
+
+    for (const id of brandIds) {
+      if (!UUID_REGEX.test(id)) {
+        return res.status(400).json({ error: `Invalid brand ID format in x-brand-id header: ${id}` });
+      }
+    }
+
+    const parsed = ExtractFieldsRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    const result = await multiBrandExtractFields({
+      brandIds,
+      fields: parsed.data.fields,
+      caller: { mode: 'platform' },
+      scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
+      resetCache: parsed.data.resetCache,
+    });
+
+    return res.json(result);
+  } catch (error: any) {
+    console.error('[brand-service] Extract fields (internal multi-brand) error:', error);
+    if (error instanceof SiteMapError) {
+      return res.status(422).json({ error: error.message });
+    }
+    if (error.message?.includes('Brand not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    if (error.message?.includes('Brand has no URL')) {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message || 'Failed to extract fields' });
+  }
+});
+
+/**
  * GET /internal/brands/:brandId/extracted-fields
  *
  * List all previously extracted fields for a brand.

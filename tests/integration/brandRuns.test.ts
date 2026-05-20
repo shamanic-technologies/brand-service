@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands } from '../../src/db/schema';
+import { brands, orgBrands } from '../../src/db/schema';
 import { eq } from 'drizzle-orm';
 
 // Mock runs-client to avoid calling real runs-service in tests
@@ -18,21 +18,23 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
   const testOrgId = randomUUID();
 
   beforeAll(async () => {
-    // Create a test brand directly (orgId stored directly in brands table)
+    // Silver brand + org_brands membership for the test org.
+    const ts = Date.now();
     const [brand] = await db
       .insert(brands)
       .values({
-        orgId: testOrgId,
-        url: `https://runs-test-${Date.now()}.example.com`,
-        domain: `runs-test-${Date.now()}.example.com`,
+        url: `https://runs-test-${ts}.example.com`,
+        domain: `runs-test-${ts}.example.com`,
       })
       .returning({ id: brands.id });
     testBrandId = brand.id;
+    await db.insert(orgBrands).values({ orgId: testOrgId, brandId: testBrandId });
   });
 
   afterAll(async () => {
     try {
-      await db.delete(brands).where(eq(brands.orgId, testOrgId));
+      await db.delete(orgBrands).where(eq(orgBrands.orgId, testOrgId));
+      await db.delete(brands).where(eq(brands.id, testBrandId));
     } catch (e) {
       console.error('Cleanup error:', e);
     }

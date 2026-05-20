@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
-import { db, brands } from '../db';
+import { db, brands, orgBrands, brandsOld } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, ensureBrandName } from '../services/brandService';
+import { getOrCreateBrand, ensureBrandName, ensureBrandLogoUrl } from '../services/brandService';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema } from '../schemas';
 
@@ -45,11 +45,12 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
 
     const domain = extractDomain(url);
 
-    // Check if brand already exists by orgId + domain
+    // Was this org already claiming this brand?
     const existing = await db
-      .select({ id: brands.id })
-      .from(brands)
-      .where(and(eq(brands.orgId, orgId), eq(brands.domain, domain)))
+      .select({ brandId: orgBrands.brandId })
+      .from(orgBrands)
+      .innerJoin(brands, eq(brands.id, orgBrands.brandId))
+      .where(and(eq(orgBrands.orgId, orgId), eq(brands.domain, domain)))
       .limit(1);
 
     const brand = await getOrCreateBrand(orgId, url, {
@@ -92,8 +93,8 @@ orgRouter.get('/brands', async (req: Request, res: Response) => {
   try {
     const orgId = req.orgId!;
 
-    // Get all brands for this org
-    const orgBrands = await db
+    // Get all silver brands claimed by this org via org_brands membership.
+    const rows = await db
       .select({
         id: brands.id,
         domain: brands.domain,
@@ -102,13 +103,13 @@ orgRouter.get('/brands', async (req: Request, res: Response) => {
         createdAt: brands.createdAt,
         updatedAt: brands.updatedAt,
         logoUrl: brands.logoUrl,
-        elevatorPitch: brands.elevatorPitch,
       })
-      .from(brands)
-      .where(eq(brands.orgId, orgId))
+      .from(orgBrands)
+      .innerJoin(brands, eq(brands.id, orgBrands.brandId))
+      .where(eq(orgBrands.orgId, orgId))
       .orderBy(desc(brands.updatedAt));
 
-    res.json({ brands: orgBrands });
+    res.json({ brands: rows });
   } catch (error: any) {
     console.error('List brands error:', error);
     res.status(500).json({ error: error.message || 'Failed to list brands' });
@@ -119,11 +120,22 @@ orgRouter.get('/brands', async (req: Request, res: Response) => {
 
 export const internalRouter = Router();
 
+// ── Public routes (no auth) ────────────────────────────────────────
+
+export const publicRouter = Router();
+
 /**
- * GET /internal/brands/:id
- * Get a single brand by ID
+ * Shared handler for GET /internal/brands/:id and GET /public/brands/:id.
+ *
+ * Returns the canonical minimal brand shape: identity + lazy-filled name
+ * and logoUrl. All business fields (bio, categories, mission, etc.) live
+ * in brand_extracted_fields and must be fetched via extract-fields.
+ *
+ * Lazy fills:
+ * - `name` null → extractFields (platform mode) and persist.
+ * - `logoUrl` null → deterministic logo.dev URL from domain and persist.
  */
-internalRouter.get('/brands/:id', async (req: Request, res: Response) => {
+async function handleGetBrand(req: Request, res: Response) {
   try {
     const { id } = req.params;
     if (!UUID_REGEX.test(id)) {
@@ -134,39 +146,46 @@ internalRouter.get('/brands/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
-    const [brand] = await db
+    const [row] = await db
       .select({
         id: brands.id,
         domain: brands.domain,
+        url: brands.url,
         name: brands.name,
-        brandUrl: brands.url,
+        logoUrl: brands.logoUrl,
         createdAt: brands.createdAt,
         updatedAt: brands.updatedAt,
-        logoUrl: brands.logoUrl,
-        elevatorPitch: brands.elevatorPitch,
-        bio: brands.bio,
-        mission: brands.mission,
-        location: brands.location,
-        categories: brands.categories,
       })
       .from(brands)
       .where(eq(brands.id, id))
       .limit(1);
 
-    if (!brand) {
+    if (!row) {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    if (!brand.name) {
-      brand.name = await ensureBrandName(id, { mode: 'platform' });
-    }
+    const name = row.name ?? (await ensureBrandName(id, { mode: 'platform' }));
+    const logoUrl = row.logoUrl ?? (await ensureBrandLogoUrl(id));
 
-    res.json({ brand });
+    res.json({
+      brand: {
+        id: row.id,
+        domain: row.domain,
+        url: row.url,
+        name,
+        logoUrl,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      },
+    });
   } catch (error: any) {
-    console.error('Get brand error:', error);
+    console.error('[brand-service] Get brand error:', error);
     res.status(500).json({ error: error.message || 'Failed to get brand' });
   }
-});
+}
+
+internalRouter.get('/brands/:id', handleGetBrand);
+publicRouter.get('/brands/:id', handleGetBrand);
 
 /**
  * GET /internal/brands/:id/runs
@@ -186,19 +205,23 @@ internalRouter.get('/brands/:id/runs', async (req: Request, res: Response) => {
     const limit = parsed.data.limit ? parseInt(parsed.data.limit, 10) : undefined;
     const offset = parsed.data.offset ? parseInt(parsed.data.offset, 10) : undefined;
 
-    // Look up the brand directly
-    const [brand] = await db
-      .select({ id: brands.id, orgId: brands.orgId })
+    // Resolve the brand (silver) and its first claiming org (gold).
+    const [row] = await db
+      .select({ brandId: brands.id, orgId: orgBrands.orgId })
       .from(brands)
+      .leftJoin(orgBrands, eq(orgBrands.brandId, brands.id))
       .where(eq(brands.id, id))
       .limit(1);
 
-    if (!brand) {
+    if (!row) {
       return res.status(404).json({ error: 'Brand not found' });
+    }
+    if (!row.orgId) {
+      return res.status(404).json({ error: 'Brand has no org membership; cannot scope runs' });
     }
 
     const result = await listRuns({
-      orgId: brand.orgId,
+      orgId: row.orgId,
       userId: req.userId,
       serviceName: 'brand-service',
       taskName,
@@ -216,9 +239,17 @@ internalRouter.get('/brands/:id/runs', async (req: Request, res: Response) => {
 /**
  * POST /internal/transfer-brand
  * Transfer a brand from one org to another.
- * When targetBrandId is absent: updates org_id on the brands table.
- * When targetBrandId is present: rewrites brand_id on all dependent tables, then deletes source brand.
- * Idempotent: running twice with same params is a no-op.
+ *
+ * In the silver/gold world, a "transfer" is purely a membership swap on
+ * `org_brands` — the brand row itself is global and never deleted.
+ *
+ * - `targetBrandId` absent: remove `(sourceOrgId, sourceBrandId)` from
+ *   org_brands and insert `(targetOrgId, sourceBrandId)`.
+ * - `targetBrandId` present (merge): rewrite all child-table references
+ *   from sourceBrandId → targetBrandId via `rewriteBrandReferences`, then
+ *   remove the source membership and insert/keep the target membership.
+ *
+ * Idempotent: running twice with the same params is a no-op.
  */
 internalRouter.post('/transfer-brand', async (req: Request, res: Response) => {
   try {
@@ -231,31 +262,44 @@ internalRouter.post('/transfer-brand', async (req: Request, res: Response) => {
     if (targetBrandId) {
       const rewriteResults = await rewriteBrandReferences(sourceBrandId, targetBrandId);
 
-      const deleteResult = await db
-        .delete(brands)
-        .where(and(eq(brands.id, sourceBrandId), eq(brands.orgId, sourceOrgId)))
-        .returning({ id: brands.id });
+      // Move membership: remove source brand membership from sourceOrg,
+      // ensure target brand membership exists for targetOrg.
+      const removed = await db
+        .delete(orgBrands)
+        .where(and(eq(orgBrands.brandId, sourceBrandId), eq(orgBrands.orgId, sourceOrgId)))
+        .returning({ orgId: orgBrands.orgId, brandId: orgBrands.brandId });
+      await db
+        .insert(orgBrands)
+        .values({ orgId: targetOrgId, brandId: targetBrandId })
+        .onConflictDoNothing({ target: [orgBrands.orgId, orgBrands.brandId] });
 
       const updatedTables = [
         ...rewriteResults,
-        { tableName: 'brands', count: deleteResult.length },
+        { tableName: 'org_brands', count: removed.length },
       ];
 
-      console.log(`[brand-service] transfer-brand: sourceBrandId=${sourceBrandId} targetBrandId=${targetBrandId} from=${sourceOrgId} to=${targetOrgId} rewritten=${JSON.stringify(updatedTables)}`);
+      console.log(`[brand-service] transfer-brand (merge): sourceBrandId=${sourceBrandId} targetBrandId=${targetBrandId} from=${sourceOrgId} to=${targetOrgId} rewritten=${JSON.stringify(updatedTables)}`);
 
       return res.json({ updatedTables });
     }
 
-    // No conflict: move brand to target org
-    const result = await db
-      .update(brands)
-      .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
-      .where(and(eq(brands.id, sourceBrandId), eq(brands.orgId, sourceOrgId)))
-      .returning({ id: brands.id });
+    // Pure move: swap org_brands membership for the same brand. Only re-insert
+    // for targetOrg when the source membership actually existed — avoids FK
+    // violations when sourceBrandId doesn't exist in brands silver.
+    const removed = await db
+      .delete(orgBrands)
+      .where(and(eq(orgBrands.brandId, sourceBrandId), eq(orgBrands.orgId, sourceOrgId)))
+      .returning({ orgId: orgBrands.orgId, brandId: orgBrands.brandId });
+    if (removed.length > 0) {
+      await db
+        .insert(orgBrands)
+        .values({ orgId: targetOrgId, brandId: sourceBrandId })
+        .onConflictDoNothing({ target: [orgBrands.orgId, orgBrands.brandId] });
+    }
 
-    const updatedTables = [{ tableName: 'brands', count: result.length }];
+    const updatedTables = [{ tableName: 'org_brands', count: removed.length }];
 
-    console.log(`[brand-service] transfer-brand: sourceBrandId=${sourceBrandId} from=${sourceOrgId} to=${targetOrgId} count=${result.length}`);
+    console.log(`[brand-service] transfer-brand (move): sourceBrandId=${sourceBrandId} from=${sourceOrgId} to=${targetOrgId} count=${removed.length}`);
 
     res.json({ updatedTables });
   } catch (error: any) {

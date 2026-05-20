@@ -155,66 +155,42 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Brand UUID"
           },
           "domain": {
             "type": "string",
-            "nullable": true
+            "description": "Normalized domain (subdomains preserved, www stripped)"
+          },
+          "url": {
+            "type": "string",
+            "description": "Full brand website URL"
           },
           "name": {
             "type": "string",
-            "nullable": true
-          },
-          "brandUrl": {
-            "type": "string",
-            "nullable": true
-          },
-          "createdAt": {
-            "type": "string",
-            "nullable": true
-          },
-          "updatedAt": {
-            "type": "string",
-            "nullable": true
+            "description": "Brand display name. Lazy-extracted from the website on first read if missing."
           },
           "logoUrl": {
             "type": "string",
-            "nullable": true
+            "description": "Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing."
           },
-          "elevatorPitch": {
+          "createdAt": {
             "type": "string",
-            "nullable": true
+            "description": "ISO timestamp when the brand row was created."
           },
-          "bio": {
+          "updatedAt": {
             "type": "string",
-            "nullable": true
-          },
-          "mission": {
-            "type": "string",
-            "nullable": true
-          },
-          "location": {
-            "type": "string",
-            "nullable": true
-          },
-          "categories": {
-            "type": "string",
-            "nullable": true
+            "description": "ISO timestamp when the brand row was last updated."
           }
         },
         "required": [
           "id",
           "domain",
+          "url",
           "name",
-          "brandUrl",
-          "createdAt",
-          "updatedAt",
           "logoUrl",
-          "elevatorPitch",
-          "bio",
-          "mission",
-          "location",
-          "categories"
+          "createdAt",
+          "updatedAt"
         ]
       },
       "ListExtractedFieldsResponse": {
@@ -1394,6 +1370,41 @@
     "/internal/brands/{id}": {
       "get": {
         "summary": "Get a single brand by ID",
+        "description": "Returns the canonical minimal brand shape (identity + name + logoUrl). All business fields (industry, target audience, mission, etc.) must be fetched via POST /internal/brands/extract-fields. Lazy fills name (via extract-fields, platform-billed) and logoUrl (via deterministic logo.dev URL) when null in the database.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "orgId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Brand details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBrandResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/public/brands/{id}": {
+      "get": {
+        "summary": "Get a single brand by ID (public, no auth)",
+        "description": "Public mirror of GET /internal/brands/{id}. Identical response shape — identity + lazy-filled name and logoUrl. Use this when no API key is available (dashboards, embeddable widgets). Business fields must still be fetched via POST /orgs/brands/extract-fields (org auth required).",
         "parameters": [
           {
             "schema": {
@@ -1623,6 +1634,58 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "422": {
+            "description": "Site scraping failed"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/extract-fields": {
+      "post": {
+        "summary": "Extract fields from one or more brands via AI (internal, no x-org-id)",
+        "description": "Mirror of POST /orgs/brands/extract-fields for service-to-service callers without an org identity. Uses chat-service /internal/platform-complete (platform-billed, no run tracking). Brand IDs are still read from the comma-separated x-brand-id header. Response shape is identical to the orgs route.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Comma-separated brand UUIDs",
+              "example": "550e8400-e29b-41d4-a716-446655440000"
+            },
+            "required": true,
+            "description": "Comma-separated brand UUIDs",
+            "name": "x-brand-id",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractFieldsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Extracted fields with brands metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MultiBrandExtractFieldsResponse"
                 }
               }
             }

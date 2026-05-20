@@ -109,3 +109,66 @@ export async function getKeyForOrg(
   // Should not reach here, but satisfy TypeScript
   throw lastError;
 }
+
+/**
+ * Resolve a platform-scoped API key via key-service.
+ *
+ * GET /keys/platform/:provider/decrypt — no org/user identity required.
+ * Platform keys are global, registered once at deployment via POST /platform-keys.
+ *
+ * Throws when the provider has no platform key registered (404), so the
+ * caller fails loud instead of silently substituting an env-var fallback.
+ */
+export async function getPlatformKey(
+  provider: string,
+  caller: CallerContext,
+): Promise<string> {
+  const url = `${KEY_SERVICE_URL}/keys/platform/${provider}/decrypt`;
+  let lastError: any;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': KEY_SERVICE_API_KEY,
+          'X-Caller-Service': 'brand',
+          'X-Caller-Method': caller.method,
+          'X-Caller-Path': caller.path,
+        },
+        timeout: 10000,
+      });
+
+      const key = response.data?.key;
+      if (!key || typeof key !== 'string') {
+        throw new Error(`key-service returned empty key for platform provider ${provider}`);
+      }
+      return key;
+    } catch (error: any) {
+      lastError = error;
+
+      // 404 = provider has no platform key registered. Fail loud.
+      if (error.response?.status === 404) {
+        throw new Error(`[brand-service] No platform key registered for provider "${provider}". Register via POST ${KEY_SERVICE_URL}/platform-keys.`);
+      }
+
+      if (isTransientError(error) && attempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        console.warn(
+          `[keys-service] Transient error (${error.code}) fetching from ${url}, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`,
+        );
+        await sleep(delay);
+        continue;
+      }
+
+      const detail = error.response?.status
+        ? `HTTP ${error.response.status}: ${error.response.data?.error || error.message}`
+        : `${error.code || 'UNKNOWN'}: ${error.message || 'no error message'}`;
+      const retryNote = isTransientError(error) ? ` (after ${MAX_RETRIES} retries)` : '';
+      console.error(`[brand-service] Error fetching platform key from key-service at ${url}: ${detail}${retryNote}`);
+      throw new Error(`key-service platform-key fetch failed: ${detail}${retryNote}`);
+    }
+  }
+
+  throw lastError;
+}

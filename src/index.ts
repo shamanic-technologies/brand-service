@@ -7,7 +7,7 @@ import { apiKeyAuth, requireOrgId } from './middleware/auth';
 import { db } from './db';
 
 // Import routes — mixed files export { orgRouter, internalRouter }
-import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes } from './routes/brands.routes';
+import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes, publicRouter as brandsPublicRoutes } from './routes/brands.routes';
 import { orgRouter as extractFieldsOrgRoutes, internalRouter as extractFieldsInternalRoutes } from './routes/extract-fields.routes';
 import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInternalRoutes } from './routes/extract-images.routes';
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from './routes/public-information.routes';
@@ -55,6 +55,10 @@ app.get('/openapi.json', (req: Request, res: Response) => {
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
   res.json(spec);
 });
+
+// ── Public brand-info routes (no auth) ───────────────────────────
+
+app.use('/public', brandsPublicRoutes);
 
 // ── Internal routes (API key only, no x-org-id required) ─────────
 

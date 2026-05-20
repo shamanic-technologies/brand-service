@@ -3,7 +3,10 @@ import axios from 'axios';
 import { eq, and, isNull, like } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
-import { db, brands, mediaAssets, supabaseStorage } from '../db';
+// LEGACY: reads `brands_old` for org_id / external_organization_id semantics.
+// Migrate consumers to extract-fields and the new silver brands + org_brands
+// model, then remove this alias.
+import { db, brandsOld as brands, mediaAssets, supabaseStorage } from '../db';
 import { AnalyzeRequestSchema } from '../schemas';
 import { authorizeCredits } from '../lib/billing-client';
 

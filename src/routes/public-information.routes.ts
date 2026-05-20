@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { eq, sql } from 'drizzle-orm';
-import { db, brands, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
+// LEGACY: reads brands_old for org_id / business columns. Migrate consumers
+// to extract-fields + the new brands + org_brands model.
+import { db, brandsOld as brands, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
 import { PublicInfoContentRequestSchema } from '../schemas';
 
 // ── Org-scoped routes (require x-org-id) ──────────────────────────

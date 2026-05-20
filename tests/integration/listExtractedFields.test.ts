@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands, brandExtractedFields } from '../../src/db/schema';
+import { brands, brandExtractedFields, orgBrands } from '../../src/db/schema';
 import { eq } from 'drizzle-orm';
 
 const app = createTestApp();
@@ -14,16 +14,17 @@ describe('GET /brands/:brandId/extracted-fields', () => {
   beforeAll(async () => {
     // Clean up any leftover test data
     await db.delete(brandExtractedFields).where(eq(brandExtractedFields.brandId, TEST_BRAND_ID));
+    await db.delete(orgBrands).where(eq(orgBrands.brandId, TEST_BRAND_ID));
     await db.delete(brands).where(eq(brands.id, TEST_BRAND_ID));
 
-    // Insert test brand
+    // Insert test brand + org_brands membership
     await db.insert(brands).values({
       id: TEST_BRAND_ID,
-      orgId: TEST_ORG_ID,
       url: 'https://example.com',
       domain: 'example.com',
       name: 'Test Brand',
     });
+    await db.insert(orgBrands).values({ orgId: TEST_ORG_ID, brandId: TEST_BRAND_ID });
 
     // Insert some extracted fields
     await db.insert(brandExtractedFields).values([
@@ -48,6 +49,7 @@ describe('GET /brands/:brandId/extracted-fields', () => {
 
   afterAll(async () => {
     await db.delete(brandExtractedFields).where(eq(brandExtractedFields.brandId, TEST_BRAND_ID));
+    await db.delete(orgBrands).where(eq(orgBrands.brandId, TEST_BRAND_ID));
     await db.delete(brands).where(eq(brands.id, TEST_BRAND_ID));
   });
 
