@@ -193,6 +193,21 @@
           "updatedAt"
         ]
       },
+      "ListBrandsBatchResponse": {
+        "type": "object",
+        "properties": {
+          "brands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BrandDetail"
+            },
+            "description": "Brands resolved from the requested ids, in arbitrary order. Brands that did not exist are omitted (not returned as 404). Map by `id` on the caller side."
+          }
+        },
+        "required": [
+          "brands"
+        ]
+      },
       "ListExtractedFieldsResponse": {
         "type": "object",
         "properties": {
@@ -1428,6 +1443,80 @@
           },
           "404": {
             "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands": {
+      "get": {
+        "summary": "Batch-resolve brands by ids (internal, API key only)",
+        "description": "Batch lookup. Pass a comma-separated list of brand UUIDs in `?ids=`. Returns the same minimal shape as GET /internal/brands/{id} for each brand that exists. Missing ids are silently omitted (no 404); callers map the result by `id`. Capped at 100 ids per request. Use this instead of fanning out parallel GET /internal/brands/{id} calls — it avoids N+1 round-trips and lets brand-service own the lazy-fill cache hit path centrally.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Comma-separated brand UUIDs to batch-resolve. Max 100 ids per request. Missing ids are silently omitted from the response; the caller maps the result array by `id`.",
+              "example": "550e8400-e29b-41d4-a716-446655440000,6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+            },
+            "required": true,
+            "description": "Comma-separated brand UUIDs to batch-resolve. Max 100 ids per request. Missing ids are silently omitted from the response; the caller maps the result array by `id`.",
+            "name": "ids",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Brands resolved in arbitrary order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListBrandsBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing/empty ids, more than 100 ids, or an entry is not a valid UUID"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/public/brands": {
+      "get": {
+        "summary": "Batch-resolve brands by ids (public, no auth)",
+        "description": "Public mirror of GET /internal/brands. Identical response shape — same comma-separated `?ids=` param, same minimal shape per brand, same omit-on-miss semantics, same 100-id cap. Use this when no API key is available.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Comma-separated brand UUIDs to batch-resolve. Max 100 ids per request. Missing ids are silently omitted from the response; the caller maps the result array by `id`.",
+              "example": "550e8400-e29b-41d4-a716-446655440000,6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+            },
+            "required": true,
+            "description": "Comma-separated brand UUIDs to batch-resolve. Max 100 ids per request. Missing ids are silently omitted from the response; the caller maps the result array by `id`.",
+            "name": "ids",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Brands resolved in arbitrary order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListBrandsBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing/empty ids, more than 100 ids, or an entry is not a valid UUID"
           },
           "500": {
             "description": "Internal server error"
