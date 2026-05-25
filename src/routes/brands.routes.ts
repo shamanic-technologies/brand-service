@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, desc, inArray } from 'drizzle-orm';
-import { db, brands, orgBrands, brandsOld, brandIdRemap } from '../db';
+import { db, brands, orgBrands, brandsOld } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand, ensureBrandName, ensureBrandLogoUrl } from '../services/brandService';
@@ -141,25 +141,10 @@ interface BrandMinimal {
  * Project a silver brand row into the canonical minimal response shape,
  * lazy-filling `name` (via extract-fields, platform-billed) and `logoUrl`
  * (via deterministic logo.dev URL) when null.
- *
- * On a silver miss, fall back to `brand_id_remap` and retry with the
- * canonical brand id. Migration 0024 deduped silver brands by normalized
- * domain; dedup losers retain their old id only via this remap. Without
- * the fallback, every consumer holding a pre-0024 brand id sees a 404.
  */
 async function loadBrandMinimal(brandId: string): Promise<BrandMinimal | null> {
-  let row = await selectBrandRow(brandId);
-
-  if (!row) {
-    const [remap] = await db
-      .select({ newBrandId: brandIdRemap.newBrandId })
-      .from(brandIdRemap)
-      .where(eq(brandIdRemap.oldBrandId, brandId))
-      .limit(1);
-    if (!remap) return null;
-    row = await selectBrandRow(remap.newBrandId);
-    if (!row) return null;
-  }
+  const row = await selectBrandRow(brandId);
+  if (!row) return null;
 
   const name = row.name ?? (await ensureBrandName(row.id, { mode: 'platform' }));
   const logoUrl = row.logoUrl ?? (await ensureBrandLogoUrl(row.id));

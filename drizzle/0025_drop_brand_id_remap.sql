@@ -1,0 +1,11 @@
+-- Drop the brand_id_remap helper table.
+--
+-- Migration 0024 populated this table with (old_brand_id -> new_brand_id)
+-- pairs so consumers holding pre-0024 brand ids could still resolve to the
+-- canonical silver brand. A cross-DB backfill on 2026-05-25 rewrote every
+-- old brand id stored in consumer services (runs-service, campaign-service,
+-- instantly-service, apollo-service) to the canonical new id. With no
+-- remaining old ids in circulation, the helper table is dead code.
+--
+-- Idempotent: safe to replay.
+DROP TABLE IF EXISTS "brand_id_remap" CASCADE;
