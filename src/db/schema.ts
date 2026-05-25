@@ -89,23 +89,6 @@ export const orgBrands = pgTable("org_brands", {
 ]);
 
 /**
- * Helper table populated during the 0024 migration: maps every legacy
- * brand id to the canonical silver brand id (after dedup by normalized
- * domain). Code can use it to resolve outdated brand ids to the canonical
- * silver id when needed.
- */
-export const brandIdRemap = pgTable("brand_id_remap", {
-	oldBrandId: uuid("old_brand_id").primaryKey().notNull(),
-	newBrandId: uuid("new_brand_id").notNull(),
-}, (table) => [
-	foreignKey({
-			columns: [table.newBrandId],
-			foreignColumns: [brands.id],
-			name: "brand_id_remap_new_brand_id_fkey",
-		}).onDelete("cascade"),
-]);
-
-/**
  * Bronze append-only raw scrape payload table. Future writes go here;
  * existing scrape caches live on `_old` tables until consumers migrate.
  */
