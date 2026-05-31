@@ -1609,6 +1609,96 @@ registry.registerPath({
   },
 });
 // ============================================================
+// Sales Economics (brand-level conversion economics)
+// ============================================================
+
+// The 5 sales conversion-economics metrics. Wire field names are consumed
+// byte-stable by api-service + the dashboard — do NOT rename.
+// No `.coerce`, no `.default()`: a missing/invalid field fails loud (400).
+export const SalesEconomicsMetricsSchema = z
+  .object({
+    lifetimeRevenueUsd: z.number().int().min(0),
+    replyToMeetingPct: z.number().int().min(0).max(100),
+    visitToMeetingPct: z.number().int().min(0).max(100),
+    meetingToClosePct: z.number().int().min(0).max(100),
+    visitToClosePct: z.number().int().min(0).max(100),
+  })
+  .openapi('SalesEconomicsMetrics');
+
+// UPSERT request body = the full 5-metric set, all required.
+export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.openapi(
+  'UpsertSalesEconomicsRequest'
+);
+
+// Saved set = the 5 metrics + when it was last written. Left UNNAMED (no
+// `.openapi(name)`) on purpose: the READ response needs `salesEconomics`
+// nullable, and OAS 3.0 cannot attach `nullable` to a bare `$ref`. Inlining
+// lets `.nullable()` render correctly on the READ side.
+export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
+  updatedAt: z.string(),
+});
+
+// READ response — nullable: `null` means nothing saved (NOT an error).
+export const GetSalesEconomicsResponseSchema = z
+  .object({
+    salesEconomics: SavedSalesEconomicsSchema.nullable(),
+  })
+  .openapi('GetSalesEconomicsResponse');
+
+// WRITE response — never null (you just wrote it). Deliberately a different
+// shape from the READ response; consumers validate them with separate schemas.
+export const UpsertSalesEconomicsResponseSchema = z
+  .object({
+    salesEconomics: SavedSalesEconomicsSchema,
+  })
+  .openapi('UpsertSalesEconomicsResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/sales-economics',
+  summary: "Get a brand's saved sales conversion economics",
+  description:
+    'Returns the saved 5-metric set for the brand, or `{ salesEconomics: null }` when nothing has been ' +
+    'saved yet. Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the ' +
+    "caller's org (x-org-id); a brand outside the org is rejected with 403.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'Saved metrics, or null when unset',
+      content: { 'application/json': { schema: GetSalesEconomicsResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/sales-economics',
+  summary: "Upsert a brand's sales conversion economics",
+  description:
+    'Idempotent write of the full 5-metric set (all fields required). Repeating the same PUT yields the ' +
+    'same end state. Returns the saved set with `updatedAt` — never null. The brand must belong to the ' +
+    "caller's org (x-org-id); a brand outside the org is rejected with 403.",
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: UpsertSalesEconomicsRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Saved metrics',
+      content: { 'application/json': { schema: UpsertSalesEconomicsResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format or invalid/missing metric field' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ============================================================
 // Health / Root
 // ============================================================
 
