@@ -89,6 +89,29 @@ export const orgBrands = pgTable("org_brands", {
 ]);
 
 /**
+ * Brand-level sales conversion economics. One row per brand (PK = brand_id),
+ * reused across every sales-cold-email campaign for that brand. The funnel
+ * semantics are sales-cold-email's; the metrics are brand-scoped persisted
+ * config (analogous to `intake_forms`). Unset simply means no row.
+ */
+export const brandSalesEconomics = pgTable("brand_sales_economics", {
+	brandId: uuid("brand_id").primaryKey(),
+	lifetimeRevenueUsd: integer("lifetime_revenue_usd").notNull(),
+	replyToMeetingPct: integer("reply_to_meeting_pct").notNull(),
+	visitToMeetingPct: integer("visit_to_meeting_pct").notNull(),
+	meetingToClosePct: integer("meeting_to_close_pct").notNull(),
+	visitToClosePct: integer("visit_to_close_pct").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_sales_economics_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * Bronze append-only raw scrape payload table. Future writes go here;
  * existing scrape caches live on `_old` tables until consumers migrate.
  */
