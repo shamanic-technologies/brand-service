@@ -49,5 +49,17 @@
 
 ## Database Migrations
 
-- After schema changes: `pnpm db:generate` then `pnpm db:migrate`
-- See `.cursor/skills/neon-migrations/SKILL.md` for Neon-specific gotchas
+- After schema changes: `pnpm db:generate` to scaffold, then **hand-verify the emitted SQL** before committing.
+- See `.cursor/skills/neon-migrations/SKILL.md` for Neon-specific gotchas.
+
+### Drizzle state is partially hand-authored — `db:generate` produces spurious drift
+
+Migrations `0024_silver_gold_bronze` / `0025_drop_brand_id_remap` were **hand-authored** (idempotent `DO $$ ... IF NOT EXISTS`) without running `drizzle-kit generate`, so the `drizzle/meta/*` snapshots never recorded the silver/gold/bronze restructure. Consequence: `pnpm db:generate` diffs `schema.ts` against a stale snapshot and emits an entire fake "restructure" (recreating `org_brands`/`scrape_raw`/`brands_old`, dropping `brands` columns) on top of your real change. **Do NOT commit that drift.** Hand-author the new `drizzle/<n>_*.sql` with ONLY your real change, idempotent (`CREATE TABLE IF NOT EXISTS`, FK guarded by a `pg_constraint` existence check). Keep the regenerated `<n>_snapshot.json` + `_journal.json` entry — the fresh snapshot reflects true `schema.ts` and repairs the baseline so the NEXT generate is clean.
+
+### Two migration ledgers — never run `pnpm db:migrate` against the shared DB
+
+The runtime migrator (`migrate(db, { migrationsFolder })` in `src/index.ts`, auto-runs at boot) tracks applied migrations in the **`drizzle.__drizzle_migrations`** table (drizzle-orm default schema). But `drizzle.config.ts` points `drizzle-kit` at **`public.__drizzle_migrations`** — a DIFFERENT ledger. So `pnpm db:migrate` would consult an empty/partial `public` ledger and try to replay migrations from scratch against the shared Neon branch (dev+staging). Apply schema changes via **app boot** (the runtime migrator, which is the source of truth) or, for local test setup only, by executing the new migration's idempotent SQL directly through the app's own connection string. The `IF NOT EXISTS` idempotency means the boot-time re-run is a safe no-op.
+
+### Full local test suite hangs — gate on targeted subsets
+
+`pnpm test` (full suite) hangs locally: several integration tests hit external services (scraping, chat-service, Supabase) that aren't reachable from a dev workspace, with no per-test network timeout. Don't treat a hanging full run as a failure. Gate locally on the targeted files relevant to your change (`npx vitest run tests/integration/<yourfeature>.test.ts ...`) plus `pnpm build` (tsc + openapi). CI runs the full suite in the proper environment and is the authority.

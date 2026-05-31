@@ -183,6 +183,13 @@
       "when": 1780000000000,
       "tag": "0025_drop_brand_id_remap",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1780229835120,
+      "tag": "0026_perpetual_gorgon",
+      "breakpoints": true
     }
   ]
 }
