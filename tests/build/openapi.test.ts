@@ -50,6 +50,17 @@ describe('OpenAPI Spec', () => {
     expect(extractFieldsPost?.requestBody?.content?.['application/json']?.schema).toBeDefined();
   });
 
+  it('should document description-hash cache scoping on extract-fields', () => {
+    // Regression guard: the extract-fields cache key includes the field description
+    // hash (see fieldExtractionService.hashFieldDescription + the unique indexes on
+    // brand_extracted_fields). The endpoint description MUST say so, otherwise callers
+    // assume `(brandId, fieldKey, campaignId)` scoping and fear stale collisions when
+    // reusing the same `key` with a different `description`.
+    const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
+    const desc = spec.paths['/orgs/brands/extract-fields']?.post?.description ?? '';
+    expect(desc).toContain('fieldDescriptionHash');
+  });
+
   it('should not have legacy sales-profile paths', () => {
     const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
     const paths = Object.keys(spec.paths);
