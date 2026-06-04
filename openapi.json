@@ -1326,11 +1326,21 @@
                 "type": "object",
                 "nullable": true,
                 "properties": {
+                  "businessModel": {
+                    "type": "string",
+                    "nullable": true,
+                    "enum": [
+                      "b2c",
+                      "b2b",
+                      null
+                    ]
+                  },
                   "updatedAt": {
                     "type": "string"
                   }
                 },
                 "required": [
+                  "businessModel",
                   "updatedAt"
                 ]
               }
@@ -1388,11 +1398,21 @@
               {
                 "type": "object",
                 "properties": {
+                  "businessModel": {
+                    "type": "string",
+                    "nullable": true,
+                    "enum": [
+                      "b2c",
+                      "b2b",
+                      null
+                    ]
+                  },
                   "updatedAt": {
                     "type": "string"
                   }
                 },
                 "required": [
+                  "businessModel",
                   "updatedAt"
                 ]
               }
@@ -1404,39 +1424,24 @@
         ]
       },
       "UpsertSalesEconomicsRequest": {
-        "type": "object",
-        "properties": {
-          "lifetimeRevenueUsd": {
-            "type": "integer",
-            "minimum": 0
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SalesEconomicsMetrics"
           },
-          "replyToMeetingPct": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100
-          },
-          "visitToMeetingPct": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100
-          },
-          "meetingToClosePct": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100
-          },
-          "visitToClosePct": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100
+          {
+            "type": "object",
+            "properties": {
+              "businessModel": {
+                "type": "string",
+                "nullable": true,
+                "enum": [
+                  "b2c",
+                  "b2b",
+                  null
+                ]
+              }
+            }
           }
-        },
-        "required": [
-          "lifetimeRevenueUsd",
-          "replyToMeetingPct",
-          "visitToMeetingPct",
-          "meetingToClosePct",
-          "visitToClosePct"
         ]
       }
     },
@@ -3389,7 +3394,7 @@
     "/orgs/brands/{brandId}/sales-economics": {
       "get": {
         "summary": "Get a brand's saved sales conversion economics",
-        "description": "Returns the saved 5-metric set for the brand, or `{ salesEconomics: null }` when nothing has been saved yet. Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Returns the saved economics for the brand (5 conversion metrics + `businessModel`), or `{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {
@@ -3428,7 +3433,7 @@
       },
       "put": {
         "summary": "Upsert a brand's sales conversion economics",
-        "description": "Idempotent write of the full 5-metric set (all fields required). Repeating the same PUT yields the same end state. Returns the saved set with `updatedAt` — never null. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Idempotent write of the full 5-metric set (all 5 metrics required). An optional `businessModel` (`b2c` | `b2b`) may be included: omitting it leaves the stored value unchanged, `null` clears it. Repeating the same PUT yields the same end state. Returns the saved set with `businessModel` + `updatedAt` — never null. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {

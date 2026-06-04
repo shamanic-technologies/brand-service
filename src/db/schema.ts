@@ -93,6 +93,9 @@ export const orgBrands = pgTable("org_brands", {
  * reused across every sales-cold-email campaign for that brand. The funnel
  * semantics are sales-cold-email's; the metrics are brand-scoped persisted
  * config (analogous to `intake_forms`). Unset simply means no row.
+ *
+ * This row is the brand-level bag of economic facts the revenue-overview
+ * pipeline reads. New facts are added as typed nullable columns (one per fact).
  */
 export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	brandId: uuid("brand_id").primaryKey(),
@@ -101,6 +104,9 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	visitToMeetingPct: integer("visit_to_meeting_pct").notNull(),
 	meetingToClosePct: integer("meeting_to_close_pct").notNull(),
 	visitToClosePct: integer("visit_to_close_pct").notNull(),
+	// Brand-level B2C vs B2B classification. Nullable: null = never set.
+	// Additive field — older callers omit it; see salesEconomicsService upsert.
+	businessModel: text("business_model"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [

@@ -1685,16 +1685,25 @@ export const SalesEconomicsMetricsSchema = z
   })
   .openapi('SalesEconomicsMetrics');
 
-// UPSERT request body = the full 5-metric set, all required.
-export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.openapi(
-  'UpsertSalesEconomicsRequest'
-);
+// Brand-level B2C vs B2B classification. NOT named via `.openapi(...)` on
+// purpose: it is `.nullable()` at both call sites, and OAS 3.0 cannot attach
+// `nullable` to a bare `$ref` (same reason SavedSalesEconomicsSchema is unnamed).
+export const BusinessModelSchema = z.enum(['b2c', 'b2b']);
+
+// UPSERT request body = the 5 required metrics + optional businessModel.
+// businessModel is optional on write: omitted = leave the stored value unchanged
+// (so the legacy 5-field PUT never wipes it); `null` = clear it explicitly.
+export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.extend({
+  businessModel: BusinessModelSchema.nullable().optional(),
+}).openapi('UpsertSalesEconomicsRequest');
 
 // Saved set = the 5 metrics + when it was last written. Left UNNAMED (no
 // `.openapi(name)`) on purpose: the READ response needs `salesEconomics`
 // nullable, and OAS 3.0 cannot attach `nullable` to a bare `$ref`. Inlining
 // lets `.nullable()` render correctly on the READ side.
 export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
+  // Always present on read; `null` = never set.
+  businessModel: BusinessModelSchema.nullable(),
   updatedAt: z.string(),
 });
 
@@ -1718,9 +1727,10 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/sales-economics',
   summary: "Get a brand's saved sales conversion economics",
   description:
-    'Returns the saved 5-metric set for the brand, or `{ salesEconomics: null }` when nothing has been ' +
-    'saved yet. Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the ' +
-    "caller's org (x-org-id); a brand outside the org is rejected with 403.",
+    'Returns the saved economics for the brand (5 conversion metrics + `businessModel`), or ' +
+    '`{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or ' +
+    '`null` (never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must ' +
+    "belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
     200: {
@@ -1739,9 +1749,11 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/sales-economics',
   summary: "Upsert a brand's sales conversion economics",
   description:
-    'Idempotent write of the full 5-metric set (all fields required). Repeating the same PUT yields the ' +
-    'same end state. Returns the saved set with `updatedAt` — never null. The brand must belong to the ' +
-    "caller's org (x-org-id); a brand outside the org is rejected with 403.",
+    'Idempotent write of the full 5-metric set (all 5 metrics required). An optional `businessModel` ' +
+    '(`b2c` | `b2b`) may be included: omitting it leaves the stored value unchanged, `null` clears it. ' +
+    'Repeating the same PUT yields the same end state. Returns the saved set with `businessModel` + ' +
+    "`updatedAt` — never null. The brand must belong to the caller's org (x-org-id); a brand outside " +
+    'the org is rejected with 403.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: UpsertSalesEconomicsRequestSchema } } },
