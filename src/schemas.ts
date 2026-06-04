@@ -136,6 +136,63 @@ export const UpsertBrandResponseSchema = z
   })
   .openapi('UpsertBrandResponse');
 
+export const ResolveByDomainRequestSchema = z
+  .object({
+    domains: z.array(z.string()).min(1).openapi({
+      description:
+        'Domains (or full URLs) to resolve to global brand identities. Each is ' +
+        'normalized server-side. Max 100 per request. Unparseable/invalid entries ' +
+        'are silently omitted from the response (not an error); the caller maps the ' +
+        'result by `domain`.',
+    }),
+  })
+  .openapi('ResolveByDomainRequest', {
+    description:
+      'Batch domain → global brand identity resolution. Creates the global brand ' +
+      'row when absent so a stable brandId always returns. Does NOT claim the brand ' +
+      'for any org and does NOT scrape — name is returned as stored (may be null).',
+    example: { domains: ['acme.com', 'backlinko.com'] },
+  });
+
+export const ResolvedBrandSchema = z
+  .object({
+    brandId: z.string().openapi({ description: 'Stable global brand UUID' }),
+    domain: z.string().openapi({ description: 'Normalized domain (www stripped)' }),
+    name: z.string().nullable().openapi({
+      description: 'Stored brand name, or null when never populated. Never scraped by this endpoint.',
+    }),
+  })
+  .openapi('ResolvedBrand');
+
+export const ResolveByDomainResponseSchema = z
+  .object({
+    brands: z.array(ResolvedBrandSchema).openapi({
+      description:
+        'One entry per uniquely-resolved domain, in arbitrary order. Invalid input ' +
+        'domains are omitted. Map by `domain` on the caller side.',
+    }),
+  })
+  .openapi('ResolveByDomainResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/brands/resolve-by-domain',
+  summary: 'Batch-resolve domains to global brand identities (no claim, no scrape)',
+  description:
+    'Resolves a batch of domains to their GLOBAL brand identity (brandId + name), creating the ' +
+    'global brand row when absent so a stable brandId always comes back. Intended for labelling ' +
+    'org-agnostic reference data (e.g. competitor domains cited by AI engines). Unlike POST /orgs/brands, ' +
+    'this does NOT write org_brands membership (no claim for any org) and does NOT scrape or invoke the ' +
+    'name-extraction LLM — `name` is returned as stored and may be null until populated elsewhere. ' +
+    'Unparseable/invalid domains are silently omitted; the rest still resolve. Capped at 100 domains per request.',
+  request: { body: { content: { 'application/json': { schema: ResolveByDomainRequestSchema } } } },
+  responses: {
+    200: { description: 'Resolved brand identities', content: { 'application/json': { schema: ResolveByDomainResponseSchema } } },
+    400: { description: 'Invalid request body or more than 100 domains' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 registry.registerPath({
   method: 'post',
   path: '/orgs/brands',

@@ -3,12 +3,15 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, ensureBrandName, ensureBrandLogoUrl } from '../services/brandService';
+import { getOrCreateBrand, ensureBrandName, ensureBrandLogoUrl, resolveBrandByDomain } from '../services/brandService';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
-import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema } from '../schemas';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema } from '../schemas';
 
 /** Max brand ids accepted per batch request. ~3.7KB query string at 36-char UUIDs. */
 const MAX_BATCH_IDS = 100;
+
+/** Max domains accepted per resolve-by-domain batch request. */
+const MAX_BATCH_DOMAINS = 100;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -122,6 +125,60 @@ orgRouter.get('/brands', async (req: Request, res: Response) => {
 // ── Internal routes (API key only, no x-org-id required) ──────────
 
 export const internalRouter = Router();
+
+/**
+ * POST /internal/brands/resolve-by-domain
+ *
+ * Batch-resolve domains to GLOBAL brand identities for org-agnostic reference
+ * data (e.g. labelling competitor domains). For each input domain, returns the
+ * existing brand or creates the global `brands` row so a stable `brandId`
+ * always comes back.
+ *
+ * Deliberately does NOT claim the brand for any org (no `org_brands` write) and
+ * does NOT scrape / invoke the name-extraction LLM — `name` is returned as-is
+ * (may be null until populated elsewhere). Unparseable/invalid domains are
+ * omitted from the response rather than failing the whole batch; the caller
+ * maps the result by `domain`.
+ *
+ * Returns { brands: [{ brandId, domain, name|null }] }
+ */
+internalRouter.post('/brands/resolve-by-domain', async (req: Request, res: Response) => {
+  try {
+    const parsed = ResolveByDomainRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+    const { domains } = parsed.data;
+    if (domains.length > MAX_BATCH_DOMAINS) {
+      return res.status(400).json({ error: `Too many domains (max ${MAX_BATCH_DOMAINS})` });
+    }
+
+    // Resolve sequentially: dedup by NORMALIZED domain so aliases (acme.com,
+    // www.acme.com) collapse to one entry, and a single brand row is returned
+    // once even if the caller passes duplicates. Unparseable domains are
+    // skipped — never fail the batch on one bad input.
+    const seen = new Set<string>();
+    const resolved: { brandId: string; domain: string; name: string | null }[] = [];
+    for (const raw of domains) {
+      let brand;
+      try {
+        brand = await resolveBrandByDomain(raw);
+      } catch (error: unknown) {
+        if (error instanceof InvalidUrlError || error instanceof UrlRequiredError) continue;
+        throw error;
+      }
+      if (seen.has(brand.domain)) continue;
+      seen.add(brand.domain);
+      resolved.push({ brandId: brand.id, domain: brand.domain, name: brand.name });
+    }
+
+    res.json({ brands: resolved });
+  } catch (error: unknown) {
+    console.error('[brand-service] resolve-by-domain error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to resolve brands by domain';
+    res.status(500).json({ error: message });
+  }
+});
 
 // ── Public routes (no auth) ────────────────────────────────────────
 
