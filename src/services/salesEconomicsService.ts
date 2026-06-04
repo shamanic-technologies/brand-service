@@ -1,10 +1,16 @@
 import { eq, sql } from 'drizzle-orm';
 import { db, brandSalesEconomics } from '../db';
 
+/** Brand-level B2C vs B2B classification. */
+export type BusinessModel = 'b2c' | 'b2b';
+
 /**
- * The 5 sales conversion-economics metrics for a brand. Brand-level config
- * reused across every sales-cold-email campaign. Wire field names are
- * consumed byte-stable by api-service + the dashboard.
+ * Brand-level sales conversion economics. Brand-level config reused across
+ * every sales-cold-email campaign. Wire field names are consumed byte-stable
+ * by api-service + the dashboard.
+ *
+ * `businessModel` is optional on write: omitted (`undefined`) = leave the
+ * stored value unchanged; `null` = clear it. The 5 metrics stay required.
  */
 export interface SalesEconomicsMetrics {
   lifetimeRevenueUsd: number;
@@ -12,9 +18,12 @@ export interface SalesEconomicsMetrics {
   visitToMeetingPct: number;
   meetingToClosePct: number;
   visitToClosePct: number;
+  businessModel?: BusinessModel | null;
 }
 
 export interface SavedSalesEconomics extends SalesEconomicsMetrics {
+  // Always present on read; `null` = never set.
+  businessModel: BusinessModel | null;
   updatedAt: string;
 }
 
@@ -27,6 +36,7 @@ function formatSalesEconomics(
     visitToMeetingPct: row.visitToMeetingPct,
     meetingToClosePct: row.meetingToClosePct,
     visitToClosePct: row.visitToClosePct,
+    businessModel: row.businessModel as BusinessModel | null,
     updatedAt: row.updatedAt,
   };
 }
@@ -64,6 +74,8 @@ export class SalesEconomicsService {
         visitToMeetingPct: metrics.visitToMeetingPct,
         meetingToClosePct: metrics.meetingToClosePct,
         visitToClosePct: metrics.visitToClosePct,
+        // Fresh row: undefined (omitted) stores as null (never set).
+        businessModel: metrics.businessModel ?? null,
       })
       .onConflictDoUpdate({
         target: brandSalesEconomics.brandId,
@@ -74,6 +86,12 @@ export class SalesEconomicsService {
           meetingToClosePct: metrics.meetingToClosePct,
           visitToClosePct: metrics.visitToClosePct,
           updatedAt: sql`NOW()`,
+          // Only touch business_model when the caller supplied it (including an
+          // explicit null to clear). Omitted = preserve the stored value, so the
+          // legacy 5-field PUT never wipes a separately-set business model.
+          ...(metrics.businessModel !== undefined
+            ? { businessModel: metrics.businessModel }
+            : {}),
         },
       })
       .returning();

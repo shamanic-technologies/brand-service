@@ -1,0 +1,1 @@
+ALTER TABLE "brand_sales_economics" ADD COLUMN IF NOT EXISTS "business_model" text;
