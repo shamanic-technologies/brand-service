@@ -18,6 +18,7 @@ describe('Sales Economics Endpoints', () => {
   const unsetBrandId = randomUUID(); // owned by ownerOrgId, never written
   const foreignBrandId = randomUUID(); // owned by otherOrgId
   const unknownBrandId = randomUUID(); // not in brands at all
+  const bmBrandId = randomUUID(); // owned by ownerOrgId, business-model lifecycle
 
   const validMetrics = {
     lifetimeRevenueUsd: 4000,
@@ -28,7 +29,7 @@ describe('Sales Economics Endpoints', () => {
   };
 
   beforeAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId]) {
       await db.insert(brands).values({
         id,
         url: `https://sales-econ-${id.slice(0, 8)}.com`,
@@ -39,10 +40,11 @@ describe('Sales Economics Endpoints', () => {
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: unsetBrandId });
     await db.insert(orgBrands).values({ orgId: otherOrgId, brandId: foreignBrandId });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: bmBrandId });
   });
 
   afterAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId]) {
       await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
@@ -192,5 +194,67 @@ describe('Sales Economics Endpoints', () => {
   it('rejects unauthenticated requests with 401', async () => {
     const res = await request(app).get(path(brandId));
     expect(res.status).toBe(401);
+  });
+
+  // ── businessModel (brand-level B2C/B2B) ──────────────────────────
+  // Lifecycle runs IN ORDER on bmBrandId: fresh → set → preserve → clear.
+
+  // Fresh brand: legacy 5-field PUT stores businessModel as null (never set)
+  it('PUT 5 metrics with no businessModel on a fresh brand → businessModel null', async () => {
+    const putRes = await request(app)
+      .put(path(bmBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(validMetrics);
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.businessModel).toBeNull();
+
+    const getRes = await request(app).get(path(bmBrandId)).set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.businessModel).toBeNull();
+  });
+
+  // Set businessModel explicitly, round-trips through GET
+  it('PUT with businessModel "b2b" → GET returns "b2b"', async () => {
+    const putRes = await request(app)
+      .put(path(bmBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, businessModel: 'b2b' });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.businessModel).toBe('b2b');
+
+    const getRes = await request(app).get(path(bmBrandId)).set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.businessModel).toBe('b2b');
+  });
+
+  // Back-compat: a 5-field PUT (no businessModel) must NOT wipe the stored value
+  it('PUT 5 metrics with no businessModel preserves the stored "b2b"', async () => {
+    const putRes = await request(app)
+      .put(path(bmBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(validMetrics);
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.businessModel).toBe('b2b');
+  });
+
+  // Explicit null clears it
+  it('PUT with businessModel null clears it back to null', async () => {
+    const putRes = await request(app)
+      .put(path(bmBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, businessModel: null });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.businessModel).toBeNull();
+  });
+
+  // Invalid enum fails loud
+  it('PUT with an unknown businessModel returns 400', async () => {
+    const res = await request(app)
+      .put(path(bmBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, businessModel: 'enterprise' });
+    expect(res.status).toBe(400);
   });
 });
