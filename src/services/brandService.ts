@@ -143,6 +143,50 @@ export async function ensureBrandLogoUrl(brandId: string): Promise<string> {
 }
 
 /**
+ * Resolve a domain (or URL) to its GLOBAL silver brand identity, creating the
+ * brand row if absent — WITHOUT claiming it for any org and WITHOUT scraping.
+ *
+ * Unlike `getOrCreateBrand`, this does NOT write `org_brands` membership and
+ * does NOT call `ensureBrandName` (no Firecrawl / LLM). The returned `name` is
+ * whatever is stored on the row — `null` until populated elsewhere. Used for
+ * bulk-labelling org-agnostic reference data (e.g. competitor domains) where a
+ * stable brandId is needed but a claim/scrape would be wrong.
+ *
+ * Throws `InvalidUrlError` / `UrlRequiredError` for unparseable input — the
+ * caller is expected to catch and omit invalid entries from a batch.
+ */
+export async function resolveBrandByDomain(
+  input: string,
+): Promise<{ id: string; domain: string; name: string | null }> {
+  const normalizedUrl = normalizeUrl(input);
+  const domain = extractDomain(normalizedUrl);
+
+  // CASE 1: brand already exists for this domain — return stored identity as-is.
+  const existing = await db
+    .select({ id: brands.id, domain: brands.domain, name: brands.name })
+    .from(brands)
+    .where(eq(brands.domain, domain))
+    .limit(1);
+  if (existing.length > 0) return existing[0];
+
+  // CASE 2: create the global brand row. Race-safe via ON CONFLICT on the
+  // unique domain index; re-fetch on conflict (a concurrent insert won).
+  const inserted = await db
+    .insert(brands)
+    .values({ url: normalizedUrl, domain })
+    .onConflictDoNothing({ target: brands.domain })
+    .returning({ id: brands.id, domain: brands.domain, name: brands.name });
+  if (inserted.length > 0) return inserted[0];
+
+  const [refetched] = await db
+    .select({ id: brands.id, domain: brands.domain, name: brands.name })
+    .from(brands)
+    .where(eq(brands.domain, domain))
+    .limit(1);
+  return refetched;
+}
+
+/**
  * Find the silver brand row for a normalized domain or create it, then
  * ensure `org_brands` membership exists for `(orgId, brand.id)` and
  * lazy-fill the brand name.

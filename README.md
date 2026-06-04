@@ -105,6 +105,7 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 |--------|------|-------------|
 | GET | `/internal/brands/:id` | Get brand by ID — minimal shape (id, domain, url, name, logoUrl, createdAt, updatedAt). Business fields are not returned; call `extract-fields` for them. Lazy-fills `name` (via extract-fields, platform-billed) and `logoUrl` (via logo.dev) when null. |
 | GET | `/internal/brands?ids=` | Batch resolve brands by `?ids=uuid1,uuid2,...`. Max 100 ids, omits missing (no 404), arbitrary order. Same minimal shape per brand. Use this instead of fanning out parallel `GET /internal/brands/:id` calls. |
+| POST | `/internal/brands/resolve-by-domain` | Batch-resolve domains → global brand identity (`{ brandId, domain, name }`). Body `{ domains: [...] }`, max 100. Creates the global brand row when absent so a stable `brandId` always returns. Does **not** claim the brand for any org (no `org_brands` write) and does **not** scrape — `name` is returned as stored (may be null). Invalid domains omitted, not 404. |
 | GET | `/internal/brands/:id/runs` | List extraction runs with costs |
 | POST | `/internal/brands/extract-fields` | Mirror of `POST /orgs/brands/extract-fields` for service-to-service callers without an org identity. Uses chat-service `/internal/platform-complete`. Reads `x-brand-id` header. |
 | GET | `/internal/brands/:brandId/extracted-fields` | List extracted fields (optional `?campaignId=`) |
