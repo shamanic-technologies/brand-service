@@ -52,21 +52,34 @@ function rejectOwnership(res: Response, ownership: OwnershipResult): boolean {
 }
 
 /**
- * GET /orgs/sales-economics-average
- * Cross-brand average of every saved set — seed defaults for a brand that has
- * saved nothing. GLOBAL: no org/brand filter (averages over the whole table,
- * per product decision). `{ averages: null }` when the table is empty.
+ * GET /orgs/brands/:brandId/sales-economics-effective
+ * Gold serving layer — the economics to USE for this brand:
+ *   - saved 5-metric set if the brand has one      → source "user"
+ *   - else the cross-brand average (median LTV,
+ *     mean of the 4 percents)                       → source "cross-brand-average"
+ *   - else (no brand has saved anything, cold start) → economics null, source null
  *
- * Org-scoped auth only (apiKeyAuth + requireOrgId at mount) — no brand-ownership
- * check (no brandId). Declared before the `/brands/:brandId/...` routes for
- * clarity; the paths do not collide (distinct first segment).
+ * Centralizes the null→average defaulting that consumers (features-service,
+ * dashboard) used to each reimplement. `source` is the provenance so a caller
+ * can mark an estimate as an estimate — never present an average as a real value.
+ *
+ * Same auth as the per-brand GET: org-scoped + brand must belong to the caller's
+ * org (400 bad uuid / 404 unknown brand / 403 foreign brand).
  */
-orgRouter.get('/sales-economics-average', async (_req: Request, res: Response) => {
+orgRouter.get('/brands/:brandId/sales-economics-effective', async (req: Request, res: Response) => {
   try {
-    const averages = await salesEconomicsService.getAverageAcrossBrands();
-    return res.status(200).json({ averages });
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    const { economics, source } = await salesEconomicsService.getEffectiveByBrandId(brandId);
+    return res.status(200).json({ economics, source });
   } catch (error: any) {
-    console.error('[brand-service] Get sales economics average error:', error);
+    console.error('[brand-service] Get effective sales economics error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });

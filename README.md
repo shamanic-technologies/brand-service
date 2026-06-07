@@ -96,7 +96,7 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | GET | `/orgs/brand-transfers/incoming` | Transfers received by current org |
 | GET | `/orgs/brands/:brandId/sales-economics` | Read brand sales economics: 5 conversion metrics + `businessModel` (`{ salesEconomics: null }` when unset; 403 if brand not in caller's org) |
 | PUT | `/orgs/brands/:brandId/sales-economics` | Upsert the 5 required metrics; optional `businessModel` (`b2c`\|`b2b`, omit = unchanged, `null` = clear). Idempotent; non-null response |
-| GET | `/orgs/sales-economics-average` | Cross-brand average of every saved set (seed defaults): `{ averages: {5 ints} \| null }`. LTV = median, 4 percents = mean. Global (no brand/org filter); `null` when table empty |
+| GET | `/orgs/brands/:brandId/sales-economics-effective` | Effective economics to use for a brand: saved set (`source: "user"`) or cross-brand average (`source: "cross-brand-average"`, LTV = median, 4 percents = mean), or `{ economics: null, source: null }` at cold start. `{ economics, source }` |
 
 ### Internal (`/internal/*` — API key only)
 

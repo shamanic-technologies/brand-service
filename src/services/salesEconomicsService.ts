@@ -50,6 +50,19 @@ export interface SalesEconomicsAverages {
   visitToClosePct: number;
 }
 
+/** Provenance of the effective economics returned by the gold serving layer. */
+export type EffectiveEconomicsSource = 'user' | 'cross-brand-average';
+
+/**
+ * Effective economics for a brand: the brand's saved set, or the cross-brand
+ * average when unset, with the provenance. `economics`/`source` are both null
+ * only at cold start (no brand has saved anything yet).
+ */
+export interface EffectiveSalesEconomics {
+  economics: SalesEconomicsAverages | null;
+  source: EffectiveEconomicsSource | null;
+}
+
 /** Raw aggregate row: every field is null when the table has zero rows. */
 interface SalesEconomicsAverageRow {
   lifetimeRevenueUsd: number | null;
@@ -118,6 +131,36 @@ export class SalesEconomicsService {
 
     // A WHERE-less aggregate always returns exactly one row (all-null on empty).
     return mapAverageRow(row);
+  }
+
+  /**
+   * Gold serving layer: the economics to USE for a brand.
+   * Saved set → source "user". Unset but other brands saved → cross-brand
+   * average, source "cross-brand-average". Nothing saved anywhere → both null.
+   * Centralizes the null→average defaulting so consumers don't reimplement it.
+   */
+  async getEffectiveByBrandId(brandId: string): Promise<EffectiveSalesEconomics> {
+    const saved = await this.getByBrandId(brandId);
+    if (saved) {
+      return {
+        economics: {
+          lifetimeRevenueUsd: saved.lifetimeRevenueUsd,
+          replyToMeetingPct: saved.replyToMeetingPct,
+          visitToMeetingPct: saved.visitToMeetingPct,
+          meetingToClosePct: saved.meetingToClosePct,
+          visitToClosePct: saved.visitToClosePct,
+        },
+        source: 'user',
+      };
+    }
+
+    const average = await this.getAverageAcrossBrands();
+    if (average) {
+      return { economics: average, source: 'cross-brand-average' };
+    }
+
+    // Cold start — no brand has saved economics yet.
+    return { economics: null, source: null };
   }
 
   /**
