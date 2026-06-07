@@ -52,6 +52,26 @@ function rejectOwnership(res: Response, ownership: OwnershipResult): boolean {
 }
 
 /**
+ * GET /orgs/sales-economics-average
+ * Cross-brand average of every saved set — seed defaults for a brand that has
+ * saved nothing. GLOBAL: no org/brand filter (averages over the whole table,
+ * per product decision). `{ averages: null }` when the table is empty.
+ *
+ * Org-scoped auth only (apiKeyAuth + requireOrgId at mount) — no brand-ownership
+ * check (no brandId). Declared before the `/brands/:brandId/...` routes for
+ * clarity; the paths do not collide (distinct first segment).
+ */
+orgRouter.get('/sales-economics-average', async (_req: Request, res: Response) => {
+  try {
+    const averages = await salesEconomicsService.getAverageAcrossBrands();
+    return res.status(200).json({ averages });
+  } catch (error: any) {
+    console.error('[brand-service] Get sales economics average error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
  * GET /orgs/brands/:brandId/sales-economics
  * Returns the saved 5-metric set, or { salesEconomics: null } when unset.
  */

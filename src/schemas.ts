@@ -1719,6 +1719,24 @@ export const UpsertSalesEconomicsResponseSchema = z
   })
   .openapi('UpsertSalesEconomicsResponse');
 
+// AVERAGE response — cross-brand defaults (the 5 metrics, all integers).
+// `averages` is inlined + `.nullable()` (same OAS-3.0 bare-$ref reason as
+// SavedSalesEconomicsSchema): null when no brand has saved economics yet.
+// `lifetimeRevenueUsd` is the MEDIAN; the 4 percents are the MEAN.
+export const SalesEconomicsAverageResponseSchema = z
+  .object({
+    averages: z
+      .object({
+        lifetimeRevenueUsd: z.number().int().min(0),
+        replyToMeetingPct: z.number().int().min(0).max(100),
+        visitToMeetingPct: z.number().int().min(0).max(100),
+        meetingToClosePct: z.number().int().min(0).max(100),
+        visitToClosePct: z.number().int().min(0).max(100),
+      })
+      .nullable(),
+  })
+  .openapi('SalesEconomicsAverageResponse');
+
 registry.registerPath({
   method: 'get',
   path: '/orgs/brands/{brandId}/sales-economics',
@@ -1763,6 +1781,26 @@ registry.registerPath({
     400: { description: 'Invalid brand ID format or invalid/missing metric field' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/sales-economics-average',
+  summary: 'Cross-brand average sales economics (seed defaults)',
+  description:
+    'Returns the cross-brand average of every saved sales-economics set — used to seed sensible ' +
+    'defaults for a brand that has saved nothing. `lifetimeRevenueUsd` is the MEDIAN (robust to ' +
+    'outliers); the 4 conversion percents are the MEAN. All 5 values are integers. GLOBAL: no ' +
+    'org/brand filter (averages every saved row in the table). `{ averages: null }` when no brand ' +
+    'has saved economics yet. Org-scoped auth (x-org-id) like the per-brand route; no brand-ownership ' +
+    'check. Does NOT affect the per-brand GET, which still returns null for an unset brand.',
+  responses: {
+    200: {
+      description: 'Cross-brand averages, or null when no economics saved anywhere',
+      content: { 'application/json': { schema: SalesEconomicsAverageResponseSchema } },
+    },
     500: { description: 'Internal server error' },
   },
 });
