@@ -41,6 +41,43 @@ function formatSalesEconomics(
   };
 }
 
+/** Cross-brand average of the 5 metrics — seed defaults for an unset brand. */
+export interface SalesEconomicsAverages {
+  lifetimeRevenueUsd: number;
+  replyToMeetingPct: number;
+  visitToMeetingPct: number;
+  meetingToClosePct: number;
+  visitToClosePct: number;
+}
+
+/** Raw aggregate row: every field is null when the table has zero rows. */
+interface SalesEconomicsAverageRow {
+  lifetimeRevenueUsd: number | null;
+  replyToMeetingPct: number | null;
+  visitToMeetingPct: number | null;
+  meetingToClosePct: number | null;
+  visitToClosePct: number | null;
+}
+
+/**
+ * Pure mapper from the SQL aggregate row to the public averages shape.
+ * Exported for unit testing the empty-table branch without a DB.
+ * Empty table → every AVG/PERCENTILE is NULL → return null. A non-null first
+ * field implies all are non-null (same WHERE-less aggregate over the same rows).
+ */
+export function mapAverageRow(
+  row: SalesEconomicsAverageRow
+): SalesEconomicsAverages | null {
+  if (row.lifetimeRevenueUsd === null) return null;
+  return {
+    lifetimeRevenueUsd: row.lifetimeRevenueUsd,
+    replyToMeetingPct: row.replyToMeetingPct!,
+    visitToMeetingPct: row.visitToMeetingPct!,
+    meetingToClosePct: row.meetingToClosePct!,
+    visitToClosePct: row.visitToClosePct!,
+  };
+}
+
 export class SalesEconomicsService {
   /**
    * Read the saved metric set for a brand, or null when nothing is saved.
@@ -55,6 +92,32 @@ export class SalesEconomicsService {
 
     if (result.length === 0) return null;
     return formatSalesEconomics(result[0]);
+  }
+
+  /**
+   * Cross-brand defaults to seed a brand that has saved nothing.
+   * GLOBAL — no org/brand WHERE filter: averages over EVERY saved row in the
+   * table (per product decision). `lifetimeRevenueUsd` uses the MEDIAN (LTV is
+   * heavy-tailed — one outlier brand skews the mean); the 4 conversion percents
+   * use the MEAN (bounded 0-100, no heavy tail). All 5 returned values are
+   * integers. Empty table → null (nothing to average).
+   *
+   * Does NOT touch getByBrandId — the per-brand read still returns null for an
+   * unset brand, so features-service's null-pipeline contract stays intact.
+   */
+  async getAverageAcrossBrands(): Promise<SalesEconomicsAverages | null> {
+    const [row] = await db
+      .select({
+        lifetimeRevenueUsd: sql<number | null>`ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${brandSalesEconomics.lifetimeRevenueUsd}))::int`,
+        replyToMeetingPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.replyToMeetingPct}))::int`,
+        visitToMeetingPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToMeetingPct}))::int`,
+        meetingToClosePct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.meetingToClosePct}))::int`,
+        visitToClosePct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToClosePct}))::int`,
+      })
+      .from(brandSalesEconomics);
+
+    // A WHERE-less aggregate always returns exactly one row (all-null on empty).
+    return mapAverageRow(row);
   }
 
   /**
