@@ -1,4 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// salesEconomicsService imports ../db, which THROWS at import time when no DB
+// url is set (the CI unit step has none). mapAverageRow is pure — stub the db
+// module so importing the service never connects. (vi.mock is hoisted.)
+vi.mock('../../src/db', () => ({ db: {}, brandSalesEconomics: {} }));
+
 import { mapAverageRow } from '../../src/services/salesEconomicsService';
 
 /**
