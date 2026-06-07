@@ -1719,13 +1719,14 @@ export const UpsertSalesEconomicsResponseSchema = z
   })
   .openapi('UpsertSalesEconomicsResponse');
 
-// AVERAGE response — cross-brand defaults (the 5 metrics, all integers).
-// `averages` is inlined + `.nullable()` (same OAS-3.0 bare-$ref reason as
-// SavedSalesEconomicsSchema): null when no brand has saved economics yet.
-// `lifetimeRevenueUsd` is the MEDIAN; the 4 percents are the MEAN.
-export const SalesEconomicsAverageResponseSchema = z
+// EFFECTIVE response — gold serving layer: the economics to USE for a brand.
+// `economics` is the brand's saved 5 metrics (source "user") or the cross-brand
+// average (median LTV, mean percents; source "cross-brand-average"), or null at
+// cold start (source null). Inlined + `.nullable()` for the same OAS-3.0
+// bare-$ref reason as SavedSalesEconomicsSchema.
+export const SalesEconomicsEffectiveResponseSchema = z
   .object({
-    averages: z
+    economics: z
       .object({
         lifetimeRevenueUsd: z.number().int().min(0),
         replyToMeetingPct: z.number().int().min(0).max(100),
@@ -1734,8 +1735,9 @@ export const SalesEconomicsAverageResponseSchema = z
         visitToClosePct: z.number().int().min(0).max(100),
       })
       .nullable(),
+    source: z.enum(['user', 'cross-brand-average']).nullable(),
   })
-  .openapi('SalesEconomicsAverageResponse');
+  .openapi('SalesEconomicsEffectiveResponse');
 
 registry.registerPath({
   method: 'get',
@@ -1787,20 +1789,24 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/orgs/sales-economics-average',
-  summary: 'Cross-brand average sales economics (seed defaults)',
+  path: '/orgs/brands/{brandId}/sales-economics-effective',
+  summary: 'Effective sales economics for a brand (saved or cross-brand default)',
   description:
-    'Returns the cross-brand average of every saved sales-economics set — used to seed sensible ' +
-    'defaults for a brand that has saved nothing. `lifetimeRevenueUsd` is the MEDIAN (robust to ' +
-    'outliers); the 4 conversion percents are the MEAN. All 5 values are integers. GLOBAL: no ' +
-    'org/brand filter (averages every saved row in the table). `{ averages: null }` when no brand ' +
-    'has saved economics yet. Org-scoped auth (x-org-id) like the per-brand route; no brand-ownership ' +
-    'check. Does NOT affect the per-brand GET, which still returns null for an unset brand.',
+    'Gold serving layer — the economics to USE for the brand: its saved 5-metric set (`source: ' +
+    '"user"`), or the cross-brand average when unset (`lifetimeRevenueUsd` = MEDIAN, the 4 percents = ' +
+    'MEAN; `source: "cross-brand-average"`), or `{ economics: null, source: null }` at cold start (no ' +
+    'brand has saved anything yet). Centralizes the null→average defaulting so consumers do not ' +
+    'reimplement it; `source` lets a caller flag an estimate as an estimate. The brand must belong to ' +
+    "the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
     200: {
-      description: 'Cross-brand averages, or null when no economics saved anywhere',
-      content: { 'application/json': { schema: SalesEconomicsAverageResponseSchema } },
+      description: 'Effective economics + provenance, or both null at cold start',
+      content: { 'application/json': { schema: SalesEconomicsEffectiveResponseSchema } },
     },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
   },
 });
