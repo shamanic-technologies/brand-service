@@ -71,3 +71,14 @@ The runtime migrator (`migrate(db, { migrationsFolder })` in `src/index.ts`, aut
 ### Unit tests run WITHOUT a DB url — never import a `../db`-importing module into a `tests/unit/*` file un-mocked
 
 `src/db/index.ts` **throws at import time** (`BRAND_SERVICE_DATABASE_URL or DATABASE_URL must be set`) when no DB url is present. The CI `test:unit` step (`vitest run tests/unit`) runs with NO DB url, so any unit test that imports a service/route which transitively imports `../db` makes the whole suite load **`0 test`** and FAIL — even when the imported symbol you actually test is a pure function. It passes locally only because your shell `.env` is loaded. Fix: stub the db module at the top of the unit test — `vi.mock('../../src/db', () => ({ db: {}, brandSalesEconomics: {} }))` (stub just the named exports the module references; `vi.mock` is hoisted above the import). Confirm by running the file with the env unset: `env -u BRAND_SERVICE_DATABASE_URL -u DATABASE_URL npx vitest run tests/unit/<file>.test.ts`. Observed 2026-06-07 (sales-economics-average #211): unit test imported `salesEconomicsService` (→ `../db`) un-mocked; local green, CI `0 test` red; fixed with the `vi.mock` stub.
+
+### Brand lazy-fill must be coordinated and fail-loud
+
+`brands.name` is lazy-filled by `ensureBrandName()` from read paths such as `GET /internal/brands/:id`. When `name` is null, multiple concurrent reads can otherwise launch duplicate scrape+LLM extraction runs and expose one transient failure while another run succeeds. Railway currently runs one brand-service instance, so an in-process singleflight `Map<brandId, Promise<string>>` is acceptable here; if brand-service becomes multi-instance, replace it with a DB/advisory lock. Always re-read `brands.name` after entering the fill gate before scraping.
+
+URL selection has three distinct states:
+- `{"urls":[]}` is valid: the LLM found no relevant pages. Store `Unknown` with `sourceUrls: []` and do not scrape.
+- Malformed URL-selection output is a backend error. Do not silently fall back to homepage/first 10 URLs.
+- URLs selected but 0 usable page content is a scraping failure. Throw a diagnostic error with selected/cached/fresh/empty counts and the affected URLs.
+
+Observed 2026-06-09 (new brand `luxvillageseminyak.com`): parallel lazy-fill runs caused one `/internal/brands/:id` request to 500 with opaque `Failed to scrape any pages` while another run later filled `brands.name` successfully.
