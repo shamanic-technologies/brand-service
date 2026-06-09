@@ -238,37 +238,54 @@ async function selectRelevantUrls(
     ? `\n\nCampaign context (use this to prioritize which pages are most relevant):\n${campaignContext}\n`
     : '';
 
-  try {
-    const result = await chat(
-      {
-        systemPrompt:
-          'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON object with a "urls" key containing an array of URL strings.',
-        message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}${contextBlock}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON object: {"urls": ["url1", "url2", ...]}`,
-        provider: 'google',
-        model: 'flash',
-        responseFormat: 'json',
-        temperature: 0,
-        maxTokens: 4096,
-      },
-      chatCaller,
-    );
+  const result = await chat(
+    {
+      systemPrompt:
+        'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON object with a "urls" key containing an array of URL strings. If no URL is relevant to the requested fields, return {"urls":[]}.',
+      message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}${contextBlock}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON object: {"urls": ["url1", "url2", ...]}. If none are relevant, return {"urls":[]}.`,
+      provider: 'google',
+      model: 'flash',
+      responseFormat: 'json',
+      temperature: 0,
+      maxTokens: 4096,
+    },
+    chatCaller,
+  );
 
-    if (result.json) {
-      const urls = (result.json as { urls?: string[] }).urls;
-      if (Array.isArray(urls)) return urls.slice(0, 10);
-      // Fallback: model returned a bare array as the json field
-      if (Array.isArray(result.json)) return (result.json as string[]).slice(0, 10);
+  try {
+    if (result.json !== null && result.json !== undefined) {
+      return normalizeSelectedUrls(result.json);
     }
 
-    // Fallback: parse from content
-    const match = result.content.match(/\[[\s\S]*\]/);
-    if (match) return JSON.parse(match[0]).slice(0, 10);
+    const objectMatch = result.content.match(/\{[\s\S]*\}/);
+    if (objectMatch) return normalizeSelectedUrls(JSON.parse(objectMatch[0]));
+
+    const arrayMatch = result.content.match(/\[[\s\S]*\]/);
+    if (arrayMatch) return normalizeSelectedUrls(JSON.parse(arrayMatch[0]));
   } catch (error: any) {
-    console.error('[brand-service] URL selection error:', error.message);
+    throw new Error(`[brand-service] URL selection failed: ${error.message}`);
   }
 
-  // Fallback: if AI selection fails, use first 10 URLs (homepage + top-level pages)
-  return allUrls.slice(0, 10);
+  throw new Error('[brand-service] URL selection failed: response did not contain a JSON urls array');
+}
+
+function normalizeSelectedUrls(value: unknown): string[] {
+  const urls = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object' && Array.isArray((value as { urls?: unknown }).urls)
+      ? (value as { urls: unknown[] }).urls
+      : null;
+
+  if (!urls) {
+    throw new Error('response did not contain a "urls" array');
+  }
+
+  const invalidUrl = urls.find((url) => typeof url !== 'string');
+  if (invalidUrl !== undefined) {
+    throw new Error(`response contained a non-string URL: ${JSON.stringify(invalidUrl)}`);
+  }
+
+  return (urls as string[]).slice(0, 10);
 }
 
 // ─── Field extraction via chat-service ──────────────────────────────────────
@@ -610,6 +627,52 @@ export async function extractFields(
     const selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, chatCaller, campaignContext);
     console.log(`[brand-service] [${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
+    if (selectedUrls.length === 0) {
+      console.log(`[brand-service] [${brandId}] URL selection returned no relevant pages; storing Unknown for ${missingFields.length} fields`);
+
+      traceEvent(run.id, {
+        service: 'brand-service',
+        event: 'url-selection-empty',
+        detail: `No relevant URLs selected for ${missingFields.length} fields: ${formatFieldPreview(missingFields.map(f => f.key))}`,
+        level: 'info',
+        data: { brandId, fieldCount: missingFields.length, availableUrlCount: allUrls.length },
+      }, traceHeaders).catch(() => {});
+
+      const fieldsToStore = missingFields.map((f) => ({
+        key: f.key,
+        description: f.description,
+        value: 'Unknown',
+      }));
+      await upsertExtractedFields(brandId, fieldsToStore, [], campaignIdForRun);
+
+      try {
+        await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug });
+      } catch (err) {
+        console.warn(`[brand-service] [${brandId}] Failed to complete run ${run.id}:`, err);
+      }
+
+      const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
+      const now = new Date().toISOString();
+      const freshResults: ExtractedFieldResult[] = missingFields.map((f) => ({
+        key: f.key,
+        value: 'Unknown',
+        cached: false,
+        extractedAt: now,
+        expiresAt,
+        sourceUrls: [],
+      }));
+
+      traceEvent(run.id, {
+        service: 'brand-service',
+        event: 'field-extraction-complete',
+        detail: `Completed with no relevant URLs: ${cachedResults.length} cached + ${freshResults.length} Unknown = ${cachedResults.length + freshResults.length} total fields`,
+        level: 'info',
+        data: { cached: cachedResults.length, extracted: freshResults.length, total: cachedResults.length + freshResults.length, sourceUrls: 0 },
+      }, traceHeaders).catch(() => {});
+
+      return [...cachedResults, ...freshResults];
+    }
+
     // 5. Scrape pages (DB-cached to survive redeploys)
     const urlsToScrape: string[] = [];
     const cachedPages: { url: string; content: string }[] = [];
@@ -651,7 +714,14 @@ export async function extractFields(
       data: { scraped: successfulScrapes.length, total: selectedUrls.length, cached: cachedPages.length, fresh: urlsToScrape.length },
     }, traceHeaders).catch(() => {});
 
-    if (successfulScrapes.length === 0) throw new Error('Failed to scrape any pages');
+    if (successfulScrapes.length === 0) {
+      const emptyUrls = pageContents
+        .filter((p) => !p.content)
+        .map((p) => p.url);
+      throw new Error(
+        `[brand-service] Failed to scrape any usable pages for brand ${brandId}: selected=${selectedUrls.length}, cached=${cachedPages.length}, fresh=${urlsToScrape.length}, empty=${emptyUrls.length}, urls=${emptyUrls.slice(0, 10).join(', ')}`,
+      );
+    }
 
     // 6. Extract fields via chat-service
     console.log(`[brand-service] [${brandId}] Extracting ${missingFields.length} fields with AI (cache miss: ${formatFieldPreview(missingFields.map(f => f.key))})`);

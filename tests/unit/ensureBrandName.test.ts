@@ -119,6 +119,7 @@ describe('ensureBrandName', () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
       [{ id: 'brand-2', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
+      [{ id: 'brand-2', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
     ]);
     mockExtractFields.mockResolvedValueOnce([
       {
@@ -153,6 +154,7 @@ describe('ensureBrandName', () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
       [{ id: 'brand-2b', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
+      [{ id: 'brand-2b', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
     ]);
     mockExtractFields.mockResolvedValueOnce([
       {
@@ -179,6 +181,7 @@ describe('ensureBrandName', () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
       [{ id: 'brand-3', name: null, orgId: 'org-3', domain: 'empty.com', url: 'https://empty.com' }],
+      [{ id: 'brand-3', name: null, orgId: 'org-3', domain: 'empty.com', url: 'https://empty.com' }],
     ]);
     mockExtractFields.mockResolvedValueOnce([
       { key: 'name', value: '   ', cached: false, extractedAt: '2026-05-17T11:00:00.000Z', expiresAt: null, sourceUrls: [] },
@@ -187,6 +190,57 @@ describe('ensureBrandName', () => {
     await expect(ensureBrandName('brand-3', platformCaller)).rejects.toThrow(
       /extractFields returned empty name/,
     );
+    expect(updateSetMock).not.toHaveBeenCalled();
+  });
+
+  it('shares one in-flight name fill across concurrent calls for the same brand', async () => {
+    process.env.NODE_ENV = 'production';
+    setDbSequence([
+      [{ id: 'brand-singleflight', name: null, orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
+      [{ id: 'brand-singleflight', name: null, orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
+      [{ id: 'brand-singleflight', name: null, orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
+    ]);
+
+    let resolveExtraction: (value: unknown) => void = () => {};
+    const extraction = new Promise((resolve) => {
+      resolveExtraction = resolve;
+    });
+    mockExtractFields.mockReturnValueOnce(extraction);
+
+    const first = ensureBrandName('brand-singleflight', platformCaller);
+    const second = ensureBrandName('brand-singleflight', platformCaller);
+
+    await vi.waitFor(() => {
+      expect(mockExtractFields).toHaveBeenCalledTimes(1);
+    });
+
+    resolveExtraction([
+      {
+        key: 'name',
+        value: 'Acme',
+        cached: false,
+        extractedAt: '2026-06-09T00:00:00.000Z',
+        expiresAt: null,
+        sourceUrls: ['https://acme.com'],
+      },
+    ]);
+
+    await expect(Promise.all([first, second])).resolves.toEqual(['Acme', 'Acme']);
+    expect(mockExtractFields).toHaveBeenCalledTimes(1);
+    expect(updateSetMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-reads brands.name before scraping after joining the fill gate', async () => {
+    process.env.NODE_ENV = 'production';
+    setDbSequence([
+      [{ id: 'brand-reread', name: null, orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
+      [{ id: 'brand-reread', name: 'Already Filled', orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
+    ]);
+
+    const result = await ensureBrandName('brand-reread', platformCaller);
+
+    expect(result).toBe('Already Filled');
+    expect(mockExtractFields).not.toHaveBeenCalled();
     expect(updateSetMock).not.toHaveBeenCalled();
   });
 
