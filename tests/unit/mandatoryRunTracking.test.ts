@@ -315,6 +315,94 @@ describe('Mandatory run tracking — extractFields', () => {
 
     expect(mockMapSiteUrls).toHaveBeenCalledTimes(1);
   });
+
+  it('should store Unknown without scraping when URL selection returns no relevant URLs', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+    ]);
+    mockMapSiteUrls.mockResolvedValue(
+      Array.from({ length: 11 }, (_, i) => `https://example.com/page-${i + 1}`),
+    );
+    mockChat.mockResolvedValueOnce({
+      content: '{"urls":[]}',
+      json: { urls: [] },
+    });
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    const results = await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      caller: orgCaller,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      key: 'industry',
+      value: 'Unknown',
+      cached: false,
+      sourceUrls: [],
+    });
+    expect(mockScrapeUrl).not.toHaveBeenCalled();
+    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'completed', expect.objectContaining({ orgId: 'org_123' }));
+  });
+
+  it('should fail loud when URL selection response is malformed', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+    ]);
+    mockMapSiteUrls.mockResolvedValue(
+      Array.from({ length: 11 }, (_, i) => `https://example.com/page-${i + 1}`),
+    );
+    mockChat.mockResolvedValueOnce({
+      content: '{"notUrls":[]}',
+      json: { notUrls: [] },
+    });
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    await expect(
+      extractFields({
+        brandId: 'brand-1',
+        fields: [{ key: 'industry', description: 'Brand industry' }],
+        caller: orgCaller,
+      }),
+    ).rejects.toThrow(/URL selection failed/);
+
+    expect(mockScrapeUrl).not.toHaveBeenCalled();
+    expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'failed', expect.objectContaining({ orgId: 'org_123' }));
+  });
+
+  it('should fail with scrape diagnostics when selected URLs produce no content', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+    ]);
+    mockMapSiteUrls.mockResolvedValue(
+      Array.from({ length: 11 }, (_, i) => `https://example.com/page-${i + 1}`),
+    );
+    mockChat.mockResolvedValueOnce({
+      content: '{"urls":["https://example.com/page-1","https://example.com/page-2"]}',
+      json: { urls: ['https://example.com/page-1', 'https://example.com/page-2'] },
+    });
+    mockScrapeUrl.mockResolvedValue(null);
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    await expect(
+      extractFields({
+        brandId: 'brand-1',
+        fields: [{ key: 'industry', description: 'Brand industry' }],
+        caller: orgCaller,
+      }),
+    ).rejects.toThrow(/Failed to scrape any usable pages.*selected=2.*https:\/\/example\.com\/page-1/);
+
+    expect(mockScrapeUrl).toHaveBeenCalledTimes(2);
+    expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'failed', expect.objectContaining({ orgId: 'org_123' }));
+  });
 });
 
 describe('getRootDomainUrl', () => {

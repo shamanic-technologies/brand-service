@@ -48,7 +48,8 @@ describe('URL selection prompts request JSON object format', () => {
 
   it('field extraction URL selection parses result.json.urls (object format)', () => {
     // Verify the parsing code handles { urls: [...] } format
-    expect(fieldExtractionSrc).toContain('result.json as { urls?: string[] }');
+    expect(fieldExtractionSrc).toContain('normalizeSelectedUrls(result.json)');
+    expect(fieldExtractionSrc).toContain('Array.isArray((value as { urls?: unknown }).urls)');
   });
 
   it('image extraction URL selection parses result.json.urls (object format)', () => {

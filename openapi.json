@@ -1897,7 +1897,7 @@
     "/orgs/brands/extract-fields": {
       "post": {
         "summary": "Extract fields from one or more brands via AI",
-        "description": "Multi-brand field extraction endpoint. Read brand IDs from the x-brand-id header (comma-separated UUIDs). Returns a unified format: `{ brands: [...], fields: { key: { value, byBrand } } }`. `value` is the single brand value (1 brand) or LLM-consolidated (N brands). `byBrand` is always present, keyed by domain. Same shape regardless of brand count. Results are cached per field for 30 days, scoped by (brandId, fieldKey, campaignId).",
+        "description": "Multi-brand field extraction endpoint. Read brand IDs from the x-brand-id header (comma-separated UUIDs). Returns a unified format: `{ brands: [...], fields: { key: { value, byBrand } } }`. `value` is the single brand value (1 brand) or LLM-consolidated (N brands). `byBrand` is always present, keyed by domain. Same shape regardless of brand count. Results are cached per field for 30 days, scoped by (brandId, fieldKey, fieldDescriptionHash, campaignId). The field `description` IS part of the cache key (md5 hash), so the same `key` with a different `description` resolves to a different cache slot — a changed description is a cache MISS that triggers a fresh extraction, never a stale collision. Pass `resetCache: true` to force re-extraction regardless.",
         "parameters": [
           {
             "schema": {
