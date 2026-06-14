@@ -1672,8 +1672,11 @@ registry.registerPath({
 // Sales Economics (brand-level conversion economics)
 // ============================================================
 
-// The 5 sales conversion-economics metrics. Wire field names are consumed
-// byte-stable by api-service + the dashboard — do NOT rename.
+// The sales conversion-economics metrics WRITTEN by a caller. Wire field names
+// are consumed byte-stable by api-service + the dashboard — do NOT rename.
+// The self-serve close step is split into two sub-rates: visit→signup and
+// signup→paid client. `visitToClosePct` is NOT written here — it is DERIVED on
+// the response (round(visitToSignupPct * signupToPaidClientPct / 100)).
 // No `.coerce`, no `.default()`: a missing/invalid field fails loud (400).
 export const SalesEconomicsMetricsSchema = z
   .object({
@@ -1681,7 +1684,8 @@ export const SalesEconomicsMetricsSchema = z
     replyToMeetingPct: z.number().int().min(0).max(100),
     visitToMeetingPct: z.number().int().min(0).max(100),
     meetingToClosePct: z.number().int().min(0).max(100),
-    visitToClosePct: z.number().int().min(0).max(100),
+    visitToSignupPct: z.number().int().min(0).max(100),
+    signupToPaidClientPct: z.number().int().min(0).max(100),
   })
   .openapi('SalesEconomicsMetrics');
 
@@ -1690,10 +1694,11 @@ export const SalesEconomicsMetricsSchema = z
 // `nullable` to a bare `$ref` (same reason SavedSalesEconomicsSchema is unnamed).
 export const BusinessModelSchema = z.enum(['b2c', 'b2b']);
 
-// Sales-funnel stages a brand has. Multi-select (0..3). Wire enum values are
-// consumed byte-stable by the dashboard — do NOT rename.
+// Sales-funnel stages a brand has. Multi-select (0..2). Wire enum values are
+// consumed byte-stable by the dashboard — do NOT rename. `website_signup` was
+// dropped when the self-serve close metric was split into two sub-rates.
 export const FunnelStageSchema = z
-  .enum(['website_signup', 'website_purchase', 'sales_meeting'])
+  .enum(['website_purchase', 'sales_meeting'])
   .openapi('FunnelStage');
 
 // Single brand-level optimization goal. Server default "sales" when never set.
@@ -1719,6 +1724,10 @@ export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.ext
 // nullable, and OAS 3.0 cannot attach `nullable` to a bare `$ref`. Inlining
 // lets `.nullable()` render correctly on the READ side.
 export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
+  // DERIVED = round(visitToSignupPct * signupToPaidClientPct / 100). Always
+  // present on read (never null); kept on the wire for projection consumers
+  // (features-service) that still read visitToClosePct unchanged.
+  visitToClosePct: z.number().int().min(0).max(100),
   // Always present on read; `null` = never set.
   businessModel: BusinessModelSchema.nullable(),
   // Always an array on read; `[]` = never set (never null).
@@ -1756,6 +1765,9 @@ export const SalesEconomicsEffectiveResponseSchema = z
         replyToMeetingPct: z.number().int().min(0).max(100),
         visitToMeetingPct: z.number().int().min(0).max(100),
         meetingToClosePct: z.number().int().min(0).max(100),
+        visitToSignupPct: z.number().int().min(0).max(100),
+        signupToPaidClientPct: z.number().int().min(0).max(100),
+        // DERIVED = round(visitToSignupPct * signupToPaidClientPct / 100).
         visitToClosePct: z.number().int().min(0).max(100),
       })
       .nullable(),
@@ -1768,7 +1780,9 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/sales-economics',
   summary: "Get a brand's saved sales conversion economics",
   description:
-    'Returns the saved economics for the brand (5 conversion metrics + `businessModel` + ' +
+    'Returns the saved economics for the brand (conversion metrics incl. the two self-serve sub-rates ' +
+    '`visitToSignupPct` + `signupToPaidClientPct`, plus the DERIVED `visitToClosePct` = ' +
+    'round(visitToSignupPct * signupToPaidClientPct / 100), + `businessModel` + ' +
     '`funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved ' +
     'yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array ' +
     '(`[]` when never set), `optimizationGoal` always a value (`"sales"` when never set). Unset is NOT ' +
@@ -1792,13 +1806,17 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/sales-economics',
   summary: "Upsert a brand's sales conversion economics",
   description:
-    'Idempotent write of the full 5-metric set (all 5 metrics required). Optional `businessModel` ' +
+    'Idempotent write of the full metric set. Required: `lifetimeRevenueUsd`, `replyToMeetingPct`, ' +
+    '`visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (all ' +
+    'integers; percents 0..100). `visitToClosePct` is NOT accepted on the request — it is DERIVED on ' +
+    'the response = round(visitToSignupPct * signupToPaidClientPct / 100); any `visitToClosePct` sent ' +
+    'is ignored. Optional `businessModel` ' +
     '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array ' +
-    'of `website_signup` | `website_purchase` | `sales_meeting`): omitting leaves it unchanged, ' +
+    'of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, ' +
     'sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | ' +
     '`booked_meetings` | `sales`): omitting leaves it unchanged, sending sets it. Invalid enum values ' +
     'are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with ' +
-    "`businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to " +
+    "the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to " +
     "the caller's org (x-org-id); a brand outside the org is rejected with 403.",
   request: {
     params: z.object({ brandId: z.string().uuid() }),
@@ -1821,9 +1839,10 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/sales-economics-effective',
   summary: 'Effective sales economics for a brand (saved or cross-brand default)',
   description:
-    'Gold serving layer — the economics to USE for the brand: its saved 5-metric set (`source: ' +
-    '"user"`), or the cross-brand average when unset (`lifetimeRevenueUsd` = MEDIAN, the 4 percents = ' +
-    'MEAN; `source: "cross-brand-average"`), or `{ economics: null, source: null }` at cold start (no ' +
+    'Gold serving layer — the economics to USE for the brand: its saved metric set (`source: ' +
+    '"user"`), or the cross-brand average when unset (`lifetimeRevenueUsd` = MEDIAN, the percents = ' +
+    'MEAN, `visitToClosePct` DERIVED from the averaged sub-rates; `source: "cross-brand-average"`), ' +
+    'or `{ economics: null, source: null }` at cold start (no ' +
     'brand has saved anything yet). Centralizes the null→average defaulting so consumers do not ' +
     'reimplement it; `source` lets a caller flag an estimate as an estimate. The brand must belong to ' +
     "the caller's org (x-org-id); a brand outside the org is rejected with 403.",
