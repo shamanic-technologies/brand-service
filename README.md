@@ -94,8 +94,8 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | POST | `/orgs/brands/:brandId/transfer` | Transfer brand to another org |
 | GET | `/orgs/brand-transfers/outgoing` | Transfers initiated by current org |
 | GET | `/orgs/brand-transfers/incoming` | Transfers received by current org |
-| GET | `/orgs/brands/:brandId/sales-economics` | Read brand sales economics: 5 conversion metrics + `businessModel` (`{ salesEconomics: null }` when unset; 403 if brand not in caller's org) |
-| PUT | `/orgs/brands/:brandId/sales-economics` | Upsert the 5 required metrics; optional `businessModel` (`b2c`\|`b2b`, omit = unchanged, `null` = clear). Idempotent; non-null response |
+| GET | `/orgs/brands/:brandId/sales-economics` | Read brand sales economics: 5 conversion metrics + `businessModel` + `funnelStages` (always array, `[]` unset) + `optimizationGoal` (always value, `"sales"` unset) (`{ salesEconomics: null }` when unset; 403 if brand not in caller's org) |
+| PUT | `/orgs/brands/:brandId/sales-economics` | Upsert the 5 required metrics; optional `businessModel` (`b2c`\|`b2b`, omit = unchanged, `null` = clear), `funnelStages` (array of `website_signup`\|`website_purchase`\|`sales_meeting`, omit = unchanged, send incl. `[]` = set), `optimizationGoal` (`signups`\|`booked_meetings`\|`sales`, omit = unchanged, send = set). Invalid enum → 400. Idempotent; non-null response |
 | GET | `/orgs/brands/:brandId/sales-economics-effective` | Effective economics to use for a brand: saved set (`source: "user"`) or cross-brand average (`source: "cross-brand-average"`, LTV = median, 4 percents = mean), or `{ economics: null, source: null }` at cold start. `{ economics, source }` |
 
 ### Internal (`/internal/*` — API key only)
@@ -210,7 +210,7 @@ Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 - `individuals`, `brand_individuals`, `individuals_pdl_enrichment`
 - `media_assets`, `supabase_storage`
 - `intake_forms`, `brand_thesis`
-- `brand_sales_economics` — one row per brand: 5 sales conversion-economics metrics (lifetime revenue + 4 funnel rates) + `business_model` (`b2c`/`b2b`, nullable), reused across sales campaigns
+- `brand_sales_economics` — one row per brand: 5 sales conversion-economics metrics (lifetime revenue + 4 funnel rates) + `business_model` (`b2c`/`b2b`, nullable) + `funnel_stages` (jsonb, default `[]`) + `optimization_goal` (text, default `sales`), reused across sales campaigns
 - `brand_extracted_images` — AI-extracted brand images with categories, R2 URLs, relevance scores
 - `consolidated_field_cache` — DB-backed cache for LLM-consolidated multi-brand field values
 - `brand_relations`, `web_pages`, `scraped_url_firecrawl`

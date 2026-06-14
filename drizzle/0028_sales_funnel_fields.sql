@@ -1,0 +1,2 @@
+ALTER TABLE "brand_sales_economics" ADD COLUMN IF NOT EXISTS "funnel_stages" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "brand_sales_economics" ADD COLUMN IF NOT EXISTS "optimization_goal" text DEFAULT 'sales' NOT NULL;
