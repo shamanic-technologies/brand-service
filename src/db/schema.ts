@@ -103,12 +103,20 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	replyToMeetingPct: integer("reply_to_meeting_pct").notNull(),
 	visitToMeetingPct: integer("visit_to_meeting_pct").notNull(),
 	meetingToClosePct: integer("meeting_to_close_pct").notNull(),
+	// Self-serve funnel split into two sub-rates. NOT NULL with DB defaults
+	// (25 / 20) — a row inserted without them reads those, mirroring the
+	// funnelStages/optimizationGoal default convention below.
+	visitToSignupPct: integer("visit_to_signup_pct").default(25).notNull(),
+	signupToPaidClientPct: integer("signup_to_paid_client_pct").default(20).notNull(),
+	// DERIVED on every write = round(visitToSignupPct * signupToPaidClientPct / 100).
+	// Kept as a stored column so the revenue/projection engine (features-service)
+	// keeps reading it unchanged; never written directly by a caller.
 	visitToClosePct: integer("visit_to_close_pct").notNull(),
 	// Brand-level B2C vs B2B classification. Nullable: null = never set.
 	// Additive field — older callers omit it; see salesEconomicsService upsert.
 	businessModel: text("business_model"),
-	// Sales-funnel stages the brand has (subset of website_signup | website_purchase
-	// | sales_meeting). NOT NULL default [] — a never-set brand reads []; see upsert.
+	// Sales-funnel stages the brand has (subset of website_purchase | sales_meeting).
+	// NOT NULL default [] — a never-set brand reads []; see upsert.
 	funnelStages: jsonb("funnel_stages").$type<string[]>().default([]).notNull(),
 	// Single optimization goal (signups | booked_meetings | sales). NOT NULL
 	// default 'sales' — a never-set brand reads "sales"; see upsert.

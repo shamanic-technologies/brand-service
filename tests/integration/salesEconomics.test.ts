@@ -21,17 +21,20 @@ describe('Sales Economics Endpoints', () => {
   const bmBrandId = randomUUID(); // owned by ownerOrgId, business-model lifecycle
   const funnelBrandId = randomUUID(); // owned by ownerOrgId, funnel-fields lifecycle
   const funnelUnsetBrandId = randomUUID(); // owned by ownerOrgId, never written
+  const defaultsBrandId = randomUUID(); // owned by ownerOrgId, row written WITHOUT the two sub-rates (DB defaults)
 
+  // visitToSignupPct 40 * signupToPaidClientPct 25 / 100 = 10 (derived visitToClosePct)
   const validMetrics = {
     lifetimeRevenueUsd: 4000,
     replyToMeetingPct: 30,
     visitToMeetingPct: 12,
     meetingToClosePct: 25,
-    visitToClosePct: 3,
+    visitToSignupPct: 40,
+    signupToPaidClientPct: 25,
   };
 
   beforeAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId]) {
       await db.insert(brands).values({
         id,
         url: `https://sales-econ-${id.slice(0, 8)}.com`,
@@ -45,10 +48,11 @@ describe('Sales Economics Endpoints', () => {
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: bmBrandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: funnelBrandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: funnelUnsetBrandId });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: defaultsBrandId });
   });
 
   afterAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId]) {
       await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
@@ -65,8 +69,8 @@ describe('Sales Economics Endpoints', () => {
     expect(res.body).toEqual({ salesEconomics: null });
   });
 
-  // AC1 — PUT then GET round-trips the exact values
-  it('PUT 5 metrics then GET returns exactly those values + updatedAt', async () => {
+  // AC1 — PUT then GET round-trips the exact values + derives visitToClosePct
+  it('PUT metrics then GET returns exactly those values + derived visitToClosePct + updatedAt', async () => {
     const putRes = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
@@ -74,12 +78,15 @@ describe('Sales Economics Endpoints', () => {
 
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics).toMatchObject(validMetrics);
+    // derived = round(40 * 25 / 100) = 10, never null, never sent on the request
+    expect(putRes.body.salesEconomics.visitToClosePct).toBe(10);
     expect(typeof putRes.body.salesEconomics.updatedAt).toBe('string');
 
     const getRes = await request(app).get(path(brandId)).set(getAuthHeaders(ownerOrgId));
 
     expect(getRes.status).toBe(200);
     expect(getRes.body.salesEconomics).toMatchObject(validMetrics);
+    expect(getRes.body.salesEconomics.visitToClosePct).toBe(10);
     expect(typeof getRes.body.salesEconomics.updatedAt).toBe('string');
   });
 
@@ -154,7 +161,16 @@ describe('Sales Economics Endpoints', () => {
 
   // AC7 — missing field fails loud
   it('PUT with a missing metric field returns 400', async () => {
-    const { visitToClosePct, ...incomplete } = validMetrics;
+    const { visitToSignupPct, ...incomplete } = validMetrics;
+    const res = await request(app)
+      .put(path(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(incomplete);
+    expect(res.status).toBe(400);
+  });
+
+  it('PUT with a missing signupToPaidClientPct returns 400', async () => {
+    const { signupToPaidClientPct, ...incomplete } = validMetrics;
     const res = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
@@ -290,13 +306,13 @@ describe('Sales Economics Endpoints', () => {
       .set(getAuthHeaders(ownerOrgId))
       .send({
         ...validMetrics,
-        funnelStages: ['website_signup', 'sales_meeting'],
+        funnelStages: ['website_purchase', 'sales_meeting'],
         optimizationGoal: 'booked_meetings',
       });
 
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics.funnelStages).toEqual([
-      'website_signup',
+      'website_purchase',
       'sales_meeting',
     ]);
     expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
@@ -305,7 +321,7 @@ describe('Sales Economics Endpoints', () => {
       .get(path(funnelBrandId))
       .set(getAuthHeaders(ownerOrgId));
     expect(getRes.body.salesEconomics.funnelStages).toEqual([
-      'website_signup',
+      'website_purchase',
       'sales_meeting',
     ]);
     expect(getRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
@@ -320,7 +336,7 @@ describe('Sales Economics Endpoints', () => {
 
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics.funnelStages).toEqual([
-      'website_signup',
+      'website_purchase',
       'sales_meeting',
     ]);
     expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
@@ -344,7 +360,7 @@ describe('Sales Economics Endpoints', () => {
     const res = await request(app)
       .put(path(funnelBrandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, funnelStages: ['website_signup', 'bogus_stage'] });
+      .send({ ...validMetrics, funnelStages: ['website_purchase', 'bogus_stage'] });
     expect(res.status).toBe(400);
   });
 
@@ -353,7 +369,7 @@ describe('Sales Economics Endpoints', () => {
     const res = await request(app)
       .put(path(funnelBrandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, funnelStages: 'website_signup' });
+      .send({ ...validMetrics, funnelStages: 'website_purchase' });
     expect(res.status).toBe(400);
   });
 
@@ -364,5 +380,64 @@ describe('Sales Economics Endpoints', () => {
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...validMetrics, optimizationGoal: 'revenue' });
     expect(res.status).toBe(400);
+  });
+
+  // ── split self-serve close (visit→signup, signup→paid) ───────────
+
+  // AC5 — funnelStages 'website_signup' (dropped) is rejected; valid values accepted
+  it('PUT funnelStages "website_signup" (dropped) returns 400', async () => {
+    const res = await request(app)
+      .put(path(funnelBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, funnelStages: ['website_signup'] });
+    expect(res.status).toBe(400);
+  });
+
+  it('PUT funnelStages [website_purchase, sales_meeting] is accepted', async () => {
+    const res = await request(app)
+      .put(path(funnelBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, funnelStages: ['website_purchase', 'sales_meeting'] });
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics.funnelStages).toEqual(['website_purchase', 'sales_meeting']);
+  });
+
+  // AC2 — a legacy PUT still sending visitToClosePct does not corrupt state;
+  // the two sub-rates are the source of truth, visitToClosePct is derived.
+  it('PUT that also sends a legacy visitToClosePct ignores it (derives from sub-rates)', async () => {
+    const res = await request(app)
+      .put(path(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      // visitToClosePct: 99 is a stale legacy value; must be ignored
+      .send({ ...validMetrics, visitToClosePct: 99 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics.visitToSignupPct).toBe(40);
+    expect(res.body.salesEconomics.signupToPaidClientPct).toBe(25);
+    // derived from the sub-rates, NOT the 99 that was sent
+    expect(res.body.salesEconomics.visitToClosePct).toBe(10);
+  });
+
+  // AC4 — fresh-brand defaults: a row inserted WITHOUT the two sub-rates reads
+  // visitToSignupPct=25, signupToPaidClientPct=20 (DB defaults) → visitToClosePct=5.
+  it('a row written without the sub-rates reads the 25/20 defaults → visitToClosePct 5', async () => {
+    // Insert directly omitting visit_to_signup_pct + signup_to_paid_client_pct so
+    // the DB column defaults apply. visit_to_close_pct is required (no default);
+    // set it to a stale value to prove the response derives, not reads it.
+    await db.insert(brandSalesEconomics).values({
+      brandId: defaultsBrandId,
+      lifetimeRevenueUsd: 1000,
+      replyToMeetingPct: 10,
+      visitToMeetingPct: 8,
+      meetingToClosePct: 20,
+      visitToClosePct: 77,
+    } as any);
+
+    const res = await request(app).get(path(defaultsBrandId)).set(getAuthHeaders(ownerOrgId));
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics.visitToSignupPct).toBe(25);
+    expect(res.body.salesEconomics.signupToPaidClientPct).toBe(20);
+    // derived = round(25 * 20 / 100) = 5, NOT the stale 77
+    expect(res.body.salesEconomics.visitToClosePct).toBe(5);
   });
 });
