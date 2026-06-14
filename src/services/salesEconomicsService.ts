@@ -4,11 +4,24 @@ import { db, brandSalesEconomics } from '../db';
 /** Brand-level B2C vs B2B classification. */
 export type BusinessModel = 'b2c' | 'b2b';
 
-/** Sales-funnel stage a brand has (multi-select, 0..3). */
-export type FunnelStage = 'website_signup' | 'website_purchase' | 'sales_meeting';
+/** Sales-funnel stage a brand has (multi-select, 0..2). */
+export type FunnelStage = 'website_purchase' | 'sales_meeting';
 
 /** Single brand-level optimization goal. Server default 'sales'. */
 export type OptimizationGoal = 'signups' | 'booked_meetings' | 'sales';
+
+/**
+ * Self-serve close rate DERIVED from the two sub-rates:
+ *   round(visitToSignupPct * signupToPaidClientPct / 100).
+ * Kept on the wire so the revenue/projection engine (features-service) reads
+ * `visitToClosePct` unchanged. Never null, never written directly by a caller.
+ */
+export function deriveVisitToClosePct(
+  visitToSignupPct: number,
+  signupToPaidClientPct: number
+): number {
+  return Math.round((visitToSignupPct * signupToPaidClientPct) / 100);
+}
 
 /**
  * Brand-level sales conversion economics. Brand-level config reused across
@@ -27,13 +40,19 @@ export interface SalesEconomicsMetrics {
   replyToMeetingPct: number;
   visitToMeetingPct: number;
   meetingToClosePct: number;
-  visitToClosePct: number;
+  // Self-serve close split into two sub-rates (visit→signup, signup→paid).
+  // `visitToClosePct` is NOT a written metric — it is derived on read.
+  visitToSignupPct: number;
+  signupToPaidClientPct: number;
   businessModel?: BusinessModel | null;
   funnelStages?: FunnelStage[];
   optimizationGoal?: OptimizationGoal;
 }
 
 export interface SavedSalesEconomics extends SalesEconomicsMetrics {
+  // DERIVED on read = round(visitToSignupPct * signupToPaidClientPct / 100).
+  // Always present (never null); kept for projection consumers.
+  visitToClosePct: number;
   // Always present on read; `null` = never set.
   businessModel: BusinessModel | null;
   // Always an array on read; `[]` = never set.
@@ -51,7 +70,14 @@ function formatSalesEconomics(
     replyToMeetingPct: row.replyToMeetingPct,
     visitToMeetingPct: row.visitToMeetingPct,
     meetingToClosePct: row.meetingToClosePct,
-    visitToClosePct: row.visitToClosePct,
+    visitToSignupPct: row.visitToSignupPct,
+    signupToPaidClientPct: row.signupToPaidClientPct,
+    // Derive on read so the response is always coherent with the two sub-rates,
+    // independent of whatever is in the stored visit_to_close_pct column.
+    visitToClosePct: deriveVisitToClosePct(
+      row.visitToSignupPct,
+      row.signupToPaidClientPct
+    ),
     businessModel: row.businessModel as BusinessModel | null,
     funnelStages: (row.funnelStages ?? []) as FunnelStage[],
     optimizationGoal: row.optimizationGoal as OptimizationGoal,
@@ -59,12 +85,15 @@ function formatSalesEconomics(
   };
 }
 
-/** Cross-brand average of the 5 metrics — seed defaults for an unset brand. */
+/** Cross-brand average of the metrics — seed defaults for an unset brand. */
 export interface SalesEconomicsAverages {
   lifetimeRevenueUsd: number;
   replyToMeetingPct: number;
   visitToMeetingPct: number;
   meetingToClosePct: number;
+  visitToSignupPct: number;
+  signupToPaidClientPct: number;
+  // DERIVED from the two averaged sub-rates (kept coherent with them).
   visitToClosePct: number;
 }
 
@@ -87,7 +116,8 @@ interface SalesEconomicsAverageRow {
   replyToMeetingPct: number | null;
   visitToMeetingPct: number | null;
   meetingToClosePct: number | null;
-  visitToClosePct: number | null;
+  visitToSignupPct: number | null;
+  signupToPaidClientPct: number | null;
 }
 
 /**
@@ -95,6 +125,8 @@ interface SalesEconomicsAverageRow {
  * Exported for unit testing the empty-table branch without a DB.
  * Empty table → every AVG/PERCENTILE is NULL → return null. A non-null first
  * field implies all are non-null (same WHERE-less aggregate over the same rows).
+ * `visitToClosePct` is DERIVED from the two averaged sub-rates so the three
+ * stay coherent (never a separately-averaged value that contradicts them).
  */
 export function mapAverageRow(
   row: SalesEconomicsAverageRow
@@ -105,7 +137,12 @@ export function mapAverageRow(
     replyToMeetingPct: row.replyToMeetingPct!,
     visitToMeetingPct: row.visitToMeetingPct!,
     meetingToClosePct: row.meetingToClosePct!,
-    visitToClosePct: row.visitToClosePct!,
+    visitToSignupPct: row.visitToSignupPct!,
+    signupToPaidClientPct: row.signupToPaidClientPct!,
+    visitToClosePct: deriveVisitToClosePct(
+      row.visitToSignupPct!,
+      row.signupToPaidClientPct!
+    ),
   };
 }
 
@@ -143,7 +180,8 @@ export class SalesEconomicsService {
         replyToMeetingPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.replyToMeetingPct}))::int`,
         visitToMeetingPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToMeetingPct}))::int`,
         meetingToClosePct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.meetingToClosePct}))::int`,
-        visitToClosePct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToClosePct}))::int`,
+        visitToSignupPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToSignupPct}))::int`,
+        signupToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.signupToPaidClientPct}))::int`,
       })
       .from(brandSalesEconomics);
 
@@ -166,6 +204,8 @@ export class SalesEconomicsService {
           replyToMeetingPct: saved.replyToMeetingPct,
           visitToMeetingPct: saved.visitToMeetingPct,
           meetingToClosePct: saved.meetingToClosePct,
+          visitToSignupPct: saved.visitToSignupPct,
+          signupToPaidClientPct: saved.signupToPaidClientPct,
           visitToClosePct: saved.visitToClosePct,
         },
         source: 'user',
@@ -189,6 +229,12 @@ export class SalesEconomicsService {
     brandId: string,
     metrics: SalesEconomicsMetrics
   ): Promise<SavedSalesEconomics> {
+    // visit_to_close_pct is a STORED-but-DERIVED column: recompute on every
+    // write from the two sub-rates so the column never drifts from them.
+    const visitToClosePct = deriveVisitToClosePct(
+      metrics.visitToSignupPct,
+      metrics.signupToPaidClientPct
+    );
     const result = await db
       .insert(brandSalesEconomics)
       .values({
@@ -197,7 +243,9 @@ export class SalesEconomicsService {
         replyToMeetingPct: metrics.replyToMeetingPct,
         visitToMeetingPct: metrics.visitToMeetingPct,
         meetingToClosePct: metrics.meetingToClosePct,
-        visitToClosePct: metrics.visitToClosePct,
+        visitToSignupPct: metrics.visitToSignupPct,
+        signupToPaidClientPct: metrics.signupToPaidClientPct,
+        visitToClosePct,
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
         // Fresh row: omitted funnelStages/optimizationGoal fall back to the
@@ -212,7 +260,9 @@ export class SalesEconomicsService {
           replyToMeetingPct: metrics.replyToMeetingPct,
           visitToMeetingPct: metrics.visitToMeetingPct,
           meetingToClosePct: metrics.meetingToClosePct,
-          visitToClosePct: metrics.visitToClosePct,
+          visitToSignupPct: metrics.visitToSignupPct,
+          signupToPaidClientPct: metrics.signupToPaidClientPct,
+          visitToClosePct,
           updatedAt: sql`NOW()`,
           // Only touch business_model when the caller supplied it (including an
           // explicit null to clear). Omitted = preserve the stored value, so the

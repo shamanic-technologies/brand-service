@@ -12,14 +12,19 @@ import { randomUUID } from 'crypto';
  * per-brand GET. The average over unset brands depends on EVERY saved row, so
  * the exact check is self-consistent (asserted only when the table is stable).
  */
-const METRICS = [
+// Fields STORED per brand (the written metrics). visitToClosePct is NOT stored
+// as an input — it is derived on the response from the two sub-rates.
+const STORED = [
   'lifetimeRevenueUsd',
   'replyToMeetingPct',
   'visitToMeetingPct',
   'meetingToClosePct',
-  'visitToClosePct',
+  'visitToSignupPct',
+  'signupToPaidClientPct',
 ] as const;
-type Row = Record<(typeof METRICS)[number], number>;
+// Fields present on the RESPONSE economics object (STORED + derived).
+const METRICS = [...STORED, 'visitToClosePct'] as const;
+type Row = Record<(typeof STORED)[number], number>;
 
 const effPath = (id: string) => `/orgs/brands/${id}/sales-economics-effective`;
 
@@ -36,12 +41,17 @@ const mean = (vals: number[]) => Math.round(vals.reduce((a, b) => a + b, 0) / va
 
 function expectedFrom(rows: Row[]) {
   const ltvSorted = rows.map((r) => r.lifetimeRevenueUsd).sort((a, b) => a - b);
+  const visitToSignupPct = mean(rows.map((r) => r.visitToSignupPct));
+  const signupToPaidClientPct = mean(rows.map((r) => r.signupToPaidClientPct));
   return {
     lifetimeRevenueUsd: Math.round(percentileCont(ltvSorted, 0.5)),
     replyToMeetingPct: mean(rows.map((r) => r.replyToMeetingPct)),
     visitToMeetingPct: mean(rows.map((r) => r.visitToMeetingPct)),
     meetingToClosePct: mean(rows.map((r) => r.meetingToClosePct)),
-    visitToClosePct: mean(rows.map((r) => r.visitToClosePct)),
+    visitToSignupPct,
+    signupToPaidClientPct,
+    // DERIVED from the two AVERAGED sub-rates (not separately averaged).
+    visitToClosePct: Math.round((visitToSignupPct * signupToPaidClientPct) / 100),
   };
 }
 
@@ -52,7 +62,8 @@ async function snapshot(): Promise<Row[]> {
       replyToMeetingPct: brandSalesEconomics.replyToMeetingPct,
       visitToMeetingPct: brandSalesEconomics.visitToMeetingPct,
       meetingToClosePct: brandSalesEconomics.meetingToClosePct,
-      visitToClosePct: brandSalesEconomics.visitToClosePct,
+      visitToSignupPct: brandSalesEconomics.visitToSignupPct,
+      signupToPaidClientPct: brandSalesEconomics.signupToPaidClientPct,
     })
     .from(brandSalesEconomics);
 }
@@ -72,13 +83,14 @@ describe('Effective Sales Economics Endpoint', () => {
     replyToMeetingPct: 30,
     visitToMeetingPct: 12,
     meetingToClosePct: 25,
-    visitToClosePct: 3,
+    visitToSignupPct: 40,
+    signupToPaidClientPct: 25,
   };
   // Extra contributor brands so the average is well-defined incl. an LTV outlier.
   const contributors: Row[] = [
-    { lifetimeRevenueUsd: 1000, replyToMeetingPct: 10, visitToMeetingPct: 8, meetingToClosePct: 20, visitToClosePct: 2 },
-    { lifetimeRevenueUsd: 2000, replyToMeetingPct: 20, visitToMeetingPct: 16, meetingToClosePct: 40, visitToClosePct: 6 },
-    { lifetimeRevenueUsd: 500000, replyToMeetingPct: 40, visitToMeetingPct: 20, meetingToClosePct: 50, visitToClosePct: 8 },
+    { lifetimeRevenueUsd: 1000, replyToMeetingPct: 10, visitToMeetingPct: 8, meetingToClosePct: 20, visitToSignupPct: 20, signupToPaidClientPct: 10 },
+    { lifetimeRevenueUsd: 2000, replyToMeetingPct: 20, visitToMeetingPct: 16, meetingToClosePct: 40, visitToSignupPct: 60, signupToPaidClientPct: 10 },
+    { lifetimeRevenueUsd: 500000, replyToMeetingPct: 40, visitToMeetingPct: 20, meetingToClosePct: 50, visitToSignupPct: 80, signupToPaidClientPct: 30 },
   ];
   const contributorIds = contributors.map(() => randomUUID());
 
@@ -97,9 +109,18 @@ describe('Effective Sales Economics Endpoint', () => {
     await mk(foreignBrandId, otherOrgId);
     for (const id of contributorIds) await mk(id, ownerOrgId);
 
-    await db.insert(brandSalesEconomics).values({ brandId: savedBrandId, ...savedMetrics });
+    // visit_to_close_pct is NOT NULL with no DB default (it is derived on write).
+    // These direct inserts bypass the service upsert, so compute it here.
+    const close = (r: Row) => Math.round((r.visitToSignupPct * r.signupToPaidClientPct) / 100);
+    await db
+      .insert(brandSalesEconomics)
+      .values({ brandId: savedBrandId, ...savedMetrics, visitToClosePct: close(savedMetrics) });
     for (let i = 0; i < contributors.length; i++) {
-      await db.insert(brandSalesEconomics).values({ brandId: contributorIds[i], ...contributors[i] });
+      await db.insert(brandSalesEconomics).values({
+        brandId: contributorIds[i],
+        ...contributors[i],
+        visitToClosePct: close(contributors[i]),
+      });
     }
   });
 
@@ -116,7 +137,8 @@ describe('Effective Sales Economics Endpoint', () => {
     const res = await request(app).get(effPath(savedBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(res.status).toBe(200);
     expect(res.body.source).toBe('user');
-    expect(res.body.economics).toEqual(savedMetrics);
+    // response = stored metrics + DERIVED visitToClosePct = round(40 * 25 / 100) = 10
+    expect(res.body.economics).toEqual({ ...savedMetrics, visitToClosePct: 10 });
   });
 
   // source "cross-brand-average": unset brand returns the global average
