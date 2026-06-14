@@ -1335,12 +1335,23 @@
                       null
                     ]
                   },
+                  "funnelStages": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/FunnelStage"
+                    }
+                  },
+                  "optimizationGoal": {
+                    "$ref": "#/components/schemas/OptimizationGoal"
+                  },
                   "updatedAt": {
                     "type": "string"
                   }
                 },
                 "required": [
                   "businessModel",
+                  "funnelStages",
+                  "optimizationGoal",
                   "updatedAt"
                 ]
               }
@@ -1349,6 +1360,22 @@
         },
         "required": [
           "salesEconomics"
+        ]
+      },
+      "FunnelStage": {
+        "type": "string",
+        "enum": [
+          "website_signup",
+          "website_purchase",
+          "sales_meeting"
+        ]
+      },
+      "OptimizationGoal": {
+        "type": "string",
+        "enum": [
+          "signups",
+          "booked_meetings",
+          "sales"
         ]
       },
       "SalesEconomicsMetrics": {
@@ -1407,12 +1434,23 @@
                       null
                     ]
                   },
+                  "funnelStages": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/FunnelStage"
+                    }
+                  },
+                  "optimizationGoal": {
+                    "$ref": "#/components/schemas/OptimizationGoal"
+                  },
                   "updatedAt": {
                     "type": "string"
                   }
                 },
                 "required": [
                   "businessModel",
+                  "funnelStages",
+                  "optimizationGoal",
                   "updatedAt"
                 ]
               }
@@ -1439,6 +1477,15 @@
                   "b2b",
                   null
                 ]
+              },
+              "funnelStages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FunnelStage"
+                }
+              },
+              "optimizationGoal": {
+                "$ref": "#/components/schemas/OptimizationGoal"
               }
             }
           }
@@ -3449,7 +3496,7 @@
     "/orgs/brands/{brandId}/sales-economics": {
       "get": {
         "summary": "Get a brand's saved sales conversion economics",
-        "description": "Returns the saved economics for the brand (5 conversion metrics + `businessModel`), or `{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Returns the saved economics for the brand (5 conversion metrics + `businessModel` + `funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array (`[]` when never set), `optimizationGoal` always a value (`\"sales\"` when never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {
@@ -3488,7 +3535,7 @@
       },
       "put": {
         "summary": "Upsert a brand's sales conversion economics",
-        "description": "Idempotent write of the full 5-metric set (all 5 metrics required). An optional `businessModel` (`b2c` | `b2b`) may be included: omitting it leaves the stored value unchanged, `null` clears it. Repeating the same PUT yields the same end state. Returns the saved set with `businessModel` + `updatedAt` — never null. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Idempotent write of the full 5-metric set (all 5 metrics required). Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_signup` | `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | `booked_meetings` | `sales`): omitting leaves it unchanged, sending sets it. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {

@@ -4,6 +4,12 @@ import { db, brandSalesEconomics } from '../db';
 /** Brand-level B2C vs B2B classification. */
 export type BusinessModel = 'b2c' | 'b2b';
 
+/** Sales-funnel stage a brand has (multi-select, 0..3). */
+export type FunnelStage = 'website_signup' | 'website_purchase' | 'sales_meeting';
+
+/** Single brand-level optimization goal. Server default 'sales'. */
+export type OptimizationGoal = 'signups' | 'booked_meetings' | 'sales';
+
 /**
  * Brand-level sales conversion economics. Brand-level config reused across
  * every sales-cold-email campaign. Wire field names are consumed byte-stable
@@ -11,6 +17,10 @@ export type BusinessModel = 'b2c' | 'b2b';
  *
  * `businessModel` is optional on write: omitted (`undefined`) = leave the
  * stored value unchanged; `null` = clear it. The 5 metrics stay required.
+ *
+ * `funnelStages` / `optimizationGoal` are optional on write: omitted
+ * (`undefined`) = leave unchanged; sending sets. Neither is nullable — there is
+ * no "clear to null" (funnelStages clears via `[]`, optimizationGoal via a value).
  */
 export interface SalesEconomicsMetrics {
   lifetimeRevenueUsd: number;
@@ -19,11 +29,17 @@ export interface SalesEconomicsMetrics {
   meetingToClosePct: number;
   visitToClosePct: number;
   businessModel?: BusinessModel | null;
+  funnelStages?: FunnelStage[];
+  optimizationGoal?: OptimizationGoal;
 }
 
 export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   // Always present on read; `null` = never set.
   businessModel: BusinessModel | null;
+  // Always an array on read; `[]` = never set.
+  funnelStages: FunnelStage[];
+  // Always present on read; `'sales'` = never set.
+  optimizationGoal: OptimizationGoal;
   updatedAt: string;
 }
 
@@ -37,6 +53,8 @@ function formatSalesEconomics(
     meetingToClosePct: row.meetingToClosePct,
     visitToClosePct: row.visitToClosePct,
     businessModel: row.businessModel as BusinessModel | null,
+    funnelStages: (row.funnelStages ?? []) as FunnelStage[],
+    optimizationGoal: row.optimizationGoal as OptimizationGoal,
     updatedAt: row.updatedAt,
   };
 }
@@ -182,6 +200,10 @@ export class SalesEconomicsService {
         visitToClosePct: metrics.visitToClosePct,
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
+        // Fresh row: omitted funnelStages/optimizationGoal fall back to the
+        // column defaults ([] / 'sales') — a never-set brand reads those.
+        funnelStages: metrics.funnelStages ?? [],
+        optimizationGoal: metrics.optimizationGoal ?? 'sales',
       })
       .onConflictDoUpdate({
         target: brandSalesEconomics.brandId,
@@ -197,6 +219,15 @@ export class SalesEconomicsService {
           // legacy 5-field PUT never wipes a separately-set business model.
           ...(metrics.businessModel !== undefined
             ? { businessModel: metrics.businessModel }
+            : {}),
+          // Only touch funnel_stages when supplied (including `[]` to clear).
+          // Omitted = preserve the stored value.
+          ...(metrics.funnelStages !== undefined
+            ? { funnelStages: metrics.funnelStages }
+            : {}),
+          // Only touch optimization_goal when supplied. Omitted = preserve.
+          ...(metrics.optimizationGoal !== undefined
+            ? { optimizationGoal: metrics.optimizationGoal }
             : {}),
         },
       })

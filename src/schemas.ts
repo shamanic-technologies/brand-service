@@ -1690,11 +1690,28 @@ export const SalesEconomicsMetricsSchema = z
 // `nullable` to a bare `$ref` (same reason SavedSalesEconomicsSchema is unnamed).
 export const BusinessModelSchema = z.enum(['b2c', 'b2b']);
 
-// UPSERT request body = the 5 required metrics + optional businessModel.
-// businessModel is optional on write: omitted = leave the stored value unchanged
-// (so the legacy 5-field PUT never wipes it); `null` = clear it explicitly.
+// Sales-funnel stages a brand has. Multi-select (0..3). Wire enum values are
+// consumed byte-stable by the dashboard — do NOT rename.
+export const FunnelStageSchema = z
+  .enum(['website_signup', 'website_purchase', 'sales_meeting'])
+  .openapi('FunnelStage');
+
+// Single brand-level optimization goal. Server default "sales" when never set.
+export const OptimizationGoalSchema = z
+  .enum(['signups', 'booked_meetings', 'sales'])
+  .openapi('OptimizationGoal');
+
+// UPSERT request body = the 5 required metrics + optional businessModel +
+// optional funnelStages / optimizationGoal.
+// businessModel: omitted = leave unchanged (legacy 5-field PUT never wipes it),
+// `null` = clear it explicitly.
+// funnelStages: omitted = leave unchanged; sending the array (including `[]`)
+// sets it. NOT nullable — there is no "clear to null", only "set to []".
+// optimizationGoal: omitted = leave unchanged; sending sets it. NOT nullable.
 export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.extend({
   businessModel: BusinessModelSchema.nullable().optional(),
+  funnelStages: z.array(FunnelStageSchema).optional(),
+  optimizationGoal: OptimizationGoalSchema.optional(),
 }).openapi('UpsertSalesEconomicsRequest');
 
 // Saved set = the 5 metrics + when it was last written. Left UNNAMED (no
@@ -1704,6 +1721,10 @@ export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.ext
 export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
   // Always present on read; `null` = never set.
   businessModel: BusinessModelSchema.nullable(),
+  // Always an array on read; `[]` = never set (never null).
+  funnelStages: z.array(FunnelStageSchema),
+  // Always present on read; `"sales"` = never set (never null).
+  optimizationGoal: OptimizationGoalSchema,
   updatedAt: z.string(),
 });
 
@@ -1747,10 +1768,12 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/sales-economics',
   summary: "Get a brand's saved sales conversion economics",
   description:
-    'Returns the saved economics for the brand (5 conversion metrics + `businessModel`), or ' +
-    '`{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or ' +
-    '`null` (never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must ' +
-    "belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+    'Returns the saved economics for the brand (5 conversion metrics + `businessModel` + ' +
+    '`funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved ' +
+    'yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array ' +
+    '(`[]` when never set), `optimizationGoal` always a value (`"sales"` when never set). Unset is NOT ' +
+    'a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller\'s org ' +
+    '(x-org-id); a brand outside the org is rejected with 403.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
     200: {
@@ -1769,11 +1792,14 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/sales-economics',
   summary: "Upsert a brand's sales conversion economics",
   description:
-    'Idempotent write of the full 5-metric set (all 5 metrics required). An optional `businessModel` ' +
-    '(`b2c` | `b2b`) may be included: omitting it leaves the stored value unchanged, `null` clears it. ' +
-    'Repeating the same PUT yields the same end state. Returns the saved set with `businessModel` + ' +
-    "`updatedAt` — never null. The brand must belong to the caller's org (x-org-id); a brand outside " +
-    'the org is rejected with 403.',
+    'Idempotent write of the full 5-metric set (all 5 metrics required). Optional `businessModel` ' +
+    '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array ' +
+    'of `website_signup` | `website_purchase` | `sales_meeting`): omitting leaves it unchanged, ' +
+    'sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | ' +
+    '`booked_meetings` | `sales`): omitting leaves it unchanged, sending sets it. Invalid enum values ' +
+    'are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with ' +
+    "`businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to " +
+    "the caller's org (x-org-id); a brand outside the org is rejected with 403.",
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: UpsertSalesEconomicsRequestSchema } } },
