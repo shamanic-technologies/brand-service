@@ -87,7 +87,7 @@ describe('Suggest Personas Endpoint', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAuthorize.mockResolvedValue({ sufficient: true, balance_cents: 10000, required_cents: 10 });
+    mockAuthorize.mockResolvedValue({ sufficient: true, balance_cents: '10000', required_cents: '10' });
     mockChat.mockResolvedValue(validChatResponse as any);
   });
 
@@ -145,7 +145,7 @@ describe('Suggest Personas Endpoint', () => {
   });
 
   it('returns 402 when credits are insufficient', async () => {
-    mockAuthorize.mockResolvedValue({ sufficient: false, balance_cents: 0, required_cents: 50 });
+    mockAuthorize.mockResolvedValue({ sufficient: false, balance_cents: '0', required_cents: '50' });
     const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
     expect(res.status).toBe(402);
     expect(mockChat).not.toHaveBeenCalled();
