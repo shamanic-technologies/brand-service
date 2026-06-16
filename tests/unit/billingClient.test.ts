@@ -72,7 +72,7 @@ describe('billing-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: false, balance_cents: '10', required_cents: '25' }));
 
       const result = await authorizeCredits({
-        items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
+        items: [{ costName: 'google-flash-2.5-tokens-input', quantity: 1000 }],
         description: 'test',
         orgId: 'org-1',
       });
@@ -88,7 +88,7 @@ describe('billing-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 1000, required_cents: 1 }));
 
       await authorizeCredits({
-        items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
+        items: [{ costName: 'google-flash-2.5-tokens-input', quantity: 1000 }],
         description: 'test',
         orgId: 'org-1',
         userId: 'user-1',
@@ -115,7 +115,7 @@ describe('billing-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 1000, required_cents: 0 }));
 
       await authorizeCredits({
-        items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
+        items: [{ costName: 'google-flash-2.5-tokens-input', quantity: 1000 }],
         description: 'test',
         orgId: 'org-1',
       });
