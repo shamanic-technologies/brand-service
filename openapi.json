@@ -1687,6 +1687,51 @@
           "status"
         ]
       },
+      "SuggestPersonasResponse": {
+        "type": "object",
+        "properties": {
+          "personas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonaDraft"
+            }
+          }
+        },
+        "required": [
+          "personas"
+        ]
+      },
+      "PersonaDraft": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "name",
+          "filters"
+        ]
+      },
+      "SuggestPersonasRequest": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          }
+        }
+      },
       "GetBrandProfileResponse": {
         "type": "object",
         "properties": {
@@ -4128,6 +4173,65 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/personas/suggest": {
+      "post": {
+        "summary": "Generate suggested customer personas (no persistence)",
+        "description": "Uses an LLM to draft `count` (default 3, 1–10) distinct customer personas seeded from the brand's current brand-profile fields plus effective sales economics (when present). Each draft is a `{ name, filters }` object whose filter keys are restricted to the persona filter vocabulary (industry, employeeRange, revenueRange, location, jobTitles, seniority, department, keywords, technologies, fundingStage); keys outside that set are stripped. PURE GENERATION — nothing is persisted: the dashboard renders the drafts, the user edits, then POSTs the keepers to the create-persona endpoint. Spends LLM tokens, so the org is credit-authorized upfront (402 when insufficient). Generation failure fails loud (502) — never returns fabricated/default personas. The brand must belong to the caller's org (x-org-id).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestPersonasRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Suggested persona drafts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestPersonasResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format or invalid count"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "422": {
+            "description": "Brand profile is empty — nothing to seed generation from"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "502": {
+            "description": "Credit authorization or LLM generation failed"
           }
         }
       }

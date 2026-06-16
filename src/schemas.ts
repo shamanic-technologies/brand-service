@@ -1874,6 +1874,23 @@ export const PersonaStatusSchema = z
 // schema lock.
 export const PersonaFiltersSchema = z.record(z.string(), z.array(z.string()));
 
+// The ONLY filter keys an LLM-SUGGESTED persona may use. Manual create/duplicate
+// stay caller-flex (above); suggestion output is constrained to this vocabulary
+// so api-service + the dashboard get a stable, known set. Keys outside this list
+// are stripped from suggestions (never invented).
+export const PERSONA_FILTER_KEYS = [
+  'industry',
+  'employeeRange',
+  'revenueRange',
+  'location',
+  'jobTitles',
+  'seniority',
+  'department',
+  'keywords',
+  'technologies',
+  'fundingStage',
+] as const;
+
 // A persona row. Immutable except `status`. `createdAt` is an ISO string.
 export const PersonaSchema = z
   .object({
@@ -1920,6 +1937,30 @@ export const ListPersonasResponseSchema = z
 export const PersonaResponseSchema = z
   .object({ persona: PersonaSchema })
   .openapi('PersonaResponse');
+
+// SUGGEST body. `count` optional — when present it must be an integer 1–10
+// (out-of-range fails loud with 400). The default of 3 is applied in the handler
+// (`count ?? 3`), NOT via Zod `.default()`, per the fail-loud convention.
+export const SuggestPersonasRequestSchema = z
+  .object({
+    count: z.number().int().min(1).max(10).optional(),
+  })
+  .openapi('SuggestPersonasRequest');
+
+// A single GENERATED persona draft — name + vocabulary-scoped filters. Identical
+// public shape to what the create endpoint accepts, but NOT persisted: the
+// dashboard renders these drafts, the user edits, then POSTs the keepers to the
+// existing create-persona endpoint.
+export const PersonaDraftSchema = z
+  .object({
+    name: z.string(),
+    filters: PersonaFiltersSchema,
+  })
+  .openapi('PersonaDraft');
+
+export const SuggestPersonasResponseSchema = z
+  .object({ personas: z.array(PersonaDraftSchema) })
+  .openapi('SuggestPersonasResponse');
 
 registry.registerPath({
   method: 'get',
@@ -2005,6 +2046,37 @@ registry.registerPath({
     400: { description: 'Invalid ID format or invalid status value' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand or persona not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/personas/suggest',
+  summary: 'Generate suggested customer personas (no persistence)',
+  description:
+    'Uses an LLM to draft `count` (default 3, 1–10) distinct customer personas seeded ' +
+    "from the brand's current brand-profile fields plus effective sales economics (when " +
+    'present). Each draft is a `{ name, filters }` object whose filter keys are restricted ' +
+    'to the persona filter vocabulary (industry, employeeRange, revenueRange, location, ' +
+    'jobTitles, seniority, department, keywords, technologies, fundingStage); keys outside ' +
+    'that set are stripped. PURE GENERATION — nothing is persisted: the dashboard renders ' +
+    'the drafts, the user edits, then POSTs the keepers to the create-persona endpoint. ' +
+    'Spends LLM tokens, so the org is credit-authorized upfront (402 when insufficient). ' +
+    "Generation failure fails loud (502) — never returns fabricated/default personas. The " +
+    "brand must belong to the caller's org (x-org-id).",
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: SuggestPersonasRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Suggested persona drafts', content: { 'application/json': { schema: SuggestPersonasResponseSchema } } },
+    400: { description: 'Invalid brand ID format or invalid count' },
+    402: { description: 'Insufficient credits' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    422: { description: 'Brand profile is empty — nothing to seed generation from' },
+    502: { description: 'Credit authorization or LLM generation failed' },
     500: { description: 'Internal server error' },
   },
 });
