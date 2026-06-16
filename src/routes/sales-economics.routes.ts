@@ -5,6 +5,7 @@ import { UpsertSalesEconomicsRequestSchema } from '../schemas';
 import { salesEconomicsService } from '../services/salesEconomicsService';
 
 export const orgRouter = Router();
+export const internalRouter = Router();
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -129,6 +130,32 @@ orgRouter.put('/brands/:brandId/sales-economics', async (req: Request, res: Resp
     return res.status(200).json({ salesEconomics });
   } catch (error: any) {
     console.error('[brand-service] Upsert sales economics error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * GET /internal/brands/:brandId/sales-economics
+ * Internal api-key read of a brand's SAVED economics — incl. `optimizationGoal`,
+ * the brand's current optimization goal. Keyed by brandId, NO org context:
+ * campaign-service (a scheduler running as a service) calls this once per loop
+ * to read the goal that drives per-lead workflow + persona selection.
+ *
+ * Returns the brand's OWN saved set (not the cross-brand-average effective one —
+ * a brand's goal must be the brand's, never an average). `{ salesEconomics: null }`
+ * when the brand has never saved economics.
+ */
+internalRouter.get('/brands/:brandId/sales-economics', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const salesEconomics = await salesEconomicsService.getByBrandId(brandId);
+    return res.status(200).json({ salesEconomics });
+  } catch (error: any) {
+    console.error('[brand-service] Internal get sales economics error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });

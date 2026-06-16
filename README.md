@@ -118,6 +118,7 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | POST | `/internal/brands/extract-fields` | Mirror of `POST /orgs/brands/extract-fields` for service-to-service callers without an org identity. Uses chat-service `/internal/platform-complete`. Reads `x-brand-id` header. |
 | GET | `/internal/brands/:brandId/extracted-fields` | List extracted fields (optional `?campaignId=`) |
 | GET | `/internal/brands/:brandId/extracted-images` | List extracted images (optional `?campaignId=`) |
+| GET | `/internal/brands/:brandId/sales-economics` | Internal api-key read of a brand's SAVED economics incl. `optimizationGoal` (the brand's current optimization goal). Keyed by brandId, NO org context — built for campaign-service to read the goal per per-lead loop. Returns the brand's OWN saved set (not the cross-brand-average effective one), or `{ salesEconomics: null }` when unset. Unset/unknown brand → null, not 404. |
 
 #### Organizations
 
