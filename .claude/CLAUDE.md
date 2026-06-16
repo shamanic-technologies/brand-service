@@ -30,6 +30,15 @@
 - pnpm as package manager
 - Vitest for testing
 
+## LLM cost declaration — authorize locally, delegate the ACTUAL cost to chat-service
+
+brand-service does NOT hand-write `provisioned`/`actual`/`cancelled` cost rows for LLM spend. The global provision→authorize→execute→actualize/cancel lifecycle is satisfied here by TWO existing pieces — do NOT build redundant cost plumbing:
+
+1. **AUTHORIZE upfront, in the route** — `authorizeCredits()` (`src/lib/billing-client.ts`) with WORST-CASE token quantities before the LLM call. `!sufficient` → 402; billing throw → 502 (fail loud, never swallow). Reference: `src/routes/analyze.routes.ts` (image analysis), `src/routes/personas.routes.ts` (persona suggest).
+2. **ACTUAL cost lives in chat-service** — call `chat()` (`src/lib/chat-client.ts`) in **org mode** (`OrgCaller`), forwarding a brand-service run id as `x-run-id`. chat-service performs the terminal LLM call, so IT declares the real token cost on that child run (cost-source-of-truth). brand-service just creates the run (`createRun`, child of the caller's run) and marks it `completed`/`failed` (`updateRun`). Reference: `src/services/fieldExtractionService.ts`, `src/services/personaSuggestionService.ts`.
+
+So the canonical pattern for any new LLM-spending org route = `authorizeCredits` gate (route) + `createRun` → `chat(orgCaller-with-run.id)` → `updateRun completed/failed` (service). The cost-name in `authorizeCredits` must be byte-equal to the costs catalog (mirror `analyze.routes` `gemini-2.5-flash-tokens-input`/`-output`). `chat()` in **platform mode** hits `/internal/platform-complete` — NO billing, NO run tracking; use only for org-less internal calls. (Set 2026-06-16, #232 persona-suggest.)
+
 ## Testing (MANDATORY)
 
 **Every agent working in this repo MUST write tests for every change. No exceptions.**
