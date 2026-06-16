@@ -1802,6 +1802,28 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/sales-economics',
+  summary: "Internal read of a brand's saved sales economics (incl. optimizationGoal)",
+  description:
+    'Internal api-key read of a brand SAVED economics — keyed by brandId, NO org context. ' +
+    'Built for campaign-service (a scheduler running as a service): it reads `optimizationGoal` ' +
+    '(the brand current optimization goal) once per per-lead loop to drive workflow + persona ' +
+    'selection. Returns the brand OWN saved set (NOT the cross-brand-average effective one — a ' +
+    'brand goal must be the brand own, never an average), or `{ salesEconomics: null }` when the ' +
+    'brand has never saved economics. Unset is NOT a 404.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'Saved metrics incl. optimizationGoal, or null when unset',
+      content: { 'application/json': { schema: GetSalesEconomicsResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
   method: 'put',
   path: '/orgs/brands/{brandId}/sales-economics',
   summary: "Upsert a brand's sales conversion economics",
