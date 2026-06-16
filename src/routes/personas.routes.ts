@@ -15,7 +15,6 @@ import {
   suggestPersonas,
   PersonaSuggestionUnavailableError,
 } from '../services/personaSuggestionService';
-import { authorizeCredits } from '../lib/billing-client';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 
 export const orgRouter = Router();
@@ -147,8 +146,10 @@ orgRouter.patch('/brands/:brandId/personas/:personaId/status', async (req: Reque
  * POST /orgs/brands/:brandId/personas/suggest
  * LLM-generates `count` (default 3, 1–10) persona drafts seeded from the brand's
  * profile + effective sales economics. PURE GENERATION — nothing is persisted.
- * Credit-authorizes the org upfront (402 insufficient). Generation failure fails
- * loud (502 / 422) — never returns fabricated personas.
+ * Cost + affordability are owned by chat-service (the terminal LLM caller): it
+ * declares the actual token cost on the child run and 402s on insufficient credit,
+ * which propagates here. Generation failure fails loud (502 / 422) — never returns
+ * fabricated personas.
  */
 orgRouter.post('/brands/:brandId/personas/suggest', async (req: Request, res: Response) => {
   try {
@@ -166,36 +167,12 @@ orgRouter.post('/brands/:brandId/personas/suggest', async (req: Request, res: Re
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    // Credit authorization upfront — worst-case token reservation for one
-    // gemini-flash completion. The actual token cost is declared by chat-service
-    // on the child run.
-    try {
-      const authResult = await authorizeCredits({
-        items: [
-          { costName: 'gemini-2.5-flash-tokens-input', quantity: 4000 },
-          { costName: 'gemini-2.5-flash-tokens-output', quantity: 2000 },
-        ],
-        description: `persona-suggestion — gemini-flash (count ${count})`,
-        orgId: req.orgId!,
-        userId: req.userId,
-        runId: req.runId,
-        campaignId: req.campaignId,
-        featureSlug: req.featureSlug,
-        brandId: req.brandIdHeader,
-        workflowSlug: req.workflowSlug,
-      });
-      if (!authResult.sufficient) {
-        return res.status(402).json({
-          error: 'Insufficient credits',
-          balance_cents: authResult.balance_cents,
-          required_cents: authResult.required_cents,
-        });
-      }
-    } catch (billingError: any) {
-      console.error('[brand-service] persona-suggest billing error:', billingError.message);
-      return res.status(502).json({ error: 'Failed to authorize credits', detail: billingError.message });
-    }
-
+    // No upfront authorize here: chat-service is the terminal LLM caller, so it
+    // owns the cost declaration AND the affordability check (it 402s on
+    // insufficient credit, which propagates back through suggestPersonas). A
+    // brand-service pre-authorize duplicated that gate with guessed token
+    // quantities + a model-specific cost name that may not exist in the
+    // costs-service catalog (it 502'd "Failed to resolve prices").
     const personas = await suggestPersonas({
       brandId,
       count,

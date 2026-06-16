@@ -3,10 +3,8 @@ import request from 'supertest';
 
 // Mock the external service clients — DB stays real for brand / ownership /
 // profile seeding. The route + suggestPersonas orchestration is exercised end
-// to end; only billing / chat / runs HTTP is stubbed.
-vi.mock('../../src/lib/billing-client', () => ({
-  authorizeCredits: vi.fn(),
-}));
+// to end; only chat / runs HTTP is stubbed. Cost + affordability are owned by
+// chat-service (the terminal LLM caller), so there is no brand-service authorize.
 vi.mock('../../src/lib/chat-client', () => ({
   chat: vi.fn(),
 }));
@@ -16,18 +14,17 @@ vi.mock('../../src/lib/runs-client', () => ({
 }));
 
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
-import { authorizeCredits } from '../../src/lib/billing-client';
 import { chat } from '../../src/lib/chat-client';
 import { db, brands, orgBrands, brandPersonas, brandExtractedFields } from '../../src/db';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
-const mockAuthorize = vi.mocked(authorizeCredits);
 const mockChat = vi.mocked(chat);
 
 /**
  * POST /orgs/brands/:brandId/personas/suggest — LLM-drafted persona suggestions.
- * Pure generation (no persistence), credit-authorized, fail-loud.
+ * Pure generation (no persistence), fail-loud. Cost + affordability are owned by
+ * chat-service (the terminal LLM caller), not authorized here.
  */
 describe('Suggest Personas Endpoint', () => {
   const app = createTestApp();
@@ -87,7 +84,6 @@ describe('Suggest Personas Endpoint', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAuthorize.mockResolvedValue({ sufficient: true, balance_cents: '10000', required_cents: '10' });
     mockChat.mockResolvedValue(validChatResponse as any);
   });
 
@@ -144,18 +140,6 @@ describe('Suggest Personas Endpoint', () => {
     expect(res.body.personas).toEqual([{ name: 'Mixed', filters: { industry: ['SaaS'] } }]);
   });
 
-  it('returns 402 when credits are insufficient', async () => {
-    mockAuthorize.mockResolvedValue({ sufficient: false, balance_cents: '0', required_cents: '50' });
-    const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
-    expect(res.status).toBe(402);
-    expect(mockChat).not.toHaveBeenCalled();
-  });
-
-  it('returns 502 when credit authorization throws', async () => {
-    mockAuthorize.mockRejectedValue(new Error('billing down'));
-    const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
-    expect(res.status).toBe(502);
-  });
 
   it('returns 502 and persists nothing when generation throws', async () => {
     mockChat.mockRejectedValue(new Error('chat-service 500'));
