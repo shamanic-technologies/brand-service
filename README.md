@@ -97,6 +97,12 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | GET | `/orgs/brands/:brandId/sales-economics` | Read brand sales economics: conversion metrics incl. self-serve sub-rates `visitToSignupPct` + `signupToPaidClientPct`, plus DERIVED `visitToClosePct` = round(visitToSignupPct·signupToPaidClientPct/100), + `businessModel` + `funnelStages` (always array, `[]` unset) + `optimizationGoal` (always value, `"sales"` unset) (`{ salesEconomics: null }` when unset; 403 if brand not in caller's org) |
 | PUT | `/orgs/brands/:brandId/sales-economics` | Upsert required metrics: `lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (`visitToClosePct` NOT accepted — derived on response, any sent is ignored). Optional `businessModel` (`b2c`\|`b2b`, omit = unchanged, `null` = clear), `funnelStages` (array of `website_purchase`\|`sales_meeting`, omit = unchanged, send incl. `[]` = set), `optimizationGoal` (`signups`\|`booked_meetings`\|`sales`, omit = unchanged, send = set). Invalid enum → 400. Idempotent; non-null response |
 | GET | `/orgs/brands/:brandId/sales-economics-effective` | Effective economics to use for a brand: saved set (`source: "user"`) or cross-brand average (`source: "cross-brand-average"`, LTV = median, percents = mean, `visitToClosePct` derived from averaged sub-rates), or `{ economics: null, source: null }` at cold start. `{ economics, source }` |
+| GET | `/orgs/brands/:brandId/personas` | List a brand's customer personas (newest first), optional `?status=active\|paused\|archived` filter. `{ personas: Persona[] }`. Persona = `{ id, brandId, name, filters: Record<string,string[]>, status, createdAt }` |
+| POST | `/orgs/brands/:brandId/personas` | Create an immutable persona (`{ name, filters }`); status starts `active`. Name UNIQUE per brand, case-insensitive, across ALL statuses → 409 on duplicate. `201 { persona }` |
+| POST | `/orgs/brands/:brandId/personas/:personaId/duplicate` | Copy a persona's filters under a new name (`{ name? }`, auto-uniquified when omitted/taken). `201 { persona }` |
+| PATCH | `/orgs/brands/:brandId/personas/:personaId/status` | Flip persona status (`{ status: active\|paused\|archived }`) — only mutable field; archived never deleted. `200 { persona }` |
+| GET | `/orgs/brands/:brandId/brand-profile` | Brand profile: `{ current, versions[] }`. `current` = latest saved version, or a DERIVED virtual v1 (from extracted fields, audience keys excluded; not persisted) when none saved. `versions` = saved summaries `{ id, version, createdAt }` newest-first |
+| POST | `/orgs/brands/:brandId/brand-profile` | Save a new IMMUTABLE version (`{ fields: Record<string,string\|string[]> }`); v1 → v2 → …, prior versions unchanged. `201 { version }` |
 
 ### Internal (`/internal/*` — API key only)
 
@@ -211,6 +217,8 @@ Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 - `media_assets`, `supabase_storage`
 - `intake_forms`, `brand_thesis`
 - `brand_sales_economics` — one row per brand: 5 sales conversion-economics metrics (lifetime revenue + 4 funnel rates) + `business_model` (`b2c`/`b2b`, nullable) + `funnel_stages` (jsonb, default `[]`) + `optimization_goal` (text, default `sales`), reused across sales campaigns
+- `brand_personas` — per-brand customer personas (`name`, `filters` jsonb, `status` active/paused/archived). Immutable except status; name UNIQUE per brand case-insensitive (functional unique index on `(brand_id, lower(name))`) across all statuses; no hard delete
+- `brand_profile_versions` — per-brand immutable versioned brand profile (`version` int, `fields` jsonb). Unique `(brand_id, version)`; new save = max+1; prior versions never mutated. A brand with no saved version derives a virtual v1 from `brand_extracted_fields` on read
 - `brand_extracted_images` — AI-extracted brand images with categories, R2 URLs, relevance scores
 - `consolidated_field_cache` — DB-backed cache for LLM-consolidated multi-brand field values
 - `brand_relations`, `web_pages`, `scraped_url_firecrawl`

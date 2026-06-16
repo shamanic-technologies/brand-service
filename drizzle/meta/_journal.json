@@ -211,6 +211,13 @@
       "when": 1781438443477,
       "tag": "0029_split_self_serve_close",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1781575531452,
+      "tag": "0030_personas_brand_profile",
+      "breakpoints": true
     }
   ]
 }

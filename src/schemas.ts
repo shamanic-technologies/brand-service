@@ -1860,6 +1860,259 @@ registry.registerPath({
 });
 
 // ============================================================
+// Customer Personas (per-brand targeting profiles)
+// ============================================================
+
+// Lifecycle status. Wire values are consumed byte-stable by api-service + the
+// dashboard — do NOT rename.
+export const PersonaStatusSchema = z
+  .enum(['active', 'paused', 'archived'])
+  .openapi('PersonaStatus');
+
+// Targeting filters: a free-form map of category key → list of string values
+// (e.g. industry / jobTitles / location). Caller-flex by design — no per-key
+// schema lock.
+export const PersonaFiltersSchema = z.record(z.string(), z.array(z.string()));
+
+// A persona row. Immutable except `status`. `createdAt` is an ISO string.
+export const PersonaSchema = z
+  .object({
+    id: z.string(),
+    brandId: z.string(),
+    name: z.string(),
+    filters: PersonaFiltersSchema,
+    status: PersonaStatusSchema,
+    createdAt: z.string(),
+  })
+  .openapi('Persona');
+
+// CREATE body. No `.default()` — a missing field fails loud (400). Name must be
+// non-empty.
+export const CreatePersonaRequestSchema = z
+  .object({
+    name: z.string().min(1),
+    filters: PersonaFiltersSchema,
+  })
+  .openapi('CreatePersonaRequest');
+
+// DUPLICATE body. `name` optional — auto-uniquified from the source when
+// omitted or already taken.
+export const DuplicatePersonaRequestSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+  })
+  .openapi('DuplicatePersonaRequest');
+
+// PATCH status body.
+export const PatchPersonaStatusRequestSchema = z
+  .object({
+    status: PersonaStatusSchema,
+  })
+  .openapi('PatchPersonaStatusRequest');
+
+// Optional ?status= query filter. `undefined` (omitted) is valid → no filter.
+export const PersonaStatusQuerySchema = PersonaStatusSchema.optional();
+
+export const ListPersonasResponseSchema = z
+  .object({ personas: z.array(PersonaSchema) })
+  .openapi('ListPersonasResponse');
+
+export const PersonaResponseSchema = z
+  .object({ persona: PersonaSchema })
+  .openapi('PersonaResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/personas',
+  summary: "List a brand's customer personas",
+  description:
+    "Returns the brand's personas (newest first). Optional `?status=` filters to " +
+    '`active`, `paused`, or `archived`. Archived personas are never deleted — they ' +
+    "remain under the 'archived' status. The brand must belong to the caller's org " +
+    '(x-org-id); a brand outside the org is rejected with 403.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    query: z.object({ status: PersonaStatusSchema.optional() }),
+  },
+  responses: {
+    200: { description: 'Personas list', content: { 'application/json': { schema: ListPersonasResponseSchema } } },
+    400: { description: 'Invalid brand ID format or invalid status filter' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/personas',
+  summary: 'Create a customer persona',
+  description:
+    'Creates an immutable persona (name + filters; status starts `active`). The name ' +
+    'must be UNIQUE PER BRAND, case-insensitive, across ALL statuses (active + paused + ' +
+    'archived) — a duplicate returns 409. Personas have no in-place field edit: "editing" ' +
+    'in the UI creates a new persona. The brand must belong to the ' +
+    "caller's org (x-org-id); a brand outside the org is rejected with 403.",
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: CreatePersonaRequestSchema } } },
+  },
+  responses: {
+    201: { description: 'Created persona', content: { 'application/json': { schema: PersonaResponseSchema } } },
+    400: { description: 'Invalid brand ID format or invalid/missing body field' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    409: { description: 'A persona with this name already exists for the brand (case-insensitive)' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/personas/{personaId}/duplicate',
+  summary: 'Duplicate a customer persona',
+  description:
+    "Copies the source persona's filters into a new persona. `name` is optional — when " +
+    'omitted or already taken it is auto-uniquified (e.g. "Founders (copy)"). Returns 201 ' +
+    "with the new persona. The brand must belong to the caller's org (x-org-id).",
+  request: {
+    params: z.object({ brandId: z.string().uuid(), personaId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: DuplicatePersonaRequestSchema } } },
+  },
+  responses: {
+    201: { description: 'Duplicated persona', content: { 'application/json': { schema: PersonaResponseSchema } } },
+    400: { description: 'Invalid brand ID or persona ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand or source persona not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/orgs/brands/{brandId}/personas/{personaId}/status',
+  summary: "Change a customer persona's status",
+  description:
+    "Flips the persona's lifecycle status (`active` | `paused` | `archived`) — the only " +
+    'mutable field. Archiving never deletes the row. The brand must belong to the ' +
+    "caller's org (x-org-id).",
+  request: {
+    params: z.object({ brandId: z.string().uuid(), personaId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PatchPersonaStatusRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Updated persona', content: { 'application/json': { schema: PersonaResponseSchema } } },
+    400: { description: 'Invalid ID format or invalid status value' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand or persona not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ============================================================
+// Brand Profile (per-brand, versioned, immutable)
+// ============================================================
+
+// Free-form map of the brand's OWN info: key → string | string[]. Caller-flex
+// by design.
+export const BrandProfileFieldsSchema = z.record(
+  z.string(),
+  z.union([z.string(), z.array(z.string())])
+);
+
+// A saved (or derived virtual v1) brand-profile version. `createdAt` is an ISO
+// string.
+export const BrandProfileVersionSchema = z
+  .object({
+    id: z.string(),
+    brandId: z.string(),
+    version: z.number().int(),
+    fields: BrandProfileFieldsSchema,
+    createdAt: z.string(),
+  })
+  .openapi('BrandProfileVersion');
+
+// CREATE body — the new version's fields. No `.default()`: missing fails loud.
+export const CreateBrandProfileRequestSchema = z
+  .object({
+    fields: BrandProfileFieldsSchema,
+  })
+  .openapi('CreateBrandProfileRequest');
+
+// Version summary in the list (no fields payload).
+export const BrandProfileVersionSummarySchema = z
+  .object({
+    id: z.string(),
+    version: z.number().int(),
+    createdAt: z.string(),
+  })
+  .openapi('BrandProfileVersionSummary');
+
+// GET response. `current` is inlined + `.nullable()` (not a named $ref) for the
+// same OAS-3.0 bare-$ref-cannot-be-nullable reason as SavedSalesEconomicsSchema.
+export const GetBrandProfileResponseSchema = z
+  .object({
+    current: z
+      .object({
+        id: z.string(),
+        brandId: z.string(),
+        version: z.number().int(),
+        fields: BrandProfileFieldsSchema,
+        createdAt: z.string(),
+      })
+      .nullable(),
+    versions: z.array(BrandProfileVersionSummarySchema),
+  })
+  .openapi('GetBrandProfileResponse');
+
+// POST response — never null (you just wrote it).
+export const CreateBrandProfileResponseSchema = z
+  .object({ version: BrandProfileVersionSchema })
+  .openapi('CreateBrandProfileResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/brand-profile',
+  summary: "Get a brand's profile (current version + version list)",
+  description:
+    'Returns `{ current, versions }`. `current` is the latest SAVED version, or — when no ' +
+    'version has been saved yet — a DERIVED virtual v1 built from the brand\'s existing ' +
+    'extracted fields (audience fields excluded; those live in personas). The derived v1 is ' +
+    'NOT persisted (synthetic id, `version: 1`) until the first POST. `versions` lists the ' +
+    'saved versions only (id/version/createdAt), newest first — empty until the first save. ' +
+    "The brand must belong to the caller's org (x-org-id); a brand outside the org is 403.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Current version + version list', content: { 'application/json': { schema: GetBrandProfileResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/brand-profile',
+  summary: 'Save a new brand-profile version',
+  description:
+    'Saves a new IMMUTABLE version (v1 → v2 → …) from the supplied `fields` map (key → ' +
+    'string | string[]). Prior versions are never mutated. Returns 201 with the new ' +
+    "version. The brand must belong to the caller's org (x-org-id).",
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: CreateBrandProfileRequestSchema } } },
+  },
+  responses: {
+    201: { description: 'New version', content: { 'application/json': { schema: CreateBrandProfileResponseSchema } } },
+    400: { description: 'Invalid brand ID format or invalid/missing fields' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ============================================================
 // Health / Root
 // ============================================================
 
