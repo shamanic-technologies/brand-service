@@ -10,6 +10,8 @@ import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInt
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from '../../src/routes/public-information.routes';
 import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from '../../src/routes/transfer.routes';
 import { orgRouter as salesEconomicsOrgRoutes } from '../../src/routes/sales-economics.routes';
+import { orgRouter as personasOrgRoutes } from '../../src/routes/personas.routes';
+import { orgRouter as brandProfileOrgRoutes } from '../../src/routes/brand-profile.routes';
 
 // Import routes — single-tier files
 import organizationRoutes from '../../src/routes/organization.routes';
@@ -63,6 +65,8 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, salesEconomicsOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, personasOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileOrgRoutes);
   app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;
