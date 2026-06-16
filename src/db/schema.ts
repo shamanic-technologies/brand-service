@@ -132,6 +132,63 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 ]);
 
 /**
+ * Customer personas — per-brand targeting profiles. Each row is IMMUTABLE
+ * except for `status`: there is no in-place field edit (the dashboard "edit"
+ * action creates a NEW persona), so a future campaign can pin an exact persona
+ * id forever. No hard delete — hiding a persona is the 'archived' status.
+ *
+ * `name` is UNIQUE PER BRAND, case-insensitive, across ALL statuses (the
+ * functional unique index on (brand_id, lower(name))). `filters` is a free-form
+ * map of category key → list of string values (industry/jobTitles/location…).
+ */
+export const brandPersonas = pgTable("brand_personas", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	name: text().notNull(),
+	filters: jsonb().$type<Record<string, string[]>>().default({}).notNull(),
+	// active | paused | archived — validated by Zod at the route boundary.
+	status: text().default('active').notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	// Case-insensitive uniqueness per brand across every status. DB-level guard;
+	// the route also pre-checks to return a clean 409. NOT a partial index, so
+	// the writer never relies on ON CONFLICT against it (it pre-checks instead).
+	uniqueIndex("brand_personas_brand_id_lower_name_key").on(table.brandId, sql`lower(${table.name})`),
+	index("brand_personas_brand_id_idx").on(table.brandId),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_personas_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
+ * Brand Profile — per-brand, VERSIONED and IMMUTABLE. Saving = a NEW version
+ * (v1 → v2 → …); prior versions are never mutated. `fields` is a free-form map
+ * (key → string | string[]) of the brand's OWN info (overview, value prop, key
+ * features, differentiators, competitors, leadership, funding, social proof,
+ * CTAs, urgency…) — NOT the target audience (that lives in personas).
+ *
+ * For a brand with no saved version, the read derives a virtual v1 from
+ * brand_extracted_fields (not persisted until the first save).
+ */
+export const brandProfileVersions = pgTable("brand_profile_versions", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	version: integer().notNull(),
+	fields: jsonb().$type<Record<string, string | string[]>>().default({}).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("brand_profile_versions_brand_id_version_key").on(table.brandId, table.version),
+	index("brand_profile_versions_brand_id_idx").on(table.brandId),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_profile_versions_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * Bronze append-only raw scrape payload table. Future writes go here;
  * existing scrape caches live on `_old` tables until consumers migrate.
  */
