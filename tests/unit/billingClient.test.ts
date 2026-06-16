@@ -29,9 +29,9 @@ describe('billing-client', () => {
   }
 
   describe('authorizeCredits', () => {
-    it('should POST to /v1/credits/authorize with items array', async () => {
+    it('should POST to /v1/customer_balance/authorize with items array', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: 5000, required_cents: 25 }));
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: true, balance_cents: '5000', required_cents: '25' }));
 
       const result = await authorizeCredits({
         items: [
@@ -44,9 +44,9 @@ describe('billing-client', () => {
         runId: 'run-1',
       });
 
-      expect(result).toEqual({ sufficient: true, balance_cents: 5000, required_cents: 25 });
+      expect(result).toEqual({ sufficient: true, balance_cents: '5000', required_cents: '25' });
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://billing-test.example.com/v1/credits/authorize',
+        'https://billing-test.example.com/v1/customer_balance/authorize',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -67,9 +67,9 @@ describe('billing-client', () => {
       );
     });
 
-    it('should return sufficient: false when balance is insufficient', async () => {
+    it('should return sufficient: false with string-typed cents when balance is insufficient', async () => {
       const { authorizeCredits } = await importClient();
-      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: false, balance_cents: 10, required_cents: 25 }));
+      mockFetch.mockResolvedValueOnce(mockResponse({ sufficient: false, balance_cents: '10', required_cents: '25' }));
 
       const result = await authorizeCredits({
         items: [{ costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 }],
@@ -78,8 +78,9 @@ describe('billing-client', () => {
       });
 
       expect(result.sufficient).toBe(false);
-      expect(result.balance_cents).toBe(10);
-      expect(result.required_cents).toBe(25);
+      // billing-service returns decimal strings — passed through unchanged
+      expect(result.balance_cents).toBe('10');
+      expect(result.required_cents).toBe('25');
     });
 
     it('should forward all tracking headers when provided', async () => {

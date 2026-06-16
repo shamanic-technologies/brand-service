@@ -28,8 +28,9 @@ export interface AuthorizeCreditsParams {
 
 export interface AuthorizeCreditsResult {
   sufficient: boolean;
-  balance_cents: number;
-  required_cents: number;
+  // billing-service returns these as decimal strings (cent precision)
+  balance_cents: string;
+  required_cents: string;
 }
 
 /**
@@ -57,14 +58,14 @@ export async function authorizeCredits(
   if (params.brandId) headers["x-brand-id"] = params.brandId;
   if (params.workflowSlug) headers["x-workflow-slug"] = params.workflowSlug;
 
-  const response = await fetchWithRetry(`${BILLING_SERVICE_URL}/v1/credits/authorize`, {
+  const response = await fetchWithRetry(`${BILLING_SERVICE_URL}/v1/customer_balance/authorize`, {
     method: "POST",
     headers,
     body: JSON.stringify({
       items: params.items,
       description: params.description,
     }),
-    label: 'billing-service POST /v1/credits/authorize',
+    label: 'billing-service POST /v1/customer_balance/authorize',
   });
 
   return response.json() as Promise<AuthorizeCreditsResult>;
