@@ -96,8 +96,8 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
     try {
       const authResult = await authorizeCredits({
         items: [
-          { costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 },
-          { costName: 'gemini-2.5-flash-tokens-output', quantity: 500 },
+          { costName: 'google-flash-2.5-tokens-input', quantity: 1000 },
+          { costName: 'google-flash-2.5-tokens-output', quantity: 500 },
         ],
         description: 'image-analysis — gemini-2.5-flash',
         orgId: req.orgId!,
@@ -192,8 +192,8 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
       try {
         const authResult = await authorizeCredits({
           items: [
-            { costName: 'gemini-2.5-flash-tokens-input', quantity: 1000 * assets.length },
-            { costName: 'gemini-2.5-flash-tokens-output', quantity: 500 * assets.length },
+            { costName: 'google-flash-2.5-tokens-input', quantity: 1000 * assets.length },
+            { costName: 'google-flash-2.5-tokens-output', quantity: 500 * assets.length },
           ],
           description: `batch-image-analysis — gemini-2.5-flash x${assets.length}`,
           orgId: req.orgId!,
