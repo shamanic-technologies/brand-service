@@ -148,7 +148,7 @@ orgRouter.patch('/brands/:brandId/personas/:personaId/status', async (req: Reque
 
 /**
  * POST /orgs/brands/:brandId/personas/:personaId/avatar/regenerate
- * Gemini-generates and stores one durable avatar image for a persisted persona.
+ * Generates through chat-service and stores one durable avatar image for a persisted persona.
  * Returns 200 with { persona } after replacing the persona's avatar URL/version.
  */
 orgRouter.post('/brands/:brandId/personas/:personaId/avatar/regenerate', async (req: Request, res: Response) => {

@@ -40,6 +40,25 @@ export interface ChatResult {
   model: string;
 }
 
+export interface GeneratedImageResult {
+  imageBase64: string;
+  mimeType: string;
+  model: string;
+  tokensInput: number;
+  tokensOutput: number;
+  text?: string;
+}
+
+export class ChatServiceImageGenerationError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly body: unknown,
+  ) {
+    super(`chat-service POST /orgs/images/generate returned ${status}`);
+    this.name = 'ChatServiceImageGenerationError';
+  }
+}
+
 /**
  * Caller invoked on a brand-service `/orgs/*` route. Maps to chat-service `POST /complete`.
  * `runId` is forwarded as `x-run-id` — typically brand-service's own run id (so the chat
@@ -77,7 +96,55 @@ export async function chat(params: ChatParams, caller: Caller): Promise<ChatResu
   return chatPlatform(params);
 }
 
+export async function generateImage(prompt: string, caller: OrgCaller): Promise<GeneratedImageResult> {
+  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/orgs/images/generate`, {
+    method: 'POST',
+    headers: buildOrgHeaders(caller),
+    body: JSON.stringify({ prompt }),
+    label: 'chat-service POST /orgs/images/generate',
+    returnClientError: true,
+  });
+
+  if (!response.ok) {
+    throw new ChatServiceImageGenerationError(response.status, await parseErrorBody(response));
+  }
+
+  const body = await response.json() as Partial<GeneratedImageResult>;
+  if (
+    typeof body.imageBase64 !== 'string'
+    || typeof body.mimeType !== 'string'
+    || typeof body.model !== 'string'
+    || typeof body.tokensInput !== 'number'
+    || typeof body.tokensOutput !== 'number'
+  ) {
+    throw new Error('chat-service image generation response was missing required fields');
+  }
+  if (!body.mimeType.startsWith('image/')) {
+    throw new Error(`chat-service image generation returned non-image MIME type: ${body.mimeType}`);
+  }
+
+  return {
+    imageBase64: body.imageBase64,
+    mimeType: body.mimeType,
+    model: body.model,
+    tokensInput: body.tokensInput,
+    tokensOutput: body.tokensOutput,
+    ...(typeof body.text === 'string' ? { text: body.text } : {}),
+  };
+}
+
 async function chatOrg(params: ChatParams, caller: OrgCaller): Promise<ChatResult> {
+  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/complete`, {
+    method: 'POST',
+    headers: buildOrgHeaders(caller),
+    body: JSON.stringify(buildBody(params)),
+    label: `chat-service POST /complete (${params.model})`,
+  });
+
+  return response.json() as Promise<ChatResult>;
+}
+
+function buildOrgHeaders(caller: OrgCaller): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-API-Key': CHAT_SERVICE_API_KEY,
@@ -89,15 +156,7 @@ async function chatOrg(params: ChatParams, caller: OrgCaller): Promise<ChatResul
   if (caller.featureSlug) headers['x-feature-slug'] = caller.featureSlug;
   if (caller.brandIdHeader) headers['x-brand-id'] = caller.brandIdHeader;
   if (caller.workflowSlug) headers['x-workflow-slug'] = caller.workflowSlug;
-
-  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/complete`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(buildBody(params)),
-    label: `chat-service POST /complete (${params.model})`,
-  });
-
-  return response.json() as Promise<ChatResult>;
+  return headers;
 }
 
 async function chatPlatform(params: ChatParams): Promise<ChatResult> {
@@ -129,4 +188,14 @@ function buildBody(params: ChatParams): Record<string, unknown> {
     ...(params.imageContext && { imageContext: params.imageContext }),
     ...(params.thinkingBudget !== undefined && { thinkingBudget: params.thinkingBudget }),
   };
+}
+
+async function parseErrorBody(response: Response): Promise<unknown> {
+  const text = await response.text().catch(() => '');
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
