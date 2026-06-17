@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandProfileVersions, brandExtractedFields } from '../../src/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 /**
@@ -98,7 +98,7 @@ describe('Brand Profile Endpoints', () => {
     const [v1row] = await db
       .select()
       .from(brandProfileVersions)
-      .where(eq(brandProfileVersions.version, 1));
+      .where(and(eq(brandProfileVersions.brandId, savedBrandId), eq(brandProfileVersions.version, 1)));
     expect(v1row.fields).toEqual({ valueProposition: 'Saves time', differentiators: ['A', 'B'] });
   });
 
