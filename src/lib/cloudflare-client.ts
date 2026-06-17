@@ -17,6 +17,13 @@ export interface CloudflareUploadParams {
   contentType: string;
 }
 
+export interface CloudflareUploadBase64Params {
+  contentBase64: string;
+  folder: string;
+  filename: string;
+  contentType: string;
+}
+
 export interface CloudflareUploadResult {
   id: string;
   url: string;
@@ -81,6 +88,32 @@ export async function uploadToCloudflare(
         contentType: params.contentType,
       }),
       label: 'cloudflare-service POST /upload',
+    },
+  );
+
+  return response.json() as Promise<CloudflareUploadResult>;
+}
+
+export async function uploadBase64ToCloudflare(
+  params: CloudflareUploadBase64Params,
+  tracking: CloudflareTrackingHeaders,
+): Promise<CloudflareUploadResult> {
+  if (!CLOUDFLARE_SERVICE_URL) {
+    throw new Error('CLOUDFLARE_SERVICE_URL is not configured');
+  }
+
+  const response = await fetchWithRetry(
+    `${CLOUDFLARE_SERVICE_URL}/upload/base64`,
+    {
+      method: 'POST',
+      headers: buildHeaders(tracking),
+      body: JSON.stringify({
+        contentBase64: params.contentBase64,
+        folder: params.folder,
+        filename: params.filename,
+        contentType: params.contentType,
+      }),
+      label: 'cloudflare-service POST /upload/base64',
     },
   );
 

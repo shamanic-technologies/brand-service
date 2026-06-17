@@ -75,6 +75,53 @@ describe('cloudflare-client', () => {
     expect(headers['x-brand-id']).toBe('brand_123');
   });
 
+  it('should call cloudflare-service /upload/base64 with generated content', async () => {
+    const { uploadBase64ToCloudflare } = await importClient();
+
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({
+        id: 'avatar-file-uuid',
+        url: 'https://cloudflare.distribute.you/persona-avatars/brand-123/persona-456/v1.png',
+        size: 12000,
+        contentType: 'image/png',
+      }),
+    );
+
+    const result = await uploadBase64ToCloudflare(
+      {
+        contentBase64: Buffer.from('png-bytes').toString('base64'),
+        folder: 'persona-avatars/brand-123/persona-456',
+        filename: 'v1.png',
+        contentType: 'image/png',
+      },
+      {
+        orgId: 'org_123',
+        userId: 'user_456',
+        runId: 'run_789',
+        brandId: 'brand_123',
+      },
+    );
+
+    expect(result.id).toBe('avatar-file-uuid');
+    expect(result.url).toBe('https://cloudflare.distribute.you/persona-avatars/brand-123/persona-456/v1.png');
+
+    const [calledUrl, calledOpts] = mockFetch.mock.calls[0];
+    expect(calledUrl).toBe('https://cloudflare.test/upload/base64');
+
+    const body = JSON.parse(calledOpts.body);
+    expect(body.contentBase64).toBe(Buffer.from('png-bytes').toString('base64'));
+    expect(body.folder).toBe('persona-avatars/brand-123/persona-456');
+    expect(body.filename).toBe('v1.png');
+    expect(body.contentType).toBe('image/png');
+
+    const headers = calledOpts.headers;
+    expect(headers['X-API-Key']).toBe('test-cf-key');
+    expect(headers['x-org-id']).toBe('org_123');
+    expect(headers['x-user-id']).toBe('user_456');
+    expect(headers['x-run-id']).toBe('run_789');
+    expect(headers['x-brand-id']).toBe('brand_123');
+  });
+
   it('should omit optional tracking headers when not provided', async () => {
     const { uploadToCloudflare } = await importClient();
 
