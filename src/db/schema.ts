@@ -150,6 +150,9 @@ export const brandPersonas = pgTable("brand_personas", {
 	filters: jsonb().$type<Record<string, string[]>>().default({}).notNull(),
 	// active | paused | archived — validated by Zod at the route boundary.
 	status: text().default('active').notNull(),
+	avatarUrl: text("avatar_url"),
+	avatarVersion: integer("avatar_version").default(0).notNull(),
+	avatarGeneratedAt: timestamp("avatar_generated_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	// Case-insensitive uniqueness per brand across every status. DB-level guard;

@@ -15,6 +15,10 @@ import {
   suggestPersonas,
   PersonaSuggestionUnavailableError,
 } from '../services/personaSuggestionService';
+import {
+  regeneratePersonaAvatar,
+  PersonaAvatarInsufficientCreditsError,
+} from '../services/personaAvatarService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 
 export const orgRouter = Router();
@@ -139,6 +143,54 @@ orgRouter.patch('/brands/:brandId/personas/:personaId/status', async (req: Reque
     }
     console.error('[brand-service] Patch persona status error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * POST /orgs/brands/:brandId/personas/:personaId/avatar/regenerate
+ * Gemini-generates and stores one durable avatar image for a persisted persona.
+ * Returns 200 with { persona } after replacing the persona's avatar URL/version.
+ */
+orgRouter.post('/brands/:brandId/personas/:personaId/avatar/regenerate', async (req: Request, res: Response) => {
+  try {
+    const { brandId, personaId } = req.params;
+    if (!UUID_REGEX.test(brandId) || !UUID_REGEX.test(personaId)) {
+      return res.status(400).json({ error: 'Invalid brand ID or persona ID format: must be a UUID' });
+    }
+    if (!req.userId) {
+      return res.status(400).json({ error: 'Missing required headers', message: 'x-user-id header is required' });
+    }
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    const persona = await regeneratePersonaAvatar({
+      brandId,
+      personaId,
+      caller: {
+        orgId: req.orgId!,
+        userId: req.userId,
+        runId: req.runId,
+        campaignId: req.campaignId,
+        featureSlug: req.featureSlug,
+        brandIdHeader: req.brandIdHeader,
+        workflowSlug: req.workflowSlug,
+      },
+    });
+    return res.status(200).json({ persona });
+  } catch (error: any) {
+    if (error instanceof PersonaNotFoundError) {
+      return res.status(404).json({ error: error.message });
+    }
+    if (error instanceof PersonaAvatarInsufficientCreditsError) {
+      return res.status(402).json({
+        error: 'Insufficient credits',
+        balance_cents: error.balanceCents,
+        required_cents: error.requiredCents,
+      });
+    }
+    console.error('[brand-service] Regenerate persona avatar error:', error);
+    return res.status(502).json({ error: 'Persona avatar generation failed', detail: error.message });
   }
 });
 
