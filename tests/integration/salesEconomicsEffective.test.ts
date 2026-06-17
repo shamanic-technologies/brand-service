@@ -37,7 +37,8 @@ function percentileCont(sorted: number[], p: number): number {
   if (lo === hi) return sorted[lo];
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
 }
-const mean = (vals: number[]) => Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+const round4 = (n: number) => Number(n.toFixed(4));
+const mean = (vals: number[]) => round4(vals.reduce((a, b) => a + b, 0) / vals.length);
 
 function expectedFrom(rows: Row[]) {
   const ltvSorted = rows.map((r) => r.lifetimeRevenueUsd).sort((a, b) => a - b);
@@ -51,7 +52,7 @@ function expectedFrom(rows: Row[]) {
     visitToSignupPct,
     signupToPaidClientPct,
     // DERIVED from the two AVERAGED sub-rates (not separately averaged).
-    visitToClosePct: Math.round((visitToSignupPct * signupToPaidClientPct) / 100),
+    visitToClosePct: round4((visitToSignupPct * signupToPaidClientPct) / 100),
   };
 }
 
@@ -111,7 +112,7 @@ describe('Effective Sales Economics Endpoint', () => {
 
     // visit_to_close_pct is NOT NULL with no DB default (it is derived on write).
     // These direct inserts bypass the service upsert, so compute it here.
-    const close = (r: Row) => Math.round((r.visitToSignupPct * r.signupToPaidClientPct) / 100);
+    const close = (r: Row) => round4((r.visitToSignupPct * r.signupToPaidClientPct) / 100);
     await db
       .insert(brandSalesEconomics)
       .values({ brandId: savedBrandId, ...savedMetrics, visitToClosePct: close(savedMetrics) });
@@ -137,7 +138,7 @@ describe('Effective Sales Economics Endpoint', () => {
     const res = await request(app).get(effPath(savedBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(res.status).toBe(200);
     expect(res.body.source).toBe('user');
-    // response = stored metrics + DERIVED visitToClosePct = round(40 * 25 / 100) = 10
+    // response = stored metrics + DERIVED visitToClosePct = 40 * 25 / 100 = 10
     expect(res.body.economics).toEqual({ ...savedMetrics, visitToClosePct: 10 });
   });
 
@@ -151,7 +152,7 @@ describe('Effective Sales Economics Endpoint', () => {
     expect(res.body.source).toBe('cross-brand-average');
     expect(res.body.economics).not.toBeNull();
     const e = res.body.economics;
-    for (const k of METRICS) expect(Number.isInteger(e[k])).toBe(true);
+    for (const k of METRICS) expect(typeof e[k]).toBe('number');
     // median, not mean: the 500000 outlier keeps the mean > 100k; median << that
     expect(e.lifetimeRevenueUsd).toBeLessThan(100000);
     if (JSON.stringify(before) === JSON.stringify(after)) {
