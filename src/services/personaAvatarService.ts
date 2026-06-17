@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { db, brands, brandPersonas } from '../db';
 import { authorizeCredits } from '../lib/billing-client';
+import { isCloudflareConfigured, uploadBase64ToCloudflare } from '../lib/cloudflare-client';
 import { getKeyForOrg } from '../lib/keys-service';
 import { addCosts, createRun, updateCostStatus, updateRun } from '../lib/runs-client';
 import { brandProfileService } from './brandProfileService';
@@ -17,7 +18,6 @@ import {
   GEMINI_AVATAR_OUTPUT_TOKENS_512_SQUARE,
   PersonaAvatarBrandContext,
 } from './personaAvatarGeneration';
-import { uploadBufferToSupabase } from './supabaseStorageService';
 
 const AVATAR_ROUTE_PATH = '/orgs/brands/:brandId/personas/:personaId/avatar/regenerate';
 
@@ -128,6 +128,13 @@ export async function regeneratePersonaAvatar(
   opts: RegeneratePersonaAvatarOptions,
 ): Promise<Persona> {
   const { brandId, personaId, caller } = opts;
+
+  if (!isCloudflareConfigured()) {
+    throw new Error(
+      'cloudflare-service is not configured (CLOUDFLARE_SERVICE_URL / CLOUDFLARE_SERVICE_API_KEY missing). ' +
+      'Cannot store generated persona avatars.',
+    );
+  }
 
   const [persona, brand, profile, nextVersion] = await Promise.all([
     personaService.getByBrandIdAndPersonaId(brandId, personaId),
@@ -247,8 +254,25 @@ export async function regeneratePersonaAvatar(
       actualizedCostIds.add(costId);
     }
 
-    const filePath = `persona-avatars/brand-${brandId}/persona-${personaId}/v${nextVersion}-${randomUUID()}.png`;
-    const upload = await uploadBufferToSupabase(filePath, generated.buffer, generated.mimeType);
+    const folder = `persona-avatars/brand-${brandId}/persona-${personaId}`;
+    const filename = `v${nextVersion}-${randomUUID()}.png`;
+    const upload = await uploadBase64ToCloudflare(
+      {
+        contentBase64: generated.buffer.toString('base64'),
+        folder,
+        filename,
+        contentType: generated.mimeType,
+      },
+      {
+        orgId: caller.orgId,
+        userId: caller.userId,
+        runId: run.id,
+        campaignId: caller.campaignId,
+        featureSlug: caller.featureSlug,
+        brandId: caller.brandIdHeader,
+        workflowSlug: caller.workflowSlug,
+      },
+    );
     const updated = await personaService.setAvatarUrl(brandId, personaId, upload.url);
 
     await updateRun(run.id, 'completed', identity);
