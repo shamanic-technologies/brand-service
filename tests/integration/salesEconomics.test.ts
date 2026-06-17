@@ -302,8 +302,8 @@ describe('Sales Economics Endpoints', () => {
   // ── funnelStages + optimizationGoal (sales-funnel config) ─────────
   // Lifecycle runs IN ORDER on funnelBrandId: set → preserve → clear-to-[].
 
-  // AC2 — a brand that never set these reads [] + "sales_meetings" (server defaults)
-  it('GET a brand that never set funnel fields → funnelStages [] + optimizationGoal "sales_meetings"', async () => {
+  // AC2 — a brand that never set these reads [] + "sales" (server defaults)
+  it('GET a brand that never set funnel fields → funnelStages [] + optimizationGoal "sales"', async () => {
     const putRes = await request(app)
       .put(path(funnelUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId))
@@ -311,13 +311,13 @@ describe('Sales Economics Endpoints', () => {
 
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics.funnelStages).toEqual([]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('sales');
 
     const getRes = await request(app)
       .get(path(funnelUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId));
     expect(getRes.body.salesEconomics.funnelStages).toEqual([]);
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('sales');
   });
 
   // AC1 — PUT both fields then GET round-trips exactly
@@ -328,7 +328,7 @@ describe('Sales Economics Endpoints', () => {
       .send({
         ...validMetrics,
         funnelStages: ['website_purchase', 'sales_meeting'],
-        optimizationGoal: 'sales_meetings',
+        optimizationGoal: 'booked_meetings',
       });
 
     expect(putRes.status).toBe(200);
@@ -336,7 +336,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
 
     const getRes = await request(app)
       .get(path(funnelBrandId))
@@ -345,7 +345,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
   });
 
   // AC3 — omitting both keys leaves prior values unchanged (idempotent)
@@ -360,7 +360,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
   });
 
   // Sending [] explicitly clears funnelStages (distinct from omitting)
@@ -373,17 +373,17 @@ describe('Sales Economics Endpoints', () => {
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics.funnelStages).toEqual([]);
     // optimizationGoal omitted → preserved
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
   });
 
-  it('PUT legacy optimizationGoal values canonicalizes them to sales_meetings', async () => {
-    const bookedMeetings = await request(app)
+  it('PUT transitional sales_meetings input canonicalizes to booked_meetings for prod responses', async () => {
+    const salesMeetings = await request(app)
       .put(path(funnelBrandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, optimizationGoal: 'booked_meetings' });
+      .send({ ...validMetrics, optimizationGoal: 'sales_meetings' });
 
-    expect(bookedMeetings.status).toBe(200);
-    expect(bookedMeetings.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(salesMeetings.status).toBe(200);
+    expect(salesMeetings.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
 
     const sales = await request(app)
       .put(path(funnelBrandId))
@@ -391,7 +391,7 @@ describe('Sales Economics Endpoints', () => {
       .send({ ...validMetrics, optimizationGoal: 'sales' });
 
     expect(sales.status).toBe(200);
-    expect(sales.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(sales.body.salesEconomics.optimizationGoal).toBe('sales');
   });
 
   // AC4 — invalid funnelStages value fails loud, no write

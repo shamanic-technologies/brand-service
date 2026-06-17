@@ -1379,7 +1379,8 @@
         "type": "string",
         "enum": [
           "signups",
-          "sales_meetings"
+          "booked_meetings",
+          "sales"
         ]
       },
       "SalesEconomicsMetrics": {
@@ -3831,7 +3832,7 @@
     "/orgs/brands/{brandId}/sales-economics": {
       "get": {
         "summary": "Get a brand's saved sales conversion economics",
-        "description": "Returns the saved economics for the brand (conversion metrics incl. the two self-serve sub-rates `visitToSignupPct` + `signupToPaidClientPct`, plus the DERIVED `visitToClosePct` = visitToSignupPct * signupToPaidClientPct / 100, + `businessModel` + `funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array (`[]` when never set), `optimizationGoal` always a value (`\"sales_meetings\"` when never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Returns the saved economics for the brand (conversion metrics incl. the two self-serve sub-rates `visitToSignupPct` + `signupToPaidClientPct`, plus the DERIVED `visitToClosePct` = visitToSignupPct * signupToPaidClientPct / 100, + `businessModel` + `funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array (`[]` when never set), `optimizationGoal` always a value (`\"sales\"` when never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {
@@ -3870,7 +3871,7 @@
       },
       "put": {
         "summary": "Upsert a brand's sales conversion economics",
-        "description": "Idempotent write of the full metric set. Required: `lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (percents 0..100, decimals allowed). `visitToClosePct` is NOT accepted on the request — it is DERIVED on the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent is ignored. Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | `sales_meetings`): omitting leaves it unchanged, sending sets it. Legacy `booked_meetings`/`sales` inputs are accepted during transition and canonicalized to `sales_meetings`. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Idempotent write of the full metric set. Required: `lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (percents 0..100, decimals allowed). `visitToClosePct` is NOT accepted on the request — it is DERIVED on the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent is ignored. Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | `booked_meetings` | `sales`): omitting leaves it unchanged, sending sets it. Transitional `sales_meetings` input is accepted and canonicalized to `booked_meetings`. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {
