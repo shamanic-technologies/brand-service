@@ -38,7 +38,7 @@ describe('Internal sales-economics read', () => {
       meetingToClosePct: 30,
       visitToSignupPct: 25,
       signupToPaidClientPct: 20,
-      optimizationGoal: 'sales_meetings',
+      optimizationGoal: 'booked_meetings',
     });
   });
 
@@ -54,7 +54,7 @@ describe('Internal sales-economics read', () => {
     const res = await request(app).get(internalPath(savedBrandId)).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
     expect(res.body.salesEconomics).not.toBeNull();
-    expect(res.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(res.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
     expect(res.body.salesEconomics.lifetimeRevenueUsd).toBe(5000);
   });
 
@@ -68,7 +68,7 @@ describe('Internal sales-economics read', () => {
     // Same call works even though no x-org-id is sent and the caller is a bare service.
     const res = await request(app).get(internalPath(savedBrandId)).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
-    expect(res.body.salesEconomics.optimizationGoal).toBe('sales_meetings');
+    expect(res.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
   });
 
   it('rejects a bad uuid with 400', async () => {

@@ -7,8 +7,8 @@ export type BusinessModel = 'b2c' | 'b2b';
 /** Sales-funnel stage a brand has (multi-select, 0..2). */
 export type FunnelStage = 'website_purchase' | 'sales_meeting';
 
-/** Single brand-level optimization goal. Server default 'sales_meetings'. */
-export type OptimizationGoal = 'signups' | 'sales_meetings';
+/** Single brand-level optimization goal. Prod contract remains legacy. */
+export type OptimizationGoal = 'signups' | 'booked_meetings' | 'sales';
 
 /**
  * Self-serve close rate DERIVED from the two sub-rates:
@@ -57,7 +57,7 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   businessModel: BusinessModel | null;
   // Always an array on read; `[]` = never set.
   funnelStages: FunnelStage[];
-  // Always present on read; `'sales_meetings'` = never set.
+  // Always present on read; `'sales'` = never set.
   optimizationGoal: OptimizationGoal;
   updatedAt: string;
 }
@@ -249,9 +249,9 @@ export class SalesEconomicsService {
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
         // Fresh row: omitted funnelStages/optimizationGoal fall back to the
-        // column defaults ([] / 'sales_meetings') — a never-set brand reads those.
+        // column defaults ([] / 'sales') — a never-set brand reads those.
         funnelStages: metrics.funnelStages ?? [],
-        optimizationGoal: metrics.optimizationGoal ?? 'sales_meetings',
+        optimizationGoal: metrics.optimizationGoal ?? 'sales',
       })
       .onConflictDoUpdate({
         target: brandSalesEconomics.brandId,
@@ -291,7 +291,7 @@ export const salesEconomicsService = new SalesEconomicsService();
 
 function normalizeOptimizationGoal(value: string): OptimizationGoal {
   if (value === 'signups') return 'signups';
-  if (value === 'sales_meetings') return 'sales_meetings';
-  if (value === 'booked_meetings' || value === 'sales') return 'sales_meetings';
+  if (value === 'booked_meetings' || value === 'sales_meetings') return 'booked_meetings';
+  if (value === 'sales') return 'sales';
   throw new Error(`Unknown optimization goal: ${value}`);
 }
