@@ -334,6 +334,14 @@ export const ExtractFieldsRequestSchema = z
           'When true, bypasses all cache layers (URL map, page scrape, field extraction, and consolidated caches) and re-runs the full pipeline from scratch. Use when the brand has updated their website and you need fresh data.',
         example: true,
       }),
+    urlStrategy: z
+      .enum(['url_map', 'landing'])
+      .optional()
+      .openapi({
+        description:
+          'Controls which pages are considered for extraction. url_map maps the site and selects relevant pages; landing skips URL mapping and extracts from the submitted brand URL only.',
+        example: 'landing',
+      }),
   })
   .openapi('ExtractFieldsRequest');
 

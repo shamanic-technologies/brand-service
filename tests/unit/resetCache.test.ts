@@ -33,6 +33,11 @@ describe('resetCache source-level wiring', () => {
     expect(multiBrandSrc).toContain('resetCache?: boolean');
   });
 
+  it('multi-brand service passes urlStrategy to extractFields', () => {
+    expect(multiBrandSrc).toContain("urlStrategy?: UrlStrategy");
+    expect(multiBrandSrc).toMatch(/extractFields\(\{[\s\S]*?urlStrategy/);
+  });
+
   it('field extraction bypasses field cache when resetCache is true', () => {
     // The code should check resetCache before calling getCachedFields
     expect(fieldExtractionSrc).toContain('resetCache=true');
@@ -226,6 +231,30 @@ describe('multiBrandExtractFields with resetCache', () => {
 
     expect(mockedExtractFields).toHaveBeenCalledWith(
       expect.objectContaining({ resetCache: undefined }),
+    );
+  });
+
+  it('should pass urlStrategy through to extractFields for single brand', async () => {
+    mockedGetBrand.mockResolvedValue({
+      id: 'brand-1',
+      url: 'https://acme.com',
+      name: 'Acme',
+      domain: 'acme.com',
+      orgId: 'org-1',
+    });
+    mockedExtractFields.mockResolvedValue([
+      { key: 'industry', value: 'SaaS tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com'] },
+    ]);
+
+    await multiBrandExtractFields({
+      brandIds: ['brand-1'],
+      fields: [{ key: 'industry', description: 'test' }],
+      caller: orgCaller,
+      urlStrategy: 'landing',
+    });
+
+    expect(mockedExtractFields).toHaveBeenCalledWith(
+      expect.objectContaining({ urlStrategy: 'landing' }),
     );
   });
 });
