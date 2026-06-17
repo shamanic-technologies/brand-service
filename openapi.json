@@ -1643,6 +1643,10 @@
           "status": {
             "$ref": "#/components/schemas/PersonaStatus"
           },
+          "avatarUrl": {
+            "type": "string",
+            "nullable": true
+          },
           "createdAt": {
             "type": "string"
           }
@@ -1653,6 +1657,7 @@
           "name",
           "filters",
           "status",
+          "avatarUrl",
           "createdAt"
         ]
       },
@@ -4345,6 +4350,59 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/personas/{personaId}/avatar/regenerate": {
+      "post": {
+        "summary": "Regenerate a customer persona avatar",
+        "description": "Generates one square, stylized, text-free avatar image for the persisted persona using Gemini image generation only, stores the generated image as a durable public URL, replaces the persona's stored avatar URL/version, and returns `{ persona }`. The brand must belong to the caller's org (x-org-id). Generation, storage, key, cost declaration, and authorization failures fail loud; no fallback provider is used.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "personaId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated persona with avatar URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonaResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID format or missing required identity header"
+          },
+          "402": {
+            "description": "Insufficient credits"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand or persona not found"
+          },
+          "502": {
+            "description": "Gemini generation, storage, cost declaration, key resolution, or credit authorization failed"
           }
         }
       }
