@@ -1703,10 +1703,17 @@ export const FunnelStageSchema = z
   .enum(['website_purchase', 'sales_meeting'])
   .openapi('FunnelStage');
 
-// Single brand-level optimization goal. Server default "sales" when never set.
+// Single brand-level optimization goal. Server default "sales_meetings" when never set.
 export const OptimizationGoalSchema = z
-  .enum(['signups', 'booked_meetings', 'sales'])
+  .enum(['signups', 'sales_meetings'])
   .openapi('OptimizationGoal');
+
+// Temporary write compatibility for clients still sending the pre-canonical
+// values. Responses/storage stay canonical through OptimizationGoalSchema.
+const OptimizationGoalWriteSchema = z.preprocess((value) => {
+  if (value === 'booked_meetings' || value === 'sales') return 'sales_meetings';
+  return value;
+}, OptimizationGoalSchema);
 
 // UPSERT request body = the 5 required metrics + optional businessModel +
 // optional funnelStages / optimizationGoal.
@@ -1718,7 +1725,7 @@ export const OptimizationGoalSchema = z
 export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.extend({
   businessModel: BusinessModelSchema.nullable().optional(),
   funnelStages: z.array(FunnelStageSchema).optional(),
-  optimizationGoal: OptimizationGoalSchema.optional(),
+  optimizationGoal: OptimizationGoalWriteSchema.optional(),
 }).openapi('UpsertSalesEconomicsRequest');
 
 // Saved set = the 5 metrics + when it was last written. Left UNNAMED (no
@@ -1734,7 +1741,7 @@ export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
   businessModel: BusinessModelSchema.nullable(),
   // Always an array on read; `[]` = never set (never null).
   funnelStages: z.array(FunnelStageSchema),
-  // Always present on read; `"sales"` = never set (never null).
+  // Always present on read; `"sales_meetings"` = never set (never null).
   optimizationGoal: OptimizationGoalSchema,
   updatedAt: z.string(),
 });
@@ -1787,7 +1794,7 @@ registry.registerPath({
     'visitToSignupPct * signupToPaidClientPct / 100, + `businessModel` + ' +
     '`funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved ' +
     'yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array ' +
-    '(`[]` when never set), `optimizationGoal` always a value (`"sales"` when never set). Unset is NOT ' +
+    '(`[]` when never set), `optimizationGoal` always a value (`"sales_meetings"` when never set). Unset is NOT ' +
     'a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller\'s org ' +
     '(x-org-id); a brand outside the org is rejected with 403.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
@@ -1838,7 +1845,8 @@ registry.registerPath({
     '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array ' +
     'of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, ' +
     'sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | ' +
-    '`booked_meetings` | `sales`): omitting leaves it unchanged, sending sets it. Invalid enum values ' +
+    '`sales_meetings`): omitting leaves it unchanged, sending sets it. Legacy `booked_meetings`/`sales` ' +
+    'inputs are accepted during transition and canonicalized to `sales_meetings`. Invalid enum values ' +
     'are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with ' +
     "the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to " +
     "the caller's org (x-org-id); a brand outside the org is rejected with 403.",

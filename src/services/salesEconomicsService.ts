@@ -7,8 +7,8 @@ export type BusinessModel = 'b2c' | 'b2b';
 /** Sales-funnel stage a brand has (multi-select, 0..2). */
 export type FunnelStage = 'website_purchase' | 'sales_meeting';
 
-/** Single brand-level optimization goal. Server default 'sales'. */
-export type OptimizationGoal = 'signups' | 'booked_meetings' | 'sales';
+/** Single brand-level optimization goal. Server default 'sales_meetings'. */
+export type OptimizationGoal = 'signups' | 'sales_meetings';
 
 /**
  * Self-serve close rate DERIVED from the two sub-rates:
@@ -57,7 +57,7 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   businessModel: BusinessModel | null;
   // Always an array on read; `[]` = never set.
   funnelStages: FunnelStage[];
-  // Always present on read; `'sales'` = never set.
+  // Always present on read; `'sales_meetings'` = never set.
   optimizationGoal: OptimizationGoal;
   updatedAt: string;
 }
@@ -80,7 +80,7 @@ function formatSalesEconomics(
     ),
     businessModel: row.businessModel as BusinessModel | null,
     funnelStages: (row.funnelStages ?? []) as FunnelStage[],
-    optimizationGoal: row.optimizationGoal as OptimizationGoal,
+    optimizationGoal: normalizeOptimizationGoal(row.optimizationGoal),
     updatedAt: row.updatedAt,
   };
 }
@@ -249,9 +249,9 @@ export class SalesEconomicsService {
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
         // Fresh row: omitted funnelStages/optimizationGoal fall back to the
-        // column defaults ([] / 'sales') — a never-set brand reads those.
+        // column defaults ([] / 'sales_meetings') — a never-set brand reads those.
         funnelStages: metrics.funnelStages ?? [],
-        optimizationGoal: metrics.optimizationGoal ?? 'sales',
+        optimizationGoal: metrics.optimizationGoal ?? 'sales_meetings',
       })
       .onConflictDoUpdate({
         target: brandSalesEconomics.brandId,
@@ -288,3 +288,10 @@ export class SalesEconomicsService {
 }
 
 export const salesEconomicsService = new SalesEconomicsService();
+
+function normalizeOptimizationGoal(value: string): OptimizationGoal {
+  if (value === 'signups') return 'signups';
+  if (value === 'sales_meetings') return 'sales_meetings';
+  if (value === 'booked_meetings' || value === 'sales') return 'sales_meetings';
+  throw new Error(`Unknown optimization goal: ${value}`);
+}

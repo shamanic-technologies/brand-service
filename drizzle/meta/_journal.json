@@ -225,6 +225,13 @@
       "when": 1781666140221,
       "tag": "0031_dusty_boom_boom",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1781674635000,
+      "tag": "0032_optimization_goal_sales_meetings",
+      "breakpoints": true
     }
   ]
 }
