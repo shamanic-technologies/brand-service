@@ -185,7 +185,7 @@ describe('runs-client', () => {
       mockFetch.mockResolvedValueOnce(mockResponse(costResponse));
 
       const result = await addCosts('run-1', [
-        { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 5000, costSource: 'platform' },
+        { costName: 'anthropic-sonnet-4.6-tokens-input', quantity: 5000, costSource: 'platform', status: 'provisioned' },
         { costName: 'anthropic-sonnet-4.6-tokens-output', quantity: 1000, costSource: 'org' },
       ], { orgId: 'org_1', userId: 'user_1', runId: 'run-1' });
 
@@ -194,8 +194,35 @@ describe('runs-client', () => {
       expect(callBody.items).toHaveLength(2);
       expect(callBody.items[0].costName).toBe('anthropic-sonnet-4.6-tokens-input');
       expect(callBody.items[0].costSource).toBe('platform');
+      expect(callBody.items[0].status).toBe('provisioned');
       expect(callBody.items[1].costSource).toBe('org');
 
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers['x-org-id']).toBe('org_1');
+      expect(headers['x-user-id']).toBe('user_1');
+      expect(headers['x-run-id']).toBe('run-1');
+    });
+  });
+
+  describe('updateCostStatus', () => {
+    it('should PATCH a provisioned cost status and forward identity headers', async () => {
+      const { updateCostStatus } = await importClient();
+      mockFetch.mockResolvedValueOnce(mockResponse({ id: 'cost-1', runId: 'run-1', status: 'actual' }));
+
+      const result = await updateCostStatus('run-1', 'cost-1', 'actual', {
+        orgId: 'org_1',
+        userId: 'user_1',
+        runId: 'run-1',
+      });
+
+      expect(result.status).toBe('actual');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://runs-test.example.com/v1/runs/run-1/costs/cost-1',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'actual' }),
+        }),
+      );
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers['x-org-id']).toBe('org_1');
       expect(headers['x-user-id']).toBe('user_1');

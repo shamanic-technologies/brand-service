@@ -33,9 +33,11 @@ export interface RunCost {
   id: string;
   runId: string;
   costName: string;
+  costSource: "platform" | "org";
   quantity: string;
   unitCostInUsdCents: string;
   totalCostInUsdCents: string;
+  status: "actual" | "provisioned" | "cancelled";
   createdAt: string;
 }
 
@@ -79,6 +81,7 @@ export interface CostItem {
   costName: string;
   quantity: number;
   costSource: "platform" | "org";
+  status?: "actual" | "provisioned" | "cancelled";
 }
 
 export interface ListRunsParams {
@@ -185,6 +188,25 @@ export async function addCosts(
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
     body: { items },
+    orgId: identity?.orgId,
+    userId: identity?.userId,
+    runId: identity?.runId,
+    campaignId: identity?.campaignId,
+    featureSlug: identity?.featureSlug,
+    brandIdHeader: identity?.brandIdHeader,
+    workflowSlug: identity?.workflowSlug,
+  });
+}
+
+export async function updateCostStatus(
+  runId: string,
+  costId: string,
+  status: "actual" | "cancelled",
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string }
+): Promise<RunCost> {
+  return runsRequest<RunCost>(`/v1/runs/${runId}/costs/${costId}`, {
+    method: "PATCH",
+    body: { status },
     orgId: identity?.orgId,
     userId: identity?.userId,
     runId: identity?.runId,

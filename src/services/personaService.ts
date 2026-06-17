@@ -9,6 +9,7 @@ export interface Persona {
   name: string;
   filters: Record<string, string[]>;
   status: PersonaStatus;
+  avatarUrl: string | null;
   createdAt: string;
 }
 
@@ -21,6 +22,7 @@ function formatPersona(row: PersonaRow): Persona {
     name: row.name,
     filters: row.filters,
     status: row.status as PersonaStatus,
+    avatarUrl: row.avatarUrl ?? null,
     createdAt: row.createdAt,
   };
 }
@@ -140,7 +142,7 @@ export class PersonaService {
     try {
       const [row] = await db
         .insert(brandPersonas)
-        .values({ brandId, name, filters: source.filters, status: 'active' })
+        .values({ brandId, name, filters: source.filters, status: 'active', avatarUrl: null, avatarVersion: 0 })
         .returning();
       return formatPersona(row);
     } catch (err: any) {
@@ -161,6 +163,36 @@ export class PersonaService {
     const [row] = await db
       .update(brandPersonas)
       .set({ status })
+      .where(and(eq(brandPersonas.id, personaId), eq(brandPersonas.brandId, brandId)))
+      .returning();
+
+    if (!row) throw new PersonaNotFoundError(personaId);
+    return formatPersona(row);
+  }
+
+  async getByBrandIdAndPersonaId(brandId: string, personaId: string): Promise<Persona> {
+    const [row] = await db
+      .select()
+      .from(brandPersonas)
+      .where(and(eq(brandPersonas.id, personaId), eq(brandPersonas.brandId, brandId)))
+      .limit(1);
+
+    if (!row) throw new PersonaNotFoundError(personaId);
+    return formatPersona(row);
+  }
+
+  async setAvatarUrl(
+    brandId: string,
+    personaId: string,
+    avatarUrl: string
+  ): Promise<Persona> {
+    const [row] = await db
+      .update(brandPersonas)
+      .set({
+        avatarUrl,
+        avatarVersion: sql`${brandPersonas.avatarVersion} + 1`,
+        avatarGeneratedAt: sql`NOW()`,
+      })
       .where(and(eq(brandPersonas.id, personaId), eq(brandPersonas.brandId, brandId)))
       .returning();
 
