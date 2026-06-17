@@ -78,7 +78,7 @@ describe('Sales Economics Endpoints', () => {
 
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics).toMatchObject(validMetrics);
-    // derived = round(40 * 25 / 100) = 10, never null, never sent on the request
+    // derived = 40 * 25 / 100 = 10, never null, never sent on the request
     expect(putRes.body.salesEconomics.visitToClosePct).toBe(10);
     expect(typeof putRes.body.salesEconomics.updatedAt).toBe('string');
 
@@ -187,12 +187,33 @@ describe('Sales Economics Endpoints', () => {
     expect(res.status).toBe(400);
   });
 
-  // AC9 — non-integer value fails loud (no silent coerce)
-  it('PUT with a non-integer value returns 400', async () => {
+  // AC9 — decimal percentages are valid; only invalid types fail loud.
+  it('PUT with fractional percentage values succeeds and preserves them', async () => {
+    const fractionalMetrics = {
+      ...validMetrics,
+      replyToMeetingPct: 12.5,
+      visitToSignupPct: 0.5,
+      signupToPaidClientPct: 20,
+    };
     const res = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, meetingToClosePct: 12.5 });
+      .send(fractionalMetrics);
+
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics).toMatchObject(fractionalMetrics);
+    expect(res.body.salesEconomics.visitToClosePct).toBe(0.1);
+
+    const getRes = await request(app).get(path(brandId)).set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics).toMatchObject(fractionalMetrics);
+    expect(getRes.body.salesEconomics.visitToClosePct).toBe(0.1);
+  });
+
+  it('PUT with fractional lifetimeRevenueUsd still returns 400', async () => {
+    const res = await request(app)
+      .put(path(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, lifetimeRevenueUsd: 4000.5 });
     expect(res.status).toBe(400);
   });
 
@@ -437,7 +458,7 @@ describe('Sales Economics Endpoints', () => {
     expect(res.status).toBe(200);
     expect(res.body.salesEconomics.visitToSignupPct).toBe(25);
     expect(res.body.salesEconomics.signupToPaidClientPct).toBe(20);
-    // derived = round(25 * 20 / 100) = 5, NOT the stale 77
+    // derived = 25 * 20 / 100 = 5, NOT the stale 77
     expect(res.body.salesEconomics.visitToClosePct).toBe(5);
   });
 });
