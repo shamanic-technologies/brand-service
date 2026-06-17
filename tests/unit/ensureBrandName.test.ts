@@ -140,6 +140,7 @@ describe('ensureBrandName', () => {
       expect.objectContaining({
         brandId: 'brand-2',
         caller: { mode: 'platform' },
+        urlStrategy: 'landing',
         fields: [
           expect.objectContaining({ key: 'name' }),
         ],
@@ -173,6 +174,7 @@ describe('ensureBrandName', () => {
       expect.objectContaining({
         brandId: 'brand-2b',
         caller: orgCaller,
+        urlStrategy: 'landing',
       }),
     );
   });

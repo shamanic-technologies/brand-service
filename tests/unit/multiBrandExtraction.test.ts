@@ -155,6 +155,32 @@ describe('multiBrandExtractFields', () => {
     });
   });
 
+  it('passes urlStrategy through to extractFields', async () => {
+    mockedGetBrand.mockResolvedValue({
+      id: 'brand-1',
+      url: 'https://acme.com',
+      name: 'Acme',
+      domain: 'acme.com',
+    });
+    mockedExtractFields.mockResolvedValue([
+      { key: 'industry', value: 'SaaS tools', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com'] },
+    ]);
+
+    await multiBrandExtractFields({
+      brandIds: ['brand-1'],
+      fields: [{ key: 'industry', description: 'test' }],
+      caller: orgCaller,
+      urlStrategy: 'landing',
+    });
+
+    expect(mockedExtractFields).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brandId: 'brand-1',
+        urlStrategy: 'landing',
+      }),
+    );
+  });
+
   it('should return unified format with LLM-consolidated value and full metadata for multiple brands', async () => {
     mockDbCacheMiss();
 

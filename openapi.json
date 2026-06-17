@@ -514,6 +514,15 @@
             "minItems": 1,
             "maxItems": 50
           },
+          "urlStrategy": {
+            "type": "string",
+            "enum": [
+              "url_map",
+              "landing"
+            ],
+            "description": "Controls which URLs are scraped before field extraction. Omit or use \"url_map\" for the existing full site map + URL selection pipeline. Use \"landing\" to scrape only the submitted brand URL/landing page.",
+            "example": "landing"
+          },
           "scrapeCacheTtlDays": {
             "type": "integer",
             "minimum": 1,

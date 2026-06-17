@@ -160,6 +160,8 @@ export interface ExtractedFieldResult {
   sourceUrls: string[] | null;
 }
 
+export type UrlStrategy = 'url_map' | 'landing';
+
 interface Brand {
   id: string;
   url: string | null;
@@ -440,6 +442,7 @@ export interface ExtractFieldsOptions {
   caller: Caller;
   scrapeCacheTtlDays?: number;
   resetCache?: boolean;
+  urlStrategy?: UrlStrategy;
 }
 
 export async function extractFields(
@@ -447,6 +450,7 @@ export async function extractFields(
 ): Promise<ExtractedFieldResult[]> {
   const { brandId, fields, caller, resetCache } = options;
   const scrapeTtlDays = options.scrapeCacheTtlDays ?? DEFAULT_SCRAPE_CACHE_TTL_DAYS;
+  const urlStrategy = options.urlStrategy ?? 'url_map';
 
   const campaignId = caller.mode === 'org' ? caller.campaignId : undefined;
 
@@ -564,68 +568,85 @@ export async function extractFields(
       console.log(`[brand-service] [${brandId}] Using campaign context from campaign ${campaignIdForRun}`);
     }
 
-    // 3. Map site URLs (DB-cached to survive redeploys)
-    console.log(`[brand-service] [${brandId}] Mapping site URLs for: ${brand.url}`);
-    let allUrls: string[];
-    try {
-      let primaryUrls: string[];
-      const cachedMap = resetCache ? null : await getCachedUrlMap(brand.url);
-      if (cachedMap) {
-        console.log(`[brand-service] [${brandId}] URL map cache hit for ${brand.url} (${cachedMap.length} URLs)`);
-        primaryUrls = cachedMap;
-      } else {
-        primaryUrls = await mapSiteUrls(brand.url, scrapingTracking);
-        await upsertUrlMap(brand.url, primaryUrls, scrapeTtlDays).catch((err) =>
-          console.warn(`[brand-service] [${brandId}] Failed to cache URL map: ${err.message}`),
-        );
-      }
-
-      const mapResults: string[][] = [primaryUrls];
-
-      // If the brand URL is on a subdomain, also map the root domain
-      const rootDomainUrl = getRootDomainUrl(brand.url);
-      if (rootDomainUrl && rootDomainUrl !== brand.url) {
-        const cachedRootMap = resetCache ? null : await getCachedUrlMap(rootDomainUrl);
-        if (cachedRootMap) {
-          console.log(`[brand-service] [${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
-          mapResults.push(cachedRootMap);
-        } else {
-          console.log(`[brand-service] [${brandId}] Also mapping root domain: ${rootDomainUrl}`);
-          try {
-            const rootUrls = await mapSiteUrls(rootDomainUrl, scrapingTracking);
-            await upsertUrlMap(rootDomainUrl, rootUrls, scrapeTtlDays).catch((err) =>
-              console.warn(`[brand-service] [${brandId}] Failed to cache root URL map: ${err.message}`),
-            );
-            mapResults.push(rootUrls);
-          } catch (err: any) {
-            console.warn(`[brand-service] [${brandId}] Root domain mapping failed: ${err.message}`);
-          }
-        }
-      }
-
-      allUrls = [...new Set(mapResults.flat())];
-      console.log(`[brand-service] [${brandId}] Found ${allUrls.length} unique URLs`);
+    // 3-4. Pick URLs to scrape. Default keeps the full URL-map pipeline;
+    // landing mode skips mapping and URL-selection and uses only brand.url.
+    let selectedUrls: string[];
+    let availableUrlCount: number;
+    if (urlStrategy === 'landing') {
+      selectedUrls = [brand.url];
+      availableUrlCount = selectedUrls.length;
+      console.log(`[brand-service] [${brandId}] Using landing URL strategy: ${brand.url}`);
       traceEvent(run.id, {
         service: 'brand-service',
-        event: 'url-map-complete',
-        detail: `Mapped ${allUrls.length} unique URLs for ${brand.url}`,
+        event: 'url-selection-complete',
+        detail: `Using landing URL only for ${brand.url}`,
         level: 'info',
-        data: { urlCount: allUrls.length, brandUrl: brand.url },
+        data: { brandId, urlStrategy, selectedUrls },
       }, traceHeaders).catch(() => {});
-    } catch (mapError: any) {
-      console.warn(`[brand-service] [${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
-      allUrls = [brand.url];
+    } else {
+      // Map site URLs (DB-cached to survive redeploys)
+      console.log(`[brand-service] [${brandId}] Mapping site URLs for: ${brand.url}`);
+      let allUrls: string[];
+      try {
+        let primaryUrls: string[];
+        const cachedMap = resetCache ? null : await getCachedUrlMap(brand.url);
+        if (cachedMap) {
+          console.log(`[brand-service] [${brandId}] URL map cache hit for ${brand.url} (${cachedMap.length} URLs)`);
+          primaryUrls = cachedMap;
+        } else {
+          primaryUrls = await mapSiteUrls(brand.url, scrapingTracking);
+          await upsertUrlMap(brand.url, primaryUrls, scrapeTtlDays).catch((err) =>
+            console.warn(`[brand-service] [${brandId}] Failed to cache URL map: ${err.message}`),
+          );
+        }
+
+        const mapResults: string[][] = [primaryUrls];
+
+        // If the brand URL is on a subdomain, also map the root domain
+        const rootDomainUrl = getRootDomainUrl(brand.url);
+        if (rootDomainUrl && rootDomainUrl !== brand.url) {
+          const cachedRootMap = resetCache ? null : await getCachedUrlMap(rootDomainUrl);
+          if (cachedRootMap) {
+            console.log(`[brand-service] [${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
+            mapResults.push(cachedRootMap);
+          } else {
+            console.log(`[brand-service] [${brandId}] Also mapping root domain: ${rootDomainUrl}`);
+            try {
+              const rootUrls = await mapSiteUrls(rootDomainUrl, scrapingTracking);
+              await upsertUrlMap(rootDomainUrl, rootUrls, scrapeTtlDays).catch((err) =>
+                console.warn(`[brand-service] [${brandId}] Failed to cache root URL map: ${err.message}`),
+              );
+              mapResults.push(rootUrls);
+            } catch (err: any) {
+              console.warn(`[brand-service] [${brandId}] Root domain mapping failed: ${err.message}`);
+            }
+          }
+        }
+
+        allUrls = [...new Set(mapResults.flat())];
+        console.log(`[brand-service] [${brandId}] Found ${allUrls.length} unique URLs`);
+        traceEvent(run.id, {
+          service: 'brand-service',
+          event: 'url-map-complete',
+          detail: `Mapped ${allUrls.length} unique URLs for ${brand.url}`,
+          level: 'info',
+          data: { urlCount: allUrls.length, brandUrl: brand.url },
+        }, traceHeaders).catch(() => {});
+      } catch (mapError: any) {
+        console.warn(`[brand-service] [${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
+        allUrls = [brand.url];
+      }
+      if (allUrls.length === 0) allUrls = [brand.url];
+      availableUrlCount = allUrls.length;
+
+      const fieldsDescription = missingFields
+        .map((f) => `- ${f.key}: ${f.description}`)
+        .join('\n');
+
+      console.log(`[brand-service] [${brandId}] Selecting relevant URLs...`);
+      selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, chatCaller, campaignContext);
+      console.log(`[brand-service] [${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
     }
-    if (allUrls.length === 0) allUrls = [brand.url];
-
-    // 4. Select relevant URLs via chat-service
-    const fieldsDescription = missingFields
-      .map((f) => `- ${f.key}: ${f.description}`)
-      .join('\n');
-
-    console.log(`[brand-service] [${brandId}] Selecting relevant URLs...`);
-    const selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, chatCaller, campaignContext);
-    console.log(`[brand-service] [${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
 
     if (selectedUrls.length === 0) {
       console.log(`[brand-service] [${brandId}] URL selection returned no relevant pages; storing Unknown for ${missingFields.length} fields`);
@@ -635,7 +656,7 @@ export async function extractFields(
         event: 'url-selection-empty',
         detail: `No relevant URLs selected for ${missingFields.length} fields: ${formatFieldPreview(missingFields.map(f => f.key))}`,
         level: 'info',
-        data: { brandId, fieldCount: missingFields.length, availableUrlCount: allUrls.length },
+        data: { brandId, fieldCount: missingFields.length, availableUrlCount },
       }, traceHeaders).catch(() => {});
 
       const fieldsToStore = missingFields.map((f) => ({

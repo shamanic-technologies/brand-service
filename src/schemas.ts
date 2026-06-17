@@ -315,6 +315,14 @@ export const ExtractFieldItemSchema = z
 export const ExtractFieldsRequestSchema = z
   .object({
     fields: z.array(ExtractFieldItemSchema).min(1).max(50),
+    urlStrategy: z
+      .enum(['url_map', 'landing'])
+      .optional()
+      .openapi({
+        description:
+          'Controls which URLs are scraped before field extraction. Omit or use "url_map" for the existing full site map + URL selection pipeline. Use "landing" to scrape only the submitted brand URL/landing page.',
+        example: 'landing',
+      }),
     scrapeCacheTtlDays: z
       .number()
       .int()

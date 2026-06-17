@@ -219,6 +219,69 @@ describe('Mandatory run tracking — extractFields', () => {
     );
   });
 
+  it('uses the URL map and selection pipeline when urlStrategy is omitted', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+      [],          // org membership
+      [],          // URL map cache miss
+      [],          // page scrape cache miss
+    ]);
+    mockMapSiteUrls.mockResolvedValue(
+      Array.from({ length: 11 }, (_, i) => `https://example.com/page-${i + 1}`),
+    );
+    mockChat
+      .mockResolvedValueOnce({
+        content: '{"urls":["https://example.com/page-2"]}',
+        json: { urls: ['https://example.com/page-2'] },
+      })
+      .mockResolvedValueOnce({
+        content: '{"industry":"SaaS"}',
+        json: { industry: 'SaaS' },
+      });
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    const results = await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      caller: orgCaller,
+    });
+
+    expect(mockMapSiteUrls).toHaveBeenCalledWith('https://example.com', expect.any(Object));
+    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(mockScrapeUrl).toHaveBeenCalledWith('https://example.com/page-2', expect.any(Object));
+    expect(results[0].sourceUrls).toEqual(['https://example.com/page-2']);
+  });
+
+  it('skips URL mapping and URL selection when urlStrategy is landing', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+      [],          // org membership
+      [],          // page scrape cache miss
+    ]);
+    mockChat.mockResolvedValueOnce({
+      content: '{"industry":"SaaS"}',
+      json: { industry: 'SaaS' },
+    });
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    const results = await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      caller: orgCaller,
+      urlStrategy: 'landing',
+    });
+
+    expect(mockMapSiteUrls).not.toHaveBeenCalled();
+    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(mockScrapeUrl).toHaveBeenCalledTimes(1);
+    expect(mockScrapeUrl).toHaveBeenCalledWith('https://example.com', expect.any(Object));
+    expect(results[0].sourceUrls).toEqual(['https://example.com']);
+  });
+
   it('should map both subdomain and root domain in parallel', async () => {
     const subdomainBrand = { id: 'brand-1', url: 'https://bnb.sortes.fun/path', name: 'Test', domain: 'bnb.sortes.fun', orgId: 'org_123' };
     setDbSequence([
