@@ -64,6 +64,24 @@ describe('Zod Schemas', () => {
       const result = ExtractFieldsRequestSchema.safeParse({});
       expect(result.success).toBe(false);
     });
+
+    it('should accept landing and url_map URL strategies', () => {
+      const baseRequest = {
+        fields: [{ key: 'industry', description: 'The brand industry sector' }],
+      };
+
+      expect(ExtractFieldsRequestSchema.safeParse({ ...baseRequest, urlStrategy: 'landing' }).success).toBe(true);
+      expect(ExtractFieldsRequestSchema.safeParse({ ...baseRequest, urlStrategy: 'url_map' }).success).toBe(true);
+    });
+
+    it('should reject invalid URL strategy values', () => {
+      const result = ExtractFieldsRequestSchema.safeParse({
+        fields: [{ key: 'industry', description: 'The brand industry sector' }],
+        urlStrategy: 'homepage',
+      });
+
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('UpsertBrandRequestSchema', () => {

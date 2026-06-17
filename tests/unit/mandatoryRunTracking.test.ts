@@ -219,6 +219,34 @@ describe('Mandatory run tracking — extractFields', () => {
     );
   });
 
+  it('landing urlStrategy skips URL mapping and scrapes only the brand URL', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+    ]);
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    const results = await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      caller: orgCaller,
+      urlStrategy: 'landing',
+    });
+
+    expect(results[0].sourceUrls).toEqual(['https://example.com']);
+    expect(mockMapSiteUrls).not.toHaveBeenCalled();
+    expect(mockScrapeUrl).toHaveBeenCalledTimes(1);
+    expect(mockScrapeUrl).toHaveBeenCalledWith(
+      'https://example.com',
+      expect.objectContaining({
+        brandId: 'brand-1',
+        orgId: 'org_123',
+        runId: 'run-123',
+      }),
+    );
+  });
+
   it('should map both subdomain and root domain in parallel', async () => {
     const subdomainBrand = { id: 'brand-1', url: 'https://bnb.sortes.fun/path', name: 'Test', domain: 'bnb.sortes.fun', orgId: 'org_123' };
     setDbSequence([
