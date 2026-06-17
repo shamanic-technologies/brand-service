@@ -258,6 +258,81 @@ describe('chat-client', () => {
     });
   });
 
+  describe('generateImage → POST /orgs/images/generate', () => {
+    it('sends prompt-only body and org tracking headers', async () => {
+      const { generateImage } = await importClient();
+
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          imageBase64: 'iVBORw0KGgo=',
+          mimeType: 'image/png',
+          model: 'gemini-3.1-flash-image',
+          tokensInput: 12,
+          tokensOutput: 1290,
+        }),
+      );
+
+      const result = await generateImage(
+        'Generate a square avatar, no text.',
+        {
+          mode: 'org',
+          orgId: 'org_123',
+          userId: 'user_456',
+          runId: 'run_789',
+          campaignId: 'campaign_1',
+          featureSlug: 'feature_1',
+          brandIdHeader: 'brand_1',
+          workflowSlug: 'discovery',
+        },
+      );
+
+      expect(result).toMatchObject({
+        imageBase64: 'iVBORw0KGgo=',
+        mimeType: 'image/png',
+        model: 'gemini-3.1-flash-image',
+      });
+
+      const [calledUrl, calledOpts] = mockFetch.mock.calls[0];
+      expect(calledUrl).toMatch(/\/orgs\/images\/generate$/);
+
+      expect(JSON.parse(calledOpts.body)).toEqual({
+        prompt: 'Generate a square avatar, no text.',
+      });
+
+      const headers = calledOpts.headers;
+      expect(headers['x-org-id']).toBe('org_123');
+      expect(headers['x-user-id']).toBe('user_456');
+      expect(headers['x-run-id']).toBe('run_789');
+      expect(headers['x-campaign-id']).toBe('campaign_1');
+      expect(headers['x-feature-slug']).toBe('feature_1');
+      expect(headers['x-brand-id']).toBe('brand_1');
+      expect(headers['x-workflow-slug']).toBe('discovery');
+    });
+
+    it('throws structured 402 body without retrying completed client errors', async () => {
+      const { generateImage, ChatServiceImageGenerationError } = await importClient();
+
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ error: 'Insufficient credits', balance_cents: '10', required_cents: '25' }, 402),
+      );
+
+      const promise = generateImage(
+        'Generate a square avatar, no text.',
+        { mode: 'org', orgId: 'org_123', userId: 'user_456', runId: 'run_789' },
+      );
+
+      await expect(promise).rejects.toMatchObject({
+        name: 'ChatServiceImageGenerationError',
+        status: 402,
+        body: { balance_cents: '10', required_cents: '25' },
+      });
+      await promise.catch((error) => {
+        expect(error).toBeInstanceOf(ChatServiceImageGenerationError);
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('retry semantics (apply to both modes)', () => {
     it('throws on persistent 4xx after first attempt (no retry)', async () => {
       const { chat } = await importClient();

@@ -17,13 +17,21 @@ interface FetchWithRetryOptions extends RequestInit {
   minTimeout?: number;
   /** Optional label for log messages (e.g. "billing-service POST /v1/credits/authorize"). */
   label?: string;
+  /** Return completed 4xx responses to the caller instead of throwing. */
+  returnClientError?: boolean;
 }
 
 export async function fetchWithRetry(
   url: string,
   options: FetchWithRetryOptions = {},
 ): Promise<Response> {
-  const { retries = DEFAULT_RETRIES, minTimeout = DEFAULT_MIN_TIMEOUT_MS, label, ...fetchInit } = options;
+  const {
+    retries = DEFAULT_RETRIES,
+    minTimeout = DEFAULT_MIN_TIMEOUT_MS,
+    label,
+    returnClientError = false,
+    ...fetchInit
+  } = options;
 
   return pRetry(
     async (attemptNumber) => {
@@ -33,6 +41,7 @@ export async function fetchWithRetry(
 
       // 4xx — client error, won't change on retry
       if (response.status >= 400 && response.status < 500) {
+        if (returnClientError) return response;
         throw new AbortError(
           `${label ?? url} returned ${response.status}`,
         );
