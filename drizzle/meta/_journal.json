@@ -229,15 +229,8 @@
     {
       "idx": 32,
       "version": "7",
-      "when": 1781674635000,
-      "tag": "0032_optimization_goal_sales_meetings",
-      "breakpoints": true
-    },
-    {
-      "idx": 33,
-      "version": "7",
-      "when": 1781676244000,
-      "tag": "0033_restore_legacy_optimization_goal_prod",
+      "when": 1781675407409,
+      "tag": "0032_adorable_shen",
       "breakpoints": true
     }
   ]

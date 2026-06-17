@@ -376,24 +376,6 @@ describe('Sales Economics Endpoints', () => {
     expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
   });
 
-  it('PUT transitional sales_meetings input canonicalizes to booked_meetings for prod responses', async () => {
-    const salesMeetings = await request(app)
-      .put(path(funnelBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, optimizationGoal: 'sales_meetings' });
-
-    expect(salesMeetings.status).toBe(200);
-    expect(salesMeetings.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
-
-    const sales = await request(app)
-      .put(path(funnelBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, optimizationGoal: 'sales' });
-
-    expect(sales.status).toBe(200);
-    expect(sales.body.salesEconomics.optimizationGoal).toBe('sales');
-  });
-
   // AC4 — invalid funnelStages value fails loud, no write
   it('PUT with an unknown funnelStages value returns 400', async () => {
     const res = await request(app)

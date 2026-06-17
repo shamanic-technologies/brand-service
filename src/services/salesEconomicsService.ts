@@ -1,5 +1,12 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, brandSalesEconomics } from '../db';
+import { db, brands, brandSalesEconomics } from '../db';
+import {
+  CurrentGoal,
+  currentGoalToLegacyOptimizationGoal,
+  getCurrentGoalByBrandId,
+  legacyOptimizationGoalToCurrentGoal,
+  updateCurrentGoalByBrandId,
+} from './brandGoalService';
 
 /** Brand-level B2C vs B2B classification. */
 export type BusinessModel = 'b2c' | 'b2b';
@@ -7,7 +14,7 @@ export type BusinessModel = 'b2c' | 'b2b';
 /** Sales-funnel stage a brand has (multi-select, 0..2). */
 export type FunnelStage = 'website_purchase' | 'sales_meeting';
 
-/** Single brand-level optimization goal. Prod contract remains legacy. */
+/** Single brand-level optimization goal. Server default 'sales'. */
 export type OptimizationGoal = 'signups' | 'booked_meetings' | 'sales';
 
 /**
@@ -63,8 +70,13 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
 }
 
 function formatSalesEconomics(
-  row: typeof brandSalesEconomics.$inferSelect
+  row: typeof brandSalesEconomics.$inferSelect,
+  currentGoal?: CurrentGoal
 ): SavedSalesEconomics {
+  const optimizationGoal = currentGoal
+    ? currentGoalToLegacyOptimizationGoal(currentGoal)
+    : row.optimizationGoal as OptimizationGoal;
+
   return {
     lifetimeRevenueUsd: row.lifetimeRevenueUsd,
     replyToMeetingPct: row.replyToMeetingPct,
@@ -80,7 +92,7 @@ function formatSalesEconomics(
     ),
     businessModel: row.businessModel as BusinessModel | null,
     funnelStages: (row.funnelStages ?? []) as FunnelStage[],
-    optimizationGoal: normalizeOptimizationGoal(row.optimizationGoal),
+    optimizationGoal,
     updatedAt: row.updatedAt,
   };
 }
@@ -153,13 +165,20 @@ export class SalesEconomicsService {
    */
   async getByBrandId(brandId: string): Promise<SavedSalesEconomics | null> {
     const result = await db
-      .select()
+      .select({
+        salesEconomics: brandSalesEconomics,
+        currentGoal: brands.currentGoal,
+      })
       .from(brandSalesEconomics)
+      .innerJoin(brands, eq(brands.id, brandSalesEconomics.brandId))
       .where(eq(brandSalesEconomics.brandId, brandId))
       .limit(1);
 
     if (result.length === 0) return null;
-    return formatSalesEconomics(result[0]);
+    return formatSalesEconomics(
+      result[0].salesEconomics,
+      result[0].currentGoal as CurrentGoal
+    );
   }
 
   /**
@@ -229,6 +248,16 @@ export class SalesEconomicsService {
     brandId: string,
     metrics: SalesEconomicsMetrics
   ): Promise<SavedSalesEconomics> {
+    const currentGoal = metrics.optimizationGoal !== undefined
+      ? await updateCurrentGoalByBrandId(
+        brandId,
+        legacyOptimizationGoalToCurrentGoal(metrics.optimizationGoal)
+      )
+      : await getCurrentGoalByBrandId(brandId);
+
+    if (!currentGoal) throw new Error(`Brand not found: ${brandId}`);
+    const optimizationGoal = currentGoalToLegacyOptimizationGoal(currentGoal);
+
     // visit_to_close_pct is a STORED-but-DERIVED column: recompute on every
     // write from the two sub-rates so the column never drifts from them.
     const visitToClosePct = deriveVisitToClosePct(
@@ -248,10 +277,10 @@ export class SalesEconomicsService {
         visitToClosePct,
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
-        // Fresh row: omitted funnelStages/optimizationGoal fall back to the
-        // column defaults ([] / 'sales') — a never-set brand reads those.
+        // Fresh row: omitted funnelStages defaults to []; optimizationGoal is
+        // the legacy alias of brands.current_goal.
         funnelStages: metrics.funnelStages ?? [],
-        optimizationGoal: metrics.optimizationGoal ?? 'sales',
+        optimizationGoal,
       })
       .onConflictDoUpdate({
         target: brandSalesEconomics.brandId,
@@ -275,23 +304,14 @@ export class SalesEconomicsService {
           ...(metrics.funnelStages !== undefined
             ? { funnelStages: metrics.funnelStages }
             : {}),
-          // Only touch optimization_goal when supplied. Omitted = preserve.
-          ...(metrics.optimizationGoal !== undefined
-            ? { optimizationGoal: metrics.optimizationGoal }
-            : {}),
+          // Legacy alias mirrors brands.current_goal, the canonical source.
+          optimizationGoal,
         },
       })
       .returning();
 
-    return formatSalesEconomics(result[0]);
+    return formatSalesEconomics(result[0], currentGoal);
   }
 }
 
 export const salesEconomicsService = new SalesEconomicsService();
-
-function normalizeOptimizationGoal(value: string): OptimizationGoal {
-  if (value === 'signups') return 'signups';
-  if (value === 'booked_meetings' || value === 'sales_meetings') return 'booked_meetings';
-  if (value === 'sales') return 'sales';
-  throw new Error(`Unknown optimization goal: ${value}`);
-}

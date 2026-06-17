@@ -3,7 +3,7 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, ensureBrandName, ensureBrandLogoUrl, resolveBrandByDomain } from '../services/brandService';
+import { getOrCreateBrand, getBrandDetail, resolveBrandByDomain } from '../services/brandService';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema } from '../schemas';
 
@@ -184,56 +184,6 @@ internalRouter.post('/brands/resolve-by-domain', async (req: Request, res: Respo
 
 export const publicRouter = Router();
 
-interface BrandMinimal {
-  id: string;
-  domain: string;
-  url: string;
-  name: string;
-  logoUrl: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Project a silver brand row into the canonical minimal response shape,
- * lazy-filling `name` (via extract-fields, platform-billed) and `logoUrl`
- * (via deterministic logo.dev URL) when null.
- */
-async function loadBrandMinimal(brandId: string): Promise<BrandMinimal | null> {
-  const row = await selectBrandRow(brandId);
-  if (!row) return null;
-
-  const name = row.name ?? (await ensureBrandName(row.id, { mode: 'platform' }));
-  const logoUrl = row.logoUrl ?? (await ensureBrandLogoUrl(row.id));
-
-  return {
-    id: row.id,
-    domain: row.domain,
-    url: row.url,
-    name,
-    logoUrl,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-async function selectBrandRow(brandId: string) {
-  const [row] = await db
-    .select({
-      id: brands.id,
-      domain: brands.domain,
-      url: brands.url,
-      name: brands.name,
-      logoUrl: brands.logoUrl,
-      createdAt: brands.createdAt,
-      updatedAt: brands.updatedAt,
-    })
-    .from(brands)
-    .where(eq(brands.id, brandId))
-    .limit(1);
-  return row ?? null;
-}
-
 /**
  * Shared handler for GET /internal/brands/:id and GET /public/brands/:id.
  * Returns the canonical minimal brand shape with lazy fills.
@@ -249,7 +199,7 @@ async function handleGetBrand(req: Request, res: Response) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
-    const brand = await loadBrandMinimal(id);
+    const brand = await getBrandDetail(id, { mode: 'platform' });
     if (!brand) {
       return res.status(404).json({ error: 'Brand not found' });
     }
@@ -296,8 +246,8 @@ async function handleGetBrandsBatch(req: Request, res: Response) {
     // De-dupe in case a caller passes the same id twice. Order is arbitrary
     // — callers map by `id`.
     const uniqueIds = Array.from(new Set(ids));
-    const loaded = await Promise.all(uniqueIds.map(loadBrandMinimal));
-    const brandsResponse = loaded.filter((b): b is BrandMinimal => b !== null);
+    const loaded = await Promise.all(uniqueIds.map((id) => getBrandDetail(id, { mode: 'platform' })));
+    const brandsResponse = loaded.filter((b) => b !== null);
 
     res.json({ brands: brandsResponse });
   } catch (error: any) {

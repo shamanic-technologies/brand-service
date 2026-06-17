@@ -1508,6 +1508,36 @@
           }
         ]
       },
+      "UpdateCurrentGoalResponse": {
+        "type": "object",
+        "properties": {
+          "currentGoal": {
+            "$ref": "#/components/schemas/CurrentGoal"
+          }
+        },
+        "required": [
+          "currentGoal"
+        ]
+      },
+      "CurrentGoal": {
+        "type": "string",
+        "enum": [
+          "signup",
+          "meetingBooked",
+          "purchase"
+        ]
+      },
+      "UpdateCurrentGoalRequest": {
+        "type": "object",
+        "properties": {
+          "currentGoal": {
+            "$ref": "#/components/schemas/CurrentGoal"
+          }
+        },
+        "required": [
+          "currentGoal"
+        ]
+      },
       "SalesEconomicsEffectiveResponse": {
         "type": "object",
         "properties": {
@@ -1880,6 +1910,63 @@
         },
         "required": [
           "fields"
+        ]
+      },
+      "BrandRuntimeContextResponse": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "$ref": "#/components/schemas/BrandDetail"
+          },
+          "currentGoal": {
+            "$ref": "#/components/schemas/CurrentGoal"
+          },
+          "brandProfile": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "brandId": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "fields": {
+                "type": "object",
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "brandId",
+              "version",
+              "fields",
+              "createdAt"
+            ]
+          }
+        },
+        "required": [
+          "brand",
+          "currentGoal",
+          "brandProfile"
         ]
       }
     },
@@ -3871,7 +3958,7 @@
       },
       "put": {
         "summary": "Upsert a brand's sales conversion economics",
-        "description": "Idempotent write of the full metric set. Required: `lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (percents 0..100, decimals allowed). `visitToClosePct` is NOT accepted on the request — it is DERIVED on the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent is ignored. Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | `booked_meetings` | `sales`): omitting leaves it unchanged, sending sets it. Transitional `sales_meetings` input is accepted and canonicalized to `booked_meetings`. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Idempotent write of the full metric set. Required: `lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (percents 0..100, decimals allowed). `visitToClosePct` is NOT accepted on the request — it is DERIVED on the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent is ignored. Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | `booked_meetings` | `sales`): omitting leaves it unchanged, sending sets it. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {
@@ -3946,6 +4033,56 @@
           },
           "400": {
             "description": "Invalid brand ID format"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/current-goal": {
+      "put": {
+        "summary": "Update a brand's current runtime goal",
+        "description": "Updates the single brand-owned runtime goal used by campaign-service per-lead loops and features-service runtime candidate selection. This does not edit campaigns. The goal uses the candidate-selection vocabulary (`signup` | `meetingBooked` | `purchase`), not a stats-key or legacy sales-economics enum. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCurrentGoalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated current goal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateCurrentGoalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format or invalid currentGoal"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
           },
           "500": {
             "description": "Internal server error"
@@ -4350,6 +4487,44 @@
           },
           "403": {
             "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/runtime-context": {
+      "get": {
+        "summary": "Get a brand's runtime context for one campaign loop",
+        "description": "Service-authenticated snapshot for campaign-service per-lead loops. Returns the canonical brand-owned `currentGoal` (`signup` | `meetingBooked` | `purchase`) together with the minimal brand identity and the current brand-profile version/derived profile. Brand-service does not perform candidate selection or bandit logic; campaign-service passes `currentGoal` onward to features-service runtime candidate selection and snapshots the returned brand context for the loop.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Runtime context snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandRuntimeContextResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
           },
           "404": {
             "description": "Brand not found"
