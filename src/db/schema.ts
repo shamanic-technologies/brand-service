@@ -118,9 +118,9 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	// Sales-funnel stages the brand has (subset of website_purchase | sales_meeting).
 	// NOT NULL default [] — a never-set brand reads []; see upsert.
 	funnelStages: jsonb("funnel_stages").$type<string[]>().default([]).notNull(),
-	// Single optimization goal (signups | booked_meetings | sales). NOT NULL
-	// default 'sales' — a never-set brand reads "sales"; see upsert.
-	optimizationGoal: text("optimization_goal").default('sales').notNull(),
+	// Single optimization goal (signups | sales_meetings). NOT NULL
+	// default 'sales_meetings' — a never-set brand reads "sales_meetings"; see upsert.
+	optimizationGoal: text("optimization_goal").default('sales_meetings').notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
