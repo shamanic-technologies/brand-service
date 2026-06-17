@@ -15,6 +15,7 @@ import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoute
 import { orgRouter as salesEconomicsOrgRoutes, internalRouter as salesEconomicsInternalRoutes } from './routes/sales-economics.routes';
 import { orgRouter as personasOrgRoutes } from './routes/personas.routes';
 import { orgRouter as brandProfileOrgRoutes } from './routes/brand-profile.routes';
+import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from './routes/brand-goal.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
 import organizationRoutes from './routes/organization.routes';
@@ -78,6 +79,7 @@ app.use('/internal', apiKeyAuth, intakeFormRoutes);
 app.use('/internal', apiKeyAuth, thesisRoutes);
 app.use('/internal/users', apiKeyAuth, usersRoutes);
 app.use('/internal', apiKeyAuth, salesEconomicsInternalRoutes);
+app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
 
 // ── Org-scoped routes (API key + x-org-id required) ─────────────
 
@@ -89,6 +91,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, salesEconomicsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, personasOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
 // Only start server if not in test environment

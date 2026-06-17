@@ -1708,6 +1708,24 @@ export const OptimizationGoalSchema = z
   .enum(['signups', 'booked_meetings', 'sales'])
   .openapi('OptimizationGoal');
 
+// Canonical brand-owned runtime goal. This is the vocabulary features-service
+// accepts as runtime candidate-selection input.
+export const CurrentGoalSchema = z
+  .enum(['signup', 'meetingBooked', 'purchase'])
+  .openapi('CurrentGoal');
+
+export const UpdateCurrentGoalRequestSchema = z
+  .object({
+    currentGoal: CurrentGoalSchema,
+  })
+  .openapi('UpdateCurrentGoalRequest');
+
+export const UpdateCurrentGoalResponseSchema = z
+  .object({
+    currentGoal: CurrentGoalSchema,
+  })
+  .openapi('UpdateCurrentGoalResponse');
+
 // UPSERT request body = the 5 required metrics + optional businessModel +
 // optional funnelStages / optimizationGoal.
 // businessModel: omitted = leave unchanged (legacy 5-field PUT never wipes it),
@@ -1852,6 +1870,32 @@ registry.registerPath({
       content: { 'application/json': { schema: UpsertSalesEconomicsResponseSchema } },
     },
     400: { description: 'Invalid brand ID format or invalid/missing metric field' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/current-goal',
+  summary: "Update a brand's current runtime goal",
+  description:
+    'Updates the single brand-owned runtime goal used by campaign-service per-lead loops and ' +
+    'features-service runtime candidate selection. This does not edit campaigns. The goal uses ' +
+    'the candidate-selection vocabulary (`signup` | `meetingBooked` | `purchase`), not a stats-key ' +
+    'or legacy sales-economics enum. The brand must belong to the caller\'s org (x-org-id); a brand ' +
+    'outside the org is rejected with 403.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: UpdateCurrentGoalRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Updated current goal',
+      content: { 'application/json': { schema: UpdateCurrentGoalResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format or invalid currentGoal' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
@@ -2161,6 +2205,22 @@ export const GetBrandProfileResponseSchema = z
   })
   .openapi('GetBrandProfileResponse');
 
+export const BrandRuntimeContextResponseSchema = z
+  .object({
+    brand: BrandDetailSchema,
+    currentGoal: CurrentGoalSchema,
+    brandProfile: z
+      .object({
+        id: z.string(),
+        brandId: z.string(),
+        version: z.number().int(),
+        fields: BrandProfileFieldsSchema,
+        createdAt: z.string(),
+      })
+      .nullable(),
+  })
+  .openapi('BrandRuntimeContextResponse');
+
 // POST response — never null (you just wrote it).
 export const CreateBrandProfileResponseSchema = z
   .object({ version: BrandProfileVersionSchema })
@@ -2203,6 +2263,28 @@ registry.registerPath({
     201: { description: 'New version', content: { 'application/json': { schema: CreateBrandProfileResponseSchema } } },
     400: { description: 'Invalid brand ID format or invalid/missing fields' },
     403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/runtime-context',
+  summary: "Get a brand's runtime context for one campaign loop",
+  description:
+    'Service-authenticated snapshot for campaign-service per-lead loops. Returns the canonical ' +
+    'brand-owned `currentGoal` (`signup` | `meetingBooked` | `purchase`) together with the minimal ' +
+    'brand identity and the current brand-profile version/derived profile. Brand-service does not ' +
+    'perform candidate selection or bandit logic; campaign-service passes `currentGoal` onward to ' +
+    'features-service runtime candidate selection and snapshots the returned brand context for the loop.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'Runtime context snapshot',
+      content: { 'application/json': { schema: BrandRuntimeContextResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format' },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
   },

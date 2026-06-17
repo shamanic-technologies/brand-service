@@ -20,6 +20,16 @@ interface Brand {
   domain: string;
 }
 
+export interface BrandDetail {
+  id: string;
+  domain: string;
+  url: string;
+  name: string;
+  logoUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const BRAND_NAME_FIELD_KEY = 'name';
 const BRAND_NAME_FIELD_DESCRIPTION =
   'Official brand or company name as shown on the website (e.g. from the page <title>, the og:site_name meta tag, or the main H1 heading). Do not include taglines, slogans, or marketing copy — just the name.';
@@ -40,6 +50,40 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
     .limit(1);
 
   return result[0] || null;
+}
+
+export async function getBrandDetail(
+  brandId: string,
+  caller: Caller,
+): Promise<BrandDetail | null> {
+  const [row] = await db
+    .select({
+      id: brands.id,
+      domain: brands.domain,
+      url: brands.url,
+      name: brands.name,
+      logoUrl: brands.logoUrl,
+      createdAt: brands.createdAt,
+      updatedAt: brands.updatedAt,
+    })
+    .from(brands)
+    .where(eq(brands.id, brandId))
+    .limit(1);
+
+  if (!row) return null;
+
+  const name = row.name ?? (await ensureBrandName(row.id, caller));
+  const logoUrl = row.logoUrl ?? (await ensureBrandLogoUrl(row.id));
+
+  return {
+    id: row.id,
+    domain: row.domain,
+    url: row.url,
+    name,
+    logoUrl,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 /**
