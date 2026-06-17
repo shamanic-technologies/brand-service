@@ -71,6 +71,44 @@ export const uploadToSupabase = async (
   };
 };
 
+export const uploadBufferToSupabase = async (
+  filePath: string,
+  fileBuffer: Buffer,
+  mimeType: string
+): Promise<{ url: string; path: string; bucket: string }> => {
+  if (!filePath || filePath.includes('..')) {
+    throw new Error(`Invalid Supabase storage path: ${filePath}`);
+  }
+  if (fileBuffer.length === 0) {
+    throw new Error(`Cannot upload empty buffer to Supabase: ${filePath}`);
+  }
+
+  const supabase = getSupabaseClient();
+  const bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'media-assets';
+
+  const { error } = await supabase.storage
+    .from(bucketName)
+    .upload(filePath, fileBuffer, {
+      contentType: mimeType,
+      upsert: false,
+    });
+
+  if (error) {
+    console.error('Supabase upload error:', error);
+    throw new Error(`Failed to upload to Supabase: ${error.message}`);
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from(bucketName)
+    .getPublicUrl(filePath);
+
+  return {
+    url: publicUrlData.publicUrl,
+    path: filePath,
+    bucket: bucketName,
+  };
+};
+
 // Check if file exists in Supabase Storage
 export const fileExistsInSupabase = async (
   clientOrganizationId: string,
@@ -111,4 +149,3 @@ export const deleteFromSupabase = async (
     throw new Error(`Failed to delete from Supabase: ${error.message}`);
   }
 };
-

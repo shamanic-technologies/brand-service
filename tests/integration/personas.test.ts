@@ -61,6 +61,7 @@ describe('Personas Endpoints', () => {
       name: 'Founders',
       filters: { industry: ['SaaS'], jobTitles: ['CEO', 'Founder'] },
       status: 'active',
+      avatarUrl: null,
     });
     expect(typeof res.body.persona.id).toBe('string');
     expect(typeof res.body.persona.createdAt).toBe('string');
@@ -107,6 +108,7 @@ describe('Personas Endpoints', () => {
     // pause Founders
     const list = await request(app).get(personasPath(brandId)).set(getAuthHeaders(ownerOrgId));
     const founders = list.body.personas.find((p: any) => p.name === 'Founders');
+    expect(founders.avatarUrl).toBeNull();
     await request(app)
       .patch(`${personasPath(brandId)}/${founders.id}/status`)
       .set(getAuthHeaders(ownerOrgId))
@@ -139,6 +141,7 @@ describe('Personas Endpoints', () => {
     expect(dup.status).toBe(201);
     expect(dup.body.persona.name).toBe('Engineers (copy)');
     expect(dup.body.persona.filters).toEqual({ jobTitles: ['Eng'] });
+    expect(dup.body.persona.avatarUrl).toBeNull();
     expect(dup.body.persona.id).not.toBe(src.body.persona.id);
   });
 

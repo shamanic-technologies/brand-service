@@ -1967,6 +1967,7 @@ export const PersonaSchema = z
     name: z.string(),
     filters: PersonaFiltersSchema,
     status: PersonaStatusSchema,
+    avatarUrl: z.string().nullable(),
     createdAt: z.string(),
   })
   .openapi('Persona');
@@ -2115,6 +2116,29 @@ registry.registerPath({
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand or persona not found' },
     500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/personas/{personaId}/avatar/regenerate',
+  summary: "Regenerate a customer persona avatar",
+  description:
+    "Generates one square, stylized, text-free avatar image for the persisted persona " +
+    "using Gemini image generation only, stores the generated image as a durable public " +
+    "URL, replaces the persona's stored avatar URL/version, and returns `{ persona }`. " +
+    "The brand must belong to the caller's org (x-org-id). Generation, storage, key, " +
+    "cost declaration, and authorization failures fail loud; no fallback provider is used.",
+  request: {
+    params: z.object({ brandId: z.string().uuid(), personaId: z.string().uuid() }),
+  },
+  responses: {
+    200: { description: 'Updated persona with avatar URL', content: { 'application/json': { schema: PersonaResponseSchema } } },
+    400: { description: 'Invalid ID format or missing required identity header' },
+    402: { description: 'Insufficient credits' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand or persona not found' },
+    502: { description: 'Gemini generation, storage, cost declaration, key resolution, or credit authorization failed' },
   },
 });
 
