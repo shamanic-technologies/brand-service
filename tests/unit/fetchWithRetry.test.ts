@@ -56,6 +56,23 @@ describe('fetchWithRetry', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('can return completed 4xx responses without retrying when requested', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Insufficient credits' }), { status: 402 }),
+    );
+
+    const response = await fetchWithRetry('https://example.com/api', {
+      retries: 2,
+      minTimeout: 10,
+      label: 'test',
+      returnClientError: true,
+    });
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual({ error: 'Insufficient credits' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('does NOT retry on 401', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response('unauthorized', { status: 401 }),
