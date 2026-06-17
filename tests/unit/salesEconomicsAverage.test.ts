@@ -48,7 +48,7 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
       meetingToClosePct: 25,
       visitToSignupPct: 25,
       signupToPaidClientPct: 20,
-      // DERIVED = round(25 * 20 / 100) = 5
+      // DERIVED = 25 * 20 / 100 = 5
       visitToClosePct: 5,
     });
   });
@@ -56,15 +56,19 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
 
 /**
  * Derived self-serve close rate (AC1 math + AC4 defaults).
- * visitToClosePct = round(visitToSignupPct * signupToPaidClientPct / 100).
+ * visitToClosePct = visitToSignupPct * signupToPaidClientPct / 100.
  */
 describe('deriveVisitToClosePct', () => {
   it('25 * 20 / 100 = 5 (the fresh-brand default → AC4)', () => {
     expect(deriveVisitToClosePct(25, 20)).toBe(5);
   });
 
-  it('rounds half up (30 * 33 / 100 = 9.9 → 10)', () => {
-    expect(deriveVisitToClosePct(30, 33)).toBe(10);
+  it('preserves decimal close rates (30 * 33 / 100 = 9.9)', () => {
+    expect(deriveVisitToClosePct(30, 33)).toBe(9.9);
+  });
+
+  it('preserves sub-1% rates (0.5 * 20 / 100 = 0.1)', () => {
+    expect(deriveVisitToClosePct(0.5, 20)).toBe(0.1);
   });
 
   it('100 * 100 / 100 = 100 (cap)', () => {
