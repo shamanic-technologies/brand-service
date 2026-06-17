@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandSalesEconomics } from '../../src/db';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 /**
@@ -22,6 +22,17 @@ describe('Sales Economics Endpoints', () => {
   const funnelBrandId = randomUUID(); // owned by ownerOrgId, funnel-fields lifecycle
   const funnelUnsetBrandId = randomUUID(); // owned by ownerOrgId, never written
   const defaultsBrandId = randomUUID(); // owned by ownerOrgId, row written WITHOUT the two sub-rates (DB defaults)
+  const fractionalBrandId = randomUUID(); // owned by ownerOrgId, fractional percentages
+  const allBrandIds = [
+    brandId,
+    unsetBrandId,
+    foreignBrandId,
+    bmBrandId,
+    funnelBrandId,
+    funnelUnsetBrandId,
+    defaultsBrandId,
+    fractionalBrandId,
+  ];
 
   // visitToSignupPct 40 * signupToPaidClientPct 25 / 100 = 10 (derived visitToClosePct)
   const validMetrics = {
@@ -32,31 +43,42 @@ describe('Sales Economics Endpoints', () => {
     visitToSignupPct: 40,
     signupToPaidClientPct: 25,
   };
+  // Fractional sales rates below 1% are valid user inputs. Derived
+  // visitToClosePct must use decimal math: 0.5 * 12.5 / 100 = 0.0625.
+  const fractionalMetrics = {
+    lifetimeRevenueUsd: 4000,
+    replyToMeetingPct: 30.5,
+    visitToMeetingPct: 0.75,
+    meetingToClosePct: 12.25,
+    visitToSignupPct: 0.5,
+    signupToPaidClientPct: 12.5,
+  };
 
   beforeAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId]) {
-      await db.insert(brands).values({
+    await db.insert(brands).values(
+      allBrandIds.map((id) => ({
         id,
         url: `https://sales-econ-${id.slice(0, 8)}.com`,
         domain: `sales-econ-${id.slice(0, 8)}.com`,
         name: 'Sales Econ Test Brand',
-      });
-    }
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: unsetBrandId });
-    await db.insert(orgBrands).values({ orgId: otherOrgId, brandId: foreignBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: bmBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: funnelBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: funnelUnsetBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: defaultsBrandId });
+      }))
+    );
+    await db.insert(orgBrands).values([
+      { orgId: ownerOrgId, brandId },
+      { orgId: ownerOrgId, brandId: unsetBrandId },
+      { orgId: otherOrgId, brandId: foreignBrandId },
+      { orgId: ownerOrgId, brandId: bmBrandId },
+      { orgId: ownerOrgId, brandId: funnelBrandId },
+      { orgId: ownerOrgId, brandId: funnelUnsetBrandId },
+      { orgId: ownerOrgId, brandId: defaultsBrandId },
+      { orgId: ownerOrgId, brandId: fractionalBrandId },
+    ]);
   });
 
   afterAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId]) {
-      await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
-      await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
-      await db.delete(brands).where(eq(brands.id, id));
-    }
+    await db.delete(brandSalesEconomics).where(inArray(brandSalesEconomics.brandId, allBrandIds));
+    await db.delete(orgBrands).where(inArray(orgBrands.brandId, allBrandIds));
+    await db.delete(brands).where(inArray(brands.id, allBrandIds));
   });
 
   const path = (id: string) => `/orgs/brands/${id}/sales-economics`;
@@ -78,7 +100,7 @@ describe('Sales Economics Endpoints', () => {
 
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics).toMatchObject(validMetrics);
-    // derived = round(40 * 25 / 100) = 10, never null, never sent on the request
+    // derived = 40 * 25 / 100 = 10, never null, never sent on the request
     expect(putRes.body.salesEconomics.visitToClosePct).toBe(10);
     expect(typeof putRes.body.salesEconomics.updatedAt).toBe('string');
 
@@ -87,6 +109,25 @@ describe('Sales Economics Endpoints', () => {
     expect(getRes.status).toBe(200);
     expect(getRes.body.salesEconomics).toMatchObject(validMetrics);
     expect(getRes.body.salesEconomics.visitToClosePct).toBe(10);
+    expect(typeof getRes.body.salesEconomics.updatedAt).toBe('string');
+  });
+
+  it('PUT then GET preserves fractional percent values below 1%', async () => {
+    const putRes = await request(app)
+      .put(path(fractionalBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(fractionalMetrics);
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics).toMatchObject(fractionalMetrics);
+    expect(putRes.body.salesEconomics.visitToClosePct).toBe(0.0625);
+    expect(typeof putRes.body.salesEconomics.updatedAt).toBe('string');
+
+    const getRes = await request(app).get(path(fractionalBrandId)).set(getAuthHeaders(ownerOrgId));
+
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.salesEconomics).toMatchObject(fractionalMetrics);
+    expect(getRes.body.salesEconomics.visitToClosePct).toBe(0.0625);
     expect(typeof getRes.body.salesEconomics.updatedAt).toBe('string');
   });
 
@@ -187,13 +228,14 @@ describe('Sales Economics Endpoints', () => {
     expect(res.status).toBe(400);
   });
 
-  // AC9 — non-integer value fails loud (no silent coerce)
-  it('PUT with a non-integer value returns 400', async () => {
+  // AC9 — decimal percentage values are accepted, but no string coercion.
+  it('PUT with a fractional percentage value is accepted', async () => {
     const res = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...validMetrics, meetingToClosePct: 12.5 });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics.meetingToClosePct).toBe(12.5);
   });
 
   it('PUT with a string value (no coercion) returns 400', async () => {
@@ -437,7 +479,7 @@ describe('Sales Economics Endpoints', () => {
     expect(res.status).toBe(200);
     expect(res.body.salesEconomics.visitToSignupPct).toBe(25);
     expect(res.body.salesEconomics.signupToPaidClientPct).toBe(20);
-    // derived = round(25 * 20 / 100) = 5, NOT the stale 77
+    // derived = 25 * 20 / 100 = 5, NOT the stale 77
     expect(res.body.salesEconomics.visitToClosePct).toBe(5);
   });
 });

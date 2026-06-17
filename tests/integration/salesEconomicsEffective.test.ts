@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandSalesEconomics } from '../../src/db';
-import { eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 /**
@@ -23,7 +23,6 @@ const STORED = [
   'signupToPaidClientPct',
 ] as const;
 // Fields present on the RESPONSE economics object (STORED + derived).
-const METRICS = [...STORED, 'visitToClosePct'] as const;
 type Row = Record<(typeof STORED)[number], number>;
 
 const effPath = (id: string) => `/orgs/brands/${id}/sales-economics-effective`;
@@ -37,7 +36,7 @@ function percentileCont(sorted: number[], p: number): number {
   if (lo === hi) return sorted[lo];
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
 }
-const mean = (vals: number[]) => Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+const mean = (vals: number[]) => vals.reduce((a, b) => a + b, 0) / vals.length;
 
 function expectedFrom(rows: Row[]) {
   const ltvSorted = rows.map((r) => r.lifetimeRevenueUsd).sort((a, b) => a - b);
@@ -51,8 +50,22 @@ function expectedFrom(rows: Row[]) {
     visitToSignupPct,
     signupToPaidClientPct,
     // DERIVED from the two AVERAGED sub-rates (not separately averaged).
-    visitToClosePct: Math.round((visitToSignupPct * signupToPaidClientPct) / 100),
+    visitToClosePct: (visitToSignupPct * signupToPaidClientPct) / 100,
   };
+}
+
+function expectEconomicsCloseTo(actual: Record<string, number>, expected: Record<string, number>) {
+  expect(actual.lifetimeRevenueUsd).toBe(expected.lifetimeRevenueUsd);
+  for (const k of [
+    'replyToMeetingPct',
+    'visitToMeetingPct',
+    'meetingToClosePct',
+    'visitToSignupPct',
+    'signupToPaidClientPct',
+    'visitToClosePct',
+  ]) {
+    expect(actual[k]).toBeCloseTo(expected[k], 10);
+  }
 }
 
 async function snapshot(): Promise<Row[]> {
@@ -80,56 +93,54 @@ describe('Effective Sales Economics Endpoint', () => {
 
   const savedMetrics: Row = {
     lifetimeRevenueUsd: 4000,
-    replyToMeetingPct: 30,
-    visitToMeetingPct: 12,
-    meetingToClosePct: 25,
-    visitToSignupPct: 40,
-    signupToPaidClientPct: 25,
+    replyToMeetingPct: 30.5,
+    visitToMeetingPct: 12.25,
+    meetingToClosePct: 25.5,
+    visitToSignupPct: 0.5,
+    signupToPaidClientPct: 12.5,
   };
   // Extra contributor brands so the average is well-defined incl. an LTV outlier.
   const contributors: Row[] = [
-    { lifetimeRevenueUsd: 1000, replyToMeetingPct: 10, visitToMeetingPct: 8, meetingToClosePct: 20, visitToSignupPct: 20, signupToPaidClientPct: 10 },
-    { lifetimeRevenueUsd: 2000, replyToMeetingPct: 20, visitToMeetingPct: 16, meetingToClosePct: 40, visitToSignupPct: 60, signupToPaidClientPct: 10 },
-    { lifetimeRevenueUsd: 500000, replyToMeetingPct: 40, visitToMeetingPct: 20, meetingToClosePct: 50, visitToSignupPct: 80, signupToPaidClientPct: 30 },
+    { lifetimeRevenueUsd: 1000, replyToMeetingPct: 10.25, visitToMeetingPct: 8.5, meetingToClosePct: 20.25, visitToSignupPct: 0.25, signupToPaidClientPct: 10.5 },
+    { lifetimeRevenueUsd: 2000, replyToMeetingPct: 20.5, visitToMeetingPct: 16.25, meetingToClosePct: 40.5, visitToSignupPct: 1.75, signupToPaidClientPct: 10.25 },
+    { lifetimeRevenueUsd: 500000, replyToMeetingPct: 40.25, visitToMeetingPct: 20.5, meetingToClosePct: 50.25, visitToSignupPct: 2.5, signupToPaidClientPct: 30.75 },
   ];
   const contributorIds = contributors.map(() => randomUUID());
+  const allBrandIds = [savedBrandId, unsetBrandId, foreignBrandId, ...contributorIds];
 
   beforeAll(async () => {
-    const mk = async (id: string, org: string) => {
-      await db.insert(brands).values({
+    await db.insert(brands).values(
+      allBrandIds.map((id) => ({
         id,
         url: `https://eff-${id.slice(0, 8)}.com`,
         domain: `eff-${id.slice(0, 8)}.com`,
         name: 'Effective Econ Test Brand',
-      });
-      await db.insert(orgBrands).values({ orgId: org, brandId: id });
-    };
-    await mk(savedBrandId, ownerOrgId);
-    await mk(unsetBrandId, ownerOrgId);
-    await mk(foreignBrandId, otherOrgId);
-    for (const id of contributorIds) await mk(id, ownerOrgId);
+      }))
+    );
+    await db.insert(orgBrands).values([
+      { orgId: ownerOrgId, brandId: savedBrandId },
+      { orgId: ownerOrgId, brandId: unsetBrandId },
+      { orgId: otherOrgId, brandId: foreignBrandId },
+      ...contributorIds.map((brandId) => ({ orgId: ownerOrgId, brandId })),
+    ]);
 
     // visit_to_close_pct is NOT NULL with no DB default (it is derived on write).
     // These direct inserts bypass the service upsert, so compute it here.
-    const close = (r: Row) => Math.round((r.visitToSignupPct * r.signupToPaidClientPct) / 100);
-    await db
-      .insert(brandSalesEconomics)
-      .values({ brandId: savedBrandId, ...savedMetrics, visitToClosePct: close(savedMetrics) });
-    for (let i = 0; i < contributors.length; i++) {
-      await db.insert(brandSalesEconomics).values({
+    const close = (r: Row) => (r.visitToSignupPct * r.signupToPaidClientPct) / 100;
+    await db.insert(brandSalesEconomics).values([
+      { brandId: savedBrandId, ...savedMetrics, visitToClosePct: close(savedMetrics) },
+      ...contributors.map((row, i) => ({
         brandId: contributorIds[i],
-        ...contributors[i],
-        visitToClosePct: close(contributors[i]),
-      });
-    }
+        ...row,
+        visitToClosePct: close(row),
+      })),
+    ]);
   });
 
   afterAll(async () => {
-    for (const id of [savedBrandId, unsetBrandId, foreignBrandId, ...contributorIds]) {
-      await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
-      await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
-      await db.delete(brands).where(eq(brands.id, id));
-    }
+    await db.delete(brandSalesEconomics).where(inArray(brandSalesEconomics.brandId, allBrandIds));
+    await db.delete(orgBrands).where(inArray(orgBrands.brandId, allBrandIds));
+    await db.delete(brands).where(inArray(brands.id, allBrandIds));
   });
 
   // source "user": saved set returned verbatim
@@ -137,8 +148,8 @@ describe('Effective Sales Economics Endpoint', () => {
     const res = await request(app).get(effPath(savedBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(res.status).toBe(200);
     expect(res.body.source).toBe('user');
-    // response = stored metrics + DERIVED visitToClosePct = round(40 * 25 / 100) = 10
-    expect(res.body.economics).toEqual({ ...savedMetrics, visitToClosePct: 10 });
+    // response = stored metrics + DERIVED visitToClosePct = 0.5 * 12.5 / 100 = 0.0625
+    expect(res.body.economics).toEqual({ ...savedMetrics, visitToClosePct: 0.0625 });
   });
 
   // source "cross-brand-average": unset brand returns the global average
@@ -151,11 +162,11 @@ describe('Effective Sales Economics Endpoint', () => {
     expect(res.body.source).toBe('cross-brand-average');
     expect(res.body.economics).not.toBeNull();
     const e = res.body.economics;
-    for (const k of METRICS) expect(Number.isInteger(e[k])).toBe(true);
+    expect(e.visitToClosePct).toBeCloseTo((e.visitToSignupPct * e.signupToPaidClientPct) / 100, 10);
     // median, not mean: the 500000 outlier keeps the mean > 100k; median << that
     expect(e.lifetimeRevenueUsd).toBeLessThan(100000);
     if (JSON.stringify(before) === JSON.stringify(after)) {
-      expect(e).toEqual(expectedFrom(after));
+      expectEconomicsCloseTo(e, expectedFrom(after));
     }
   });
 

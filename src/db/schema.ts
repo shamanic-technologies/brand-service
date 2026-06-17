@@ -100,18 +100,18 @@ export const orgBrands = pgTable("org_brands", {
 export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	brandId: uuid("brand_id").primaryKey(),
 	lifetimeRevenueUsd: integer("lifetime_revenue_usd").notNull(),
-	replyToMeetingPct: integer("reply_to_meeting_pct").notNull(),
-	visitToMeetingPct: integer("visit_to_meeting_pct").notNull(),
-	meetingToClosePct: integer("meeting_to_close_pct").notNull(),
+	replyToMeetingPct: numeric("reply_to_meeting_pct", { mode: "number" }).notNull(),
+	visitToMeetingPct: numeric("visit_to_meeting_pct", { mode: "number" }).notNull(),
+	meetingToClosePct: numeric("meeting_to_close_pct", { mode: "number" }).notNull(),
 	// Self-serve funnel split into two sub-rates. NOT NULL with DB defaults
 	// (25 / 20) — a row inserted without them reads those, mirroring the
 	// funnelStages/optimizationGoal default convention below.
-	visitToSignupPct: integer("visit_to_signup_pct").default(25).notNull(),
-	signupToPaidClientPct: integer("signup_to_paid_client_pct").default(20).notNull(),
-	// DERIVED on every write = round(visitToSignupPct * signupToPaidClientPct / 100).
+	visitToSignupPct: numeric("visit_to_signup_pct", { mode: "number" }).default(25).notNull(),
+	signupToPaidClientPct: numeric("signup_to_paid_client_pct", { mode: "number" }).default(20).notNull(),
+	// DERIVED on every write = visitToSignupPct * signupToPaidClientPct / 100.
 	// Kept as a stored column so the revenue/projection engine (features-service)
 	// keeps reading it unchanged; never written directly by a caller.
-	visitToClosePct: integer("visit_to_close_pct").notNull(),
+	visitToClosePct: numeric("visit_to_close_pct", { mode: "number" }).notNull(),
 	// Brand-level B2C vs B2B classification. Nullable: null = never set.
 	// Additive field — older callers omit it; see salesEconomicsService upsert.
 	businessModel: text("business_model"),

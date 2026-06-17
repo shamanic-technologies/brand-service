@@ -31,40 +31,44 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
     ).toBeNull();
   });
 
-  it('populated aggregate row maps to the averages object with DERIVED visitToClosePct', () => {
+  it('populated aggregate row maps to the averages object with decimal DERIVED visitToClosePct', () => {
     expect(
       mapAverageRow({
         lifetimeRevenueUsd: 4000,
-        replyToMeetingPct: 30,
-        visitToMeetingPct: 12,
-        meetingToClosePct: 25,
-        visitToSignupPct: 25,
-        signupToPaidClientPct: 20,
+        replyToMeetingPct: 30.5,
+        visitToMeetingPct: 0.75,
+        meetingToClosePct: 12.25,
+        visitToSignupPct: 0.5,
+        signupToPaidClientPct: 12.5,
       })
     ).toEqual({
       lifetimeRevenueUsd: 4000,
-      replyToMeetingPct: 30,
-      visitToMeetingPct: 12,
-      meetingToClosePct: 25,
-      visitToSignupPct: 25,
-      signupToPaidClientPct: 20,
-      // DERIVED = round(25 * 20 / 100) = 5
-      visitToClosePct: 5,
+      replyToMeetingPct: 30.5,
+      visitToMeetingPct: 0.75,
+      meetingToClosePct: 12.25,
+      visitToSignupPct: 0.5,
+      signupToPaidClientPct: 12.5,
+      // DERIVED = 0.5 * 12.5 / 100 = 0.0625
+      visitToClosePct: 0.0625,
     });
   });
 });
 
 /**
  * Derived self-serve close rate (AC1 math + AC4 defaults).
- * visitToClosePct = round(visitToSignupPct * signupToPaidClientPct / 100).
+ * visitToClosePct = visitToSignupPct * signupToPaidClientPct / 100.
  */
 describe('deriveVisitToClosePct', () => {
   it('25 * 20 / 100 = 5 (the fresh-brand default → AC4)', () => {
     expect(deriveVisitToClosePct(25, 20)).toBe(5);
   });
 
-  it('rounds half up (30 * 33 / 100 = 9.9 → 10)', () => {
-    expect(deriveVisitToClosePct(30, 33)).toBe(10);
+  it('preserves fractional output for downstream projections', () => {
+    expect(deriveVisitToClosePct(0.5, 12.5)).toBe(0.0625);
+  });
+
+  it('does not round 30 * 33 / 100 = 9.9', () => {
+    expect(deriveVisitToClosePct(30, 33)).toBe(9.9);
   });
 
   it('100 * 100 / 100 = 100 (cap)', () => {

@@ -12,7 +12,7 @@ export type OptimizationGoal = 'signups' | 'booked_meetings' | 'sales';
 
 /**
  * Self-serve close rate DERIVED from the two sub-rates:
- *   round(visitToSignupPct * signupToPaidClientPct / 100).
+ *   visitToSignupPct * signupToPaidClientPct / 100.
  * Kept on the wire so the revenue/projection engine (features-service) reads
  * `visitToClosePct` unchanged. Never null, never written directly by a caller.
  */
@@ -20,7 +20,7 @@ export function deriveVisitToClosePct(
   visitToSignupPct: number,
   signupToPaidClientPct: number
 ): number {
-  return Math.round((visitToSignupPct * signupToPaidClientPct) / 100);
+  return (visitToSignupPct * signupToPaidClientPct) / 100;
 }
 
 /**
@@ -50,7 +50,7 @@ export interface SalesEconomicsMetrics {
 }
 
 export interface SavedSalesEconomics extends SalesEconomicsMetrics {
-  // DERIVED on read = round(visitToSignupPct * signupToPaidClientPct / 100).
+  // DERIVED on read = visitToSignupPct * signupToPaidClientPct / 100.
   // Always present (never null); kept for projection consumers.
   visitToClosePct: number;
   // Always present on read; `null` = never set.
@@ -166,9 +166,9 @@ export class SalesEconomicsService {
    * Cross-brand defaults to seed a brand that has saved nothing.
    * GLOBAL — no org/brand WHERE filter: averages over EVERY saved row in the
    * table (per product decision). `lifetimeRevenueUsd` uses the MEDIAN (LTV is
-   * heavy-tailed — one outlier brand skews the mean); the 4 conversion percents
-   * use the MEAN (bounded 0-100, no heavy tail). All 5 returned values are
-   * integers. Empty table → null (nothing to average).
+   * heavy-tailed — one outlier brand skews the mean); the conversion percents
+   * use the MEAN as decimal percentages (bounded 0-100, no heavy tail). Empty
+   * table → null (nothing to average).
    *
    * Does NOT touch getByBrandId — the per-brand read still returns null for an
    * unset brand, so features-service's null-pipeline contract stays intact.
@@ -177,11 +177,11 @@ export class SalesEconomicsService {
     const [row] = await db
       .select({
         lifetimeRevenueUsd: sql<number | null>`ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${brandSalesEconomics.lifetimeRevenueUsd}))::int`,
-        replyToMeetingPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.replyToMeetingPct}))::int`,
-        visitToMeetingPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToMeetingPct}))::int`,
-        meetingToClosePct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.meetingToClosePct}))::int`,
-        visitToSignupPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToSignupPct}))::int`,
-        signupToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.signupToPaidClientPct}))::int`,
+        replyToMeetingPct: sql<number | null>`AVG(${brandSalesEconomics.replyToMeetingPct})::double precision`,
+        visitToMeetingPct: sql<number | null>`AVG(${brandSalesEconomics.visitToMeetingPct})::double precision`,
+        meetingToClosePct: sql<number | null>`AVG(${brandSalesEconomics.meetingToClosePct})::double precision`,
+        visitToSignupPct: sql<number | null>`AVG(${brandSalesEconomics.visitToSignupPct})::double precision`,
+        signupToPaidClientPct: sql<number | null>`AVG(${brandSalesEconomics.signupToPaidClientPct})::double precision`,
       })
       .from(brandSalesEconomics);
 

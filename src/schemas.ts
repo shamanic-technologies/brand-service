@@ -1676,16 +1676,18 @@ registry.registerPath({
 // are consumed byte-stable by api-service + the dashboard — do NOT rename.
 // The self-serve close step is split into two sub-rates: visit→signup and
 // signup→paid client. `visitToClosePct` is NOT written here — it is DERIVED on
-// the response (round(visitToSignupPct * signupToPaidClientPct / 100)).
+// the response (visitToSignupPct * signupToPaidClientPct / 100).
 // No `.coerce`, no `.default()`: a missing/invalid field fails loud (400).
+const SalesEconomicsPercentSchema = z.number().min(0).max(100);
+
 export const SalesEconomicsMetricsSchema = z
   .object({
     lifetimeRevenueUsd: z.number().int().min(0),
-    replyToMeetingPct: z.number().int().min(0).max(100),
-    visitToMeetingPct: z.number().int().min(0).max(100),
-    meetingToClosePct: z.number().int().min(0).max(100),
-    visitToSignupPct: z.number().int().min(0).max(100),
-    signupToPaidClientPct: z.number().int().min(0).max(100),
+    replyToMeetingPct: SalesEconomicsPercentSchema,
+    visitToMeetingPct: SalesEconomicsPercentSchema,
+    meetingToClosePct: SalesEconomicsPercentSchema,
+    visitToSignupPct: SalesEconomicsPercentSchema,
+    signupToPaidClientPct: SalesEconomicsPercentSchema,
   })
   .openapi('SalesEconomicsMetrics');
 
@@ -1724,10 +1726,10 @@ export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.ext
 // nullable, and OAS 3.0 cannot attach `nullable` to a bare `$ref`. Inlining
 // lets `.nullable()` render correctly on the READ side.
 export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
-  // DERIVED = round(visitToSignupPct * signupToPaidClientPct / 100). Always
+  // DERIVED = visitToSignupPct * signupToPaidClientPct / 100. Always
   // present on read (never null); kept on the wire for projection consumers
   // (features-service) that still read visitToClosePct unchanged.
-  visitToClosePct: z.number().int().min(0).max(100),
+  visitToClosePct: SalesEconomicsPercentSchema,
   // Always present on read; `null` = never set.
   businessModel: BusinessModelSchema.nullable(),
   // Always an array on read; `[]` = never set (never null).
@@ -1762,13 +1764,13 @@ export const SalesEconomicsEffectiveResponseSchema = z
     economics: z
       .object({
         lifetimeRevenueUsd: z.number().int().min(0),
-        replyToMeetingPct: z.number().int().min(0).max(100),
-        visitToMeetingPct: z.number().int().min(0).max(100),
-        meetingToClosePct: z.number().int().min(0).max(100),
-        visitToSignupPct: z.number().int().min(0).max(100),
-        signupToPaidClientPct: z.number().int().min(0).max(100),
-        // DERIVED = round(visitToSignupPct * signupToPaidClientPct / 100).
-        visitToClosePct: z.number().int().min(0).max(100),
+        replyToMeetingPct: SalesEconomicsPercentSchema,
+        visitToMeetingPct: SalesEconomicsPercentSchema,
+        meetingToClosePct: SalesEconomicsPercentSchema,
+        visitToSignupPct: SalesEconomicsPercentSchema,
+        signupToPaidClientPct: SalesEconomicsPercentSchema,
+        // DERIVED = visitToSignupPct * signupToPaidClientPct / 100.
+        visitToClosePct: SalesEconomicsPercentSchema,
       })
       .nullable(),
     source: z.enum(['user', 'cross-brand-average']).nullable(),
@@ -1782,7 +1784,7 @@ registry.registerPath({
   description:
     'Returns the saved economics for the brand (conversion metrics incl. the two self-serve sub-rates ' +
     '`visitToSignupPct` + `signupToPaidClientPct`, plus the DERIVED `visitToClosePct` = ' +
-    'round(visitToSignupPct * signupToPaidClientPct / 100), + `businessModel` + ' +
+    'visitToSignupPct * signupToPaidClientPct / 100, + `businessModel` + ' +
     '`funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved ' +
     'yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array ' +
     '(`[]` when never set), `optimizationGoal` always a value (`"sales"` when never set). Unset is NOT ' +
@@ -1830,8 +1832,8 @@ registry.registerPath({
   description:
     'Idempotent write of the full metric set. Required: `lifetimeRevenueUsd`, `replyToMeetingPct`, ' +
     '`visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (all ' +
-    'integers; percents 0..100). `visitToClosePct` is NOT accepted on the request — it is DERIVED on ' +
-    'the response = round(visitToSignupPct * signupToPaidClientPct / 100); any `visitToClosePct` sent ' +
+    'numeric percents 0..100; decimal values like 0.5 are accepted). `visitToClosePct` is NOT accepted on the request — it is DERIVED on ' +
+    'the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent ' +
     'is ignored. Optional `businessModel` ' +
     '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array ' +
     'of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, ' +
