@@ -39,13 +39,27 @@ function percentileCont(sorted: number[], p: number): number {
 }
 const round4 = (n: number) => Number(n.toFixed(4));
 const mean = (vals: number[]) => round4(vals.reduce((a, b) => a + b, 0) / vals.length);
+// The service rounds the median via SQL `ROUND(PERCENTILE_CONT(0.5) ...)::int`,
+// and Postgres `ROUND(double precision)` rounds HALF-TO-EVEN (banker's). JS
+// `Math.round` rounds half-UP, so the two diverge by 1 whenever the median lands
+// exactly on .5 (an even-sized contributor set with consecutive middle LTVs —
+// which the global cross-brand set can hit depending on what else is saved).
+// Mirror Postgres here so the exact-equality check stays correct regardless of
+// the live row set.
+function roundHalfToEven(n: number): number {
+  const floor = Math.floor(n);
+  const frac = n - floor;
+  if (frac < 0.5) return floor;
+  if (frac > 0.5) return floor + 1;
+  return floor % 2 === 0 ? floor : floor + 1;
+}
 
 function expectedFrom(rows: Row[]) {
   const ltvSorted = rows.map((r) => r.lifetimeRevenueUsd).sort((a, b) => a - b);
   const visitToSignupPct = mean(rows.map((r) => r.visitToSignupPct));
   const signupToPaidClientPct = mean(rows.map((r) => r.signupToPaidClientPct));
   return {
-    lifetimeRevenueUsd: Math.round(percentileCont(ltvSorted, 0.5)),
+    lifetimeRevenueUsd: roundHalfToEven(percentileCont(ltvSorted, 0.5)),
     replyToMeetingPct: mean(rows.map((r) => r.replyToMeetingPct)),
     visitToMeetingPct: mean(rows.map((r) => r.visitToMeetingPct)),
     meetingToClosePct: mean(rows.map((r) => r.meetingToClosePct)),
