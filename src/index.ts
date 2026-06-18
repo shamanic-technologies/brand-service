@@ -14,6 +14,7 @@ import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalR
 import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from './routes/transfer.routes';
 import { orgRouter as salesEconomicsOrgRoutes, internalRouter as salesEconomicsInternalRoutes } from './routes/sales-economics.routes';
 import { orgRouter as personasOrgRoutes } from './routes/personas.routes';
+import { orgRouter as icpOrgRoutes } from './routes/icp.routes';
 import { orgRouter as brandProfileOrgRoutes } from './routes/brand-profile.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from './routes/brand-goal.routes';
 
@@ -90,6 +91,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, salesEconomicsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, personasOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, icpOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
