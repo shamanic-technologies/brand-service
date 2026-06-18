@@ -166,6 +166,7 @@ async function fillBrandName(brandId: string, caller: Caller): Promise<string> {
     brandId,
     fields: [{ key: BRAND_NAME_FIELD_KEY, description: BRAND_NAME_FIELD_DESCRIPTION }],
     caller,
+    urlStrategy: 'landing',
   });
 
   const raw = results[0]?.value;

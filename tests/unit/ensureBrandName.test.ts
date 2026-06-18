@@ -143,6 +143,7 @@ describe('ensureBrandName', () => {
         fields: [
           expect.objectContaining({ key: 'name' }),
         ],
+        urlStrategy: 'landing',
       }),
     );
     expect(updateSetMock).toHaveBeenCalledWith(
@@ -173,6 +174,7 @@ describe('ensureBrandName', () => {
       expect.objectContaining({
         brandId: 'brand-2b',
         caller: orgCaller,
+        urlStrategy: 'landing',
       }),
     );
   });

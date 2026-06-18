@@ -8,7 +8,7 @@
 
 import crypto from 'crypto';
 import { eq, gt, sql, and } from 'drizzle-orm';
-import { extractFields, getBrand, FieldSpec, ExtractedFieldResult } from './fieldExtractionService';
+import { extractFields, getBrand, FieldSpec, ExtractedFieldResult, UrlStrategy } from './fieldExtractionService';
 import { chat, Caller, OrgCaller, PlatformCaller } from '../lib/chat-client';
 import { db, consolidatedFieldCache } from '../db';
 
@@ -31,6 +31,7 @@ export interface MultiBrandExtractFieldsOptions {
   caller: Caller;
   scrapeCacheTtlDays?: number;
   resetCache?: boolean;
+  urlStrategy?: UrlStrategy;
 }
 
 export interface BrandMeta {
@@ -178,7 +179,7 @@ async function consolidateFields(
 export async function multiBrandExtractFields(
   options: MultiBrandExtractFieldsOptions,
 ): Promise<MultiBrandFieldsResponse> {
-  const { brandIds, fields, caller, scrapeCacheTtlDays, resetCache } = options;
+  const { brandIds, fields, caller, scrapeCacheTtlDays, resetCache, urlStrategy } = options;
 
   // Look up all brands first to validate and get domains
   const brandLookups = await Promise.all(brandIds.map((id) => getBrand(id)));
@@ -218,6 +219,7 @@ export async function multiBrandExtractFields(
         caller,
         scrapeCacheTtlDays,
         resetCache,
+        urlStrategy,
       }),
     ),
   );
