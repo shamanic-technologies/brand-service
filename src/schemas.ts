@@ -2181,6 +2181,54 @@ registry.registerPath({
   },
 });
 
+// ── ICP suggestion ───────────────────────────────────────────
+// SUGGEST-ICP body. `existingIcps` optional — ICPs already found. When present,
+// the returned ICP must be DISTINCT from / complementary to all of them. No
+// `.default()`: omitted → treated as `[]` in the handler, per fail-loud.
+export const SuggestIcpRequestSchema = z
+  .object({
+    existingIcps: z.array(z.string().min(1)).optional(),
+  })
+  .openapi('SuggestIcpRequest');
+
+// Response: one short, plain-language ICP line. NOT persisted.
+export const SuggestIcpResponseSchema = z
+  .object({ icp: z.string() })
+  .openapi('SuggestIcpResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/icp/suggest',
+  summary: 'Suggest one natural-language ICP for a brand (no persistence)',
+  description:
+    "Uses an LLM to write ONE short, plain-language description of the brand's " +
+    'PRINCIPAL ideal customer profile (ICP) — the single most important customer ' +
+    "segment to target — seeded from the brand's current brand-profile fields plus " +
+    'effective sales economics (when present). The result is a single one-line string ' +
+    '(~100 chars, everyday language, light scale abbreviations like "M"/"$"/"<" allowed, ' +
+    'no jargon acronyms). Optional body `existingIcps` lists ICPs already found; when ' +
+    'present the returned ICP is DISTINCT from and complementary to all of them ("given ' +
+    'these, find another"). PURE GENERATION — nothing is persisted. Cost + affordability ' +
+    'are owned by chat-service (the terminal LLM caller): it declares the actual token ' +
+    'cost on the child run and 402s on insufficient credit, which propagates here. ' +
+    'Generation failure fails loud (502 / 422) — never returns a fabricated ICP. The ' +
+    "brand must belong to the caller's org (x-org-id).",
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: SuggestIcpRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Suggested ICP', content: { 'application/json': { schema: SuggestIcpResponseSchema } } },
+    400: { description: 'Invalid brand ID format or invalid body' },
+    402: { description: 'Insufficient credits' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    422: { description: 'Brand profile is empty — nothing to seed generation from' },
+    502: { description: 'LLM generation failed' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 // ============================================================
 // Brand Profile (per-brand, versioned, immutable)
 // ============================================================
