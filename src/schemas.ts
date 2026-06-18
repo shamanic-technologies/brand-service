@@ -2181,6 +2181,46 @@ registry.registerPath({
   },
 });
 
+// ── Internal cross-cutting persona read (audience backfill) ──────
+// A persona stamped with its owning org. Exactly 6 fields (no avatarUrl/
+// createdAt) — the locked contract the human-service backfill caller consumes.
+// `orgId` = the earliest org_brands claim for the persona's brand.
+export const InternalPersonaSchema = z
+  .object({
+    id: z.string(),
+    orgId: z.string(),
+    brandId: z.string(),
+    name: z.string(),
+    filters: PersonaFiltersSchema,
+    status: PersonaStatusSchema,
+  })
+  .openapi('InternalPersona');
+
+export const InternalPersonasResponseSchema = z
+  .object({ personas: z.array(InternalPersonaSchema) })
+  .openapi('InternalPersonasResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/personas',
+  summary: 'List EVERY persona across all brands/orgs (internal)',
+  description:
+    'Cross-cutting internal read of every brand persona, each stamped with its ' +
+    'owning org. Org resolution: the EARLIEST org_brands claim (min claimed_at, ' +
+    'tie-broken by org_id) for the persona\'s brand — exactly one org per persona. ' +
+    '`filters` is returned verbatim (jsonb passthrough). Api-key only (X-API-Key); ' +
+    'NO org context. Read-only — no persona row is created/modified/deleted. Feeds ' +
+    'the human-service one-time audience backfill. Fails loud with 502 if any ' +
+    'persona\'s brand has no org_brands claim (no fabricated org, no silent omission).',
+  responses: {
+    200: { description: 'All personas with resolved owning org', content: { 'application/json': { schema: InternalPersonasResponseSchema } } },
+    401: { description: 'Missing API key' },
+    403: { description: 'Invalid API key' },
+    502: { description: 'A persona has an orphan brand (no org_brands claim) — org cannot be resolved' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 // ── ICP suggestion ───────────────────────────────────────────
 // SUGGEST-ICP body. `existingIcps` optional — ICPs already found. When present,
 // the returned ICP must be DISTINCT from / complementary to all of them. No

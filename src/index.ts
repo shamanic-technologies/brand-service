@@ -13,7 +13,7 @@ import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInt
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from './routes/public-information.routes';
 import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from './routes/transfer.routes';
 import { orgRouter as salesEconomicsOrgRoutes, internalRouter as salesEconomicsInternalRoutes } from './routes/sales-economics.routes';
-import { orgRouter as personasOrgRoutes } from './routes/personas.routes';
+import { orgRouter as personasOrgRoutes, internalRouter as personasInternalRoutes } from './routes/personas.routes';
 import { orgRouter as icpOrgRoutes } from './routes/icp.routes';
 import { orgRouter as brandProfileOrgRoutes } from './routes/brand-profile.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from './routes/brand-goal.routes';
@@ -81,6 +81,7 @@ app.use('/internal', apiKeyAuth, thesisRoutes);
 app.use('/internal/users', apiKeyAuth, usersRoutes);
 app.use('/internal', apiKeyAuth, salesEconomicsInternalRoutes);
 app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
+app.use('/internal', apiKeyAuth, personasInternalRoutes);
 
 // ── Org-scoped routes (API key + x-org-id required) ─────────────
 
