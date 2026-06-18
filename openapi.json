@@ -1776,6 +1776,57 @@
           }
         }
       },
+      "InternalPersonasResponse": {
+        "type": "object",
+        "properties": {
+          "personas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InternalPersona"
+            }
+          }
+        },
+        "required": [
+          "personas"
+        ]
+      },
+      "InternalPersona": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": "string"
+          },
+          "brandId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/PersonaStatus"
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "brandId",
+          "name",
+          "filters",
+          "status"
+        ]
+      },
       "SuggestIcpResponse": {
         "type": "object",
         "properties": {
@@ -4494,6 +4545,36 @@
           },
           "502": {
             "description": "Credit authorization or LLM generation failed"
+          }
+        }
+      }
+    },
+    "/internal/personas": {
+      "get": {
+        "summary": "List EVERY persona across all brands/orgs (internal)",
+        "description": "Cross-cutting internal read of every brand persona, each stamped with its owning org. Org resolution: the EARLIEST org_brands claim (min claimed_at, tie-broken by org_id) for the persona's brand — exactly one org per persona. `filters` is returned verbatim (jsonb passthrough). Api-key only (X-API-Key); NO org context. Read-only — no persona row is created/modified/deleted. Feeds the human-service one-time audience backfill. Fails loud with 502 if any persona's brand has no org_brands claim (no fabricated org, no silent omission).",
+        "responses": {
+          "200": {
+            "description": "All personas with resolved owning org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalPersonasResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing API key"
+          },
+          "403": {
+            "description": "Invalid API key"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "502": {
+            "description": "A persona has an orphan brand (no org_brands claim) — org cannot be resolved"
           }
         }
       }

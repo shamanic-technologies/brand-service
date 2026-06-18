@@ -123,6 +123,12 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | GET | `/internal/brands/:brandId/extracted-images` | List extracted images (optional `?campaignId=`) |
 | GET | `/internal/brands/:brandId/sales-economics` | Internal api-key read of a brand's SAVED economics incl. `optimizationGoal` (the brand's current optimization goal). Keyed by brandId, NO org context — built for campaign-service to read the goal per per-lead loop. Returns the brand's OWN saved set (not the cross-brand-average effective one), or `{ salesEconomics: null }` when unset. Unset/unknown brand → null, not 404. |
 
+#### Personas
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/internal/personas` | Cross-cutting read of EVERY persona across all brands/orgs: `{ personas: [{ id, orgId, brandId, name, filters, status }] }`. `orgId` = the EARLIEST `org_brands` claim (min `claimed_at`, tie-broken by `org_id`) for the persona's brand. `filters` verbatim jsonb. NO org context. Read-only. Feeds the human-service audience backfill. 502 if any persona's brand has no `org_brands` claim (fail loud — no fabricated org). |
+
 #### Organizations
 
 | Method | Path | Description |

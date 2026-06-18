@@ -10,6 +10,7 @@ import {
   personaService,
   PersonaNameConflictError,
   PersonaNotFoundError,
+  OrphanPersonaError,
 } from '../services/personaService';
 import {
   suggestPersonas,
@@ -22,6 +23,28 @@ import {
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 
 export const orgRouter = Router();
+export const internalRouter = Router();
+
+/**
+ * GET /internal/personas
+ * Cross-cutting internal read of EVERY persona across all brands/orgs, each
+ * stamped with its owning org (earliest org_brands claim). Api-key only, NO org
+ * context — feeds the human-service one-time audience backfill. Read-only.
+ * Fails loud with 502 if any persona's brand has no org_brands claim (no
+ * fabricated org, no silent omission).
+ */
+internalRouter.get('/personas', async (_req: Request, res: Response) => {
+  try {
+    const personas = await personaService.listAllWithResolvedOrg();
+    return res.status(200).json({ personas });
+  } catch (error: any) {
+    if (error instanceof OrphanPersonaError) {
+      return res.status(502).json({ error: error.message, personaIds: error.personaIds });
+    }
+    console.error('[brand-service] Internal list personas error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
 
 /**
  * GET /orgs/brands/:brandId/personas?status=active|paused|archived
