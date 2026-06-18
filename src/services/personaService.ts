@@ -1,5 +1,5 @@
-import { eq, and, sql, desc } from 'drizzle-orm';
-import { db, brandPersonas } from '../db';
+import { eq, and, sql, desc, asc } from 'drizzle-orm';
+import { db, brandPersonas, orgBrands } from '../db';
 
 export type PersonaStatus = 'active' | 'paused' | 'archived';
 
@@ -11,6 +11,20 @@ export interface Persona {
   status: PersonaStatus;
   avatarUrl: string | null;
   createdAt: string;
+}
+
+/**
+ * Cross-cutting persona shape for the internal enumeration endpoint: the persona
+ * stamped with its owning org (resolved from org_brands). No avatar/createdAt —
+ * the locked contract carries exactly these 6 fields.
+ */
+export interface InternalPersona {
+  id: string;
+  orgId: string;
+  brandId: string;
+  name: string;
+  filters: Record<string, string[]>;
+  status: PersonaStatus;
 }
 
 type PersonaRow = typeof brandPersonas.$inferSelect;
@@ -49,6 +63,21 @@ export class PersonaNotFoundError extends Error {
 }
 
 /**
+ * Raised by `listAllWithResolvedOrg` when one or more personas belong to a brand
+ * with zero org_brands rows, so no owning org can be resolved. Fail loud (502) —
+ * never fabricate an org and never silently omit (the backfill must see every
+ * persona). Prod has zero orphans today; this guards against silent under-report.
+ */
+export class OrphanPersonaError extends Error {
+  constructor(public readonly personaIds: string[]) {
+    super(
+      `Cannot resolve an owning org for ${personaIds.length} persona(s) whose brand has no org_brands claim: ${personaIds.join(', ')}`
+    );
+    this.name = 'OrphanPersonaError';
+  }
+}
+
+/**
  * Append " (copy)", " (copy 2)", … to `base` until the result is free
  * (case-insensitive) among `taken`. Pure — unit-tested in isolation.
  */
@@ -79,6 +108,50 @@ export class PersonaService {
       .orderBy(desc(brandPersonas.createdAt));
 
     return rows.map(formatPersona);
+  }
+
+  /**
+   * EVERY persona across ALL brands/orgs, each stamped with its owning org.
+   * Org resolution: the EARLIEST org_brands claim for the persona's brand
+   * (min claimed_at, tie-broken by org_id asc for determinism). A persona whose
+   * brand has no org_brands row cannot be resolved → throws OrphanPersonaError
+   * (fail loud). Read-only.
+   */
+  async listAllWithResolvedOrg(): Promise<InternalPersona[]> {
+    // Earliest claim per brand: DISTINCT ON keeps the first row per brand_id
+    // under the (brand_id, claimed_at asc, org_id asc) ordering.
+    const earliest = db
+      .selectDistinctOn([orgBrands.brandId], {
+        brandId: orgBrands.brandId,
+        orgId: orgBrands.orgId,
+      })
+      .from(orgBrands)
+      .orderBy(orgBrands.brandId, asc(orgBrands.claimedAt), asc(orgBrands.orgId))
+      .as('earliest');
+
+    const rows = await db
+      .select({
+        id: brandPersonas.id,
+        brandId: brandPersonas.brandId,
+        name: brandPersonas.name,
+        filters: brandPersonas.filters,
+        status: brandPersonas.status,
+        orgId: earliest.orgId,
+      })
+      .from(brandPersonas)
+      .leftJoin(earliest, eq(earliest.brandId, brandPersonas.brandId));
+
+    const orphans = rows.filter((r) => r.orgId == null).map((r) => r.id);
+    if (orphans.length > 0) throw new OrphanPersonaError(orphans);
+
+    return rows.map((r) => ({
+      id: r.id,
+      orgId: r.orgId as string,
+      brandId: r.brandId,
+      name: r.name,
+      filters: r.filters,
+      status: r.status as PersonaStatus,
+    }));
   }
 
   /** Every persona name for a brand (all statuses) — used for uniqueness checks. */
