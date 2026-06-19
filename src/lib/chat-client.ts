@@ -20,7 +20,7 @@ export interface ChatParams {
   /** LLM provider — 'google' (Gemini) or 'anthropic' (Claude). */
   provider: 'google' | 'anthropic';
   /** Model tier — chat-service resolves the versioned model internally. */
-  model: 'flash' | 'flash-lite' | 'pro' | 'sonnet' | 'haiku' | 'opus';
+  model: 'flash' | 'flash-lite' | 'flash-pro' | 'pro' | 'sonnet' | 'haiku' | 'opus';
   responseFormat?: 'json';
   temperature?: number;
   maxTokens?: number;

@@ -22,11 +22,24 @@
  * chat-service error all throw — there is NO fallback to a fabricated/default ICP.
  */
 
+import { and, eq, isNull } from 'drizzle-orm';
 import { chat } from '../lib/chat-client';
 import type { OrgCaller } from '../lib/chat-client';
 import { createRun, updateRun } from '../lib/runs-client';
+import { db, brandExtractedFields } from '../db';
 import { brandProfileService } from './brandProfileService';
 import { salesEconomicsService } from './salesEconomicsService';
+
+/**
+ * Extracted-field keys that describe the brand's TARGET AUDIENCE. These are
+ * deliberately EXCLUDED from the derived brand profile (audience lives in
+ * personas — see brandProfileService.EXCLUDED_FIELD_KEYS), but they are the two
+ * most ICP-relevant signals the brand has, so the ICP suggester reads them
+ * directly from the raw extracted fields and re-injects them into the LLM
+ * context. The global exclusion is left untouched.
+ */
+const AUDIENCE_FIELD_KEYS = ['targetAudience', 'customerPainPoints'] as const;
+type AudienceSignals = Partial<Record<(typeof AUDIENCE_FIELD_KEYS)[number], string | string[]>>;
 
 /**
  * Raised when the brand has no profile content to seed generation from. The
@@ -41,10 +54,19 @@ export class IcpSuggestionUnavailableError extends Error {
 }
 
 const SYSTEM_PROMPT = [
-  'You are a B2B go-to-market strategist. Given a brand profile (and its sales',
-  "economics when present), write ONE short, natural-language description of the",
-  "brand's PRINCIPAL ideal customer profile (ICP) — the single most important",
-  'customer segment the brand should target for outbound.',
+  "You are a B2B go-to-market strategist defining a brand's Ideal Customer",
+  'Profile (ICP). An ICP describes the BEST-FIT customer segment — the accounts',
+  'that get the most value from the brand, are cheapest to win, and stay longest',
+  '— NOT a generic audience.',
+  '',
+  'Given the brand profile, its target-audience signals, and its sales economics',
+  '(when present), identify the single PRINCIPAL ICP. Reason across these',
+  'dimensions, then compress to ONE line keeping only the traits that actually',
+  'pinpoint the segment:',
+  '- WHO they are: industry/vertical, company size or maturity stage, geography',
+  '- WHAT pain or trigger makes them buy NOW (the specific problem this brand',
+  '  solves)',
+  "- WHY they're best-fit: the trait that predicts high value + retention",
   '',
   'Hard rules for the description:',
   '- ONE line. Aim for ~100 characters. Never more than one sentence, never a',
@@ -62,11 +84,47 @@ const SYSTEM_PROMPT = [
   'Return ONLY valid JSON of the exact form: { "icp": string }',
 ].join('\n');
 
+/**
+ * Read the brand's target-audience signals (targetAudience, customerPainPoints)
+ * straight from the raw extracted fields. These are excluded from the derived
+ * brand profile but are highly ICP-relevant, so the suggester injects them
+ * explicitly. Org-level rows only (campaignId NULL), matching the virtual-v1
+ * profile derivation.
+ */
+async function getAudienceSignals(brandId: string): Promise<AudienceSignals> {
+  const rows = await db
+    .select({ fieldKey: brandExtractedFields.fieldKey, fieldValue: brandExtractedFields.fieldValue })
+    .from(brandExtractedFields)
+    .where(and(eq(brandExtractedFields.brandId, brandId), isNull(brandExtractedFields.campaignId)));
+
+  const signals: AudienceSignals = {};
+  for (const { fieldKey, fieldValue } of rows) {
+    if (!(AUDIENCE_FIELD_KEYS as readonly string[]).includes(fieldKey)) continue;
+    if (typeof fieldValue === 'string') {
+      if (fieldValue.trim().length === 0) continue;
+      signals[fieldKey as keyof AudienceSignals] = fieldValue;
+    } else if (Array.isArray(fieldValue)) {
+      const items = fieldValue
+        .filter((v) => v !== null && v !== undefined)
+        .map((v) => String(v))
+        .filter((v) => v.trim().length > 0);
+      if (items.length > 0) signals[fieldKey as keyof AudienceSignals] = items;
+    }
+  }
+  return signals;
+}
+
 function buildMessage(
   profileFields: Record<string, string | string[]>,
+  audienceSignals: AudienceSignals,
   economics: { economics: unknown; source: string | null },
   existingIcps: string[],
 ): string {
+  const audienceBlock =
+    Object.keys(audienceSignals).length === 0
+      ? 'No explicit target-audience signals on record.'
+      : `Target-audience signals (from the brand's own extracted data):\n${JSON.stringify(audienceSignals, null, 2)}`;
+
   const economicsBlock =
     economics.economics === null
       ? 'No sales economics on record.'
@@ -84,6 +142,8 @@ function buildMessage(
   return [
     'Brand profile:',
     JSON.stringify(profileFields, null, 2),
+    '',
+    audienceBlock,
     '',
     economicsBlock,
     '',
@@ -138,6 +198,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
       `[brand-service] Cannot suggest an ICP for brand ${brandId}: brand profile is empty`,
     );
   }
+  const audienceSignals = await getAudienceSignals(brandId);
   const economics = await salesEconomicsService.getEffectiveByBrandId(brandId);
 
   // 2. Create a brand-service run as a child of the caller's run.
@@ -171,13 +232,16 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
     const result = await chat(
       {
         systemPrompt: SYSTEM_PROMPT,
-        message: buildMessage(profileFields, economics, existingIcps),
+        message: buildMessage(profileFields, audienceSignals, economics, existingIcps),
         provider: 'google',
-        model: 'flash',
+        // flash-pro (Gemini 3.5 Flash, mid-tier) — stronger segmentation
+        // reasoning than flash for sharper ICP relevance.
+        model: 'flash-pro',
         responseFormat: 'json',
-        // Higher temperature so a follow-up call (with existingIcps) explores a
-        // genuinely different segment rather than restating the principal one.
-        temperature: 0.8,
+        // Low temperature for precise, deterministic segment selection. The
+        // "DISTINCT from existingIcps" instruction (not sampling noise) drives a
+        // complementary segment on follow-up calls.
+        temperature: 0.1,
         maxTokens: 512,
       },
       chatCaller,
