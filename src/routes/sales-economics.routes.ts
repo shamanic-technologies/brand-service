@@ -139,7 +139,7 @@ orgRouter.put('/brands/:brandId/sales-economics', async (req: Request, res: Resp
  * Internal api-key read of a brand's SAVED economics — incl. `optimizationGoal`,
  * the brand's current optimization goal. Keyed by brandId, NO org context:
  * campaign-service (a scheduler running as a service) calls this once per loop
- * to read the goal that drives per-lead workflow + persona selection.
+ * to read the goal that drives per-lead workflow selection.
  *
  * Returns the brand's OWN saved set (not the cross-brand-average effective one —
  * a brand's goal must be the brand's, never an average). `{ salesEconomics: null }`

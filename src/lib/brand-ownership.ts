@@ -4,7 +4,7 @@ import { db, brands, orgBrands } from '../db';
 
 /**
  * Shared org-ownership enforcement for brand-scoped /orgs routes.
- * Mirrors the logic that originated in sales-economics.routes.ts so persona +
+ * Mirrors the logic that originated in sales-economics.routes.ts so ICP +
  * brand-profile routes enforce the exact same 400/404/403 semantics.
  */
 

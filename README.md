@@ -98,11 +98,6 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | PUT | `/orgs/brands/:brandId/sales-economics` | Upsert required metrics: `lifetimeRevenueUsd` (whole dollars), plus decimal percent fields `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (`visitToClosePct` NOT accepted — derived on response, any sent is ignored). Optional `businessModel` (`b2c`\|`b2b`, omit = unchanged, `null` = clear), `funnelStages` (array of `website_purchase`\|`sales_meeting`, omit = unchanged, send incl. `[]` = set), `optimizationGoal` (`signups`\|`booked_meetings`\|`sales`, omit = unchanged, send = set). Invalid enum → 400. Idempotent; non-null response |
 | PUT | `/orgs/brands/:brandId/current-goal` | Update the brand-owned current runtime goal (`currentGoal: signup\|meetingBooked\|purchase`) without editing campaigns. This is the canonical goal vocabulary campaign-service passes to features-service runtime candidate selection. The older sales-economics `optimizationGoal` remains a backward-compatible alias. |
 | GET | `/orgs/brands/:brandId/sales-economics-effective` | Effective economics to use for a brand: saved set (`source: "user"`) or cross-brand average (`source: "cross-brand-average"`, LTV = median, percents = mean, `visitToClosePct` derived from averaged sub-rates), or `{ economics: null, source: null }` at cold start. `{ economics, source }` |
-| GET | `/orgs/brands/:brandId/personas` | List a brand's customer personas (newest first), optional `?status=active\|paused\|archived` filter. `{ personas: Persona[] }`. Persona = `{ id, brandId, name, filters: Record<string,string[]>, status, createdAt }` |
-| POST | `/orgs/brands/:brandId/personas` | Create an immutable persona (`{ name, filters }`); status starts `active`. Name UNIQUE per brand, case-insensitive, across ALL statuses → 409 on duplicate. `201 { persona }` |
-| POST | `/orgs/brands/:brandId/personas/:personaId/duplicate` | Copy a persona's filters under a new name (`{ name? }`, auto-uniquified when omitted/taken). `201 { persona }` |
-| PATCH | `/orgs/brands/:brandId/personas/:personaId/status` | Flip persona status (`{ status: active\|paused\|archived }`) — only mutable field; archived never deleted. `200 { persona }` |
-| POST | `/orgs/brands/:brandId/personas/suggest` | LLM-generate `count` (`{ count? }`, default 3, 1–10) persona drafts seeded from the brand profile + effective sales economics. PURE GENERATION — persists nothing. Filters restricted to the persona vocabulary (`industry, employeeRange, revenueRange, location, jobTitles, seniority, department, keywords, technologies, fundingStage`); other keys stripped. Org credit-authorized upfront (402 insufficient). Fail-loud: 422 empty profile, 502 generation/billing failure — never fabricated personas. `200 { personas: Array<{ name, filters }> }` |
 | POST | `/orgs/brands/:brandId/icp/suggest` | LLM-write ONE short, plain-language ICP line (~100 chars, no jargon acronyms) for the brand, seeded from the brand profile + effective sales economics. Optional `{ existingIcps?: string[] }` → returns a DISTINCT, complementary ICP (given those already found, propose another). PURE GENERATION — persists nothing. Cost + affordability owned by chat-service (402 insufficient, propagated). Fail-loud: 422 empty profile, 502 generation failure — never a fabricated ICP. `200 { icp }` |
 | GET | `/orgs/brands/:brandId/brand-profile` | Brand profile: `{ current, versions[] }`. `current` = latest saved version, or a DERIVED virtual v1 (from extracted fields, audience keys excluded; not persisted) when none saved. `versions` = saved summaries `{ id, version, createdAt }` newest-first |
 | POST | `/orgs/brands/:brandId/brand-profile` | Save a new IMMUTABLE version (`{ fields: Record<string,string\|string[]> }`); v1 → v2 → …, prior versions unchanged. `201 { version }` |
@@ -122,12 +117,6 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | GET | `/internal/brands/:brandId/extracted-fields` | List extracted fields (optional `?campaignId=`) |
 | GET | `/internal/brands/:brandId/extracted-images` | List extracted images (optional `?campaignId=`) |
 | GET | `/internal/brands/:brandId/sales-economics` | Internal api-key read of a brand's SAVED economics incl. `optimizationGoal` (the brand's current optimization goal). Keyed by brandId, NO org context — built for campaign-service to read the goal per per-lead loop. Returns the brand's OWN saved set (not the cross-brand-average effective one), or `{ salesEconomics: null }` when unset. Unset/unknown brand → null, not 404. |
-
-#### Personas
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/internal/personas` | Cross-cutting read of EVERY persona across all brands/orgs: `{ personas: [{ id, orgId, brandId, name, filters, status }] }`. `orgId` = the EARLIEST `org_brands` claim (min `claimed_at`, tie-broken by `org_id`) for the persona's brand. `filters` verbatim jsonb. NO org context. Read-only. Feeds the human-service audience backfill. 502 if any persona's brand has no `org_brands` claim (fail loud — no fabricated org). |
 
 #### Organizations
 
@@ -228,7 +217,6 @@ Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 - `media_assets`, `supabase_storage`
 - `intake_forms`, `brand_thesis`
 - `brand_sales_economics` — one row per brand: 5 sales conversion-economics metrics (lifetime revenue + 4 funnel rates) + `business_model` (`b2c`/`b2b`, nullable) + `funnel_stages` (jsonb, default `[]`) + legacy `optimization_goal` alias (text, default `sales`), reused across sales campaigns
-- `brand_personas` — per-brand customer personas (`name`, `filters` jsonb, `status` active/paused/archived). Immutable except status; name UNIQUE per brand case-insensitive (functional unique index on `(brand_id, lower(name))`) across all statuses; no hard delete
 - `brand_profile_versions` — per-brand immutable versioned brand profile (`version` int, `fields` jsonb). Unique `(brand_id, version)`; new save = max+1; prior versions never mutated. A brand with no saved version derives a virtual v1 from `brand_extracted_fields` on read
 - `brand_extracted_images` — AI-extracted brand images with categories, R2 URLs, relevance scores
 - `consolidated_field_cache` — DB-backed cache for LLM-consolidated multi-brand field values
