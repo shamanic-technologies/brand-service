@@ -1,41 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 
 // src/db/index.ts throws at import time without a DB url (CI test:unit runs with
-// none). Stub the named exports the services reference so importing the pure
-// helpers doesn't require a DB.
+// none). Stub the named exports the service references so importing the pure
+// helper doesn't require a DB.
 vi.mock('../../src/db', () => ({
   db: {},
-  brandPersonas: {},
   brandProfileVersions: {},
   brandExtractedFields: {},
   brands: {},
 }));
 
-import { uniquifyName } from '../../src/services/personaService';
 import { coerceProfileFields } from '../../src/services/brandProfileService';
-
-describe('uniquifyName', () => {
-  it('returns the base name when free', () => {
-    expect(uniquifyName('Founders', [])).toBe('Founders');
-    expect(uniquifyName('Founders', ['Engineers'])).toBe('Founders');
-  });
-
-  it('appends " (copy)" when the base is taken', () => {
-    expect(uniquifyName('Founders', ['Founders'])).toBe('Founders (copy)');
-  });
-
-  it('increments " (copy N)" until free', () => {
-    expect(uniquifyName('Founders', ['Founders', 'Founders (copy)'])).toBe('Founders (copy 2)');
-    expect(
-      uniquifyName('Founders', ['Founders', 'Founders (copy)', 'Founders (copy 2)'])
-    ).toBe('Founders (copy 3)');
-  });
-
-  it('is case-insensitive', () => {
-    expect(uniquifyName('Founders', ['FOUNDERS'])).toBe('Founders (copy)');
-    expect(uniquifyName('founders', ['Founders', 'FOUNDERS (COPY)'])).toBe('founders (copy 2)');
-  });
-});
 
 describe('coerceProfileFields', () => {
   it('keeps string and string[] values', () => {

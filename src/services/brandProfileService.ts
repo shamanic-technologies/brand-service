@@ -24,8 +24,8 @@ export interface BrandProfileResponse {
 
 /**
  * Extracted-field keys that describe the TARGET AUDIENCE, not the brand's own
- * info — excluded from the derived brand profile because audience lives in
- * personas. Plus `name` (brand identity, not profile content).
+ * info — excluded from the derived brand profile (audience is owned elsewhere).
+ * Plus `name` (brand identity, not profile content).
  * May evolve as the extraction vocabulary grows.
  */
 const EXCLUDED_FIELD_KEYS = new Set(['name', 'targetAudience', 'customerPainPoints']);
