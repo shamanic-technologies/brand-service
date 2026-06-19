@@ -64,6 +64,10 @@ describe('Suggest ICP Endpoint', () => {
     await db.insert(brandExtractedFields).values([
       { brandId, fieldKey: 'companyOverview', fieldValue: 'We sell B2B analytics software' },
       { brandId, fieldKey: 'valueProposition', fieldValue: 'Cut reporting time by 80%' },
+      // Target-audience signals: excluded from the derived brand profile, but the
+      // ICP suggester reads them directly and re-injects them into the LLM context.
+      { brandId, fieldKey: 'targetAudience', fieldValue: ['RevOps leaders at mid-market SaaS'] },
+      { brandId, fieldKey: 'customerPainPoints', fieldValue: ['Manual weekly board reporting'] },
     ]);
   });
 
@@ -87,6 +91,27 @@ describe('Suggest ICP Endpoint', () => {
     expect(typeof res.body.icp).toBe('string');
     expect(res.body.icp.length).toBeGreaterThan(0);
     expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls chat-service with flash-pro at temperature 0.1', async () => {
+    const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
+
+    expect(res.status).toBe(200);
+    const params = mockChat.mock.calls[0][0];
+    expect(params.provider).toBe('google');
+    expect(params.model).toBe('flash-pro');
+    expect(params.temperature).toBe(0.1);
+  });
+
+  it('injects target-audience signals (targetAudience + customerPainPoints) into the prompt', async () => {
+    const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
+
+    expect(res.status).toBe(200);
+    const message = mockChat.mock.calls[0][0].message;
+    // The two ICP-relevant audience signals (excluded from the brand profile)
+    // must reach the model.
+    expect(message).toContain('RevOps leaders at mid-market SaaS');
+    expect(message).toContain('Manual weekly board reporting');
   });
 
   it('passes existingIcps into the prompt and asks for a distinct one', async () => {
