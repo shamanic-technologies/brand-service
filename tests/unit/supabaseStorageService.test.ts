@@ -30,26 +30,26 @@ describe('supabaseStorageService', () => {
   });
 
   it('uploadBufferToSupabase writes a buffer and returns the public URL', async () => {
-    mockUpload.mockResolvedValueOnce({ data: { path: 'persona-avatars/a.png' }, error: null });
+    mockUpload.mockResolvedValueOnce({ data: { path: 'media-assets/a.png' }, error: null });
     mockGetPublicUrl.mockReturnValueOnce({
-      data: { publicUrl: 'https://storage.test/persona-avatars/a.png' },
+      data: { publicUrl: 'https://storage.test/media-assets/a.png' },
     });
 
     const { uploadBufferToSupabase } = await import('../../src/services/supabaseStorageService');
     const result = await uploadBufferToSupabase(
-      'persona-avatars/brand-1/persona-1/v1.png',
+      'media-assets/brand-1/asset-1/v1.png',
       Buffer.from('png-bytes'),
       'image/png',
     );
 
     expect(result).toEqual({
-      url: 'https://storage.test/persona-avatars/a.png',
-      path: 'persona-avatars/brand-1/persona-1/v1.png',
+      url: 'https://storage.test/media-assets/a.png',
+      path: 'media-assets/brand-1/asset-1/v1.png',
       bucket: 'media-assets',
     });
     expect(mockFrom).toHaveBeenCalledWith('media-assets');
     expect(mockUpload).toHaveBeenCalledWith(
-      'persona-avatars/brand-1/persona-1/v1.png',
+      'media-assets/brand-1/asset-1/v1.png',
       Buffer.from('png-bytes'),
       { contentType: 'image/png', upsert: false },
     );
@@ -59,7 +59,7 @@ describe('supabaseStorageService', () => {
     const { uploadBufferToSupabase } = await import('../../src/services/supabaseStorageService');
 
     await expect(
-      uploadBufferToSupabase('persona-avatars/empty.png', Buffer.alloc(0), 'image/png'),
+      uploadBufferToSupabase('media-assets/empty.png', Buffer.alloc(0), 'image/png'),
     ).rejects.toThrow('Cannot upload empty buffer');
     expect(mockUpload).not.toHaveBeenCalled();
   });

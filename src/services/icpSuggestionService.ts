@@ -32,8 +32,8 @@ import { salesEconomicsService } from './salesEconomicsService';
 
 /**
  * Extracted-field keys that describe the brand's TARGET AUDIENCE. These are
- * deliberately EXCLUDED from the derived brand profile (audience lives in
- * personas — see brandProfileService.EXCLUDED_FIELD_KEYS), but they are the two
+ * deliberately EXCLUDED from the derived brand profile (audience is owned
+ * elsewhere — see brandProfileService.EXCLUDED_FIELD_KEYS), but they are the two
  * most ICP-relevant signals the brand has, so the ICP suggester reads them
  * directly from the raw extracted fields and re-injects them into the LLM
  * context. The global exclusion is left untouched.

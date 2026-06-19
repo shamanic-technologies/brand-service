@@ -81,7 +81,7 @@ describe('cloudflare-client', () => {
     mockFetch.mockResolvedValueOnce(
       mockResponse({
         id: 'avatar-file-uuid',
-        url: 'https://cloudflare.distribute.you/persona-avatars/brand-123/persona-456/v1.png',
+        url: 'https://cloudflare.distribute.you/media-assets/brand-123/asset-456/v1.png',
         size: 12000,
         contentType: 'image/png',
       }),
@@ -90,7 +90,7 @@ describe('cloudflare-client', () => {
     const result = await uploadBase64ToCloudflare(
       {
         contentBase64: Buffer.from('png-bytes').toString('base64'),
-        folder: 'persona-avatars/brand-123/persona-456',
+        folder: 'media-assets/brand-123/asset-456',
         filename: 'v1.png',
         contentType: 'image/png',
       },
@@ -103,14 +103,14 @@ describe('cloudflare-client', () => {
     );
 
     expect(result.id).toBe('avatar-file-uuid');
-    expect(result.url).toBe('https://cloudflare.distribute.you/persona-avatars/brand-123/persona-456/v1.png');
+    expect(result.url).toBe('https://cloudflare.distribute.you/media-assets/brand-123/asset-456/v1.png');
 
     const [calledUrl, calledOpts] = mockFetch.mock.calls[0];
     expect(calledUrl).toBe('https://cloudflare.test/upload/base64');
 
     const body = JSON.parse(calledOpts.body);
     expect(body.contentBase64).toBe(Buffer.from('png-bytes').toString('base64'));
-    expect(body.folder).toBe('persona-avatars/brand-123/persona-456');
+    expect(body.folder).toBe('media-assets/brand-123/asset-456');
     expect(body.filename).toBe('v1.png');
     expect(body.contentType).toBe('image/png');
 

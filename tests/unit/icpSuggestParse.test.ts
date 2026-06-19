@@ -5,7 +5,6 @@ import { describe, it, expect, vi } from 'vitest';
 // `../db`, so stub the named exports those modules reference.
 vi.mock('../../src/db', () => ({
   db: {},
-  brandPersonas: {},
   brandProfileVersions: {},
   brandExtractedFields: {},
   brands: {},
