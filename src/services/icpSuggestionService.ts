@@ -1,11 +1,16 @@
 /**
  * ICP suggestion service.
  *
- * Given a brand, asks chat-service (LLM) to write ONE short, natural-language
- * description of the brand's PRINCIPAL ideal customer profile (ICP) — the single
- * most important customer segment to target — seeded from the brand's current
- * brand-profile fields plus effective sales economics (when present). The result
- * is a single one-line string returned to the caller; NOTHING is persisted.
+ * Given a brand, asks chat-service (LLM) to write ONE natural-language line
+ * describing the brand's PRINCIPAL ideal customer profile (ICP) as a precise
+ * PROSPECTING FILTER — who to contact (job titles / seniority) AND which
+ * companies (industry, headcount range, revenue range, and sharper signals like
+ * tech stack / funding / hiring / buying-intent when relevant), in the style of
+ * an Apollo search query. The model walks an Apollo-aligned dimension checklist
+ * and includes only the dimensions that genuinely sharpen the segment. Seeded
+ * from the brand's current brand-profile fields plus target-audience signals and
+ * effective sales economics (when present). The result is a single one-line
+ * string returned to the caller; NOTHING is persisted.
  *
  * Optionally the caller passes `existingIcps` (ICPs already found). When present,
  * the service returns a DISTINCT, complementary ICP that does not overlap any of
@@ -59,24 +64,60 @@ const SYSTEM_PROMPT = [
   'that get the most value from the brand, are cheapest to win, and stay longest',
   '— NOT a generic audience.',
   '',
-  'Given the brand profile, its target-audience signals, and its sales economics',
-  '(when present), identify the single PRINCIPAL ICP. Reason across these',
-  'dimensions, then compress to ONE line keeping only the traits that actually',
-  'pinpoint the segment:',
-  '- WHO they are: industry/vertical, company size or maturity stage, geography',
-  '- WHAT pain or trigger makes them buy NOW (the specific problem this brand',
-  '  solves)',
-  "- WHY they're best-fit: the trait that predicts high value + retention",
+  'Your output reads like a PROSPECTING FILTER written as one natural sentence —',
+  'the kind of precise targeting query a sales rep would build in Apollo: WHO to',
+  'contact inside the company, AND which companies they work at. Vague audience',
+  'descriptions ("companies that struggle with reporting") are a failure; a',
+  'pinpointed filter ("VP Eng / CTOs at Series A–B B2B SaaS, 50–500 employees,',
+  '$5M–$50M revenue, using AWS") is the goal.',
   '',
-  'Hard rules for the description:',
-  '- ONE line. Aim for ~100 characters. Never more than one sentence, never a',
-  '  paragraph.',
-  '- Plain, everyday language a non-expert understands. Be as specific as you can',
-  '  while staying short (who they are + the one detail that pinpoints them).',
-  '- Short scale abbreviations are fine: "M" for million, "$", "<", ">"',
-  '  (e.g. "< $1M/yr revenue").',
+  'Walk the dimensions below and, FOR EACH ONE, ask yourself: "does specifying',
+  'this actually sharpen THIS brand\'s best-fit segment?" Include only the',
+  'dimensions that genuinely narrow the segment; SKIP the ones that are',
+  'irrelevant or that you cannot infer with confidence. Do NOT force every',
+  'dimension in — a short, sharp filter beats a long, padded one.',
+  '',
+  'WHO to contact (the person — always specify at least one of these):',
+  '- Job titles: the roles that actually decide/champion (e.g. "Head of RevOps",',
+  '  "VP Engineering", "Founder"). This is the single most important dimension.',
+  '- Seniority level: founder / C-suite / VP / head / director / manager — when',
+  '  the decision sits at a specific reporting level.',
+  '- Person location: only when you target by where the person lives, not the HQ.',
+  '',
+  'WHICH companies (firmographics — specify the ones that predict fit):',
+  '- Industry / vertical: almost always worth it (e.g. "B2B SaaS", "e-commerce").',
+  '- Employee headcount, as a RANGE: e.g. "50–500 employees", when company size',
+  '  predicts fit.',
+  '- Annual revenue, as a RANGE: e.g. "$5M–$50M/yr", when budget/maturity matters.',
+  '- Geography (company HQ): only when the brand sells to a bounded region.',
+  '',
+  'SHARPER SIGNALS (add ONLY when clearly relevant — these are what make an ICP',
+  'feel hand-built rather than generic):',
+  '- Technologies used: when the product integrates with or replaces a specific',
+  '  tool (e.g. "running Salesforce", "on Shopify").',
+  '- Funding / growth stage: recent raise, total funding, or stage (e.g.',
+  '  "recently raised Series A") when fresh capital is a buying trigger.',
+  '- Hiring signals: actively hiring for certain roles, or growing headcount —',
+  '  when that growth is the trigger to buy.',
+  '- Buying-intent angle (soft): what the ideal customer is actively researching',
+  '  right now — the brand\'s category, the pain, or a competitor name (e.g.',
+  '  "evaluating cold-email tools"). A timing/messaging signal, phrased in plain',
+  '  words — do NOT invent a precise score.',
+  '',
+  'Also fold in WHAT pain or trigger makes them buy now (the specific problem',
+  'this brand solves) and WHY they are best-fit, when it sharpens the segment.',
+  '',
+  'Rules for the description:',
+  '- ONE sentence. Pack in the chosen dimensions densely, like a search query —',
+  '  no preamble, no "the ideal customer is", just the filter itself. Never a',
+  '  paragraph or multiple sentences.',
+  '- Plain, everyday language a non-expert understands.',
+  '- Express firmographics as RANGES with short scale abbreviations: "M" for',
+  '  million, "$", "<", ">", en dashes for ranges (e.g. "$5M–$50M/yr revenue",',
+  '  "50–500 employees").',
   '- NO jargon acronyms — never write ACV, LTV, TAM, SAM, MQL, ICP, etc. Say it',
-  '  in plain words instead.',
+  '  in plain words instead. (Common job-title abbreviations like CTO/CEO/VP are',
+  '  fine — those name the person.)',
   '',
   'If a list of ICPs already found is provided, return a DISTINCT, complementary',
   'ICP — a NEW segment that does NOT overlap any of the ones given.',
