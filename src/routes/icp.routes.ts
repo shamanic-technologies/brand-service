@@ -10,8 +10,10 @@ export const orgRouter = Router();
 
 /**
  * POST /orgs/brands/:brandId/icp/suggest
- * LLM-writes ONE short, plain-language ICP line for the brand, seeded from its
- * profile + effective sales economics. Optional body `{ existingIcps?: string[] }`
+ * LLM-writes ONE natural-language ICP line for the brand as a precise prospecting
+ * filter (who to contact + which companies, Apollo-search style), seeded from its
+ * profile + target-audience signals + effective sales economics. Optional body
+ * `{ existingIcps?: string[] }`
  * — when present, the returned ICP is DISTINCT from / complementary to those
  * (given the ICPs already found, propose another). PURE GENERATION — nothing is
  * persisted. Cost + affordability are owned by chat-service (the terminal LLM
