@@ -114,6 +114,40 @@ describe('Suggest ICP Endpoint', () => {
     expect(message).toContain('Manual weekly board reporting');
   });
 
+  it('system prompt carries the Apollo-aligned person + firmographic dimensions', async () => {
+    const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
+    expect(res.status).toBe(200);
+    const systemPrompt = (mockChat.mock.calls[0][0].systemPrompt ?? '').toLowerCase();
+    // WHO to contact
+    expect(systemPrompt).toContain('job title');
+    expect(systemPrompt).toContain('seniority');
+    // Which companies (firmographics)
+    expect(systemPrompt).toContain('industry');
+    expect(systemPrompt).toContain('headcount');
+    expect(systemPrompt).toContain('revenue');
+    expect(systemPrompt).toContain('geography');
+  });
+
+  it('system prompt covers the sharper + soft signals (tech, funding, hiring, intent)', async () => {
+    const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
+    expect(res.status).toBe(200);
+    const systemPrompt = (mockChat.mock.calls[0][0].systemPrompt ?? '').toLowerCase();
+    expect(systemPrompt).toContain('technolog');
+    expect(systemPrompt).toContain('funding');
+    expect(systemPrompt).toContain('hiring');
+    expect(systemPrompt).toContain('intent');
+  });
+
+  it('system prompt instructs per-dimension gating (include only if it sharpens, skip the rest)', async () => {
+    const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
+    expect(res.status).toBe(200);
+    const systemPrompt = (mockChat.mock.calls[0][0].systemPrompt ?? '').toLowerCase();
+    // Per-dimension "is it worth a precision?" gating + Apollo-filter framing.
+    expect(systemPrompt).toContain('apollo');
+    expect(systemPrompt).toContain('skip');
+    expect(systemPrompt).toMatch(/include only|only the dimensions/);
+  });
+
   it('passes existingIcps into the prompt and asks for a distinct one', async () => {
     const existingIcps = ['Enterprise RevOps teams at 1000+ employee firms'];
     const res = await request(app)

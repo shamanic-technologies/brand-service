@@ -1945,7 +1945,8 @@ export const SuggestIcpRequestSchema = z
   })
   .openapi('SuggestIcpRequest');
 
-// Response: one short, plain-language ICP line. NOT persisted.
+// Response: one natural-language ICP line, shaped as a precise prospecting
+// filter (who to contact + which companies, Apollo-search style). NOT persisted.
 export const SuggestIcpResponseSchema = z
   .object({ icp: z.string() })
   .openapi('SuggestIcpResponse');
@@ -1955,12 +1956,17 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/icp/suggest',
   summary: 'Suggest one natural-language ICP for a brand (no persistence)',
   description:
-    "Uses an LLM to write ONE short, plain-language description of the brand's " +
-    'PRINCIPAL ideal customer profile (ICP) — the single most important customer ' +
-    "segment to target — seeded from the brand's current brand-profile fields plus " +
-    'effective sales economics (when present). The result is a single one-line string ' +
-    '(~100 chars, everyday language, light scale abbreviations like "M"/"$"/"<" allowed, ' +
-    'no jargon acronyms). Optional body `existingIcps` lists ICPs already found; when ' +
+    "Uses an LLM to write ONE natural-language line describing the brand's " +
+    'PRINCIPAL ideal customer profile (ICP) as a precise PROSPECTING FILTER, in ' +
+    'the style of an Apollo search query: WHO to contact (job titles / seniority) ' +
+    'AND which companies (industry, headcount range, revenue range, plus sharper ' +
+    'signals like tech stack / funding / hiring / buying-intent angle when ' +
+    'relevant). The model walks an Apollo-aligned dimension checklist and includes ' +
+    'only the dimensions that genuinely sharpen the segment. Seeded from the ' +
+    "brand's brand-profile fields, target-audience signals, and effective sales " +
+    'economics (when present). The result is a single dense one-line string ' +
+    '(everyday language, ranges with scale abbreviations like "M"/"$"/"<", no ' +
+    'jargon acronyms). Optional body `existingIcps` lists ICPs already found; when ' +
     'present the returned ICP is DISTINCT from and complementary to all of them ("given ' +
     'these, find another"). PURE GENERATION — nothing is persisted. Cost + affordability ' +
     'are owned by chat-service (the terminal LLM caller): it declares the actual token ' +
