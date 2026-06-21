@@ -22,6 +22,7 @@ interface CampaignTrackingHeaders {
   orgId: string;
   userId?: string;
   runId?: string;
+  audienceId?: string;
 }
 
 /**
@@ -45,6 +46,7 @@ export async function getCampaignFeatureInputs(
     };
     if (tracking.userId) headers['x-user-id'] = tracking.userId;
     if (tracking.runId) headers['x-run-id'] = tracking.runId;
+    if (tracking.audienceId) headers['x-audience-id'] = tracking.audienceId;
 
     const response = await fetchWithRetry(
       `${CAMPAIGN_SERVICE_URL}/campaigns/${campaignId}`,

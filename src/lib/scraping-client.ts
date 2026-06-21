@@ -17,6 +17,7 @@ export interface ScrapingTrackingContext {
   campaignId?: string;
   featureSlug?: string;
   brandIdHeader?: string;
+  audienceId?: string;
 }
 
 /** Thrown when the scraping service cannot map/crawl the brand's site (client-recoverable). */
@@ -39,6 +40,7 @@ function buildHeaders(tracking?: ScrapingTrackingContext): Record<string, string
   if (tracking?.featureSlug) headers['X-Feature-Slug'] = tracking.featureSlug;
   if (tracking?.brandIdHeader) headers['X-Brand-Id'] = tracking.brandIdHeader;
   if (tracking?.workflowSlug) headers['X-Workflow-Slug'] = tracking.workflowSlug;
+  if (tracking?.audienceId) headers['X-Audience-Id'] = tracking.audienceId;
   return headers;
 }
 

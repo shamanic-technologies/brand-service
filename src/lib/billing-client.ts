@@ -24,6 +24,7 @@ export interface AuthorizeCreditsParams {
   featureSlug?: string;
   brandId?: string;
   workflowSlug?: string;
+  audienceId?: string;
 }
 
 export interface AuthorizeCreditsResult {
@@ -57,6 +58,7 @@ export async function authorizeCredits(
   if (params.featureSlug) headers["x-feature-slug"] = params.featureSlug;
   if (params.brandId) headers["x-brand-id"] = params.brandId;
   if (params.workflowSlug) headers["x-workflow-slug"] = params.workflowSlug;
+  if (params.audienceId) headers["x-audience-id"] = params.audienceId;
 
   const response = await fetchWithRetry(`${BILLING_SERVICE_URL}/v1/customer_balance/authorize`, {
     method: "POST",

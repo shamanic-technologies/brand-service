@@ -68,6 +68,7 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
       featureSlug: req.featureSlug,
       brandIdHeader: req.brandIdHeader,
       workflowSlug: req.workflowSlug,
+      audienceId: req.audienceId,
     });
 
     res.json({

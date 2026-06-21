@@ -56,6 +56,7 @@ Identity headers for org-scoped routes:
 - `X-Org-Id` (required) — internal org UUID from client-service
 - `X-User-Id` (optional, but **required** for routes that hit chat-service: `POST /orgs/brands`, `POST /orgs/brands/extract-fields`, `POST /orgs/brands/extract-images`)
 - `X-Run-Id` (optional, but **required** for the same chat-service-bound routes)
+- `X-Audience-Id` (optional) — audience attribution UUID for per-audience cost attribution. Read into the tracking block, forwarded to every internal-service call, and tagged on the runs-service run/cost. Absent outside the campaign flow → omitted, never thrown. Never forwarded to external vendors (Gemini, scraping, etc.).
 
 ### chat-service dispatch
 

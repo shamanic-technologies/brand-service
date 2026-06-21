@@ -41,6 +41,7 @@ export function requireOrgId(req: Request, res: Response, next: NextFunction) {
   const featureSlug = req.headers['x-feature-slug'] as string | undefined;
   const brandIdHeader = req.headers['x-brand-id'] as string | undefined;
   const workflowSlug = req.headers['x-workflow-slug'] as string | undefined;
+  const audienceId = req.headers['x-audience-id'] as string | undefined;
 
   if (!orgId) {
     return res.status(400).json({
@@ -59,6 +60,7 @@ export function requireOrgId(req: Request, res: Response, next: NextFunction) {
     req.brandIds = brandIdHeader.split(',').map(s => s.trim()).filter(Boolean);
   }
   if (workflowSlug) req.workflowSlug = workflowSlug;
+  if (audienceId) req.audienceId = audienceId;
 
   return next();
 }

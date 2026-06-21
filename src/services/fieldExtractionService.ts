@@ -510,6 +510,7 @@ export async function extractFields(
   const featureSlug = caller.mode === 'org' ? caller.featureSlug : undefined;
   const brandIdHeader = caller.mode === 'org' ? caller.brandIdHeader : undefined;
   const workflowSlug = caller.mode === 'org' ? caller.workflowSlug : undefined;
+  const audienceId = caller.mode === 'org' ? caller.audienceId : undefined;
 
   // Create run
   const run = await createRun({
@@ -521,6 +522,7 @@ export async function extractFields(
     taskName: 'field-extraction',
     parentRunId,
     workflowSlug,
+    audienceId,
   });
 
   // Chat caller for downstream chat-service calls. For org mode we swap
@@ -537,6 +539,7 @@ export async function extractFields(
     'x-campaign-id': campaignIdForRun,
     'x-workflow-slug': workflowSlug,
     'x-feature-slug': featureSlug,
+    'x-audience-id': audienceId,
   };
 
   traceEvent(run.id, {
@@ -555,12 +558,13 @@ export async function extractFields(
     campaignId: campaignIdForRun,
     featureSlug,
     brandIdHeader,
+    audienceId,
     runId: run.id,
   };
 
   try {
     // 2b. Fetch campaign context for LLM enrichment
-    const featureInputs = await getCampaignFeatureInputs(campaignIdForRun, { orgId: trackingOrgId, userId: trackingUserId, runId: run.id });
+    const featureInputs = await getCampaignFeatureInputs(campaignIdForRun, { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, audienceId });
     const campaignContext = featureInputs && Object.keys(featureInputs).length > 0
       ? JSON.stringify(featureInputs, null, 2)
       : null;
@@ -664,7 +668,7 @@ export async function extractFields(
       await upsertExtractedFields(brandId, fieldsToStore, [], campaignIdForRun);
 
       try {
-        await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug });
+        await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug, audienceId });
       } catch (err) {
         console.warn(`[brand-service] [${brandId}] Failed to complete run ${run.id}:`, err);
       }
@@ -769,7 +773,7 @@ export async function extractFields(
 
     // 8. Complete run
     try {
-      await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug });
+      await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug, audienceId });
     } catch (err) {
       console.warn(`[brand-service] [${brandId}] Failed to complete run ${run.id}:`, err);
     }
@@ -804,7 +808,7 @@ export async function extractFields(
       data: { brandId, error: error instanceof Error ? error.message : String(error) },
     }, traceHeaders).catch(() => {});
     try {
-      await updateRun(run.id, 'failed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug });
+      await updateRun(run.id, 'failed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug, audienceId });
     } catch (err) {
       console.warn(`[brand-service] [${brandId}] Failed to mark run as failed:`, err);
     }
