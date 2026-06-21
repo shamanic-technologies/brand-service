@@ -12,6 +12,8 @@ declare global {
       /** Parsed brand IDs from x-brand-id header (CSV-split) */
       brandIds?: string[];
       workflowSlug?: string;
+      /** Audience attribution ID (human-service org-scoped saved filter-set, audience.id). From x-audience-id. */
+      audienceId?: string;
     }
   }
 }

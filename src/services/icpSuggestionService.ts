@@ -250,6 +250,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
     campaignId: caller.campaignId,
     featureSlug: caller.featureSlug,
     workflowSlug: caller.workflowSlug,
+    audienceId: caller.audienceId,
     serviceName: 'brand-service',
     taskName: 'icp-suggestion',
     parentRunId: caller.runId || undefined,
@@ -267,6 +268,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
     featureSlug: caller.featureSlug,
     brandIdHeader: caller.brandIdHeader,
     workflowSlug: caller.workflowSlug,
+    audienceId: caller.audienceId,
   };
 
   try {

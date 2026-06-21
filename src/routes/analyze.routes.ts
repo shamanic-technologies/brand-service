@@ -107,6 +107,7 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
         featureSlug: req.featureSlug,
         brandId: req.brandIdHeader,
         workflowSlug: req.workflowSlug,
+        audienceId: req.audienceId,
       });
       if (!authResult.sufficient) {
         return res.status(402).json({
@@ -130,7 +131,7 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
       asset.mimeType,
       asset.caption || 'unknown',
       externalOrganizationId || '',
-      { orgId: req.orgId, userId: req.userId, runId: req.runId, campaignId: req.campaignId, featureSlug: req.featureSlug, brandIdHeader: req.brandIdHeader, workflowSlug: req.workflowSlug }
+      { orgId: req.orgId, userId: req.userId, runId: req.runId, campaignId: req.campaignId, featureSlug: req.featureSlug, brandIdHeader: req.brandIdHeader, workflowSlug: req.workflowSlug, audienceId: req.audienceId }
     );
 
     console.log(`✅ [ENDPOINT] Analysis complete, sending response\n`);
@@ -203,6 +204,7 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
           featureSlug: req.featureSlug,
           brandId: req.brandIdHeader,
           workflowSlug: req.workflowSlug,
+          audienceId: req.audienceId,
         });
         if (!authResult.sufficient) {
           return res.status(402).json({
@@ -249,7 +251,7 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
           asset.mimeType,
           asset.fileName || 'unknown',
           externalOrganizationId || '',
-          { orgId: req.orgId, userId: req.userId, runId: req.runId, campaignId: req.campaignId, featureSlug: req.featureSlug, brandIdHeader: req.brandIdHeader, workflowSlug: req.workflowSlug }
+          { orgId: req.orgId, userId: req.userId, runId: req.runId, campaignId: req.campaignId, featureSlug: req.featureSlug, brandIdHeader: req.brandIdHeader, workflowSlug: req.workflowSlug, audienceId: req.audienceId }
         );
 
         analyzed++;

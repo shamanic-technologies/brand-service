@@ -38,7 +38,7 @@ export async function getKeyForOrg(
   provider: string,
   caller: CallerContext,
   runId?: string,
-  trackingHeaders?: { campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string },
+  trackingHeaders?: { campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string; audienceId?: string },
 ): Promise<KeyResolution> {
   const url = `${KEY_SERVICE_URL}/keys/${provider}/decrypt`;
   let lastError: any;
@@ -68,6 +68,9 @@ export async function getKeyForOrg(
       }
       if (trackingHeaders?.workflowSlug) {
         headers['x-workflow-slug'] = trackingHeaders.workflowSlug;
+      }
+      if (trackingHeaders?.audienceId) {
+        headers['x-audience-id'] = trackingHeaders.audienceId;
       }
 
       const response = await axios.get(url, {

@@ -23,6 +23,7 @@ export interface Run {
   taskName: string;
   status: string;
   parentRunId: string | null;
+  audienceId: string | null;
   startedAt: string;
   completedAt: string | null;
   createdAt: string;
@@ -75,6 +76,8 @@ export interface CreateRunParams {
   serviceName: string;
   taskName: string;
   parentRunId?: string;
+  /** Audience attribution ID (audience.id). Sent as x-audience-id header. */
+  audienceId?: string;
 }
 
 export interface CostItem {
@@ -82,6 +85,8 @@ export interface CostItem {
   quantity: number;
   costSource: "platform" | "org";
   status?: "actual" | "provisioned" | "cancelled";
+  /** Optional per-cost audience attribution override. Omit to inherit run/header attribution. */
+  audienceId?: string;
 }
 
 export interface ListRunsParams {
@@ -106,9 +111,9 @@ export interface ListRunsParams {
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string } = {}
+  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string; audienceId?: string } = {}
 ): Promise<T> {
-  const { method = "GET", body, orgId, userId, runId, campaignId, featureSlug, brandIdHeader, workflowSlug } = options;
+  const { method = "GET", body, orgId, userId, runId, campaignId, featureSlug, brandIdHeader, workflowSlug, audienceId } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -136,6 +141,9 @@ async function runsRequest<T>(
   if (workflowSlug) {
     headers["x-workflow-slug"] = workflowSlug;
   }
+  if (audienceId) {
+    headers["x-audience-id"] = audienceId;
+  }
 
   const response = await fetchWithRetry(`${RUNS_SERVICE_URL}${path}`, {
     method,
@@ -152,20 +160,22 @@ async function runsRequest<T>(
 export async function createRun(params: CreateRunParams): Promise<Run> {
   // Only send fields accepted by CreateRunRequest schema in the body.
   // orgId/userId go in x-org-id/x-user-id headers, parentRunId in x-run-id header.
-  const { orgId, userId, parentRunId, ...body } = params;
+  // audienceId travels as the x-audience-id header (preferred over the deprecated body field).
+  const { orgId, userId, parentRunId, audienceId, ...body } = params;
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
     body,
     orgId,
     userId,
     runId: parentRunId,
+    audienceId,
   });
 }
 
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string; audienceId?: string }
 ): Promise<Run> {
   return runsRequest<Run>(`/v1/runs/${runId}`, {
     method: "PATCH",
@@ -177,13 +187,14 @@ export async function updateRun(
     featureSlug: identity?.featureSlug,
     brandIdHeader: identity?.brandIdHeader,
     workflowSlug: identity?.workflowSlug,
+    audienceId: identity?.audienceId,
   });
 }
 
 export async function addCosts(
   runId: string,
   items: CostItem[],
-  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string; audienceId?: string }
 ): Promise<{ costs: RunCost[] }> {
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
@@ -195,6 +206,7 @@ export async function addCosts(
     featureSlug: identity?.featureSlug,
     brandIdHeader: identity?.brandIdHeader,
     workflowSlug: identity?.workflowSlug,
+    audienceId: identity?.audienceId,
   });
 }
 
@@ -202,7 +214,7 @@ export async function updateCostStatus(
   runId: string,
   costId: string,
   status: "actual" | "cancelled",
-  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string }
+  identity?: { orgId: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string; audienceId?: string }
 ): Promise<RunCost> {
   return runsRequest<RunCost>(`/v1/runs/${runId}/costs/${costId}`, {
     method: "PATCH",
@@ -214,6 +226,7 @@ export async function updateCostStatus(
     featureSlug: identity?.featureSlug,
     brandIdHeader: identity?.brandIdHeader,
     workflowSlug: identity?.workflowSlug,
+    audienceId: identity?.audienceId,
   });
 }
 

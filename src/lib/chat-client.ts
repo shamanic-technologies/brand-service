@@ -73,6 +73,7 @@ export interface OrgCaller {
   featureSlug?: string;
   brandIdHeader?: string;
   workflowSlug?: string;
+  audienceId?: string;
 }
 
 /**
@@ -156,6 +157,7 @@ function buildOrgHeaders(caller: OrgCaller): Record<string, string> {
   if (caller.featureSlug) headers['x-feature-slug'] = caller.featureSlug;
   if (caller.brandIdHeader) headers['x-brand-id'] = caller.brandIdHeader;
   if (caller.workflowSlug) headers['x-workflow-slug'] = caller.workflowSlug;
+  if (caller.audienceId) headers['x-audience-id'] = caller.audienceId;
   return headers;
 }
 
