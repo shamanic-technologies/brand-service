@@ -23,8 +23,10 @@ import {
 import { createRun, updateRun } from '../lib/runs-client';
 import { getCampaignFeatureInputs } from '../lib/campaign-client';
 import { traceEvent } from '../lib/trace-event';
+import { brandProfileService } from './brandProfileService';
+import { buildProfileContextBlock } from './profileContext';
 
-const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const CACHE_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
 const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180; // 6 months
 
 /** Show first 3 names then "+N more" for the rest */
@@ -297,6 +299,7 @@ async function extractFieldsFromContent(
   fields: FieldSpec[],
   chatCaller: Caller,
   campaignContext: string | null,
+  profileContext: string | null,
 ): Promise<Record<string, unknown>> {
   const combinedContent = pageContents
     .filter((p) => p.content)
@@ -307,15 +310,21 @@ async function extractFieldsFromContent(
     .map((f) => `- "${f.key}": ${f.description}`)
     .join('\n');
 
+  // Priority order in the prompt: campaign context > validated brand profile >
+  // scraped website content. The campaign block is tagged HIGHEST PRIORITY so it
+  // overrides both the profile and the website; the profile block (built in
+  // profileContext.ts) is the client-validated source of truth that overrides
+  // the website unless the website explicitly contradicts it.
+  const profileBlock = profileContext ?? '';
   const contextBlock = campaignContext
-    ? `\n\nCampaign context (use this to guide and refine your extraction):\n${campaignContext}\n`
+    ? `\n\nCampaign context (HIGHEST PRIORITY — overrides both the brand profile and the website content; use it to guide and refine your extraction):\n${campaignContext}\n`
     : '';
 
   const result = await chat(
     {
       systemPrompt:
         'You are a brand information extraction assistant. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys. NEVER return null, undefined, or empty values — if information is not present in the content, return the string "Unknown" for string fields and ["Unknown"] for array fields.',
-      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${contextBlock}\n\nWebsite content:\n${combinedContent.substring(0, 100000)}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
+      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nWebsite content:\n${combinedContent.substring(0, 100000)}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
       provider: 'google',
       model: 'pro',
       responseFormat: 'json',
@@ -572,6 +581,19 @@ export async function extractFields(
       console.log(`[brand-service] [${brandId}] Using campaign context from campaign ${campaignIdForRun}`);
     }
 
+    // 2c. Load the client-validated brand profile. Only injected as authoritative
+    // context when a human has SAVED a profile version — the derived virtual-v1
+    // (no saved version) is just our own past extractions, so injecting it would
+    // feed the LLM its prior output and freeze earlier errors.
+    const profileResponse = await brandProfileService.getByBrandId(brandId);
+    const profileContext = buildProfileContextBlock({
+      hasSavedVersion: profileResponse.versions.length > 0,
+      fields: profileResponse.current?.fields ?? {},
+    });
+    if (profileContext) {
+      console.log(`[brand-service] [${brandId}] Injecting client-validated brand profile (${profileResponse.versions.length} saved version(s))`);
+    }
+
     const fieldsDescription = missingFields
       .map((f) => `- ${f.key}: ${f.description}`)
       .join('\n');
@@ -752,6 +774,7 @@ export async function extractFields(
       missingFields,
       chatCaller,
       campaignContext,
+      profileContext,
     );
 
     traceEvent(run.id, {
