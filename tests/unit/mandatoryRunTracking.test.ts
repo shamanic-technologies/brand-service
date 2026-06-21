@@ -27,6 +27,15 @@ vi.mock('../../src/lib/scraping-client', () => ({
   SiteMapError: class SiteMapError extends Error { name = 'SiteMapError'; },
 }));
 
+// Isolate run-tracking from the brand-profile feature: no saved version → no
+// profile injected, and getByBrandId issues no db calls (keeps the setDbSequence
+// indices intact).
+vi.mock('../../src/services/brandProfileService', () => ({
+  brandProfileService: {
+    getByBrandId: vi.fn().mockResolvedValue({ current: null, versions: [] }),
+  },
+}));
+
 // Track sequential DB calls to return different data per query
 let dbCallIndex = 0;
 let dbCallResults: unknown[][] = [];
