@@ -31,6 +31,14 @@ vi.mock('../../src/lib/trace-event', () => ({
   traceEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
+// No saved profile version → no profile block injected; getByBrandId issues no
+// db calls so the prompt assertions stay focused on the extraction message.
+vi.mock('../../src/services/brandProfileService', () => ({
+  brandProfileService: {
+    getByBrandId: vi.fn().mockResolvedValue({ current: null, versions: [] }),
+  },
+}));
+
 let dbCallIndex = 0;
 let dbCallResults: unknown[][] = [];
 
