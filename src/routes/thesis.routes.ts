@@ -116,6 +116,7 @@ router.get('/clients-theses-need-update', async (req: Request, res: Response) =>
       ...(req.featureSlug && { 'x-feature-slug': req.featureSlug }),
       ...(req.brandIdHeader && { 'x-brand-id': req.brandIdHeader }),
       ...(req.workflowSlug && { 'x-workflow-slug': req.workflowSlug }),
+      ...(req.audienceId && { 'x-audience-id': req.audienceId }),
     };
 
     let pressFunnelData: any[] = [];

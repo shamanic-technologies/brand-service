@@ -39,6 +39,7 @@ export interface CloudflareTrackingHeaders {
   featureSlug?: string;
   brandId?: string;
   workflowSlug?: string;
+  audienceId?: string;
 }
 
 function buildHeaders(tracking: CloudflareTrackingHeaders): Record<string, string> {
@@ -57,6 +58,7 @@ function buildHeaders(tracking: CloudflareTrackingHeaders): Record<string, strin
   if (tracking.featureSlug) headers['x-feature-slug'] = tracking.featureSlug;
   if (tracking.brandId) headers['x-brand-id'] = tracking.brandId;
   if (tracking.workflowSlug) headers['x-workflow-slug'] = tracking.workflowSlug;
+  if (tracking.audienceId) headers['x-audience-id'] = tracking.audienceId;
   return headers;
 }
 

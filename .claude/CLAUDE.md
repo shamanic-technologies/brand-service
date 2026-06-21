@@ -20,6 +20,18 @@
 - Don't add verbose descriptions - match the existing terse style
 - If removing a feature, remove its README entry too
 
+## Identity / tracking headers are threaded FIELD-BY-FIELD — no central builder
+
+brand-service has NO `buildInternalHeaders`/allowlist helper (unlike instantly-service). Each identity/tracking header (`x-org-id`, `x-user-id`, `x-run-id`, `x-campaign-id`, `x-feature-slug`, `x-brand-id`, `x-workflow-slug`, `x-audience-id`) is cherry-picked explicitly at every site. So adding a NEW tracking header means threading it through ALL of these, or it silently drops:
+
+1. `src/types/express.d.ts` (`Request` field) + `src/middleware/auth.ts` `requireOrgId` (read inbound → `req.X`)
+2. `src/index.ts` CORS `allowedHeaders`
+3. Every internal-service client: `lib/runs-client.ts` (params + `runsRequest` options + all 4 fns' `identity`), `lib/chat-client.ts` (`OrgCaller` + `buildOrgHeaders`), `lib/billing-client.ts`, `lib/campaign-client.ts`, `lib/cloudflare-client.ts`, `lib/keys-service.ts` (`trackingHeaders`), `lib/scraping-client.ts` (`ScrapingTrackingContext`), `lib/trace-event.ts`, `services/geminiAnalysisService.ts` `getOrganizationContext` (press-funnel)
+4. Cost-path services that build callers/runs: `fieldExtractionService`, `icpSuggestionService`, `imageExtractionService` (createRun + traceHeaders + scrapingTracking + updateRun)
+5. Routes that build the caller/identity from `req`: `extract-fields`, `extract-images`, `brands`, `icp`, `analyze`, `thesis`
+
+**Egress strip is by construction:** external-vendor calls (Gemini `@google/generative-ai` SDK, firecrawl, supabase, google-drive) take NO identity headers — never add tracking to a vendor call. Only the internal-service clients above carry it. Reference: PR #283 (x-audience-id). Regression pattern: `tests/unit/audienceAttribution.test.ts`.
+
 ## Code Conventions
 
 - TypeScript strict mode

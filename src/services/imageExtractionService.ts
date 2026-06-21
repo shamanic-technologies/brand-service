@@ -384,6 +384,7 @@ export async function extractImages(
   const featureSlug = caller.featureSlug;
   const brandIdHeader = caller.brandIdHeader;
   const workflowSlug = caller.workflowSlug;
+  const audienceId = caller.audienceId;
 
   const categoryKeys = categories.map((c) => c.key);
 
@@ -437,6 +438,7 @@ export async function extractImages(
     taskName: 'image-extraction',
     parentRunId,
     workflowSlug,
+    audienceId,
   });
 
   // Chat caller for downstream chat-service calls. Image extraction always uses
@@ -446,12 +448,12 @@ export async function extractImages(
 
   const scrapingTracking: ScrapingTrackingContext = {
     brandId, orgId, userId, workflowSlug,
-    campaignId, featureSlug, brandIdHeader, runId: run.id,
+    campaignId, featureSlug, brandIdHeader, audienceId, runId: run.id,
   };
 
   const cloudflareTracking: CloudflareTrackingHeaders = {
     orgId, userId, runId: run.id,
-    campaignId, featureSlug, brandId: brandIdHeader, workflowSlug,
+    campaignId, featureSlug, brandId: brandIdHeader, workflowSlug, audienceId,
   };
 
   const traceHeaders: Record<string, string | undefined> = {
@@ -461,6 +463,7 @@ export async function extractImages(
     'x-campaign-id': campaignId,
     'x-workflow-slug': workflowSlug,
     'x-feature-slug': featureSlug,
+    'x-audience-id': audienceId,
   };
 
   traceEvent(run.id, {
@@ -620,7 +623,7 @@ export async function extractImages(
 
     // 13. Complete run
     try {
-      await updateRun(run.id, 'completed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug });
+      await updateRun(run.id, 'completed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug, audienceId });
     } catch (err) {
       console.warn(`[brand-service] [${brandId}] Failed to complete run ${run.id}:`, err);
     }
@@ -643,7 +646,7 @@ export async function extractImages(
       data: { brandId, error: error instanceof Error ? error.message : String(error) },
     }, traceHeaders).catch(() => {});
     try {
-      await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug });
+      await updateRun(run.id, 'failed', { orgId, userId, runId: run.id, campaignId, featureSlug, brandIdHeader, workflowSlug, audienceId });
     } catch (err) {
       console.warn(`[brand-service] [${brandId}] Failed to mark run as failed:`, err);
     }

@@ -31,6 +31,7 @@ interface IdentityHeaders {
   featureSlug?: string;
   brandIdHeader?: string;
   workflowSlug?: string;
+  audienceId?: string;
 }
 
 const getOrganizationContext = async (externalOrganizationId: string, identity?: IdentityHeaders): Promise<OrganizationContext | null> => {
@@ -45,6 +46,7 @@ const getOrganizationContext = async (externalOrganizationId: string, identity?:
     if (identity?.featureSlug) headers['x-feature-slug'] = identity.featureSlug;
     if (identity?.brandIdHeader) headers['x-brand-id'] = identity.brandIdHeader;
     if (identity?.workflowSlug) headers['x-workflow-slug'] = identity.workflowSlug;
+    if (identity?.audienceId) headers['x-audience-id'] = identity.audienceId;
 
     const response = await axios.get(`${pressFunnelUrl}/organizations/${externalOrganizationId}/context`, {
       headers,

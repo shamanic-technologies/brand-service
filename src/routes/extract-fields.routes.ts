@@ -68,6 +68,7 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
         featureSlug: req.featureSlug,
         brandIdHeader: req.brandIdHeader,
         workflowSlug: req.workflowSlug,
+        audienceId: req.audienceId,
       },
       scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
       resetCache: parsed.data.resetCache,

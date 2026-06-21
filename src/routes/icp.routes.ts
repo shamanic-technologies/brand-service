@@ -51,6 +51,7 @@ orgRouter.post('/brands/:brandId/icp/suggest', async (req: Request, res: Respons
         featureSlug: req.featureSlug,
         brandIdHeader: req.brandIdHeader,
         workflowSlug: req.workflowSlug,
+        audienceId: req.audienceId,
       },
     });
 
