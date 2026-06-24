@@ -170,7 +170,26 @@ describe('Effective Sales Economics Endpoint', () => {
     // median, not mean: the 500000 outlier keeps the mean > 100k; median << that
     expect(e.lifetimeRevenueUsd).toBeLessThan(100000);
     if (JSON.stringify(before) === JSON.stringify(after)) {
-      expect(e).toEqual(expectedFrom(after));
+      const want = expectedFrom(after);
+      // Median LTV is an integer (Postgres ROUND(double precision) = banker's,
+      // mirrored by roundHalfToEven) — assert exact.
+      expect(e.lifetimeRevenueUsd).toBe(want.lifetimeRevenueUsd);
+      // The percent means + derived close-rate are Postgres ROUND(AVG::numeric, 4)
+      // values. Recomputing them in JS float (sum/n → toFixed) can diverge from
+      // Postgres's exact-numeric rounding in the 4th decimal whenever the global
+      // row set lands on a tie — that flakes the byte-exact toEqual without any
+      // product bug. Assert to 3 decimals (±0.0005): proves the aggregate is
+      // correct while not pinning Postgres's 4th-decimal tie convention.
+      for (const k of [
+        'replyToMeetingPct',
+        'visitToMeetingPct',
+        'meetingToClosePct',
+        'visitToSignupPct',
+        'signupToPaidClientPct',
+        'visitToClosePct',
+      ] as const) {
+        expect(e[k]).toBeCloseTo(want[k], 3);
+      }
     }
   });
 
