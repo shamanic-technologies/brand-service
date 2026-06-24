@@ -46,7 +46,7 @@ describe('GET /internal/brands and /public/brands — batch by ids', () => {
     expect(ids).toEqual([a, b].sort());
     for (const brand of res.body.brands) {
       expect(Object.keys(brand).sort()).toEqual(
-        ['createdAt', 'domain', 'id', 'logoUrl', 'name', 'updatedAt', 'url'],
+        ['clickDestinationUrl', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'updatedAt', 'url'],
       );
     }
   }, 15000);

@@ -9,7 +9,7 @@
  */
 
 import { eq, and, sql } from 'drizzle-orm';
-import { db, brands, orgBrands } from '../db';
+import { db, brands, orgBrands, brandClickDestinations } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { Caller, OrgCaller } from '../lib/chat-client';
 import { buildLogoDevUrl } from '../lib/logo-dev';
@@ -27,6 +27,10 @@ export interface BrandDetail {
   url: string;
   name: string;
   logoUrl: string;
+  // User-chosen page outreach clicks should land on. `null` = unset (the
+  // dashboard then defaults to the brand's own domain). Per-brand config,
+  // mirrors sales-economics scoping — never on the brand identity row.
+  clickDestinationUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,10 +72,15 @@ export async function getBrandDetail(
       url: brands.url,
       name: brands.name,
       logoUrl: brands.logoUrl,
+      clickDestinationUrl: brandClickDestinations.clickDestinationUrl,
       createdAt: brands.createdAt,
       updatedAt: brands.updatedAt,
     })
     .from(brands)
+    .leftJoin(
+      brandClickDestinations,
+      eq(brandClickDestinations.brandId, brands.id)
+    )
     .where(eq(brands.id, brandId))
     .limit(1);
 
@@ -86,6 +95,7 @@ export async function getBrandDetail(
     url: row.url,
     name,
     logoUrl,
+    clickDestinationUrl: row.clickDestinationUrl ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
