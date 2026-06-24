@@ -1,15 +1,16 @@
 /**
  * Brand CRUD utilities.
  *
- * Includes a lazy-fill helper (ensureBrandName) that scrapes the brand site
- * to populate brands.name on first access. brands.name is therefore
- * guaranteed non-null on the return value of every public function below.
+ * Includes a lazy-fill helper (ensureBrandName) that derives brands.name on
+ * first read (getBrandDetail) by fetching the landing page HTML and parsing
+ * og:site_name / <title> / JSON-LD — NO LLM, Firecrawl, chat-service, run, or
+ * cost. It falls back to a titlecased domain, so it always yields a non-empty
+ * name. The brand-create path (getOrCreateBrand) no longer blocks on it.
  */
 
 import { eq, and, sql } from 'drizzle-orm';
 import { db, brands, orgBrands } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
-import { extractFields } from './fieldExtractionService';
 import { Caller, OrgCaller } from '../lib/chat-client';
 import { buildLogoDevUrl } from '../lib/logo-dev';
 
@@ -30,10 +31,14 @@ export interface BrandDetail {
   updatedAt: string;
 }
 
-const BRAND_NAME_FIELD_KEY = 'name';
-const BRAND_NAME_FIELD_DESCRIPTION =
-  'Official brand or company name as shown on the website (e.g. from the page <title>, the og:site_name meta tag, or the main H1 heading). Do not include taglines, slogans, or marketing copy — just the name.';
 const inFlightBrandNameFills = new Map<string, Promise<string>>();
+
+// Plain-fetch landing scrape used by the deterministic name fill. A normal
+// browser User-Agent is sent because some sites 403 unknown agents; the meta
+// tags we parse are absent from Firecrawl markdown, so we fetch raw HTML.
+const BRAND_NAME_FETCH_TIMEOUT_MS = 5000;
+const BRAND_NAME_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 export { extractDomain as extractDomainFromUrl };
 
@@ -89,29 +94,26 @@ export async function getBrandDetail(
 /**
  * Guarantee brands.name is non-null for the given brandId.
  *
- * If brands.name is already set, returns it as-is.
- * Otherwise scrapes the brand URL via extractFields() and persists the
- * extracted name to brands.name before returning it.
+ * If brands.name is already set, returns it as-is. Otherwise derives the name
+ * deterministically from the landing page HTML (og:site_name / <title> /
+ * JSON-LD, falling back to the titlecased domain) and persists it. No LLM,
+ * Firecrawl, chat-service, run, or cost is involved, so the return value is
+ * always a non-empty string.
  *
- * The LLM prompt is instructed to return "Unknown" rather than null/empty,
- * so the return value is always a non-empty string.
- *
- * @param caller — Mirrors the brand-service caller endpoint:
- *   - `OrgCaller` when invoked from a `/orgs/*` route → chat-service `/complete`.
- *   - `PlatformCaller` when invoked from an `/internal/*` route → chat-service
- *     `/internal/platform-complete` (platform-billed, no run tracking).
+ * @param caller — retained for signature stability (callers pass the route's
+ *   tier). The deterministic fill does not use it.
  */
 export async function ensureBrandName(
   brandId: string,
-  caller: Caller,
+  caller?: Caller,
 ): Promise<string> {
   const row = await getBrandNameRow(brandId);
 
   if (!row) throw new Error(`Brand not found: ${brandId}`);
   if (row.name) return row.name;
 
-  // Test environments bypass external scraping. Persist domain as name so
-  // callers still receive a non-null value without hitting Firecrawl/LLM.
+  // Test environments bypass the network fetch. Persist domain as name so
+  // callers still receive a non-null value deterministically.
   if (process.env.NODE_ENV === 'test') {
     await persistBrandName(brandId, row.domain);
     return row.domain;
@@ -120,7 +122,7 @@ export async function ensureBrandName(
   const inFlight = inFlightBrandNameFills.get(brandId);
   if (inFlight) return inFlight;
 
-  const fillPromise = fillBrandName(brandId, caller).finally(() => {
+  const fillPromise = fillBrandName(brandId).finally(() => {
     inFlightBrandNameFills.delete(brandId);
   });
   inFlightBrandNameFills.set(brandId, fillPromise);
@@ -149,7 +151,7 @@ async function persistBrandName(brandId: string, name: string): Promise<void> {
     .where(eq(brands.id, brandId));
 }
 
-async function fillBrandName(brandId: string, caller: Caller): Promise<string> {
+async function fillBrandName(brandId: string): Promise<string> {
   const row = await getBrandNameRow(brandId);
 
   if (!row) throw new Error(`Brand not found: ${brandId}`);
@@ -160,27 +162,160 @@ async function fillBrandName(brandId: string, caller: Caller): Promise<string> {
     return row.domain;
   }
 
-  console.log(`[brand-service] ensureBrandName: scraping name for brand ${brandId} (${row.url})`);
+  console.log(`[brand-service] ensureBrandName: deriving name for brand ${brandId} (${row.url})`);
 
-  const results = await extractFields({
-    brandId,
-    fields: [{ key: BRAND_NAME_FIELD_KEY, description: BRAND_NAME_FIELD_DESCRIPTION }],
-    caller,
-    urlStrategy: 'landing',
-  });
-
-  const raw = results[0]?.value;
-  const name = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
-  if (!name) {
-    throw new Error(
-      `[brand-service] ensureBrandName: extractFields returned empty name for brand ${brandId}`,
-    );
-  }
-
+  const name = await deriveBrandName(row.url, row.domain);
   await persistBrandName(brandId, name);
 
   console.log(`[brand-service] ensureBrandName: persisted name "${name}" for brand ${brandId}`);
   return name;
+}
+
+/**
+ * Derive a brand display name with no LLM / external service. Fetches the
+ * landing page HTML and parses it; on any fetch failure falls back to the
+ * titlecased domain. Always returns a non-empty string.
+ */
+async function deriveBrandName(url: string, domain: string): Promise<string> {
+  const html = await fetchLandingHtml(url);
+  if (html === null) return titlecaseDomain(domain);
+  return parseBrandNameFromHtml(html, domain);
+}
+
+async function fetchLandingHtml(url: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BRAND_NAME_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        'User-Agent': BRAND_NAME_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+    if (!res.ok) {
+      console.warn(`[brand-service] fillBrandName: fetch ${url} returned ${res.status}; using domain fallback`);
+      return null;
+    }
+    return await res.text();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[brand-service] fillBrandName: fetch ${url} failed (${message}); using domain fallback`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Titlecase a bare domain into a human-ish name. Strips `www.` and the TLD
+ * (everything from the first dot), splits the leading label on `-`/`_`, and
+ * titlecases each token. Always returns a non-empty string.
+ * e.g. "my-cool-brand.com" → "My Cool Brand", "acme.io" → "Acme".
+ */
+export function titlecaseDomain(domain: string): string {
+  const label = domain.replace(/^www\./i, '').split('.')[0] ?? '';
+  const name = label
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+    .trim();
+  return name || domain;
+}
+
+/**
+ * Derive a brand display name from raw landing-page HTML. Priority:
+ *   1. og:site_name meta
+ *   2. <title> (trailing " | tagline" / " – tagline" suffix trimmed)
+ *   3. JSON-LD Organization / WebSite `.name`
+ *   4. titlecased domain fallback (always non-empty)
+ */
+export function parseBrandNameFromHtml(html: string, domain: string): string {
+  const ogSiteName = matchMetaContent(html, 'og:site_name');
+  if (ogSiteName) return ogSiteName;
+
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (titleMatch) {
+    const title = decodeEntities(titleMatch[1]).replace(/\s+/g, ' ').trim();
+    // Sites format titles as "Brand | Tagline" / "Brand – Tagline"; take the
+    // leading segment when a spaced separator is present.
+    const firstSegment = title.split(/\s*[|–—]\s+|\s+-\s+|:\s+/)[0]?.trim();
+    if (firstSegment) return firstSegment;
+    if (title) return title;
+  }
+
+  const jsonLdName = parseJsonLdName(html);
+  if (jsonLdName) return jsonLdName;
+
+  return titlecaseDomain(domain);
+}
+
+function matchMetaContent(html: string, key: string): string | null {
+  const tagRe = /<meta\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(html)) !== null) {
+    const tag = m[0];
+    const prop = /\b(?:property|name)\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]?.toLowerCase();
+    if (prop !== key) continue;
+    const content = /\bcontent\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1];
+    const decoded = content ? decodeEntities(content).trim() : '';
+    if (decoded) return decoded;
+  }
+  return null;
+}
+
+function parseJsonLdName(html: string): string | null {
+  const scriptRe = /<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = scriptRe.exec(html)) !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(m[1].trim());
+    } catch {
+      continue;
+    }
+    const name = findOrgName(parsed);
+    if (name) return name;
+  }
+  return null;
+}
+
+function findOrgName(node: unknown): string | null {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findOrgName(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (node && typeof node === 'object') {
+    const obj = node as Record<string, unknown>;
+    if (Array.isArray(obj['@graph'])) {
+      const found = findOrgName(obj['@graph']);
+      if (found) return found;
+    }
+    const rawType = obj['@type'];
+    const types = (Array.isArray(rawType) ? rawType : [rawType]).map((t) => String(t ?? ''));
+    const isOrgOrSite = types.some(
+      (t) => t === 'Organization' || t === 'WebSite' || t === 'Corporation' || t === 'LocalBusiness',
+    );
+    if (isOrgOrSite && typeof obj.name === 'string' && obj.name.trim()) {
+      return decodeEntities(obj.name).trim();
+    }
+  }
+  return null;
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&');
 }
 
 /**
@@ -329,6 +464,8 @@ export async function getOrCreateBrand(
     .values({ orgId, brandId: brand.id })
     .onConflictDoNothing({ target: [orgBrands.orgId, orgBrands.brandId] });
 
-  brand.name = await ensureBrandName(brand.id, caller);
+  // Do NOT block the create on the name fill — onboarding shows the domain, not
+  // the name. The name is derived lazily on the first getBrandDetail read
+  // (ensureBrandName). `brand.name` is returned as-is (may be null).
   return brand;
 }
