@@ -16,6 +16,7 @@ import { orgRouter as salesEconomicsOrgRoutes, internalRouter as salesEconomicsI
 import { orgRouter as icpOrgRoutes } from './routes/icp.routes';
 import { orgRouter as brandProfileOrgRoutes } from './routes/brand-profile.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from './routes/brand-goal.routes';
+import { orgRouter as clickDestinationOrgRoutes } from './routes/click-destination.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
 import organizationRoutes from './routes/organization.routes';
@@ -92,6 +93,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, salesEconomicsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, icpOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
 // Only start server if not in test environment

@@ -78,6 +78,7 @@ export const BrandDetailSchema = z
     url: z.string().openapi({ description: 'Full brand website URL' }),
     name: z.string().openapi({ description: 'Brand display name. Lazy-extracted from the website on first read if missing.' }),
     logoUrl: z.string().openapi({ description: 'Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing.' }),
+    clickDestinationUrl: z.string().nullable().openapi({ description: 'User-chosen page outreach clicks should land on. `null` when unset (the consumer defaults to the brand domain). Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination.' }),
     createdAt: z.string().openapi({ description: 'ISO timestamp when the brand row was created.' }),
     updatedAt: z.string().openapi({ description: 'ISO timestamp when the brand row was last updated.' }),
   })
@@ -1878,6 +1879,58 @@ registry.registerPath({
       content: { 'application/json': { schema: UpsertSalesEconomicsResponseSchema } },
     },
     400: { description: 'Invalid brand ID format or invalid/missing metric field' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ── Click destination URL (per-brand config) ────────────────────────────────
+// WRITE request: a single absolute http(s) URL. The route additionally validates
+// the protocol (http/https) and rejects non-http(s)/unparseable input with 400.
+export const UpsertClickDestinationRequestSchema = z
+  .object({
+    clickDestinationUrl: z
+      .string()
+      .url()
+      .openapi({
+        description:
+          'The page outreach clicks should land on. Must be an absolute http(s) URL. ' +
+          'Non-http(s) or unparseable input is rejected 400.',
+        example: 'https://example.com/welcome',
+      }),
+  })
+  .openapi('UpsertClickDestinationRequest');
+
+// WRITE response: the saved value (never null — you just wrote it).
+export const UpsertClickDestinationResponseSchema = z
+  .object({
+    clickDestinationUrl: z.string().openapi({ description: 'The saved click destination URL.' }),
+  })
+  .openapi('UpsertClickDestinationResponse');
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/click-destination',
+  summary: "Set a brand's click destination URL",
+  description:
+    'Persist the page outreach clicks should land on for this brand. Per-brand config ' +
+    '(reused across the brand\'s campaigns), mirroring the sales-economics write route — NOT brand ' +
+    'global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL; non-http(s) or ' +
+    'unparseable input is rejected 400. Idempotent upsert: repeating the same PUT yields the same end ' +
+    'state. Returns `{ clickDestinationUrl }` (the saved value). The brand must belong to the caller\'s ' +
+    'org (x-org-id); a brand outside the org is rejected 403. Read it back via the `clickDestinationUrl` ' +
+    'field on the brand read (GET /internal/brands/{id} and the batch read), `null` when unset.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: UpsertClickDestinationRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Saved click destination URL',
+      content: { 'application/json': { schema: UpsertClickDestinationResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format or invalid/missing/non-http(s) clickDestinationUrl' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
