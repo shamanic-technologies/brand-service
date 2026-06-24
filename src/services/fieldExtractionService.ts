@@ -294,12 +294,13 @@ function normalizeSelectedUrls(value: unknown): string[] {
 
 // ─── Field extraction via chat-service ──────────────────────────────────────
 
-async function extractFieldsFromContent(
+export async function extractFieldsFromContent(
   pageContents: { url: string; content: string }[],
   fields: FieldSpec[],
   chatCaller: Caller,
   campaignContext: string | null,
   profileContext: string | null,
+  urlStrategy: UrlStrategy,
 ): Promise<Record<string, unknown>> {
   const combinedContent = pageContents
     .filter((p) => p.content)
@@ -320,17 +321,23 @@ async function extractFieldsFromContent(
     ? `\n\nCampaign context (HIGHEST PRIORITY — overrides both the brand profile and the website content; use it to guide and refine your extraction):\n${campaignContext}\n`
     : '';
 
+  // Model by strategy: a single landing page (onboarding "what services do you
+  // offer", name fill) is cheap enough for Flash with no thinking. The url_map
+  // full-profile extraction keeps Pro + thinking for depth.
+  const modelParams =
+    urlStrategy === 'landing'
+      ? { model: 'flash' as const, maxTokens: 24000, thinkingBudget: 0 }
+      : { model: 'pro' as const, maxTokens: 24000, thinkingBudget: 8000 };
+
   const result = await chat(
     {
       systemPrompt:
         'You are a brand information extraction assistant. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys. NEVER return null, undefined, or empty values — if information is not present in the content, return the string "Unknown" for string fields and ["Unknown"] for array fields.',
       message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nWebsite content:\n${combinedContent.substring(0, 100000)}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
       provider: 'google',
-      model: 'pro',
       responseFormat: 'json',
       temperature: 0,
-      maxTokens: 24000,
-      thinkingBudget: 8000,
+      ...modelParams,
     },
     chatCaller,
   );
@@ -775,6 +782,7 @@ export async function extractFields(
       chatCaller,
       campaignContext,
       profileContext,
+      urlStrategy,
     );
 
     traceEvent(run.id, {
