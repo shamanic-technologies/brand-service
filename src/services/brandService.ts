@@ -7,7 +7,7 @@
  */
 
 import { eq, and, sql } from 'drizzle-orm';
-import { db, brands, orgBrands } from '../db';
+import { db, brands, orgBrands, brandClickDestination } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { extractFields } from './fieldExtractionService';
 import { Caller, OrgCaller } from '../lib/chat-client';
@@ -26,6 +26,8 @@ export interface BrandDetail {
   url: string;
   name: string;
   logoUrl: string;
+  // User-chosen page outreach clicks land on. null = never set (no row).
+  clickDestinationUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -63,10 +65,15 @@ export async function getBrandDetail(
       url: brands.url,
       name: brands.name,
       logoUrl: brands.logoUrl,
+      clickDestinationUrl: brandClickDestination.clickDestinationUrl,
       createdAt: brands.createdAt,
       updatedAt: brands.updatedAt,
     })
     .from(brands)
+    .leftJoin(
+      brandClickDestination,
+      eq(brandClickDestination.brandId, brands.id),
+    )
     .where(eq(brands.id, brandId))
     .limit(1);
 
@@ -81,6 +88,7 @@ export async function getBrandDetail(
     url: row.url,
     name,
     logoUrl,
+    clickDestinationUrl: row.clickDestinationUrl ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
