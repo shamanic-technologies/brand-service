@@ -9,6 +9,7 @@ import { orgRouter as extractFieldsOrgRoutes, internalRouter as extractFieldsInt
 import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInternalRoutes } from '../../src/routes/extract-images.routes';
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from '../../src/routes/public-information.routes';
 import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from '../../src/routes/transfer.routes';
+import { orgRouter as clickDestinationOrgRoutes } from '../../src/routes/click-destination.routes';
 import { orgRouter as salesEconomicsOrgRoutes, internalRouter as salesEconomicsInternalRoutes } from '../../src/routes/sales-economics.routes';
 import { orgRouter as icpOrgRoutes } from '../../src/routes/icp.routes';
 import { orgRouter as brandProfileOrgRoutes } from '../../src/routes/brand-profile.routes';
@@ -68,6 +69,7 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, salesEconomicsOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, icpOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
