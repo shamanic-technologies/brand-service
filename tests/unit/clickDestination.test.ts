@@ -7,6 +7,8 @@ vi.mock('../../src/db', () => ({ db: {}, brandClickDestinations: {} }));
 
 import {
   normalizeClickDestinationUrl,
+  hostMatchesBrandDomain,
+  assertClickDestinationOnBrandDomain,
   ClickDestinationValidationError,
 } from '../../src/services/clickDestinationService';
 
@@ -66,5 +68,83 @@ describe('normalizeClickDestinationUrl', () => {
     expect(() => normalizeClickDestinationUrl(null as unknown)).toThrow(
       ClickDestinationValidationError
     );
+  });
+});
+
+describe('hostMatchesBrandDomain', () => {
+  it('matches the exact brand domain', () => {
+    expect(hostMatchesBrandDomain('acme.com', 'acme.com')).toBe(true);
+  });
+
+  it('matches a subdomain of the brand domain', () => {
+    expect(hostMatchesBrandDomain('blog.acme.com', 'acme.com')).toBe(true);
+    expect(hostMatchesBrandDomain('a.b.acme.com', 'acme.com')).toBe(true);
+  });
+
+  it('treats www as the bare domain on the host side', () => {
+    expect(hostMatchesBrandDomain('www.acme.com', 'acme.com')).toBe(true);
+  });
+
+  it('treats www as the bare domain on the brand side (vice-versa)', () => {
+    expect(hostMatchesBrandDomain('acme.com', 'www.acme.com')).toBe(true);
+    expect(hostMatchesBrandDomain('shop.acme.com', 'www.acme.com')).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(hostMatchesBrandDomain('Blog.ACME.com', 'acme.COM')).toBe(true);
+  });
+
+  it('rejects a different domain', () => {
+    expect(hostMatchesBrandDomain('evil.com', 'acme.com')).toBe(false);
+  });
+
+  it('rejects a lookalike where the brand domain is a non-dot-boundary suffix', () => {
+    expect(hostMatchesBrandDomain('acme.com.evil.com', 'acme.com')).toBe(false);
+    expect(hostMatchesBrandDomain('notacme.com', 'acme.com')).toBe(false);
+    expect(hostMatchesBrandDomain('xacme.com', 'acme.com')).toBe(false);
+  });
+
+  it('does NOT match the parent domain of a subdomain brand', () => {
+    // brand is shop.acme.com → acme.com (parent) is off-brand
+    expect(hostMatchesBrandDomain('acme.com', 'shop.acme.com')).toBe(false);
+  });
+
+  it('rejects an empty brand domain', () => {
+    expect(hostMatchesBrandDomain('acme.com', '')).toBe(false);
+  });
+});
+
+describe('assertClickDestinationOnBrandDomain', () => {
+  it('accepts a URL on the brand domain', () => {
+    expect(() =>
+      assertClickDestinationOnBrandDomain('https://acme.com/welcome', 'acme.com')
+    ).not.toThrow();
+  });
+
+  it('accepts a subdomain URL', () => {
+    expect(() =>
+      assertClickDestinationOnBrandDomain('https://blog.acme.com/x', 'acme.com')
+    ).not.toThrow();
+  });
+
+  it('accepts a www URL against a bare brand domain', () => {
+    expect(() =>
+      assertClickDestinationOnBrandDomain('https://www.acme.com/x', 'acme.com')
+    ).not.toThrow();
+  });
+
+  it('rejects an off-domain URL, naming the brand domain', () => {
+    expect(() =>
+      assertClickDestinationOnBrandDomain('https://evil.com/x', 'acme.com')
+    ).toThrow(/acme\.com/);
+    expect(() =>
+      assertClickDestinationOnBrandDomain('https://evil.com/x', 'acme.com')
+    ).toThrow(ClickDestinationValidationError);
+  });
+
+  it('rejects a lookalike-suffix URL', () => {
+    expect(() =>
+      assertClickDestinationOnBrandDomain('https://acme.com.evil.com/x', 'acme.com')
+    ).toThrow(ClickDestinationValidationError);
   });
 });

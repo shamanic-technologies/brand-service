@@ -38,6 +38,41 @@ export class ClickDestinationValidationError extends Error {
   }
 }
 
+/** Strip a leading `www.` and lowercase a host/domain for comparison. */
+function canonicalHost(host: string): string {
+  return host.toLowerCase().replace(/^www\./, '');
+}
+
+/**
+ * True when `host` belongs to `brandDomain` — i.e. it IS the brand domain or a
+ * subdomain of it, on a dot boundary. `www` is treated as the bare domain on
+ * both sides. Suffix-only lookalikes are rejected: `acme.com.evil.com` and
+ * `notacme.com` do NOT match `acme.com` (the match requires either equality or
+ * a `.`-prefixed suffix, never a bare substring/suffix).
+ */
+export function hostMatchesBrandDomain(host: string, brandDomain: string): boolean {
+  const h = canonicalHost(host);
+  const d = canonicalHost(brandDomain);
+  if (!d) return false;
+  return h === d || h.endsWith(`.${d}`);
+}
+
+/**
+ * Reject a click destination that points off the brand's own domain. Fail-loud:
+ * an off-domain host throws (the route maps it to 400) — same contract as the
+ * http(s)/absolute-URL checks. `url` must already be a validated absolute URL
+ * (call `normalizeClickDestinationUrl` first). The brand domain comes from the
+ * brand record.
+ */
+export function assertClickDestinationOnBrandDomain(url: string, brandDomain: string): void {
+  const host = new URL(url).hostname;
+  if (!hostMatchesBrandDomain(host, brandDomain)) {
+    throw new ClickDestinationValidationError(
+      `clickDestinationUrl host "${host}" must be the brand's own domain "${brandDomain}" (or a subdomain of it)`
+    );
+  }
+}
+
 export class ClickDestinationService {
   /** The saved click destination for a brand, or null when unset (no row). */
   async getByBrandId(brandId: string): Promise<string | null> {

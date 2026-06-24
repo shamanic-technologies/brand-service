@@ -8,8 +8,10 @@ import {
 import {
   clickDestinationService,
   normalizeClickDestinationUrl,
+  assertClickDestinationOnBrandDomain,
   ClickDestinationValidationError,
 } from '../services/clickDestinationService';
+import { getBrand } from '../services/brandService';
 
 export const orgRouter = Router();
 
@@ -40,9 +42,17 @@ orgRouter.put('/brands/:brandId/click-destination', async (req: Request, res: Re
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
+    // Ownership already proven the brand exists + belongs to the org; read its
+    // domain to enforce the destination points to the brand's OWN site.
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
     let clickDestinationUrl: string;
     try {
       clickDestinationUrl = normalizeClickDestinationUrl(parsed.data.clickDestinationUrl);
+      assertClickDestinationOnBrandDomain(clickDestinationUrl, brand.domain);
     } catch (err) {
       if (err instanceof ClickDestinationValidationError) {
         return res.status(400).json({ error: err.message });
