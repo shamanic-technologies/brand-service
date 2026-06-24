@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const mockExtractFields = vi.fn();
-vi.mock('../../src/services/fieldExtractionService', () => ({
-  extractFields: (...args: unknown[]) => mockExtractFields(...args),
-}));
-
 let dbCallIndex = 0;
 let dbCallResults: unknown[][] = [];
 const updateSetMock = vi.fn();
@@ -79,20 +74,28 @@ const orgCaller: OrgCaller = {
   runId: 'run-99',
 };
 
-describe('ensureBrandName', () => {
+const mockFetch = vi.fn();
+
+function htmlResponse(html: string, ok = true, status = 200) {
+  return { ok, status, text: () => Promise.resolve(html) };
+}
+
+describe('ensureBrandName (deterministic, no LLM)', () => {
   const originalNodeEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
     vi.clearAllMocks();
     dbCallIndex = 0;
     dbCallResults = [];
+    vi.stubGlobal('fetch', mockFetch);
   });
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
+    vi.unstubAllGlobals();
   });
 
-  it('returns existing name without calling extractFields when name is already set', async () => {
+  it('returns existing name without fetching when name is already set', async () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
       [{ id: 'brand-1', name: 'Acme Inc', orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
@@ -101,7 +104,7 @@ describe('ensureBrandName', () => {
     const result = await ensureBrandName('brand-1', platformCaller);
 
     expect(result).toBe('Acme Inc');
-    expect(mockExtractFields).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
     expect(updateSetMock).not.toHaveBeenCalled();
   });
 
@@ -112,87 +115,66 @@ describe('ensureBrandName', () => {
     await expect(ensureBrandName('missing-brand', platformCaller)).rejects.toThrow(
       /Brand not found: missing-brand/,
     );
-    expect(mockExtractFields).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('forwards platform caller to extractFields when name is null', async () => {
+  it('derives the name from landing HTML (og:site_name) and persists it', async () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
       [{ id: 'brand-2', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
       [{ id: 'brand-2', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
     ]);
-    mockExtractFields.mockResolvedValueOnce([
-      {
-        key: 'name',
-        value: 'Pressbeat',
-        cached: false,
-        extractedAt: '2026-05-17T11:00:00.000Z',
-        expiresAt: null,
-        sourceUrls: ['https://pressbeat.io'],
-      },
-    ]);
+    mockFetch.mockResolvedValueOnce(
+      htmlResponse('<meta property="og:site_name" content="Pressbeat"><title>Pressbeat | PR</title>'),
+    );
 
     const result = await ensureBrandName('brand-2', platformCaller);
 
     expect(result).toBe('Pressbeat');
-    expect(mockExtractFields).toHaveBeenCalledTimes(1);
-    expect(mockExtractFields).toHaveBeenCalledWith(
-      expect.objectContaining({
-        brandId: 'brand-2',
-        caller: { mode: 'platform' },
-        fields: [
-          expect.objectContaining({ key: 'name' }),
-        ],
-        urlStrategy: 'landing',
-      }),
-    );
-    expect(updateSetMock).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Pressbeat' }),
-    );
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe('https://pressbeat.io');
+    expect(updateSetMock).toHaveBeenCalledWith(expect.objectContaining({ name: 'Pressbeat' }));
   });
 
-  it('forwards org caller to extractFields when name is null', async () => {
+  it('works the same for an org caller (caller is not used by the fill)', async () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
       [{ id: 'brand-2b', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
       [{ id: 'brand-2b', name: null, orgId: 'org-2', domain: 'pressbeat.io', url: 'https://pressbeat.io' }],
     ]);
-    mockExtractFields.mockResolvedValueOnce([
-      {
-        key: 'name',
-        value: 'Pressbeat',
-        cached: false,
-        extractedAt: '2026-05-17T11:00:00.000Z',
-        expiresAt: null,
-        sourceUrls: ['https://pressbeat.io'],
-      },
-    ]);
+    mockFetch.mockResolvedValueOnce(htmlResponse('<title>Pressbeat — PR coverage</title>'));
 
-    await ensureBrandName('brand-2b', orgCaller);
+    const result = await ensureBrandName('brand-2b', orgCaller);
 
-    expect(mockExtractFields).toHaveBeenCalledWith(
-      expect.objectContaining({
-        brandId: 'brand-2b',
-        caller: orgCaller,
-        urlStrategy: 'landing',
-      }),
-    );
+    expect(result).toBe('Pressbeat');
+    expect(updateSetMock).toHaveBeenCalledWith(expect.objectContaining({ name: 'Pressbeat' }));
   });
 
-  it('throws when extractFields returns an empty value (no silent fallback)', async () => {
+  it('falls back to the titlecased domain when the fetch fails (no throw)', async () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
-      [{ id: 'brand-3', name: null, orgId: 'org-3', domain: 'empty.com', url: 'https://empty.com' }],
-      [{ id: 'brand-3', name: null, orgId: 'org-3', domain: 'empty.com', url: 'https://empty.com' }],
+      [{ id: 'brand-3', name: null, orgId: 'org-3', domain: 'my-cool-brand.com', url: 'https://my-cool-brand.com' }],
+      [{ id: 'brand-3', name: null, orgId: 'org-3', domain: 'my-cool-brand.com', url: 'https://my-cool-brand.com' }],
     ]);
-    mockExtractFields.mockResolvedValueOnce([
-      { key: 'name', value: '   ', cached: false, extractedAt: '2026-05-17T11:00:00.000Z', expiresAt: null, sourceUrls: [] },
-    ]);
+    mockFetch.mockRejectedValueOnce(new Error('network down'));
 
-    await expect(ensureBrandName('brand-3', platformCaller)).rejects.toThrow(
-      /extractFields returned empty name/,
-    );
-    expect(updateSetMock).not.toHaveBeenCalled();
+    const result = await ensureBrandName('brand-3', platformCaller);
+
+    expect(result).toBe('My Cool Brand');
+    expect(updateSetMock).toHaveBeenCalledWith(expect.objectContaining({ name: 'My Cool Brand' }));
+  });
+
+  it('falls back to the titlecased domain on a non-OK response', async () => {
+    process.env.NODE_ENV = 'production';
+    setDbSequence([
+      [{ id: 'brand-3b', name: null, orgId: 'org-3', domain: 'acme.io', url: 'https://acme.io' }],
+      [{ id: 'brand-3b', name: null, orgId: 'org-3', domain: 'acme.io', url: 'https://acme.io' }],
+    ]);
+    mockFetch.mockResolvedValueOnce(htmlResponse('forbidden', false, 403));
+
+    const result = await ensureBrandName('brand-3b', platformCaller);
+
+    expect(result).toBe('Acme');
   });
 
   it('shares one in-flight name fill across concurrent calls for the same brand', async () => {
@@ -203,36 +185,27 @@ describe('ensureBrandName', () => {
       [{ id: 'brand-singleflight', name: null, orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
     ]);
 
-    let resolveExtraction: (value: unknown) => void = () => {};
-    const extraction = new Promise((resolve) => {
-      resolveExtraction = resolve;
+    let resolveFetch: (value: unknown) => void = () => {};
+    const pending = new Promise((resolve) => {
+      resolveFetch = resolve;
     });
-    mockExtractFields.mockReturnValueOnce(extraction);
+    mockFetch.mockReturnValueOnce(pending);
 
     const first = ensureBrandName('brand-singleflight', platformCaller);
     const second = ensureBrandName('brand-singleflight', platformCaller);
 
     await vi.waitFor(() => {
-      expect(mockExtractFields).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
-    resolveExtraction([
-      {
-        key: 'name',
-        value: 'Acme',
-        cached: false,
-        extractedAt: '2026-06-09T00:00:00.000Z',
-        expiresAt: null,
-        sourceUrls: ['https://acme.com'],
-      },
-    ]);
+    resolveFetch(htmlResponse('<meta property="og:site_name" content="Acme">'));
 
     await expect(Promise.all([first, second])).resolves.toEqual(['Acme', 'Acme']);
-    expect(mockExtractFields).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(updateSetMock).toHaveBeenCalledTimes(1);
   });
 
-  it('re-reads brands.name before scraping after joining the fill gate', async () => {
+  it('re-reads brands.name before fetching after joining the fill gate', async () => {
     process.env.NODE_ENV = 'production';
     setDbSequence([
       [{ id: 'brand-reread', name: null, orgId: 'org-1', domain: 'acme.com', url: 'https://acme.com' }],
@@ -242,11 +215,11 @@ describe('ensureBrandName', () => {
     const result = await ensureBrandName('brand-reread', platformCaller);
 
     expect(result).toBe('Already Filled');
-    expect(mockExtractFields).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
     expect(updateSetMock).not.toHaveBeenCalled();
   });
 
-  it('bypasses external scraping in test env and persists domain as name', async () => {
+  it('bypasses the network fetch in test env and persists domain as name', async () => {
     process.env.NODE_ENV = 'test';
     setDbSequence([
       [{ id: 'brand-4', name: null, orgId: 'org-4', domain: 'testdomain.com', url: 'https://testdomain.com' }],
@@ -255,7 +228,7 @@ describe('ensureBrandName', () => {
     const result = await ensureBrandName('brand-4', platformCaller);
 
     expect(result).toBe('testdomain.com');
-    expect(mockExtractFields).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
     expect(updateSetMock).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'testdomain.com' }),
     );
