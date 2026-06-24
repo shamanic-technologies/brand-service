@@ -30,6 +30,14 @@ export interface ChatParams {
   imageContext?: { alt?: string; title?: string; sourceUrl?: string };
   /** Token budget for model thinking/reasoning. 0 = disabled (default). */
   thinkingBudget?: number;
+  /**
+   * Minimize the model's internal reasoning so the whole output budget goes to
+   * the answer (faster, cheaper). Provider-floored: Gemini 2.5 → thinking fully
+   * OFF; Gemini 3 (incl. flash-pro) has no full-off → drops to its lowest level
+   * (`minimal` for Flash). Use for short structured-JSON / scoring tasks that
+   * don't need chain-of-thought.
+   */
+  disableThinking?: boolean;
 }
 
 export interface ChatResult {
@@ -189,6 +197,7 @@ function buildBody(params: ChatParams): Record<string, unknown> {
     ...(params.imageUrl && { imageUrl: params.imageUrl }),
     ...(params.imageContext && { imageContext: params.imageContext }),
     ...(params.thinkingBudget !== undefined && { thinkingBudget: params.thinkingBudget }),
+    ...(params.disableThinking !== undefined && { disableThinking: params.disableThinking }),
   };
 }
 

@@ -129,6 +129,32 @@ describe('chat-client', () => {
       expect(body.imageUrl).toBeUndefined();
       expect(body.imageContext).toBeUndefined();
       expect(body.thinkingBudget).toBeUndefined();
+      expect(body.disableThinking).toBeUndefined();
+    });
+
+    it('passes disableThinking when provided', async () => {
+      const { chat } = await importClient();
+
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ content: '{}', json: {}, tokensInput: 100, tokensOutput: 50, model: 'gemini-flash-pro' }),
+      );
+
+      await chat(
+        {
+          message: 'Suggest an ICP',
+          systemPrompt: 'You are a go-to-market strategist.',
+          provider: 'google',
+          model: 'flash-pro',
+          responseFormat: 'json',
+          maxTokens: 512,
+          disableThinking: true,
+        },
+        { mode: 'org', orgId: 'org_123', userId: 'user_456', runId: 'run_789' },
+      );
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.disableThinking).toBe(true);
+      expect(body.model).toBe('flash-pro');
     });
 
     it('passes thinkingBudget when provided', async () => {
