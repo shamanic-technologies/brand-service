@@ -3950,7 +3950,7 @@
     "/orgs/brands/{brandId}/click-destination": {
       "put": {
         "summary": "Set a brand's click destination URL",
-        "description": "Persist the page outreach clicks should land on for this brand. Per-brand config (reused across the brand's campaigns), mirroring the sales-economics write route — NOT brand global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL; non-http(s) or unparseable input is rejected 400. Idempotent upsert: repeating the same PUT yields the same end state. Returns `{ clickDestinationUrl }` (the saved value). The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403. Read it back via the `clickDestinationUrl` field on the brand read (GET /internal/brands/{id} and the batch read), `null` when unset.",
+        "description": "Persist the page outreach clicks should land on for this brand. Per-brand config (reused across the brand's campaigns), mirroring the sales-economics write route — NOT brand global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL whose host is the brand's OWN domain (or a subdomain of it; `www` is treated as the bare domain on both sides). Non-http(s), unparseable, or off-domain input (incl. lookalike suffixes like `<domain>.evil.com`) is rejected 400. Idempotent upsert: repeating the same PUT yields the same end state. Returns `{ clickDestinationUrl }` (the saved value). The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403. Read it back via the `clickDestinationUrl` field on the brand read (GET /internal/brands/{id} and the batch read), `null` when unset.",
         "parameters": [
           {
             "schema": {
