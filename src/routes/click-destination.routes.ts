@@ -8,8 +8,10 @@ import {
 import {
   clickDestinationService,
   normalizeClickDestinationUrl,
+  assertOnBrandDomain,
   ClickDestinationValidationError,
 } from '../services/clickDestinationService';
+import { getBrand } from '../services/brandService';
 
 export const orgRouter = Router();
 
@@ -19,7 +21,8 @@ export const orgRouter = Router();
  * Persist the brand's chosen click-destination URL — the page outreach clicks
  * should land on. Per-brand config (mirrors the sales-economics write route),
  * reused across the brand's campaigns. Body `{ clickDestinationUrl: string }`;
- * the URL must be an absolute http(s) URL (non-http(s) / unparseable → 400).
+ * the URL must be an absolute http(s) URL on the brand's OWN domain (or a
+ * subdomain of it); non-http(s) / unparseable / off-domain → 400.
  * Idempotent upsert. Returns `{ clickDestinationUrl }` (the saved value).
  *
  * Same auth as the per-brand sales-economics PUT: org-scoped + the brand must
@@ -40,9 +43,18 @@ orgRouter.put('/brands/:brandId/click-destination', async (req: Request, res: Re
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
+    // Ownership 'ok' already proves the brand exists; fetch it for the domain
+    // the destination must point to. Null is a defensive guard (race), not the
+    // unknown-brand case (that's the 404 above).
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
     let clickDestinationUrl: string;
     try {
       clickDestinationUrl = normalizeClickDestinationUrl(parsed.data.clickDestinationUrl);
+      assertOnBrandDomain(clickDestinationUrl, brand.domain);
     } catch (err) {
       if (err instanceof ClickDestinationValidationError) {
         return res.status(400).json({ error: err.message });

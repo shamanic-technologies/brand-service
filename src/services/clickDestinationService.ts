@@ -30,6 +30,33 @@ export function normalizeClickDestinationUrl(input: unknown): string {
   return parsed.toString();
 }
 
+/** Strip a leading "www." so "www.acme.com" matches the www-stripped brand domain. */
+function bareHost(host: string): string {
+  return host.replace(/^www\./i, '').toLowerCase();
+}
+
+/**
+ * Enforce that a (already-normalized, absolute http(s)) click destination points
+ * to the brand's OWN domain — the host must equal the brand domain or be a
+ * subdomain of it (www treated as the bare domain on both sides). A lookalike
+ * where the brand domain is only a non-dot-boundary suffix (acme.com.evil.com)
+ * is rejected. Fails loud: off-domain throws (the route maps it to a 400).
+ */
+export function assertOnBrandDomain(normalizedUrl: string, brandDomain: string): void {
+  let host: string;
+  try {
+    host = bareHost(new URL(normalizedUrl).hostname);
+  } catch {
+    throw new ClickDestinationValidationError('clickDestinationUrl must be a valid absolute URL');
+  }
+  const domain = bareHost(brandDomain);
+  if (host !== domain && !host.endsWith(`.${domain}`)) {
+    throw new ClickDestinationValidationError(
+      `clickDestinationUrl must be on the brand domain (${domain})`
+    );
+  }
+}
+
 /** Thrown on invalid click-destination input — the route maps it to a 400. */
 export class ClickDestinationValidationError extends Error {
   constructor(message: string) {

@@ -44,26 +44,51 @@ describe('Click Destination Endpoints', () => {
   });
 
   const path = (id: string) => `/orgs/brands/${id}/click-destination`;
+  // Brands are seeded with domain `click-dest-<slug>.com`; the destination must
+  // be on that domain, so build on-domain URLs from the same slug.
+  const ownDomain = (id: string) => `click-dest-${id.slice(0, 8)}.com`;
+  const ownUrl = (id: string, p = '/welcome') => `https://${ownDomain(id)}${p}`;
 
   // AC2 — persist a valid http(s) URL, returns the saved value
   it('PUT a valid https URL returns 200 with the saved value', async () => {
     const res = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ clickDestinationUrl: 'https://example.com/welcome' });
+      .send({ clickDestinationUrl: ownUrl(brandId, '/welcome') });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ clickDestinationUrl: 'https://example.com/welcome' });
+    expect(res.body).toEqual({ clickDestinationUrl: ownUrl(brandId, '/welcome') });
   });
 
-  it('PUT a valid http URL is accepted', async () => {
+  it('PUT a valid http URL on the brand domain is accepted', async () => {
+    const httpUrl = `http://${ownDomain(brandId)}/page`;
     const res = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ clickDestinationUrl: 'http://example.com/page' });
+      .send({ clickDestinationUrl: httpUrl });
 
     expect(res.status).toBe(200);
-    expect(res.body.clickDestinationUrl).toBe('http://example.com/page');
+    expect(res.body.clickDestinationUrl).toBe(httpUrl);
+  });
+
+  it('PUT a subdomain of the brand domain is accepted', async () => {
+    const subUrl = `https://blog.${ownDomain(brandId)}/post`;
+    const res = await request(app)
+      .put(path(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ clickDestinationUrl: subUrl });
+
+    expect(res.status).toBe(200);
+    expect(res.body.clickDestinationUrl).toBe(subUrl);
+  });
+
+  it('PUT a URL on a different domain is rejected 400', async () => {
+    const res = await request(app)
+      .put(path(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ clickDestinationUrl: 'https://evil.com/phish' });
+
+    expect(res.status).toBe(400);
   });
 
   // AC1 — read back via the internal brand read
@@ -71,14 +96,14 @@ describe('Click Destination Endpoints', () => {
     await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ clickDestinationUrl: 'https://example.com/landing' });
+      .send({ clickDestinationUrl: ownUrl(brandId, '/landing') });
 
     const res = await request(app)
       .get(`/internal/brands/${brandId}`)
       .set(getInternalAuthHeaders());
 
     expect(res.status).toBe(200);
-    expect(res.body.brand.clickDestinationUrl).toBe('https://example.com/landing');
+    expect(res.body.brand.clickDestinationUrl).toBe(ownUrl(brandId, '/landing'));
   });
 
   // AC1 — unset brand reads clickDestinationUrl: null (additive, no break)
@@ -96,7 +121,7 @@ describe('Click Destination Endpoints', () => {
     await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ clickDestinationUrl: 'https://example.com/batch' });
+      .send({ clickDestinationUrl: ownUrl(brandId, '/batch') });
 
     const res = await request(app)
       .get(`/internal/brands?ids=${brandId},${unsetBrandId}`)
@@ -105,7 +130,7 @@ describe('Click Destination Endpoints', () => {
     expect(res.status).toBe(200);
     const set = res.body.brands.find((b: any) => b.id === brandId);
     const unset = res.body.brands.find((b: any) => b.id === unsetBrandId);
-    expect(set.clickDestinationUrl).toBe('https://example.com/batch');
+    expect(set.clickDestinationUrl).toBe(ownUrl(brandId, '/batch'));
     expect(unset.clickDestinationUrl).toBeNull();
   });
 
@@ -114,14 +139,14 @@ describe('Click Destination Endpoints', () => {
     await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ clickDestinationUrl: 'https://example.com/v1' });
+      .send({ clickDestinationUrl: ownUrl(brandId, '/v1') });
     const res = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ clickDestinationUrl: 'https://example.com/v2' });
+      .send({ clickDestinationUrl: ownUrl(brandId, '/v2') });
 
     expect(res.status).toBe(200);
-    expect(res.body.clickDestinationUrl).toBe('https://example.com/v2');
+    expect(res.body.clickDestinationUrl).toBe(ownUrl(brandId, '/v2'));
   });
 
   // AC2 — reject non-http(s) URL
