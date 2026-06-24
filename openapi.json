@@ -235,6 +235,11 @@
             "type": "string",
             "description": "Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing."
           },
+          "clickDestinationUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "User-chosen page outreach clicks should land on. `null` when unset (the consumer defaults to the brand domain). Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination."
+          },
           "createdAt": {
             "type": "string",
             "description": "ISO timestamp when the brand row was created."
@@ -250,6 +255,7 @@
           "url",
           "name",
           "logoUrl",
+          "clickDestinationUrl",
           "createdAt",
           "updatedAt"
         ]
@@ -1515,6 +1521,32 @@
               }
             }
           }
+        ]
+      },
+      "UpsertClickDestinationResponse": {
+        "type": "object",
+        "properties": {
+          "clickDestinationUrl": {
+            "type": "string",
+            "description": "The saved click destination URL."
+          }
+        },
+        "required": [
+          "clickDestinationUrl"
+        ]
+      },
+      "UpsertClickDestinationRequest": {
+        "type": "object",
+        "properties": {
+          "clickDestinationUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The page outreach clicks should land on. Must be an absolute http(s) URL. Non-http(s) or unparseable input is rejected 400.",
+            "example": "https://example.com/welcome"
+          }
+        },
+        "required": [
+          "clickDestinationUrl"
         ]
       },
       "UpdateCurrentGoalResponse": {
@@ -3908,6 +3940,56 @@
           },
           "400": {
             "description": "Invalid brand ID format"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/click-destination": {
+      "put": {
+        "summary": "Set a brand's click destination URL",
+        "description": "Persist the page outreach clicks should land on for this brand. Per-brand config (reused across the brand's campaigns), mirroring the sales-economics write route — NOT brand global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL; non-http(s) or unparseable input is rejected 400. Idempotent upsert: repeating the same PUT yields the same end state. Returns `{ clickDestinationUrl }` (the saved value). The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403. Read it back via the `clickDestinationUrl` field on the brand read (GET /internal/brands/{id} and the batch read), `null` when unset.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertClickDestinationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved click destination URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpsertClickDestinationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format or invalid/missing/non-http(s) clickDestinationUrl"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
           },
           "500": {
             "description": "Internal server error"

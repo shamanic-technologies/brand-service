@@ -134,6 +134,30 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 ]);
 
 /**
+ * Brand-level click destination URL. One row per brand (PK = brand_id), reused
+ * across every outreach campaign for that brand — analogous to
+ * `brand_sales_economics` / `brands.current_goal` per-brand config, NOT brand
+ * global identity. The page outreach clicks should land on; default (no row) is
+ * the brand's own domain, which the user can override with another page of their
+ * site. Stored as a dedicated config table (not on the `brands` identity row) so
+ * it mirrors the sales-economics scoping. `click_destination_url` is NOT NULL —
+ * the row's presence IS the "set" signal; an unset brand simply has no row and
+ * reads as `clickDestinationUrl: null`.
+ */
+export const brandClickDestinations = pgTable("brand_click_destinations", {
+	brandId: uuid("brand_id").primaryKey(),
+	clickDestinationUrl: text("click_destination_url").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_click_destinations_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * Brand Profile — per-brand, VERSIONED and IMMUTABLE. Saving = a NEW version
  * (v1 → v2 → …); prior versions are never mutated. `fields` is a free-form map
  * (key → string | string[]) of the brand's OWN info (overview, value prop, key

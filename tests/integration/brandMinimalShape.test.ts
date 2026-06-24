@@ -20,7 +20,7 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
     createdOrgIds.length = 0;
   });
 
-  it('returns only id, domain, url, name, logoUrl, createdAt, updatedAt — no business fields', async () => {
+  it('returns only id, domain, url, name, logoUrl, clickDestinationUrl, createdAt, updatedAt — no business fields', async () => {
     const orgId = randomUUID();
     createdOrgIds.push(orgId);
     const id = randomUUID();
@@ -42,8 +42,9 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
 
     expect(res.status).toBe(200);
     expect(Object.keys(res.body.brand).sort()).toEqual(
-      ['createdAt', 'domain', 'id', 'logoUrl', 'name', 'updatedAt', 'url'],
+      ['clickDestinationUrl', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'updatedAt', 'url'],
     );
+    expect(res.body.brand.clickDestinationUrl).toBeNull();
     expect(res.body.brand.bio).toBeUndefined();
     expect(res.body.brand.categories).toBeUndefined();
     expect(res.body.brand.mission).toBeUndefined();
