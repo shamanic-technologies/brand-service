@@ -17,7 +17,7 @@ describe('brands.name lazy-fill', () => {
     createdOrgIds.length = 0;
   });
 
-  it('POST /orgs/brands always returns a non-null name on new brand', async () => {
+  it('POST /orgs/brands returns immediately with a null name (non-blocking); name fills lazily on read', async () => {
     const orgId = randomUUID();
     createdOrgIds.push(orgId);
     const url = 'https://lazyfill-create.example.com';
@@ -27,17 +27,31 @@ describe('brands.name lazy-fill', () => {
       .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url });
 
+    // The create path no longer blocks on the name fill — onboarding shows the
+    // domain, not the name. `name` is present in the response but null.
     expect(res.status).toBe(200);
-    expect(res.body.name).toBeDefined();
-    expect(res.body.name).not.toBeNull();
-    expect(res.body.name).not.toBe('');
+    expect(res.body).toHaveProperty('name');
+    expect(res.body.name).toBeNull();
 
     const [row] = await db
       .select({ name: brands.name })
       .from(brands)
       .where(eq(brands.id, res.body.brandId));
-    expect(row.name).not.toBeNull();
-    expect(row.name).not.toBe('');
+    expect(row.name).toBeNull();
+
+    // Lazy-fill on the first read (test env persists the domain as the name).
+    const getRes = await request(app)
+      .get(`/internal/brands/${res.body.brandId}`)
+      .set(getInternalAuthHeaders());
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.brand.name).not.toBeNull();
+    expect(getRes.body.brand.name).not.toBe('');
+
+    const [after] = await db
+      .select({ name: brands.name })
+      .from(brands)
+      .where(eq(brands.id, res.body.brandId));
+    expect(after.name).not.toBeNull();
   }, 15000);
 
   it('GET /internal/brands/:id lazy-fills name when null and persists to DB', async () => {
