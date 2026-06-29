@@ -30,21 +30,25 @@ describe('extractFieldsFromContent — model selection by urlStrategy', () => {
     mockChat.mockResolvedValue({ json: { services: 'widgets' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
   });
 
-  it('landing strategy → Flash, thinkingBudget 0', async () => {
+  it('landing strategy → Flash, disableThinking, no dead thinkingBudget', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
     expect(params.model).toBe('flash');
-    expect(params.thinkingBudget).toBe(0);
+    expect(params.disableThinking).toBe(true);
+    // thinkingBudget was dead config — chat-service /complete never honored it.
+    expect(params.thinkingBudget).toBeUndefined();
   });
 
-  it('url_map strategy → Pro, thinkingBudget 8000', async () => {
+  it('url_map strategy → Pro, default thinking, no dead thinkingBudget', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'url_map');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
     expect(params.model).toBe('pro');
-    expect(params.thinkingBudget).toBe(8000);
+    // Pro keeps chat-service's default bounded thinking for depth (not disabled).
+    expect(params.disableThinking).toBeUndefined();
+    expect(params.thinkingBudget).toBeUndefined();
   });
 });

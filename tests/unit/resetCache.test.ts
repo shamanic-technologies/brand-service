@@ -118,6 +118,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('../../src/services/fieldExtractionService', () => ({
   extractFields: vi.fn(),
   getBrand: vi.fn(),
+  buildFieldsResponseSchema: (keys: string[]) => ({ type: 'object', properties: {}, required: keys }),
 }));
 
 import { multiBrandExtractFields } from '../../src/services/multiBrandFieldExtractionService';
