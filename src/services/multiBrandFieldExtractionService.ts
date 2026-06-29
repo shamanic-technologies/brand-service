@@ -8,7 +8,7 @@
 
 import crypto from 'crypto';
 import { eq, gt, sql, and } from 'drizzle-orm';
-import { extractFields, getBrand, FieldSpec, ExtractedFieldResult, UrlStrategy } from './fieldExtractionService';
+import { extractFields, getBrand, buildFieldsResponseSchema, FieldSpec, ExtractedFieldResult, UrlStrategy } from './fieldExtractionService';
 import { chat, Caller, OrgCaller, PlatformCaller } from '../lib/chat-client';
 import { db, consolidatedFieldCache } from '../db';
 
@@ -153,9 +153,13 @@ async function consolidateFields(
       provider: 'google',
       model: 'pro',
       responseFormat: 'json',
+      // Strict schema enforces the output shape server-side so Gemini Pro can't
+      // emit malformed/truncated JSON across the consolidated field set (same
+      // chat-service 502 class as the per-brand extraction). `thinkingBudget`
+      // was dead config — chat-service /complete never honored it.
+      responseSchema: buildFieldsResponseSchema(fieldKeys),
       temperature: 0,
       maxTokens: 24000,
-      thinkingBudget: 8000,
     },
     chatCaller,
   );

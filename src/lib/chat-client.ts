@@ -22,6 +22,17 @@ export interface ChatParams {
   /** Model tier — chat-service resolves the versioned model internally. */
   model: 'flash' | 'flash-lite' | 'flash-pro' | 'pro' | 'sonnet' | 'haiku' | 'opus';
   responseFormat?: 'json';
+  /**
+   * Optional JSON Schema describing the exact shape of the expected response.
+   * When set, chat-service passes it to the provider's structured-output API
+   * (Gemini: `generationConfig.responseSchema`) and the provider enforces the
+   * shape server-side — the model can no longer emit malformed/truncated JSON
+   * mid-output on large multi-field outputs. Implies `responseFormat: 'json'`.
+   *
+   * Gemini constraint: do NOT set `additionalProperties: false` — that is the
+   * Anthropic strict-schema dialect and Gemini rejects it with HTTP 400.
+   */
+  responseSchema?: Record<string, unknown>;
   temperature?: number;
   maxTokens?: number;
   /** URL of an image for vision analysis. Requires a vision-capable model. Only supported on /complete (org mode). */
@@ -192,6 +203,7 @@ function buildBody(params: ChatParams): Record<string, unknown> {
     provider: params.provider,
     model: params.model,
     ...(params.responseFormat && { responseFormat: params.responseFormat }),
+    ...(params.responseSchema && { responseSchema: params.responseSchema }),
     ...(params.temperature !== undefined && { temperature: params.temperature }),
     ...(params.maxTokens !== undefined && { maxTokens: params.maxTokens }),
     ...(params.imageUrl && { imageUrl: params.imageUrl }),

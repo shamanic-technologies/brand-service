@@ -292,6 +292,33 @@ function normalizeSelectedUrls(value: unknown): string[] {
   return (urls as string[]).slice(0, 10);
 }
 
+// ─── Structured-output schema ───────────────────────────────────────────────
+
+/**
+ * Build a Gemini-compatible JSON `responseSchema` for a set of extraction field
+ * keys. Each value may be a string ("Unknown") or an array of strings
+ * (["Unknown"]) — matching the extraction prompt's contract — and every key is
+ * `required`, so the provider enforces a complete object and stops emitting
+ * truncated/malformed JSON mid-output on large multi-field (19+) extractions.
+ * This is the real robustness fix for the chat-service 502
+ * ("Model returned malformed or truncated JSON") on free-form JSON output.
+ *
+ * NOTE: deliberately NO `additionalProperties: false` — that is the Anthropic
+ * strict-schema dialect; Gemini rejects it with HTTP 400. These calls all use
+ * provider: 'google'.
+ */
+export function buildFieldsResponseSchema(keys: string[]): Record<string, unknown> {
+  const valueSchema = {
+    anyOf: [
+      { type: 'string' },
+      { type: 'array', items: { type: 'string' } },
+    ],
+  };
+  const properties: Record<string, unknown> = {};
+  for (const key of keys) properties[key] = valueSchema;
+  return { type: 'object', properties, required: [...keys] };
+}
+
 // ─── Field extraction via chat-service ──────────────────────────────────────
 
 export async function extractFieldsFromContent(
@@ -322,12 +349,21 @@ export async function extractFieldsFromContent(
     : '';
 
   // Model by strategy: a single landing page (onboarding "what services do you
-  // offer", name fill) is cheap enough for Flash with no thinking. The url_map
-  // full-profile extraction keeps Pro + thinking for depth.
+  // offer", name fill) is cheap enough for Flash with thinking minimized. The
+  // url_map full-profile extraction keeps Pro (and chat-service's default
+  // bounded thinking) for depth.
+  //
+  // A strict responseSchema is sent on BOTH paths so the provider enforces the
+  // output shape server-side — this is what stops Gemini Pro from emitting
+  // malformed/truncated JSON on the 19-field url_map extraction (chat-service
+  // 502 "Model returned malformed or truncated JSON"). `thinkingBudget` was
+  // dead config — chat-service /complete never honored it (only `disableThinking`).
   const modelParams =
     urlStrategy === 'landing'
-      ? { model: 'flash' as const, maxTokens: 24000, thinkingBudget: 0 }
-      : { model: 'pro' as const, maxTokens: 24000, thinkingBudget: 8000 };
+      ? { model: 'flash' as const, maxTokens: 24000, disableThinking: true }
+      : { model: 'pro' as const, maxTokens: 24000 };
+
+  const responseSchema = buildFieldsResponseSchema(fields.map((f) => f.key));
 
   const result = await chat(
     {
@@ -336,6 +372,7 @@ export async function extractFieldsFromContent(
       message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nWebsite content:\n${combinedContent.substring(0, 100000)}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
       provider: 'google',
       responseFormat: 'json',
+      responseSchema,
       temperature: 0,
       ...modelParams,
     },
