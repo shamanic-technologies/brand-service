@@ -61,6 +61,8 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('../../src/services/fieldExtractionService', () => ({
   extractFields: vi.fn(),
   getBrand: vi.fn(),
+  // consolidateFields builds a strict responseSchema from the real helper.
+  buildFieldsResponseSchema: (keys: string[]) => ({ type: 'object', properties: {}, required: keys }),
 }));
 
 // Mock the image extraction service to avoid DB calls
