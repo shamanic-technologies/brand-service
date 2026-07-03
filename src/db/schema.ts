@@ -141,8 +141,9 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
  * the brand's own domain, which the user can override with another page of their
  * site. Stored as a dedicated config table (not on the `brands` identity row) so
  * it mirrors the sales-economics scoping. `click_destination_url` is NOT NULL —
- * the row's presence IS the "set" signal; an unset brand simply has no row and
- * reads as `clickDestinationUrl: null`.
+ * the row's presence IS the "set" signal; an unset brand simply has no row, and
+ * the brand read (getBrandDetail) then defaults `clickDestinationUrl` to the
+ * brand's own landing `url` so the response value is never null.
  */
 export const brandClickDestinations = pgTable("brand_click_destinations", {
 	brandId: uuid("brand_id").primaryKey(),

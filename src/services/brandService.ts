@@ -27,10 +27,13 @@ export interface BrandDetail {
   url: string;
   name: string;
   logoUrl: string;
-  // User-chosen page outreach clicks should land on. `null` = unset (the
-  // dashboard then defaults to the brand's own domain). Per-brand config,
-  // mirrors sales-economics scoping — never on the brand identity row.
-  clickDestinationUrl: string | null;
+  // Page outreach clicks should land on. Never null: when the brand has no
+  // saved override, this defaults to the brand's own landing URL (`url`) so a
+  // consumer's `.clickDestinationUrl` is always a valid href. The default is
+  // computed on read (free), not persisted — the click-destinations row's
+  // presence remains the "user-set" signal. Per-brand config, mirrors
+  // sales-economics scoping — never on the brand identity row.
+  clickDestinationUrl: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -95,7 +98,9 @@ export async function getBrandDetail(
     url: row.url,
     name,
     logoUrl,
-    clickDestinationUrl: row.clickDestinationUrl ?? null,
+    // Producer owns the default: unset brands fall back to their own landing
+    // URL so the field is never null and the consumer's link is never empty.
+    clickDestinationUrl: row.clickDestinationUrl ?? row.url,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

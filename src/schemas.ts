@@ -78,7 +78,7 @@ export const BrandDetailSchema = z
     url: z.string().openapi({ description: 'Full brand website URL' }),
     name: z.string().openapi({ description: 'Brand display name. Lazy-extracted from the website on first read if missing.' }),
     logoUrl: z.string().openapi({ description: 'Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing.' }),
-    clickDestinationUrl: z.string().nullable().openapi({ description: 'User-chosen page outreach clicks should land on. `null` when unset (the consumer defaults to the brand domain). Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination.' }),
+    clickDestinationUrl: z.string().openapi({ description: 'Page outreach clicks should land on. Never null: defaults to the brand\'s own landing URL (`url`) when the user has not set an override, so the value is always a valid href. Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination.' }),
     createdAt: z.string().openapi({ description: 'ISO timestamp when the brand row was created.' }),
     updatedAt: z.string().openapi({ description: 'ISO timestamp when the brand row was last updated.' }),
   })
