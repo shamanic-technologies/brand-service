@@ -99,14 +99,14 @@ describe('Click Destination Endpoints', () => {
     expect(res.body.brand.clickDestinationUrl).toBe(url);
   });
 
-  // AC1 — unset brand reads clickDestinationUrl: null (additive, no break)
-  it('GET /internal/brands/:id for an unset brand returns clickDestinationUrl: null', async () => {
+  // AC1 — unset brand defaults clickDestinationUrl to its own landing URL (never null)
+  it('GET /internal/brands/:id for an unset brand defaults clickDestinationUrl to the brand url', async () => {
     const res = await request(app)
       .get(`/internal/brands/${unsetBrandId}`)
       .set(getInternalAuthHeaders());
 
     expect(res.status).toBe(200);
-    expect(res.body.brand).toHaveProperty('clickDestinationUrl', null);
+    expect(res.body.brand.clickDestinationUrl).toBe(`https://${dom(unsetBrandId)}`);
   });
 
   // AC1 — batch read also carries the field
@@ -125,7 +125,7 @@ describe('Click Destination Endpoints', () => {
     const set = res.body.brands.find((b: any) => b.id === brandId);
     const unset = res.body.brands.find((b: any) => b.id === unsetBrandId);
     expect(set.clickDestinationUrl).toBe(url);
-    expect(unset.clickDestinationUrl).toBeNull();
+    expect(unset.clickDestinationUrl).toBe(`https://${dom(unsetBrandId)}`);
   });
 
   // AC2 — idempotent: re-PUT a new value overwrites

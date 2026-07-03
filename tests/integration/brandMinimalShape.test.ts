@@ -44,7 +44,8 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
     expect(Object.keys(res.body.brand).sort()).toEqual(
       ['clickDestinationUrl', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'updatedAt', 'url'],
     );
-    expect(res.body.brand.clickDestinationUrl).toBeNull();
+    // Unset brand: producer defaults clickDestinationUrl to the brand's own url.
+    expect(res.body.brand.clickDestinationUrl).toBe(url);
     expect(res.body.brand.bio).toBeUndefined();
     expect(res.body.brand.categories).toBeUndefined();
     expect(res.body.brand.mission).toBeUndefined();

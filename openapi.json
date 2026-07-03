@@ -237,8 +237,7 @@
           },
           "clickDestinationUrl": {
             "type": "string",
-            "nullable": true,
-            "description": "User-chosen page outreach clicks should land on. `null` when unset (the consumer defaults to the brand domain). Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination."
+            "description": "Page outreach clicks should land on. Never null: defaults to the brand's own landing URL (`url`) when the user has not set an override, so the value is always a valid href. Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination."
           },
           "createdAt": {
             "type": "string",
