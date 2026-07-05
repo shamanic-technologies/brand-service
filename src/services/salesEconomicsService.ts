@@ -15,7 +15,12 @@ export type BusinessModel = 'b2c' | 'b2b';
 export type FunnelStage = 'website_purchase' | 'sales_meeting';
 
 /** Single brand-level optimization goal. Server default 'sales'. */
-export type OptimizationGoal = 'signups' | 'booked_meetings' | 'sales';
+export type OptimizationGoal =
+  | 'signups'
+  | 'booked_meetings'
+  | 'sales'
+  | 'website_visits'
+  | 'positive_replies';
 
 /**
  * Self-serve close rate DERIVED from the two sub-rates:
@@ -51,6 +56,11 @@ export interface SalesEconomicsMetrics {
   // `visitToClosePct` is NOT a written metric — it is derived on read.
   visitToSignupPct: number;
   signupToPaidClientPct: number;
+  // Single-step conversion rates for the website_visits / positive_replies
+  // goals. Optional on write: omitted = leave unchanged; present = set. Always
+  // present on read (NOT NULL columns, server default 5 / 25).
+  visitToPaidClientPct?: number;
+  replyToPaidClientPct?: number;
   businessModel?: BusinessModel | null;
   funnelStages?: FunnelStage[];
   optimizationGoal?: OptimizationGoal;
@@ -60,6 +70,9 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   // DERIVED on read = visitToSignupPct * signupToPaidClientPct / 100.
   // Always present (never null); kept for projection consumers.
   visitToClosePct: number;
+  // Always present on read (NOT NULL, server default 5 / 25).
+  visitToPaidClientPct: number;
+  replyToPaidClientPct: number;
   // Always present on read; `null` = never set.
   businessModel: BusinessModel | null;
   // Always an array on read; `[]` = never set.
@@ -90,6 +103,8 @@ function formatSalesEconomics(
       row.visitToSignupPct,
       row.signupToPaidClientPct
     ),
+    visitToPaidClientPct: row.visitToPaidClientPct,
+    replyToPaidClientPct: row.replyToPaidClientPct,
     businessModel: row.businessModel as BusinessModel | null,
     funnelStages: (row.funnelStages ?? []) as FunnelStage[],
     optimizationGoal,
@@ -107,6 +122,9 @@ export interface SalesEconomicsAverages {
   signupToPaidClientPct: number;
   // DERIVED from the two averaged sub-rates (kept coherent with them).
   visitToClosePct: number;
+  // MEAN of each single-step rate (identical treatment to the other percents).
+  visitToPaidClientPct: number;
+  replyToPaidClientPct: number;
 }
 
 /** Provenance of the effective economics returned by the gold serving layer. */
@@ -130,6 +148,8 @@ interface SalesEconomicsAverageRow {
   meetingToClosePct: number | null;
   visitToSignupPct: number | null;
   signupToPaidClientPct: number | null;
+  visitToPaidClientPct: number | null;
+  replyToPaidClientPct: number | null;
 }
 
 /**
@@ -155,6 +175,8 @@ export function mapAverageRow(
       row.visitToSignupPct!,
       row.signupToPaidClientPct!
     ),
+    visitToPaidClientPct: row.visitToPaidClientPct!,
+    replyToPaidClientPct: row.replyToPaidClientPct!,
   };
 }
 
@@ -201,6 +223,8 @@ export class SalesEconomicsService {
         meetingToClosePct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.meetingToClosePct})::numeric, 4)::double precision`,
         visitToSignupPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToSignupPct})::numeric, 4)::double precision`,
         signupToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.signupToPaidClientPct})::numeric, 4)::double precision`,
+        visitToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToPaidClientPct})::numeric, 4)::double precision`,
+        replyToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.replyToPaidClientPct})::numeric, 4)::double precision`,
       })
       .from(brandSalesEconomics);
 
@@ -226,6 +250,8 @@ export class SalesEconomicsService {
           visitToSignupPct: saved.visitToSignupPct,
           signupToPaidClientPct: saved.signupToPaidClientPct,
           visitToClosePct: saved.visitToClosePct,
+          visitToPaidClientPct: saved.visitToPaidClientPct,
+          replyToPaidClientPct: saved.replyToPaidClientPct,
         },
         source: 'user',
       };
@@ -275,6 +301,13 @@ export class SalesEconomicsService {
         visitToSignupPct: metrics.visitToSignupPct,
         signupToPaidClientPct: metrics.signupToPaidClientPct,
         visitToClosePct,
+        // Single-step rates: omitted → column DB default (5 / 25) on a fresh row.
+        ...(metrics.visitToPaidClientPct !== undefined
+          ? { visitToPaidClientPct: metrics.visitToPaidClientPct }
+          : {}),
+        ...(metrics.replyToPaidClientPct !== undefined
+          ? { replyToPaidClientPct: metrics.replyToPaidClientPct }
+          : {}),
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
         // Fresh row: omitted funnelStages defaults to []; optimizationGoal is
@@ -293,6 +326,13 @@ export class SalesEconomicsService {
           signupToPaidClientPct: metrics.signupToPaidClientPct,
           visitToClosePct,
           updatedAt: sql`NOW()`,
+          // Only touch the single-step rates when supplied. Omitted = preserve.
+          ...(metrics.visitToPaidClientPct !== undefined
+            ? { visitToPaidClientPct: metrics.visitToPaidClientPct }
+            : {}),
+          ...(metrics.replyToPaidClientPct !== undefined
+            ? { replyToPaidClientPct: metrics.replyToPaidClientPct }
+            : {}),
           // Only touch business_model when the caller supplied it (including an
           // explicit null to clear). Omitted = preserve the stored value, so the
           // legacy 5-field PUT never wipes a separately-set business model.

@@ -5,12 +5,28 @@ import { db, brands, brandSalesEconomics } from '../db';
  * Canonical brand-owned runtime goal vocabulary. This mirrors the vocabulary
  * features-service runtime candidate selection accepts as its `goal` input.
  */
-export type CurrentGoal = 'signup' | 'meetingBooked' | 'purchase';
+export type CurrentGoal =
+  | 'signup'
+  | 'meetingBooked'
+  | 'purchase'
+  | 'websiteVisit'
+  | 'positiveReply';
 
 /** Legacy sales-economics wire vocabulary kept for backward compatibility. */
-export type LegacyOptimizationGoal = 'signups' | 'booked_meetings' | 'sales';
+export type LegacyOptimizationGoal =
+  | 'signups'
+  | 'booked_meetings'
+  | 'sales'
+  | 'website_visits'
+  | 'positive_replies';
 
-export const CURRENT_GOALS = ['signup', 'meetingBooked', 'purchase'] as const;
+export const CURRENT_GOALS = [
+  'signup',
+  'meetingBooked',
+  'purchase',
+  'websiteVisit',
+  'positiveReply',
+] as const;
 
 export function legacyOptimizationGoalToCurrentGoal(
   goal: LegacyOptimizationGoal
@@ -22,6 +38,10 @@ export function legacyOptimizationGoalToCurrentGoal(
       return 'meetingBooked';
     case 'sales':
       return 'purchase';
+    case 'website_visits':
+      return 'websiteVisit';
+    case 'positive_replies':
+      return 'positiveReply';
   }
 }
 
@@ -35,6 +55,10 @@ export function currentGoalToLegacyOptimizationGoal(
       return 'booked_meetings';
     case 'purchase':
       return 'sales';
+    case 'websiteVisit':
+      return 'website_visits';
+    case 'positiveReply':
+      return 'positive_replies';
   }
 }
 

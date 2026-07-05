@@ -27,6 +27,8 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
         meetingToClosePct: null,
         visitToSignupPct: null,
         signupToPaidClientPct: null,
+        visitToPaidClientPct: null,
+        replyToPaidClientPct: null,
       })
     ).toBeNull();
   });
@@ -40,6 +42,8 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
         meetingToClosePct: 25,
         visitToSignupPct: 25,
         signupToPaidClientPct: 20,
+        visitToPaidClientPct: 5,
+        replyToPaidClientPct: 25,
       })
     ).toEqual({
       lifetimeRevenueUsd: 4000,
@@ -50,6 +54,9 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
       signupToPaidClientPct: 20,
       // DERIVED = 25 * 20 / 100 = 5
       visitToClosePct: 5,
+      // Single-step rates pass through the mapper (MEAN of each).
+      visitToPaidClientPct: 5,
+      replyToPaidClientPct: 25,
     });
   });
 });

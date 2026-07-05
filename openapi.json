@@ -1388,6 +1388,16 @@
                     "minimum": 0,
                     "maximum": 100
                   },
+                  "visitToPaidClientPct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "replyToPaidClientPct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
                   "businessModel": {
                     "type": "string",
                     "nullable": true,
@@ -1412,6 +1422,8 @@
                 },
                 "required": [
                   "visitToClosePct",
+                  "visitToPaidClientPct",
+                  "replyToPaidClientPct",
                   "businessModel",
                   "funnelStages",
                   "optimizationGoal",
@@ -1437,7 +1449,9 @@
         "enum": [
           "signups",
           "booked_meetings",
-          "sales"
+          "sales",
+          "website_visits",
+          "positive_replies"
         ]
       },
       "SalesEconomicsMetrics": {
@@ -1498,6 +1512,16 @@
                     "minimum": 0,
                     "maximum": 100
                   },
+                  "visitToPaidClientPct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "replyToPaidClientPct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
                   "businessModel": {
                     "type": "string",
                     "nullable": true,
@@ -1522,6 +1546,8 @@
                 },
                 "required": [
                   "visitToClosePct",
+                  "visitToPaidClientPct",
+                  "replyToPaidClientPct",
                   "businessModel",
                   "funnelStages",
                   "optimizationGoal",
@@ -1543,6 +1569,16 @@
           {
             "type": "object",
             "properties": {
+              "visitToPaidClientPct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "replyToPaidClientPct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
               "businessModel": {
                 "type": "string",
                 "nullable": true,
@@ -1607,7 +1643,9 @@
         "enum": [
           "signup",
           "meetingBooked",
-          "purchase"
+          "purchase",
+          "websiteVisit",
+          "positiveReply"
         ]
       },
       "UpdateCurrentGoalRequest": {
@@ -1661,6 +1699,16 @@
                 "type": "number",
                 "minimum": 0,
                 "maximum": 100
+              },
+              "visitToPaidClientPct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "replyToPaidClientPct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
               }
             },
             "required": [
@@ -1670,7 +1718,9 @@
               "meetingToClosePct",
               "visitToSignupPct",
               "signupToPaidClientPct",
-              "visitToClosePct"
+              "visitToClosePct",
+              "visitToPaidClientPct",
+              "replyToPaidClientPct"
             ]
           },
           "source": {

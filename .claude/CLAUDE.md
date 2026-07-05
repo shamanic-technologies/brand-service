@@ -32,6 +32,17 @@ brand-service has NO `buildInternalHeaders`/allowlist helper (unlike instantly-s
 
 **Egress strip is by construction:** external-vendor calls (Gemini `@google/generative-ai` SDK, firecrawl, supabase, google-drive) take NO identity headers — never add tracking to a vendor call. Only the internal-service clients above carry it. Reference: PR #283 (x-audience-id). Regression pattern: `tests/unit/audienceAttribution.test.ts`.
 
+## `optimizationGoal` is a DERIVED alias of `brands.current_goal` — extend BOTH enums in lockstep
+
+The sales-economics `optimizationGoal` (legacy wire vocab `signups`/`booked_meetings`/`sales`/`website_visits`/`positive_replies`) is NOT independently stored. On READ (`formatSalesEconomics`) it is DERIVED from `brands.current_goal` (canonical `CurrentGoal` = `signup`/`meetingBooked`/`purchase`/`websiteVisit`/`positiveReply`) via `currentGoalToLegacyOptimizationGoal`; `brands.current_goal` is NOT NULL default `'purchase'`, so the stored `brand_sales_economics.optimization_goal` column is effectively ignored on read. On WRITE, an `optimizationGoal` PUT is mapped to `CurrentGoal` and persisted on `brands.current_goal` (the alias column is mirrored for older consumers). `CurrentGoal` is the vocabulary **features-service** consumes for runtime candidate selection.
+
+**So adding a new `optimizationGoal` value REQUIRES all of these together (or GET returns the wrong goal / a mapping switch throws):**
+1. `OptimizationGoalSchema` + `OptimizationGoal` type (schemas.ts + salesEconomicsService.ts) — new legacy value.
+2. `CurrentGoalSchema` + `CurrentGoal` type + `CURRENT_GOALS` + `LegacyOptimizationGoal` type + BOTH mapping switches (`legacyOptimizationGoalToCurrentGoal` / `currentGoalToLegacyOptimizationGoal`) in `brandGoalService.ts` — new canonical value (switches are exhaustive; a missing case fails `tsc`).
+3. The `brands_current_goal_check` DB CHECK constraint (schema.ts) — widen the `IN (...)` list, via an additive migration (drop-if-exists + re-add). Else the write 23514s.
+
+Reference: PR #317 (`website_visits`/`positive_replies` + single-step rate fields `visitToPaidClientPct`/`replyToPaidClientPct`).
+
 ## Code Conventions
 
 - TypeScript strict mode
