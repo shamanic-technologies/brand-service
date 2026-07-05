@@ -21,6 +21,8 @@ const STORED = [
   'meetingToClosePct',
   'visitToSignupPct',
   'signupToPaidClientPct',
+  'visitToPaidClientPct',
+  'replyToPaidClientPct',
 ] as const;
 // Fields present on the RESPONSE economics object (STORED + derived).
 const METRICS = [...STORED, 'visitToClosePct'] as const;
@@ -67,6 +69,9 @@ function expectedFrom(rows: Row[]) {
     signupToPaidClientPct,
     // DERIVED from the two AVERAGED sub-rates (not separately averaged).
     visitToClosePct: round4((visitToSignupPct * signupToPaidClientPct) / 100),
+    // Single-step rates: MEAN of each (identical treatment to the other percents).
+    visitToPaidClientPct: mean(rows.map((r) => r.visitToPaidClientPct)),
+    replyToPaidClientPct: mean(rows.map((r) => r.replyToPaidClientPct)),
   };
 }
 
@@ -79,6 +84,8 @@ async function snapshot(): Promise<Row[]> {
       meetingToClosePct: brandSalesEconomics.meetingToClosePct,
       visitToSignupPct: brandSalesEconomics.visitToSignupPct,
       signupToPaidClientPct: brandSalesEconomics.signupToPaidClientPct,
+      visitToPaidClientPct: brandSalesEconomics.visitToPaidClientPct,
+      replyToPaidClientPct: brandSalesEconomics.replyToPaidClientPct,
     })
     .from(brandSalesEconomics);
 }
@@ -100,12 +107,14 @@ describe('Effective Sales Economics Endpoint', () => {
     meetingToClosePct: 25,
     visitToSignupPct: 40,
     signupToPaidClientPct: 25,
+    visitToPaidClientPct: 6,
+    replyToPaidClientPct: 35,
   };
   // Extra contributor brands so the average is well-defined incl. an LTV outlier.
   const contributors: Row[] = [
-    { lifetimeRevenueUsd: 1000, replyToMeetingPct: 10, visitToMeetingPct: 8, meetingToClosePct: 20, visitToSignupPct: 20, signupToPaidClientPct: 10 },
-    { lifetimeRevenueUsd: 2000, replyToMeetingPct: 20, visitToMeetingPct: 16, meetingToClosePct: 40, visitToSignupPct: 60, signupToPaidClientPct: 10 },
-    { lifetimeRevenueUsd: 500000, replyToMeetingPct: 40, visitToMeetingPct: 20, meetingToClosePct: 50, visitToSignupPct: 80, signupToPaidClientPct: 30 },
+    { lifetimeRevenueUsd: 1000, replyToMeetingPct: 10, visitToMeetingPct: 8, meetingToClosePct: 20, visitToSignupPct: 20, signupToPaidClientPct: 10, visitToPaidClientPct: 3, replyToPaidClientPct: 15 },
+    { lifetimeRevenueUsd: 2000, replyToMeetingPct: 20, visitToMeetingPct: 16, meetingToClosePct: 40, visitToSignupPct: 60, signupToPaidClientPct: 10, visitToPaidClientPct: 9, replyToPaidClientPct: 45 },
+    { lifetimeRevenueUsd: 500000, replyToMeetingPct: 40, visitToMeetingPct: 20, meetingToClosePct: 50, visitToSignupPct: 80, signupToPaidClientPct: 30, visitToPaidClientPct: 12, replyToPaidClientPct: 50 },
   ];
   const contributorIds = contributors.map(() => randomUUID());
 
@@ -187,6 +196,8 @@ describe('Effective Sales Economics Endpoint', () => {
         'visitToSignupPct',
         'signupToPaidClientPct',
         'visitToClosePct',
+        'visitToPaidClientPct',
+        'replyToPaidClientPct',
       ] as const) {
         expect(e[k]).toBeCloseTo(want[k], 3);
       }

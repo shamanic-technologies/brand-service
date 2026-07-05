@@ -22,6 +22,8 @@ describe('Sales Economics Endpoints', () => {
   const funnelBrandId = randomUUID(); // owned by ownerOrgId, funnel-fields lifecycle
   const funnelUnsetBrandId = randomUUID(); // owned by ownerOrgId, never written
   const defaultsBrandId = randomUUID(); // owned by ownerOrgId, row written WITHOUT the two sub-rates (DB defaults)
+  const singleStepBrandId = randomUUID(); // owned by ownerOrgId, single-step goals + rates lifecycle
+  const singleStepUnsetBrandId = randomUUID(); // owned by ownerOrgId, reads single-step rate defaults
 
   // visitToSignupPct 40 * signupToPaidClientPct 25 / 100 = 10 (derived visitToClosePct)
   const validMetrics = {
@@ -34,7 +36,7 @@ describe('Sales Economics Endpoints', () => {
   };
 
   beforeAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId]) {
       await db.insert(brands).values({
         id,
         url: `https://sales-econ-${id.slice(0, 8)}.com`,
@@ -49,10 +51,12 @@ describe('Sales Economics Endpoints', () => {
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: funnelBrandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: funnelUnsetBrandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: defaultsBrandId });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: singleStepBrandId });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: singleStepUnsetBrandId });
   });
 
   afterAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId]) {
       await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
@@ -460,5 +464,89 @@ describe('Sales Economics Endpoints', () => {
     expect(res.body.salesEconomics.signupToPaidClientPct).toBe(20);
     // derived = 25 * 20 / 100 = 5, NOT the stale 77
     expect(res.body.salesEconomics.visitToClosePct).toBe(5);
+  });
+
+  // ── single-step goals (website_visits / positive_replies) + rates ──
+  // Beta goals: a single conversion straight to a paid client, each with its own
+  // single-step rate (visitToPaidClientPct / replyToPaidClientPct).
+
+  // A brand that never set the single-step rates reads the server defaults 5 / 25.
+  it('GET a brand that never set single-step rates → visitToPaidClientPct 5 + replyToPaidClientPct 25', async () => {
+    const putRes = await request(app)
+      .put(path(singleStepUnsetBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(validMetrics);
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.visitToPaidClientPct).toBe(5);
+    expect(putRes.body.salesEconomics.replyToPaidClientPct).toBe(25);
+
+    const getRes = await request(app)
+      .get(path(singleStepUnsetBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.visitToPaidClientPct).toBe(5);
+    expect(getRes.body.salesEconomics.replyToPaidClientPct).toBe(25);
+  });
+
+  // PUT the website_visits goal + both single-step rates → GET round-trips exactly.
+  it('PUT optimizationGoal "website_visits" + single-step rates → GET returns them', async () => {
+    const putRes = await request(app)
+      .put(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({
+        ...validMetrics,
+        optimizationGoal: 'website_visits',
+        visitToPaidClientPct: 7.5,
+        replyToPaidClientPct: 40,
+      });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('website_visits');
+    expect(putRes.body.salesEconomics.visitToPaidClientPct).toBe(7.5);
+    expect(putRes.body.salesEconomics.replyToPaidClientPct).toBe(40);
+
+    const getRes = await request(app)
+      .get(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('website_visits');
+    expect(getRes.body.salesEconomics.visitToPaidClientPct).toBe(7.5);
+    expect(getRes.body.salesEconomics.replyToPaidClientPct).toBe(40);
+  });
+
+  // positive_replies goal round-trips too.
+  it('PUT optimizationGoal "positive_replies" → GET returns it', async () => {
+    const putRes = await request(app)
+      .put(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, optimizationGoal: 'positive_replies' });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('positive_replies');
+
+    const getRes = await request(app)
+      .get(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('positive_replies');
+  });
+
+  // Omitting the single-step rates leaves prior values unchanged (partial update).
+  it('PUT 5 metrics with no single-step rates preserves the stored 7.5 / 40', async () => {
+    const putRes = await request(app)
+      .put(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(validMetrics);
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.visitToPaidClientPct).toBe(7.5);
+    expect(putRes.body.salesEconomics.replyToPaidClientPct).toBe(40);
+  });
+
+  // Out-of-range single-step rate fails loud.
+  it('PUT with visitToPaidClientPct > 100 returns 400', async () => {
+    const res = await request(app)
+      .put(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, visitToPaidClientPct: 150 });
+    expect(res.status).toBe(400);
   });
 });

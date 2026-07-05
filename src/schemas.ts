@@ -1754,14 +1754,22 @@ export const FunnelStageSchema = z
   .openapi('FunnelStage');
 
 // Single brand-level optimization goal. Server default "sales" when never set.
+// `website_visits` / `positive_replies` are single-step goals (visit→paid /
+// reply→paid) — see visitToPaidClientPct / replyToPaidClientPct.
 export const OptimizationGoalSchema = z
-  .enum(['signups', 'booked_meetings', 'sales'])
+  .enum([
+    'signups',
+    'booked_meetings',
+    'sales',
+    'website_visits',
+    'positive_replies',
+  ])
   .openapi('OptimizationGoal');
 
 // Canonical brand-owned runtime goal. This is the vocabulary features-service
 // accepts as runtime candidate-selection input.
 export const CurrentGoalSchema = z
-  .enum(['signup', 'meetingBooked', 'purchase'])
+  .enum(['signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply'])
   .openapi('CurrentGoal');
 
 export const UpdateCurrentGoalRequestSchema = z
@@ -1783,7 +1791,11 @@ export const UpdateCurrentGoalResponseSchema = z
 // funnelStages: omitted = leave unchanged; sending the array (including `[]`)
 // sets it. NOT nullable — there is no "clear to null", only "set to []".
 // optimizationGoal: omitted = leave unchanged; sending sets it. NOT nullable.
+// visitToPaidClientPct / replyToPaidClientPct: single-step rates for the
+// website_visits / positive_replies goals. Optional — omitted = leave unchanged.
 export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.extend({
+  visitToPaidClientPct: PercentSchema.optional(),
+  replyToPaidClientPct: PercentSchema.optional(),
   businessModel: BusinessModelSchema.nullable().optional(),
   funnelStages: z.array(FunnelStageSchema).optional(),
   optimizationGoal: OptimizationGoalSchema.optional(),
@@ -1798,6 +1810,9 @@ export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
   // present on read (never null); kept on the wire for projection consumers
   // (features-service) that still read visitToClosePct unchanged.
   visitToClosePct: PercentSchema,
+  // Single-step rates, always present on read (server default 5 / 25).
+  visitToPaidClientPct: PercentSchema,
+  replyToPaidClientPct: PercentSchema,
   // Always present on read; `null` = never set.
   businessModel: BusinessModelSchema.nullable(),
   // Always an array on read; `[]` = never set (never null).
@@ -1839,6 +1854,10 @@ export const SalesEconomicsEffectiveResponseSchema = z
         signupToPaidClientPct: PercentSchema,
         // DERIVED = visitToSignupPct * signupToPaidClientPct / 100.
         visitToClosePct: PercentSchema,
+        // Single-step rates: user source passes through; cross-brand-average
+        // source is the MEAN of each.
+        visitToPaidClientPct: PercentSchema,
+        replyToPaidClientPct: PercentSchema,
       })
       .nullable(),
     source: z.enum(['user', 'cross-brand-average']).nullable(),
