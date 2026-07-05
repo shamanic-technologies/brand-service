@@ -253,6 +253,13 @@
       "when": 1782301373502,
       "tag": "0035_brand_click_destinations",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783241554644,
+      "tag": "0036_sales_economics_single_step_rates",
+      "breakpoints": true
     }
   ]
 }

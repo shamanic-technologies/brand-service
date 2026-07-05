@@ -31,7 +31,7 @@ export const brands = pgTable("brands", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	uniqueIndex("brands_domain_key").on(table.domain),
-	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase')`),
+	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply')`),
 ]);
 
 /**
@@ -110,6 +110,11 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	// funnelStages/optimizationGoal default convention below.
 	visitToSignupPct: numeric("visit_to_signup_pct", { precision: 7, scale: 4, mode: "number" }).default(25).notNull(),
 	signupToPaidClientPct: numeric("signup_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(20).notNull(),
+	// Single-step conversion rates for the beta goals website_visits / positive_replies:
+	// each is a straight visit→paid-client / reply→paid-client rate (no intermediate
+	// step). NOT NULL with DB defaults (5 / 25) — a never-set brand reads those.
+	visitToPaidClientPct: numeric("visit_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(5).notNull(),
+	replyToPaidClientPct: numeric("reply_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(25).notNull(),
 	// DERIVED on every write = visitToSignupPct * signupToPaidClientPct / 100.
 	// Kept as a stored column so the revenue/projection engine (features-service)
 	// keeps reading it unchanged; never written directly by a caller.
@@ -120,8 +125,9 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	// Sales-funnel stages the brand has (subset of website_purchase | sales_meeting).
 	// NOT NULL default [] — a never-set brand reads []; see upsert.
 	funnelStages: jsonb("funnel_stages").$type<string[]>().default([]).notNull(),
-	// Single optimization goal (signups | booked_meetings | sales). NOT NULL
-	// default 'sales' — a never-set brand reads "sales"; see upsert.
+	// Single optimization goal (signups | booked_meetings | sales |
+	// website_visits | positive_replies). NOT NULL default 'sales' — a never-set
+	// brand reads "sales"; see upsert. Legacy alias of brands.current_goal.
 	optimizationGoal: text("optimization_goal").default('sales').notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),

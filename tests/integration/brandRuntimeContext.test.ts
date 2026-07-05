@@ -135,6 +135,38 @@ describe('Brand runtime context and current goal', () => {
     expect(runtime.body.currentGoal).toBe('signup');
   });
 
+  it('maps the single-step optimizationGoal "website_visits" into currentGoal "websiteVisit"', async () => {
+    const update = await request(app)
+      .put(salesEconomicsPath(runtimeBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...metrics, optimizationGoal: 'website_visits' });
+
+    expect(update.status).toBe(200);
+    expect(update.body.salesEconomics.optimizationGoal).toBe('website_visits');
+
+    const runtime = await request(app)
+      .get(runtimePath(runtimeBrandId))
+      .set(getInternalAuthHeaders());
+
+    expect(runtime.status).toBe(200);
+    expect(runtime.body.currentGoal).toBe('websiteVisit');
+  });
+
+  it('accepts currentGoal "positiveReply" and reflects it as optimizationGoal "positive_replies"', async () => {
+    const update = await request(app)
+      .put(currentGoalPath(runtimeBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ currentGoal: 'positiveReply' });
+    expect(update.status).toBe(200);
+    expect(update.body.currentGoal).toBe('positiveReply');
+
+    const legacyRead = await request(app)
+      .get(salesEconomicsPath(runtimeBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(legacyRead.status).toBe(200);
+    expect(legacyRead.body.salesEconomics.optimizationGoal).toBe('positive_replies');
+  });
+
   it('enforces org ownership and request validation on current-goal updates', async () => {
     const foreign = await request(app)
       .put(currentGoalPath(foreignBrandId))
