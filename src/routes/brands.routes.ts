@@ -3,7 +3,7 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, getBrandDetail, resolveBrandByDomain } from '../services/brandService';
+import { getOrCreateBrand, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema } from '../schemas';
 
@@ -211,6 +211,44 @@ async function handleGetBrand(req: Request, res: Response) {
     res.status(500).json({ error: error.message || 'Failed to get brand' });
   }
 }
+
+/**
+ * GET /internal/brands/all
+ *
+ * Cross-org staff view: every platform brand paired with its owning orgId, one
+ * row per (brand, org) membership (driven off org_brands). A brand claimed by N
+ * orgs yields N rows with the same id/domain and distinct orgId. Bounded set —
+ * no pagination. `name` is never null: falls back to the titlecased domain
+ * (deterministic, no scrape / LLM / network). Used by the admin CRM to filter a
+ * brand picker to a set of selected orgs.
+ *
+ * Registered BEFORE `/brands/:id` so `all` is not captured by the `:id` param.
+ */
+internalRouter.get('/brands/all', async (_req: Request, res: Response) => {
+  try {
+    const rows = await db
+      .select({
+        id: brands.id,
+        name: brands.name,
+        domain: brands.domain,
+        orgId: orgBrands.orgId,
+      })
+      .from(orgBrands)
+      .innerJoin(brands, eq(orgBrands.brandId, brands.id));
+
+    const result = rows.map((r) => ({
+      id: r.id,
+      name: r.name ?? titlecaseDomain(r.domain),
+      domain: r.domain,
+      orgId: r.orgId,
+    }));
+
+    res.json({ brands: result });
+  } catch (error: any) {
+    console.error('[brand-service] List all platform brands error:', error);
+    res.status(500).json({ error: error.message || 'Failed to list all brands' });
+  }
+});
 
 internalRouter.get('/brands/:id', handleGetBrand);
 publicRouter.get('/brands/:id', handleGetBrand);

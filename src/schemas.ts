@@ -175,6 +175,47 @@ export const ResolveByDomainResponseSchema = z
   })
   .openapi('ResolveByDomainResponse');
 
+export const PlatformBrandSchema = z
+  .object({
+    id: z.string().openapi({ description: 'Brand UUID' }),
+    name: z.string().openapi({
+      description:
+        'Brand display name. Never null: falls back to the titlecased domain when the ' +
+        'stored name is missing (deterministic, no scrape).',
+    }),
+    domain: z.string().nullable().openapi({ description: 'Normalized domain (www stripped), or null.' }),
+    orgId: z.string().openapi({ description: 'UUID of the organization that owns (claims) this brand.' }),
+  })
+  .openapi('PlatformBrand');
+
+export const ListAllBrandsResponseSchema = z
+  .object({
+    brands: z.array(PlatformBrandSchema).openapi({
+      description:
+        'Every platform brand paired with its owning orgId, one row per (brand, org) ' +
+        'membership. A brand claimed by multiple orgs appears once per org (same id/domain, ' +
+        'distinct orgId). Unbounded — the full membership set, no pagination.',
+    }),
+  })
+  .openapi('ListAllBrandsResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/all',
+  summary: 'List every platform brand with its owning orgId (internal/staff, API key only)',
+  description:
+    'Cross-org staff view: returns all platform brands paired with the organization that claims ' +
+    'them, one row per (brand, org) membership. A brand claimed by N orgs yields N rows (same ' +
+    'id/domain, distinct orgId). NOT org-JWT scoped — this is an internal staff endpoint gated by ' +
+    'the shared API key, mirroring the other /internal/* routes. Bounded set, no pagination. Used ' +
+    'by the admin CRM to filter a brand picker to a set of selected orgs. `name` never null (falls ' +
+    'back to the titlecased domain).',
+  responses: {
+    200: { description: 'All platform brands with owning orgId', content: { 'application/json': { schema: ListAllBrandsResponseSchema } } },
+    500: { description: 'Internal server error' },
+  },
+});
+
 registry.registerPath({
   method: 'post',
   path: '/internal/brands/resolve-by-domain',
