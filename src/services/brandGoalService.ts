@@ -12,13 +12,19 @@ export type CurrentGoal =
   | 'websiteVisit'
   | 'positiveReply';
 
-/** Legacy sales-economics wire vocabulary kept for backward compatibility. */
+/**
+ * Legacy sales-economics wire vocabulary kept for backward compatibility.
+ * `form_submissions` is a wire-only sub-type of the `signup` runtime goal: it
+ * collapses to `signup` on write (runtime consumers never see a new value) and
+ * is recovered from the stored optimization_goal column on the org (wire) read.
+ */
 export type LegacyOptimizationGoal =
   | 'signups'
   | 'booked_meetings'
   | 'sales'
   | 'website_visits'
-  | 'positive_replies';
+  | 'positive_replies'
+  | 'form_submissions';
 
 export const CURRENT_GOALS = [
   'signup',
@@ -42,6 +48,11 @@ export function legacyOptimizationGoalToCurrentGoal(
       return 'websiteVisit';
     case 'positive_replies':
       return 'positiveReply';
+    case 'form_submissions':
+      // Mid-funnel micro-conversion — same visit→micro-conversion→paid family as
+      // signups, same outreach behavior. Collapses to the signup runtime goal so
+      // features-service / campaign-service never see a new value.
+      return 'signup';
   }
 }
 
@@ -60,6 +71,23 @@ export function currentGoalToLegacyOptimizationGoal(
     case 'positiveReply':
       return 'positive_replies';
   }
+}
+
+/**
+ * Resolve the wire `optimizationGoal` for an ORG (dashboard) read. Identical to
+ * `currentGoalToLegacyOptimizationGoal` EXCEPT it recovers the `form_submissions`
+ * sub-type from the stored legacy column when the runtime goal collapsed it to
+ * `signup`. The INTERNAL (campaign-service) read must NOT use this — it needs the
+ * runtime-safe collapse to `signups` so it never sees a new value.
+ */
+export function resolveWireOptimizationGoal(
+  currentGoal: CurrentGoal,
+  storedLegacy: string | null | undefined
+): LegacyOptimizationGoal {
+  if (currentGoal === 'signup' && storedLegacy === 'form_submissions') {
+    return 'form_submissions';
+  }
+  return currentGoalToLegacyOptimizationGoal(currentGoal);
 }
 
 export async function getCurrentGoalByBrandId(

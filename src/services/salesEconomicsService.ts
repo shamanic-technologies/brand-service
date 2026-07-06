@@ -5,6 +5,7 @@ import {
   currentGoalToLegacyOptimizationGoal,
   getCurrentGoalByBrandId,
   legacyOptimizationGoalToCurrentGoal,
+  resolveWireOptimizationGoal,
   updateCurrentGoalByBrandId,
 } from './brandGoalService';
 
@@ -20,7 +21,8 @@ export type OptimizationGoal =
   | 'booked_meetings'
   | 'sales'
   | 'website_visits'
-  | 'positive_replies';
+  | 'positive_replies'
+  | 'form_submissions';
 
 /**
  * Self-serve close rate DERIVED from the two sub-rates:
@@ -61,6 +63,13 @@ export interface SalesEconomicsMetrics {
   // present on read (NOT NULL columns, server default 5 / 25).
   visitToPaidClientPct?: number;
   replyToPaidClientPct?: number;
+  // Two-step conversion rates for the form_submissions goal (visit→form
+  // submission→paid). Optional on write: omitted = leave unchanged; present = set.
+  // Nullable columns (no default) — `null` on read = never set. (The write schema
+  // is `.optional()` only — null never reaches the writer; `| null` here is for
+  // SavedSalesEconomics to extend with the read-side null, mirroring businessModel.)
+  visitToFormSubmissionPct?: number | null;
+  formSubmissionToPaidClientPct?: number | null;
   businessModel?: BusinessModel | null;
   funnelStages?: FunnelStage[];
   optimizationGoal?: OptimizationGoal;
@@ -73,6 +82,9 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   // Always present on read (NOT NULL, server default 5 / 25).
   visitToPaidClientPct: number;
   replyToPaidClientPct: number;
+  // Present on read; `null` = never set (nullable columns, no default).
+  visitToFormSubmissionPct: number | null;
+  formSubmissionToPaidClientPct: number | null;
   // Always present on read; `null` = never set.
   businessModel: BusinessModel | null;
   // Always an array on read; `[]` = never set.
@@ -84,10 +96,16 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
 
 function formatSalesEconomics(
   row: typeof brandSalesEconomics.$inferSelect,
-  currentGoal?: CurrentGoal
+  currentGoal?: CurrentGoal,
+  // ORG (dashboard) reads pass wire=true so the form_submissions sub-type is
+  // recovered from the stored column. INTERNAL (campaign-service) reads use the
+  // default (false) so the goal collapses to the runtime-safe `signups`.
+  wireOptimizationGoal = false
 ): SavedSalesEconomics {
   const optimizationGoal = currentGoal
-    ? currentGoalToLegacyOptimizationGoal(currentGoal)
+    ? (wireOptimizationGoal
+        ? resolveWireOptimizationGoal(currentGoal, row.optimizationGoal)
+        : currentGoalToLegacyOptimizationGoal(currentGoal))
     : row.optimizationGoal as OptimizationGoal;
 
   return {
@@ -105,6 +123,8 @@ function formatSalesEconomics(
     ),
     visitToPaidClientPct: row.visitToPaidClientPct,
     replyToPaidClientPct: row.replyToPaidClientPct,
+    visitToFormSubmissionPct: row.visitToFormSubmissionPct,
+    formSubmissionToPaidClientPct: row.formSubmissionToPaidClientPct,
     businessModel: row.businessModel as BusinessModel | null,
     funnelStages: (row.funnelStages ?? []) as FunnelStage[],
     optimizationGoal,
@@ -185,7 +205,10 @@ export class SalesEconomicsService {
    * Read the saved metric set for a brand, or null when nothing is saved.
    * Unset is a clean null — the caller falls back to its own defaults.
    */
-  async getByBrandId(brandId: string): Promise<SavedSalesEconomics | null> {
+  async getByBrandId(
+    brandId: string,
+    opts: { wireOptimizationGoal?: boolean } = {}
+  ): Promise<SavedSalesEconomics | null> {
     const result = await db
       .select({
         salesEconomics: brandSalesEconomics,
@@ -199,7 +222,8 @@ export class SalesEconomicsService {
     if (result.length === 0) return null;
     return formatSalesEconomics(
       result[0].salesEconomics,
-      result[0].currentGoal as CurrentGoal
+      result[0].currentGoal as CurrentGoal,
+      opts.wireOptimizationGoal ?? false
     );
   }
 
@@ -282,7 +306,14 @@ export class SalesEconomicsService {
       : await getCurrentGoalByBrandId(brandId);
 
     if (!currentGoal) throw new Error(`Brand not found: ${brandId}`);
-    const optimizationGoal = currentGoalToLegacyOptimizationGoal(currentGoal);
+
+    // The stored optimization_goal column preserves the RAW wire value the caller
+    // sent, so the form_submissions sub-type round-trips on the org read (it
+    // collapses to the signup current_goal, which alone can't distinguish it from
+    // signups). When the caller omitted the goal, a fresh insert falls back to the
+    // runtime-derived legacy value; an update preserves the stored column below.
+    const optimizationGoalToStore =
+      metrics.optimizationGoal ?? currentGoalToLegacyOptimizationGoal(currentGoal);
 
     // visit_to_close_pct is a STORED-but-DERIVED column: recompute on every
     // write from the two sub-rates so the column never drifts from them.
@@ -308,12 +339,20 @@ export class SalesEconomicsService {
         ...(metrics.replyToPaidClientPct !== undefined
           ? { replyToPaidClientPct: metrics.replyToPaidClientPct }
           : {}),
+        // Form-submission rates: nullable columns, no default. Omitted → null.
+        ...(metrics.visitToFormSubmissionPct !== undefined
+          ? { visitToFormSubmissionPct: metrics.visitToFormSubmissionPct }
+          : {}),
+        ...(metrics.formSubmissionToPaidClientPct !== undefined
+          ? { formSubmissionToPaidClientPct: metrics.formSubmissionToPaidClientPct }
+          : {}),
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
         // Fresh row: omitted funnelStages defaults to []; optimizationGoal is
-        // the legacy alias of brands.current_goal.
+        // the raw wire value (form_submissions sub-type preserved) or the legacy
+        // alias of brands.current_goal.
         funnelStages: metrics.funnelStages ?? [],
-        optimizationGoal,
+        optimizationGoal: optimizationGoalToStore,
       })
       .onConflictDoUpdate({
         target: brandSalesEconomics.brandId,
@@ -333,6 +372,13 @@ export class SalesEconomicsService {
           ...(metrics.replyToPaidClientPct !== undefined
             ? { replyToPaidClientPct: metrics.replyToPaidClientPct }
             : {}),
+          // Only touch the form-submission rates when supplied. Omitted = preserve.
+          ...(metrics.visitToFormSubmissionPct !== undefined
+            ? { visitToFormSubmissionPct: metrics.visitToFormSubmissionPct }
+            : {}),
+          ...(metrics.formSubmissionToPaidClientPct !== undefined
+            ? { formSubmissionToPaidClientPct: metrics.formSubmissionToPaidClientPct }
+            : {}),
           // Only touch business_model when the caller supplied it (including an
           // explicit null to clear). Omitted = preserve the stored value, so the
           // legacy 5-field PUT never wipes a separately-set business model.
@@ -344,13 +390,19 @@ export class SalesEconomicsService {
           ...(metrics.funnelStages !== undefined
             ? { funnelStages: metrics.funnelStages }
             : {}),
-          // Legacy alias mirrors brands.current_goal, the canonical source.
-          optimizationGoal,
+          // Only touch optimization_goal when the caller supplied it — store the
+          // RAW wire value so the form_submissions sub-type is preserved. Omitted
+          // = preserve the stored column (leave-unchanged contract).
+          ...(metrics.optimizationGoal !== undefined
+            ? { optimizationGoal: metrics.optimizationGoal }
+            : {}),
         },
       })
       .returning();
 
-    return formatSalesEconomics(result[0], currentGoal);
+    // PUT is the ORG (dashboard) write — return the wire optimizationGoal so a
+    // form_submissions save round-trips.
+    return formatSalesEconomics(result[0], currentGoal, true);
   }
 }
 

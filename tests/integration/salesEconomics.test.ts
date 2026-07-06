@@ -24,6 +24,8 @@ describe('Sales Economics Endpoints', () => {
   const defaultsBrandId = randomUUID(); // owned by ownerOrgId, row written WITHOUT the two sub-rates (DB defaults)
   const singleStepBrandId = randomUUID(); // owned by ownerOrgId, single-step goals + rates lifecycle
   const singleStepUnsetBrandId = randomUUID(); // owned by ownerOrgId, reads single-step rate defaults
+  const formSubBrandId = randomUUID(); // owned by ownerOrgId, form_submissions goal + rates lifecycle
+  const formSubUnsetBrandId = randomUUID(); // owned by ownerOrgId, reads null form-submission rates
 
   // visitToSignupPct 40 * signupToPaidClientPct 25 / 100 = 10 (derived visitToClosePct)
   const validMetrics = {
@@ -36,7 +38,7 @@ describe('Sales Economics Endpoints', () => {
   };
 
   beforeAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId, formSubBrandId, formSubUnsetBrandId]) {
       await db.insert(brands).values({
         id,
         url: `https://sales-econ-${id.slice(0, 8)}.com`,
@@ -53,10 +55,12 @@ describe('Sales Economics Endpoints', () => {
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: defaultsBrandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: singleStepBrandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: singleStepUnsetBrandId });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: formSubBrandId });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: formSubUnsetBrandId });
   });
 
   afterAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId, formSubBrandId, formSubUnsetBrandId]) {
       await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
@@ -547,6 +551,86 @@ describe('Sales Economics Endpoints', () => {
       .put(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...validMetrics, visitToPaidClientPct: 150 });
+    expect(res.status).toBe(400);
+  });
+
+  // ── form_submissions goal (visit→form submission→paid) + two-step rates ──
+  // Mid-funnel micro-conversion, structurally identical to signups. Carries its
+  // own visitToFormSubmissionPct / formSubmissionToPaidClientPct pair. Maps to the
+  // signup runtime goal — the org read round-trips the wire value.
+
+  // A brand that never set the form-submission rates reads null (nullable, no default).
+  it('GET a brand that never set form-submission rates → both null', async () => {
+    const putRes = await request(app)
+      .put(path(formSubUnsetBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(validMetrics);
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBeNull();
+    expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBeNull();
+
+    const getRes = await request(app)
+      .get(path(formSubUnsetBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.visitToFormSubmissionPct).toBeNull();
+    expect(getRes.body.salesEconomics.formSubmissionToPaidClientPct).toBeNull();
+  });
+
+  // AC1 — PUT form_submissions + both rates → GET round-trips the goal + rates exactly.
+  it('PUT optimizationGoal "form_submissions" + two-step rates → GET returns them', async () => {
+    const putRes = await request(app)
+      .put(path(formSubBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({
+        ...validMetrics,
+        optimizationGoal: 'form_submissions',
+        visitToFormSubmissionPct: 8.5,
+        formSubmissionToPaidClientPct: 30,
+      });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('form_submissions');
+    expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
+    expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
+
+    const getRes = await request(app)
+      .get(path(formSubBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('form_submissions');
+    expect(getRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
+    expect(getRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
+  });
+
+  // AC — omitting the goal + rates on a follow-up PUT preserves form_submissions + rates
+  // (the leave-unchanged contract must not silently collapse it back to signups).
+  it('PUT 5 metrics with no goal preserves stored form_submissions + rates', async () => {
+    const putRes = await request(app)
+      .put(path(formSubBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(validMetrics);
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('form_submissions');
+    expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
+    expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
+  });
+
+  // Out-of-range form-submission rate fails loud.
+  it('PUT with formSubmissionToPaidClientPct > 100 returns 400', async () => {
+    const res = await request(app)
+      .put(path(formSubBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, formSubmissionToPaidClientPct: 150 });
+    expect(res.status).toBe(400);
+  });
+
+  // AC — an unknown optimizationGoal still 400s (enum unchanged apart from the add).
+  it('PUT with an unknown optimizationGoal still returns 400', async () => {
+    const res = await request(app)
+      .put(path(formSubBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, optimizationGoal: 'form_submission' }); // singular, not the enum value
     expect(res.status).toBe(400);
   });
 });

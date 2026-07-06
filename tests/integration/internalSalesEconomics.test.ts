@@ -3,6 +3,7 @@ import request from 'supertest';
 import { createTestApp, getInternalAuthHeaders, getAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandSalesEconomics } from '../../src/db';
 import { salesEconomicsService } from '../../src/services/salesEconomicsService';
+import { getCurrentGoalByBrandId } from '../../src/services/brandGoalService';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -17,11 +18,13 @@ describe('Internal sales-economics read', () => {
   const orgId = randomUUID();
   const savedBrandId = randomUUID(); // has saved economics
   const unsetBrandId = randomUUID(); // exists, no economics
+  const formSubBrandId = randomUUID(); // saved with form_submissions goal
 
   const internalPath = (id: string) => `/internal/brands/${id}/sales-economics`;
+  const orgPath = (id: string) => `/orgs/brands/${id}/sales-economics`;
 
   beforeAll(async () => {
-    for (const id of [savedBrandId, unsetBrandId]) {
+    for (const id of [savedBrandId, unsetBrandId, formSubBrandId]) {
       await db.insert(brands).values({
         id,
         url: `https://intecon-${id.slice(0, 8)}.com`,
@@ -40,10 +43,22 @@ describe('Internal sales-economics read', () => {
       signupToPaidClientPct: 20,
       optimizationGoal: 'booked_meetings',
     });
+    // Seed a brand set to the form_submissions goal via the service.
+    await salesEconomicsService.upsertByBrandId(formSubBrandId, {
+      lifetimeRevenueUsd: 3000,
+      replyToMeetingPct: 10,
+      visitToMeetingPct: 5,
+      meetingToClosePct: 30,
+      visitToSignupPct: 25,
+      signupToPaidClientPct: 20,
+      optimizationGoal: 'form_submissions',
+      visitToFormSubmissionPct: 12,
+      formSubmissionToPaidClientPct: 40,
+    });
   });
 
   afterAll(async () => {
-    for (const id of [savedBrandId, unsetBrandId]) {
+    for (const id of [savedBrandId, unsetBrandId, formSubBrandId]) {
       await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
@@ -85,5 +100,28 @@ describe('Internal sales-economics read', () => {
     const res = await request(app).get(internalPath(randomUUID())).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
     expect(res.body.salesEconomics).toBeNull();
+  });
+
+  // form_submissions is a wire-only sub-type: the INTERNAL (campaign-service) read
+  // must collapse it to the runtime-safe `signups` so no downstream runtime
+  // consumer sees a new value — while the ORG read round-trips `form_submissions`.
+  it('INTERNAL read collapses form_submissions → signups (runtime never sees a new value)', async () => {
+    const res = await request(app).get(internalPath(formSubBrandId)).set(getInternalAuthHeaders());
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics.optimizationGoal).toBe('signups');
+    // The form-submission rates still surface on the internal read.
+    expect(res.body.salesEconomics.visitToFormSubmissionPct).toBe(12);
+    expect(res.body.salesEconomics.formSubmissionToPaidClientPct).toBe(40);
+  });
+
+  it('ORG read of the same brand round-trips the wire form_submissions goal', async () => {
+    const res = await request(app).get(orgPath(formSubBrandId)).set(getAuthHeaders(orgId));
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics.optimizationGoal).toBe('form_submissions');
+  });
+
+  it('runtime candidate-selection read resolves to the existing signup goal', async () => {
+    const currentGoal = await getCurrentGoalByBrandId(formSubBrandId);
+    expect(currentGoal).toBe('signup');
   });
 });
