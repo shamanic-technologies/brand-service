@@ -99,7 +99,11 @@ orgRouter.get('/brands/:brandId/sales-economics', async (req: Request, res: Resp
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const salesEconomics = await salesEconomicsService.getByBrandId(brandId);
+    // ORG (dashboard) read — return the wire optimizationGoal so a form_submissions
+    // save round-trips (the internal/campaign read below collapses it to signups).
+    const salesEconomics = await salesEconomicsService.getByBrandId(brandId, {
+      wireOptimizationGoal: true,
+    });
     return res.status(200).json({ salesEconomics });
   } catch (error: any) {
     console.error('[brand-service] Get sales economics error:', error);

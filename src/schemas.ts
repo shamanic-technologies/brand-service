@@ -1756,6 +1756,11 @@ export const FunnelStageSchema = z
 // Single brand-level optimization goal. Server default "sales" when never set.
 // `website_visits` / `positive_replies` are single-step goals (visit→paid /
 // reply→paid) — see visitToPaidClientPct / replyToPaidClientPct.
+// `form_submissions` is a mid-funnel micro-conversion (visit→form submission→paid),
+// structurally identical to `signups` — see visitToFormSubmissionPct /
+// formSubmissionToPaidClientPct. At runtime it collapses to the `signup`
+// current-goal (same outreach behavior), so features-service / campaign-service
+// never see a new runtime value; the wire value round-trips on the org read.
 export const OptimizationGoalSchema = z
   .enum([
     'signups',
@@ -1763,6 +1768,7 @@ export const OptimizationGoalSchema = z
     'sales',
     'website_visits',
     'positive_replies',
+    'form_submissions',
   ])
   .openapi('OptimizationGoal');
 
@@ -1793,9 +1799,13 @@ export const UpdateCurrentGoalResponseSchema = z
 // optimizationGoal: omitted = leave unchanged; sending sets it. NOT nullable.
 // visitToPaidClientPct / replyToPaidClientPct: single-step rates for the
 // website_visits / positive_replies goals. Optional — omitted = leave unchanged.
+// visitToFormSubmissionPct / formSubmissionToPaidClientPct: two-step rates for
+// the form_submissions goal. Optional — omitted = leave unchanged.
 export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.extend({
   visitToPaidClientPct: PercentSchema.optional(),
   replyToPaidClientPct: PercentSchema.optional(),
+  visitToFormSubmissionPct: PercentSchema.optional(),
+  formSubmissionToPaidClientPct: PercentSchema.optional(),
   businessModel: BusinessModelSchema.nullable().optional(),
   funnelStages: z.array(FunnelStageSchema).optional(),
   optimizationGoal: OptimizationGoalSchema.optional(),
@@ -1813,6 +1823,10 @@ export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
   // Single-step rates, always present on read (server default 5 / 25).
   visitToPaidClientPct: PercentSchema,
   replyToPaidClientPct: PercentSchema,
+  // Two-step form-submission rates. Nullable columns (no server default):
+  // `null` = never set. Present on read.
+  visitToFormSubmissionPct: PercentSchema.nullable(),
+  formSubmissionToPaidClientPct: PercentSchema.nullable(),
   // Always present on read; `null` = never set.
   businessModel: BusinessModelSchema.nullable(),
   // Always an array on read; `[]` = never set (never null).
@@ -1925,7 +1939,10 @@ registry.registerPath({
     '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array ' +
     'of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, ' +
     'sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | ' +
-    '`booked_meetings` | `sales`): omitting leaves it unchanged, sending sets it. Invalid enum values ' +
+    '`booked_meetings` | `sales` | `website_visits` | `positive_replies` | `form_submissions`): ' +
+    'omitting leaves it unchanged, sending sets it. Optional `visitToFormSubmissionPct` + ' +
+    '`formSubmissionToPaidClientPct` (form_submissions two-step rates): omitting leaves them unchanged. ' +
+    'Invalid enum values ' +
     'are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with ' +
     "the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to " +
     "the caller's org (x-org-id); a brand outside the org is rejected with 403.",
