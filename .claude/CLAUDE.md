@@ -34,14 +34,23 @@ brand-service has NO `buildInternalHeaders`/allowlist helper (unlike instantly-s
 
 ## `optimizationGoal` is a DERIVED alias of `brands.current_goal` — extend BOTH enums in lockstep
 
-The sales-economics `optimizationGoal` (legacy wire vocab `signups`/`booked_meetings`/`sales`/`website_visits`/`positive_replies`) is NOT independently stored. On READ (`formatSalesEconomics`) it is DERIVED from `brands.current_goal` (canonical `CurrentGoal` = `signup`/`meetingBooked`/`purchase`/`websiteVisit`/`positiveReply`) via `currentGoalToLegacyOptimizationGoal`; `brands.current_goal` is NOT NULL default `'purchase'`, so the stored `brand_sales_economics.optimization_goal` column is effectively ignored on read. On WRITE, an `optimizationGoal` PUT is mapped to `CurrentGoal` and persisted on `brands.current_goal` (the alias column is mirrored for older consumers). `CurrentGoal` is the vocabulary **features-service** consumes for runtime candidate selection.
+The sales-economics `optimizationGoal` (legacy wire vocab `signups`/`booked_meetings`/`sales`/`website_visits`/`positive_replies`/`form_submissions`) is NOT independently stored *for the 1:1 values*. On READ (`formatSalesEconomics`) it is normally DERIVED from `brands.current_goal` (canonical `CurrentGoal` = `signup`/`meetingBooked`/`purchase`/`websiteVisit`/`positiveReply`) via `currentGoalToLegacyOptimizationGoal`; `brands.current_goal` is NOT NULL default `'purchase'`, so for the 1:1 values the stored `brand_sales_economics.optimization_goal` column is ignored on read. On WRITE, an `optimizationGoal` PUT is mapped to `CurrentGoal` and persisted on `brands.current_goal` (the alias column is mirrored for older consumers). `CurrentGoal` is the vocabulary **features-service** consumes for runtime candidate selection.
 
-**So adding a new `optimizationGoal` value REQUIRES all of these together (or GET returns the wrong goal / a mapping switch throws):**
+**Two kinds of new `optimizationGoal` value — pick the pattern:**
+
+**Pattern A — a value that needs its OWN runtime behavior** (features-service must select candidates differently). It gets a dedicated `CurrentGoal`. REQUIRES all together (or GET returns the wrong goal / a mapping switch throws):
 1. `OptimizationGoalSchema` + `OptimizationGoal` type (schemas.ts + salesEconomicsService.ts) — new legacy value.
-2. `CurrentGoalSchema` + `CurrentGoal` type + `CURRENT_GOALS` + `LegacyOptimizationGoal` type + BOTH mapping switches (`legacyOptimizationGoalToCurrentGoal` / `currentGoalToLegacyOptimizationGoal`) in `brandGoalService.ts` — new canonical value (switches are exhaustive; a missing case fails `tsc`).
+2. `CurrentGoalSchema` + `CurrentGoal` type + `CURRENT_GOALS` + `LegacyOptimizationGoal` type + BOTH mapping switches (`legacyOptimizationGoalToCurrentGoal` / `currentGoalToLegacyOptimizationGoal`) in `brandGoalService.ts` — new canonical value (switches are exhaustive; a missing case fails `tsc`). **This makes features-service/campaign-service see a NEW runtime value — only do it if they can handle it.**
 3. The `brands_current_goal_check` DB CHECK constraint (schema.ts) — widen the `IN (...)` list, via an additive migration (drop-if-exists + re-add). Else the write 23514s.
 
-Reference: PR #317 (`website_visits`/`positive_replies` + single-step rate fields `visitToPaidClientPct`/`replyToPaidClientPct`).
+Reference: PR #317 (`website_visits`/`positive_replies` + single-step rate fields).
+
+**Pattern B — a value that is a WIRE-ONLY SUB-TYPE of an existing runtime goal** (same outreach behavior — e.g. `form_submissions` behaves like `signups`: same visit→micro-conversion→paid family). It maps to the EXISTING `CurrentGoal`, so runtime consumers never see a new value AND no CHECK-constraint change is needed. But because two wire values now share one `CurrentGoal`, the derive-from-`current_goal` read can't distinguish them — so the STORED `optimization_goal` column becomes authoritative for the sub-type (it is NO LONGER "effectively ignored" for these). REQUIRES:
+1. Add the value to `OptimizationGoalSchema` / `OptimizationGoal` / `LegacyOptimizationGoal` and give `legacyOptimizationGoalToCurrentGoal` a case returning the EXISTING `CurrentGoal` (do NOT touch `currentGoalToLegacyOptimizationGoal` / `CurrentGoal` / the CHECK constraint).
+2. Preserve the RAW wire value on `brand_sales_economics.optimization_goal` in `upsertByBrandId` (store `metrics.optimizationGoal` when supplied; conditional-set on update so an omitted goal preserves it — else a metrics-only PUT collapses it back).
+3. Recover it on the ORG (dashboard) read via `resolveWireOptimizationGoal(currentGoal, storedColumn)` (`formatSalesEconomics(..., wireOptimizationGoal=true)`, threaded from `getByBrandId({wireOptimizationGoal:true})` — org GET + PUT response). The INTERNAL (campaign-service) read keeps the default (`false`) so it collapses to the runtime-safe base value and downstream runtime consumers never see the sub-type.
+
+Reference: PR #322 (`form_submissions` → `signup` runtime goal + two-step rates `visitToFormSubmissionPct`/`formSubmissionToPaidClientPct`, nullable columns).
 
 ## Code Conventions
 

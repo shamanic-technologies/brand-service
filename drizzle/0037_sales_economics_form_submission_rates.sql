@@ -1,0 +1,2 @@
+ALTER TABLE "brand_sales_economics" ADD COLUMN IF NOT EXISTS "visit_to_form_submission_pct" numeric(7, 4);--> statement-breakpoint
+ALTER TABLE "brand_sales_economics" ADD COLUMN IF NOT EXISTS "form_submission_to_paid_client_pct" numeric(7, 4);
