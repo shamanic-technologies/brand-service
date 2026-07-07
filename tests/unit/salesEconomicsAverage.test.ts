@@ -29,6 +29,8 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
         signupToPaidClientPct: null,
         visitToPaidClientPct: null,
         replyToPaidClientPct: null,
+        visitToFormSubmissionPct: null,
+        formSubmissionToPaidClientPct: null,
       })
     ).toBeNull();
   });
@@ -44,6 +46,8 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
         signupToPaidClientPct: 20,
         visitToPaidClientPct: 5,
         replyToPaidClientPct: 25,
+        visitToFormSubmissionPct: 25,
+        formSubmissionToPaidClientPct: 20,
       })
     ).toEqual({
       lifetimeRevenueUsd: 4000,
@@ -57,6 +61,9 @@ describe('mapAverageRow (cross-brand average mapper)', () => {
       // Single-step rates pass through the mapper (MEAN of each).
       visitToPaidClientPct: 5,
       replyToPaidClientPct: 25,
+      // Two-step form-submission rates pass through the mapper (MEAN of each).
+      visitToFormSubmissionPct: 25,
+      formSubmissionToPaidClientPct: 20,
     });
   });
 });

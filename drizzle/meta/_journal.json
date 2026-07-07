@@ -267,6 +267,13 @@
       "when": 1783311035724,
       "tag": "0037_sales_economics_form_submission_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783418492193,
+      "tag": "0038_sales_economics_form_rates_notnull",
+      "breakpoints": true
     }
   ]
 }
