@@ -559,22 +559,25 @@ describe('Sales Economics Endpoints', () => {
   // own visitToFormSubmissionPct / formSubmissionToPaidClientPct pair. Maps to the
   // signup runtime goal — the org read round-trips the wire value.
 
-  // A brand that never set the form-submission rates reads null (nullable, no default).
-  it('GET a brand that never set form-submission rates → both null', async () => {
+  // A brand that never set the form-submission rates reads the server defaults
+  // (25 / 20) — NOT NULL columns mirroring the single-step rates, so a
+  // form_submissions-goal brand always serves real numbers (features-service
+  // fails loud on null).
+  it('GET a brand that never set form-submission rates → server defaults 25 / 20', async () => {
     const putRes = await request(app)
       .put(path(formSubUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send(validMetrics);
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBeNull();
-    expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBeNull();
+    expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBe(25);
+    expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(20);
 
     const getRes = await request(app)
       .get(path(formSubUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.visitToFormSubmissionPct).toBeNull();
-    expect(getRes.body.salesEconomics.formSubmissionToPaidClientPct).toBeNull();
+    expect(getRes.body.salesEconomics.visitToFormSubmissionPct).toBe(25);
+    expect(getRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(20);
   });
 
   // AC1 — PUT form_submissions + both rates → GET round-trips the goal + rates exactly.
