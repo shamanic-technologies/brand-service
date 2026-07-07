@@ -116,9 +116,14 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	visitToPaidClientPct: numeric("visit_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(5).notNull(),
 	replyToPaidClientPct: numeric("reply_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(25).notNull(),
 	// Two-step conversion rates for the form_submissions goal (visit→form
-	// submission→paid). Nullable, NO default — null = never set. Optional on write.
-	visitToFormSubmissionPct: numeric("visit_to_form_submission_pct", { precision: 7, scale: 4, mode: "number" }),
-	formSubmissionToPaidClientPct: numeric("form_submission_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }),
+	// submission→paid). NOT NULL with DB defaults (25 / 20) — mirrors the
+	// visitToSignupPct/signupToPaidClientPct two-step pair (form_submissions
+	// collapses to the `signup` runtime goal). Consumers (features-service) fail
+	// loud on a null rate for a form_submissions-goal brand, so these are served
+	// as real numbers everywhere (saved read, effective, cross-brand-average),
+	// identically to the single-step rates.
+	visitToFormSubmissionPct: numeric("visit_to_form_submission_pct", { precision: 7, scale: 4, mode: "number" }).default(25).notNull(),
+	formSubmissionToPaidClientPct: numeric("form_submission_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(20).notNull(),
 	// DERIVED on every write = visitToSignupPct * signupToPaidClientPct / 100.
 	// Kept as a stored column so the revenue/projection engine (features-service)
 	// keeps reading it unchanged; never written directly by a caller.
