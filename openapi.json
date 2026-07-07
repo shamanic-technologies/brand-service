@@ -1400,13 +1400,11 @@
                   },
                   "visitToFormSubmissionPct": {
                     "type": "number",
-                    "nullable": true,
                     "minimum": 0,
                     "maximum": 100
                   },
                   "formSubmissionToPaidClientPct": {
                     "type": "number",
-                    "nullable": true,
                     "minimum": 0,
                     "maximum": 100
                   },
@@ -1539,13 +1537,11 @@
                   },
                   "visitToFormSubmissionPct": {
                     "type": "number",
-                    "nullable": true,
                     "minimum": 0,
                     "maximum": 100
                   },
                   "formSubmissionToPaidClientPct": {
                     "type": "number",
-                    "nullable": true,
                     "minimum": 0,
                     "maximum": 100
                   },
@@ -1748,6 +1744,16 @@
                 "type": "number",
                 "minimum": 0,
                 "maximum": 100
+              },
+              "visitToFormSubmissionPct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "formSubmissionToPaidClientPct": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
               }
             },
             "required": [
@@ -1759,7 +1765,9 @@
               "signupToPaidClientPct",
               "visitToClosePct",
               "visitToPaidClientPct",
-              "replyToPaidClientPct"
+              "replyToPaidClientPct",
+              "visitToFormSubmissionPct",
+              "formSubmissionToPaidClientPct"
             ]
           },
           "source": {

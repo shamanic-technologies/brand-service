@@ -65,11 +65,10 @@ export interface SalesEconomicsMetrics {
   replyToPaidClientPct?: number;
   // Two-step conversion rates for the form_submissions goal (visit→form
   // submission→paid). Optional on write: omitted = leave unchanged; present = set.
-  // Nullable columns (no default) — `null` on read = never set. (The write schema
-  // is `.optional()` only — null never reaches the writer; `| null` here is for
-  // SavedSalesEconomics to extend with the read-side null, mirroring businessModel.)
-  visitToFormSubmissionPct?: number | null;
-  formSubmissionToPaidClientPct?: number | null;
+  // NOT NULL columns, server default 25 / 20 (mirror the signup sub-rates) — always
+  // present on read.
+  visitToFormSubmissionPct?: number;
+  formSubmissionToPaidClientPct?: number;
   businessModel?: BusinessModel | null;
   funnelStages?: FunnelStage[];
   optimizationGoal?: OptimizationGoal;
@@ -82,9 +81,9 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   // Always present on read (NOT NULL, server default 5 / 25).
   visitToPaidClientPct: number;
   replyToPaidClientPct: number;
-  // Present on read; `null` = never set (nullable columns, no default).
-  visitToFormSubmissionPct: number | null;
-  formSubmissionToPaidClientPct: number | null;
+  // Always present on read (NOT NULL, server default 25 / 20).
+  visitToFormSubmissionPct: number;
+  formSubmissionToPaidClientPct: number;
   // Always present on read; `null` = never set.
   businessModel: BusinessModel | null;
   // Always an array on read; `[]` = never set.
@@ -145,6 +144,9 @@ export interface SalesEconomicsAverages {
   // MEAN of each single-step rate (identical treatment to the other percents).
   visitToPaidClientPct: number;
   replyToPaidClientPct: number;
+  // MEAN of each two-step form-submission rate (identical treatment).
+  visitToFormSubmissionPct: number;
+  formSubmissionToPaidClientPct: number;
 }
 
 /** Provenance of the effective economics returned by the gold serving layer. */
@@ -170,6 +172,8 @@ interface SalesEconomicsAverageRow {
   signupToPaidClientPct: number | null;
   visitToPaidClientPct: number | null;
   replyToPaidClientPct: number | null;
+  visitToFormSubmissionPct: number | null;
+  formSubmissionToPaidClientPct: number | null;
 }
 
 /**
@@ -197,6 +201,8 @@ export function mapAverageRow(
     ),
     visitToPaidClientPct: row.visitToPaidClientPct!,
     replyToPaidClientPct: row.replyToPaidClientPct!,
+    visitToFormSubmissionPct: row.visitToFormSubmissionPct!,
+    formSubmissionToPaidClientPct: row.formSubmissionToPaidClientPct!,
   };
 }
 
@@ -249,6 +255,8 @@ export class SalesEconomicsService {
         signupToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.signupToPaidClientPct})::numeric, 4)::double precision`,
         visitToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToPaidClientPct})::numeric, 4)::double precision`,
         replyToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.replyToPaidClientPct})::numeric, 4)::double precision`,
+        visitToFormSubmissionPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToFormSubmissionPct})::numeric, 4)::double precision`,
+        formSubmissionToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.formSubmissionToPaidClientPct})::numeric, 4)::double precision`,
       })
       .from(brandSalesEconomics);
 
@@ -276,6 +284,8 @@ export class SalesEconomicsService {
           visitToClosePct: saved.visitToClosePct,
           visitToPaidClientPct: saved.visitToPaidClientPct,
           replyToPaidClientPct: saved.replyToPaidClientPct,
+          visitToFormSubmissionPct: saved.visitToFormSubmissionPct,
+          formSubmissionToPaidClientPct: saved.formSubmissionToPaidClientPct,
         },
         source: 'user',
       };

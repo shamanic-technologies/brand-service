@@ -1823,10 +1823,10 @@ export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
   // Single-step rates, always present on read (server default 5 / 25).
   visitToPaidClientPct: PercentSchema,
   replyToPaidClientPct: PercentSchema,
-  // Two-step form-submission rates. Nullable columns (no server default):
-  // `null` = never set. Present on read.
-  visitToFormSubmissionPct: PercentSchema.nullable(),
-  formSubmissionToPaidClientPct: PercentSchema.nullable(),
+  // Two-step form-submission rates, always present on read (server default 25 / 20,
+  // mirroring the signup sub-rates).
+  visitToFormSubmissionPct: PercentSchema,
+  formSubmissionToPaidClientPct: PercentSchema,
   // Always present on read; `null` = never set.
   businessModel: BusinessModelSchema.nullable(),
   // Always an array on read; `[]` = never set (never null).
@@ -1872,6 +1872,10 @@ export const SalesEconomicsEffectiveResponseSchema = z
         // source is the MEAN of each.
         visitToPaidClientPct: PercentSchema,
         replyToPaidClientPct: PercentSchema,
+        // Two-step form-submission rates (form_submissions goal): user source
+        // passes through; cross-brand-average source is the MEAN of each.
+        visitToFormSubmissionPct: PercentSchema,
+        formSubmissionToPaidClientPct: PercentSchema,
       })
       .nullable(),
     source: z.enum(['user', 'cross-brand-average']).nullable(),
