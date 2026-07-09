@@ -30,12 +30,14 @@ describe('extractFieldsFromContent — model selection by urlStrategy', () => {
     mockChat.mockResolvedValue({ json: { services: 'widgets' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
   });
 
-  it('landing strategy → Flash, disableThinking, no dead thinkingBudget', async () => {
+  it('landing strategy → flash-pro, disableThinking floors thinking to minimal, no dead thinkingBudget', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
-    expect(params.model).toBe('flash');
+    // flash-pro (Gemini 3.5 Flash) for the discrimination the task needs;
+    // disableThinking floors Gemini 3 thinking to "minimal" (cheap + fast).
+    expect(params.model).toBe('flash-pro');
     expect(params.disableThinking).toBe(true);
     // thinkingBudget was dead config — chat-service /complete never honored it.
     expect(params.thinkingBudget).toBeUndefined();
