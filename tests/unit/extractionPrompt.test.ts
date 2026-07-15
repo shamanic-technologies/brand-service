@@ -142,4 +142,31 @@ describe('extractFields LLM prompt — never null/empty', () => {
     // Old offending instruction must be gone.
     expect(params.message).not.toMatch(/Use null if information is not found/);
   });
+
+  it("grounds the LLM in today's date so expired time-sensitive claims are not surfaced as current", async () => {
+    setDbSequence([
+      [], // cache miss
+      [{ id: 'brand-x', url: 'https://example.com', name: 'Test', domain: 'example.com', orgId: 'org-x' }], // getBrand
+    ]);
+
+    await extractFields({
+      brandId: 'brand-x',
+      caller: { mode: 'org', orgId: 'org-x', userId: 'user-x', runId: 'run-x' },
+      fields: [{ key: 'urgency', description: 'Urgency elements and time pressure' }],
+    });
+
+    const extractionCall = mockChat.mock.calls.find((call) => {
+      const params = call[0] as { systemPrompt?: string };
+      return params.systemPrompt?.includes('brand information extraction');
+    });
+    expect(extractionCall).toBeDefined();
+    const params = extractionCall![0] as { systemPrompt: string; message: string };
+
+    // Current date must reach BOTH the system prompt and the message, so the
+    // model can judge whether a scraped deadline is still in the future.
+    expect(params.systemPrompt).toMatch(/Today's date is \d{4}-\d{2}-\d{2}/);
+    expect(params.message).toMatch(/Today's date is \d{4}-\d{2}-\d{2}/);
+    // And it must instruct the model to treat passed deadlines as expired.
+    expect(params.systemPrompt).toMatch(/expired/i);
+  });
 });

@@ -373,11 +373,17 @@ export async function extractFieldsFromContent(
 
   const responseSchema = buildFieldsResponseSchema(fields.map((f) => f.key));
 
+  // Server-computed current date so the model has a clock. Time-sensitive copy
+  // on a site (deadlines, "shutting down on DATE", "ends soon", "limited time
+  // until DATE") must only be surfaced as live urgency when its date is still in
+  // the future. Without this the model echoes an already-passed deadline (e.g. a
+  // "shutting down on December 9, 2024" note surfaced in 2026) as current urgency.
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
   const result = await chat(
     {
-      systemPrompt:
-        'You are a brand information extraction assistant. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys. NEVER return null, undefined, or empty values — if information is not present in the content, return the string "Unknown" for string fields and ["Unknown"] for array fields.',
-      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nWebsite content:\n${combinedContent}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
+      systemPrompt: `You are a brand information extraction assistant. Today's date is ${today}. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys. NEVER return null, undefined, or empty values — if information is not present in the content, return the string "Unknown" for string fields and ["Unknown"] for array fields. For any time-sensitive or urgency claim (deadlines, countdowns, "shutting down on DATE", "ends soon", "limited time until DATE"), only treat it as current if its date is on or after ${today}; if the referenced deadline has already passed, treat it as expired/stale and do NOT surface it as live urgency — return "Unknown" for that field instead of echoing the past-dated claim.`,
+      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nToday's date is ${today}. Treat any time-sensitive or urgency claim as current ONLY if its date is on or after ${today}; if a deadline or countdown has already passed, treat it as expired and return "Unknown" for that field rather than presenting the stale deadline as live urgency.\n\nWebsite content:\n${combinedContent}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
       provider: 'google',
       responseFormat: 'json',
       responseSchema,
