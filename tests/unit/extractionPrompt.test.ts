@@ -142,4 +142,31 @@ describe('extractFields LLM prompt — never null/empty', () => {
     // Old offending instruction must be gone.
     expect(params.message).not.toMatch(/Use null if information is not found/);
   });
+
+  it("injects today's server-computed date and an expired-urgency instruction", async () => {
+    setDbSequence([
+      [], // cache miss
+      [{ id: 'brand-x', url: 'https://example.com', name: 'Test', domain: 'example.com', orgId: 'org-x' }], // getBrand
+    ]);
+
+    await extractFields({
+      brandId: 'brand-x',
+      caller: { mode: 'org', orgId: 'org-x', userId: 'user-x', runId: 'run-x' },
+      fields: [{ key: 'urgency', description: 'Urgency elements and time pressure' }],
+    });
+
+    const extractionCall = mockChat.mock.calls.find((call) => {
+      const params = call[0] as { systemPrompt?: string };
+      return params.systemPrompt?.includes('brand information extraction');
+    });
+    expect(extractionCall).toBeDefined();
+    const params = extractionCall![0] as { message: string };
+
+    // Current date present in ISO YYYY-MM-DD form, matching the real clock.
+    const today = new Date().toISOString().slice(0, 10);
+    expect(params.message).toContain(`Today's date is ${today}`);
+    // Expiry instruction: passed deadlines are stale, degrade to Unknown.
+    expect(params.message).toMatch(/expired\/stale/);
+    expect(params.message).toMatch(/on or after today/);
+  });
 });

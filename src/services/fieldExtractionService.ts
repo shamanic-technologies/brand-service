@@ -373,11 +373,20 @@ export async function extractFieldsFromContent(
 
   const responseSchema = buildFieldsResponseSchema(fields.map((f) => f.key));
 
+  // Current date (server-computed at call time) so the model can reason about
+  // whether time-sensitive claims are STILL live. Website copy often carries a
+  // stale deadline ("shutting down on Dec 9, 2024", "ends soon", "limited time
+  // until DATE"); without a clock the model echoes an already-passed deadline as
+  // current urgency. With today's date it must treat expired claims as stale and
+  // fall back to the not-found contract ("Unknown") rather than surface them.
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const dateBlock = `\n\nToday's date is ${today}. Any time-sensitive claim (deadline, "shutting down on DATE", "ends soon", "limited time until DATE", countdown, expiring offer) is ONLY live urgency if its date is on or after today. Treat a claim whose date has already passed as expired/stale — do NOT surface it as current urgency. If the only time pressure on the site has already elapsed, return the not-found value ("Unknown") for that field instead of echoing the stale deadline.`;
+
   const result = await chat(
     {
       systemPrompt:
         'You are a brand information extraction assistant. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys. NEVER return null, undefined, or empty values — if information is not present in the content, return the string "Unknown" for string fields and ["Unknown"] for array fields.',
-      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nWebsite content:\n${combinedContent}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
+      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${dateBlock}${profileBlock}${contextBlock}\n\nWebsite content:\n${combinedContent}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
       provider: 'google',
       responseFormat: 'json',
       responseSchema,
