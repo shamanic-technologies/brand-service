@@ -47,6 +47,61 @@ const AUDIENCE_FIELD_KEYS = ['targetAudience', 'customerPainPoints'] as const;
 type AudienceSignals = Partial<Record<(typeof AUDIENCE_FIELD_KEYS)[number], string | string[]>>;
 
 /**
+ * Profile-field keys DROPPED from the ICP context because they describe HOW the
+ * offer is sold or the brand ITSELF — never WHO to prospect. Two families (see
+ * the dashboard brand-profile field editor for the source vocabulary):
+ *
+ * - Conversion levers (the whole "Conversion levers" section): callToAction,
+ *   perceivedLikelihood, urgency, scarcity, riskReversal. These are offer/value-
+ *   equation copy — pure noise for a targeting filter.
+ * - Brand-vanity self-description: leadership, funding, awardsAndRecognition,
+ *   revenueMilestones. These describe the SELLER. Worse than noise: the system
+ *   prompt asks the model for the PROSPECT's firmographics (target revenue range,
+ *   funding stage), so the brand's OWN funding/revenue in the same flat JSON gets
+ *   misread as prospect targeting criteria (e.g. "target companies that raised
+ *   seed" leaking from the brand's own raise).
+ *
+ * Everything NOT listed here is kept (offer/targeting-relevant: companyOverview,
+ * services, valueProposition, keyFeatures, productDifferentiators, competitors,
+ * socialProof, industry, geography, additionalContext, …) — this is a denylist,
+ * so new offer/targeting fields feed the prompt without a code change; only new
+ * copy-lever / vanity fields need adding. Matched case-insensitively. `socialProof`
+ * is deliberately KEPT (case studies / customer types sharpen the segment).
+ */
+const ICP_EXCLUDED_PROFILE_KEYS = new Set(
+  [
+    // Conversion / offer-copy levers
+    'callToAction',
+    'perceivedLikelihood',
+    'urgency',
+    'scarcity',
+    'riskReversal',
+    // Brand-vanity self-description (misattribution risk vs prospect firmographics)
+    'leadership',
+    'funding',
+    'awardsAndRecognition',
+    'revenueMilestones',
+  ].map((k) => k.toLowerCase()),
+);
+
+/**
+ * Curate the brand-profile fields down to the offer/targeting-relevant subset
+ * that actually sharpens WHO to prospect — dropping the conversion-copy levers
+ * and brand-vanity self-description fields (see ICP_EXCLUDED_PROFILE_KEYS). Pure;
+ * denylist by lowercased key. Unit-tested via the built message.
+ */
+export function curateIcpProfileFields(
+  fields: Record<string, string | string[]>,
+): Record<string, string | string[]> {
+  const curated: Record<string, string | string[]> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (ICP_EXCLUDED_PROFILE_KEYS.has(key.toLowerCase())) continue;
+    curated[key] = value;
+  }
+  return curated;
+}
+
+/**
  * Raised when the brand has no profile content to seed generation from. The
  * route maps this to 422 (client-actionable: enrich the brand first), distinct
  * from a 502 generation failure.
@@ -155,12 +210,18 @@ async function getAudienceSignals(brandId: string): Promise<AudienceSignals> {
   return signals;
 }
 
-function buildMessage(
+export function buildMessage(
   profileFields: Record<string, string | string[]>,
   audienceSignals: AudienceSignals,
   economics: { economics: unknown; source: string | null },
   existingIcps: string[],
 ): string {
+  // Only the offer/targeting-relevant fields reach the model — conversion-copy
+  // levers and brand-vanity self-description are dropped here (single source of
+  // truth for what enters the "Brand profile" context). The dedicated
+  // audience-signal + economics blocks below are untouched.
+  const curatedProfile = curateIcpProfileFields(profileFields);
+
   const audienceBlock =
     Object.keys(audienceSignals).length === 0
       ? 'No explicit target-audience signals on record.'
@@ -182,7 +243,7 @@ function buildMessage(
 
   return [
     'Brand profile:',
-    JSON.stringify(profileFields, null, 2),
+    JSON.stringify(curatedProfile, null, 2),
     '',
     audienceBlock,
     '',
@@ -234,9 +295,12 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
   // 1. Seed context from existing brand data (no persistence happens here).
   const profile = await brandProfileService.getByBrandId(brandId);
   const profileFields = profile.current?.fields ?? {};
-  if (Object.keys(profileFields).length === 0) {
+  // Fail loud when there is nothing OFFER/TARGETING-relevant to seed from — an
+  // empty profile OR one carrying only conversion-copy / brand-vanity fields
+  // (which are dropped from the ICP context) cannot define who to prospect.
+  if (Object.keys(curateIcpProfileFields(profileFields)).length === 0) {
     throw new IcpSuggestionUnavailableError(
-      `[brand-service] Cannot suggest an ICP for brand ${brandId}: brand profile is empty`,
+      `[brand-service] Cannot suggest an ICP for brand ${brandId}: brand profile has no offer/targeting fields to seed from`,
     );
   }
   const audienceSignals = await getAudienceSignals(brandId);
