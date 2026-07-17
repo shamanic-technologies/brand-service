@@ -79,6 +79,7 @@ export const BrandDetailSchema = z
     name: z.string().openapi({ description: 'Brand display name. Lazy-extracted from the website on first read if missing.' }),
     logoUrl: z.string().openapi({ description: 'Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing.' }),
     clickDestinationUrl: z.string().openapi({ description: 'Page outreach clicks should land on. Never null: defaults to the brand\'s own landing URL (`url`) when the user has not set an override, so the value is always a valid href. Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination.' }),
+    whatsAppLink: z.string().nullable().openapi({ description: 'The brand\'s WhatsApp link — the click destination for the "maximize WhatsApp conversations" goal. `null` when unset (no sensible default, unlike clickDestinationUrl). Per-brand config, set via PUT /orgs/brands/{brandId}/whatsapp-link.' }),
     createdAt: z.string().openapi({ description: 'ISO timestamp when the brand row was created.' }),
     updatedAt: z.string().openapi({ description: 'ISO timestamp when the brand row was last updated.' }),
   })
@@ -1769,13 +1770,25 @@ export const OptimizationGoalSchema = z
     'website_visits',
     'positive_replies',
     'form_submissions',
+    // "Maximize WhatsApp conversations": recipients click a WhatsApp link to
+    // start a conversation instead of replying by email. A dedicated runtime
+    // goal (1:1 with the `whatsappConversation` current-goal), NOT a wire-only
+    // sub-type — its cost-per-outcome math is a separate features-service task.
+    'whatsapp_conversations',
   ])
   .openapi('OptimizationGoal');
 
 // Canonical brand-owned runtime goal. This is the vocabulary features-service
 // accepts as runtime candidate-selection input.
 export const CurrentGoalSchema = z
-  .enum(['signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply'])
+  .enum([
+    'signup',
+    'meetingBooked',
+    'purchase',
+    'websiteVisit',
+    'positiveReply',
+    'whatsappConversation',
+  ])
   .openapi('CurrentGoal');
 
 export const UpdateCurrentGoalRequestSchema = z
@@ -2016,6 +2029,61 @@ registry.registerPath({
       content: { 'application/json': { schema: UpsertClickDestinationResponseSchema } },
     },
     400: { description: 'Invalid brand ID format or invalid/missing/non-http(s) clickDestinationUrl' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ── WhatsApp link (per-brand config) ──────────────────────────────
+export const UpsertWhatsAppLinkRequestSchema = z
+  .object({
+    whatsAppLink: z
+      .string()
+      .min(1)
+      .openapi({
+        description:
+          'The brand\'s WhatsApp link. Accepts a WhatsApp URL (wa.me / whatsapp.com / ' +
+          'api.whatsapp.com / chat.whatsapp.com, https only) OR a phone number (7-15 digits, ' +
+          'optional leading `+`). A bare number is normalized to `https://wa.me/<digits>`. ' +
+          'Anything else is rejected 400.',
+        example: 'https://wa.me/15551234567',
+      }),
+  })
+  .openapi('UpsertWhatsAppLinkRequest');
+
+// WRITE response: the saved, normalized value (never null — you just wrote it).
+export const UpsertWhatsAppLinkResponseSchema = z
+  .object({
+    whatsAppLink: z.string().openapi({ description: 'The saved (normalized) WhatsApp link.' }),
+  })
+  .openapi('UpsertWhatsAppLinkResponse');
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/whatsapp-link',
+  summary: "Set a brand's WhatsApp link",
+  description:
+    'Persist the brand\'s WhatsApp link — the click destination the outreach / sending pipeline ' +
+    'points recipients at for the "maximize WhatsApp conversations" goal. Per-brand config ' +
+    '(one row per brand, reused across the brand\'s campaigns), mirroring the click-destination / ' +
+    'sales-economics write routes — NOT brand global identity. Body `{ whatsAppLink }` accepts a ' +
+    'WhatsApp URL (wa.me / api.whatsapp.com, https only) or a phone number; a bare number is ' +
+    'normalized to `https://wa.me/<digits>`. Non-WhatsApp / non-https / unparseable input is ' +
+    'rejected 400. Idempotent upsert: repeating the same PUT yields the same end state. Returns ' +
+    '`{ whatsAppLink }` (the saved, normalized value). The brand must belong to the caller\'s org ' +
+    '(x-org-id); a brand outside the org is rejected 403. Read it back via the `whatsAppLink` field ' +
+    'on the brand read (GET /internal/brands/{id} and the batch read), `null` when unset.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: UpsertWhatsAppLinkRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'Saved WhatsApp link',
+      content: { 'application/json': { schema: UpsertWhatsAppLinkResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format or invalid/missing WhatsApp link' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },

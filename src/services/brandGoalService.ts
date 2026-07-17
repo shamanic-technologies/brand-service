@@ -10,7 +10,8 @@ export type CurrentGoal =
   | 'meetingBooked'
   | 'purchase'
   | 'websiteVisit'
-  | 'positiveReply';
+  | 'positiveReply'
+  | 'whatsappConversation';
 
 /**
  * Legacy sales-economics wire vocabulary kept for backward compatibility.
@@ -24,7 +25,8 @@ export type LegacyOptimizationGoal =
   | 'sales'
   | 'website_visits'
   | 'positive_replies'
-  | 'form_submissions';
+  | 'form_submissions'
+  | 'whatsapp_conversations';
 
 export const CURRENT_GOALS = [
   'signup',
@@ -32,6 +34,7 @@ export const CURRENT_GOALS = [
   'purchase',
   'websiteVisit',
   'positiveReply',
+  'whatsappConversation',
 ] as const;
 
 export function legacyOptimizationGoalToCurrentGoal(
@@ -53,6 +56,13 @@ export function legacyOptimizationGoalToCurrentGoal(
       // signups, same outreach behavior. Collapses to the signup runtime goal so
       // features-service / campaign-service never see a new value.
       return 'signup';
+    case 'whatsapp_conversations':
+      // "Maximize WhatsApp conversations": recipients click a WhatsApp link to
+      // start a conversation instead of replying by email. A genuinely NEW
+      // outcome with its OWN cost-per-outcome math (built as a separate
+      // features-service task), so it gets a dedicated runtime goal — NOT a
+      // wire-only sub-type of an existing goal. 1:1 with the legacy value.
+      return 'whatsappConversation';
   }
 }
 
@@ -70,6 +80,8 @@ export function currentGoalToLegacyOptimizationGoal(
       return 'website_visits';
     case 'positiveReply':
       return 'positive_replies';
+    case 'whatsappConversation':
+      return 'whatsapp_conversations';
   }
 }
 
