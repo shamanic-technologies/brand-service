@@ -14,6 +14,7 @@ import { orgRouter as icpOrgRoutes } from '../../src/routes/icp.routes';
 import { orgRouter as brandProfileOrgRoutes } from '../../src/routes/brand-profile.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from '../../src/routes/brand-goal.routes';
 import { orgRouter as clickDestinationOrgRoutes } from '../../src/routes/click-destination.routes';
+import { orgRouter as whatsAppLinkOrgRoutes } from '../../src/routes/whatsapp-link.routes';
 
 // Import routes — single-tier files
 import organizationRoutes from '../../src/routes/organization.routes';
@@ -73,6 +74,7 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, whatsAppLinkOrgRoutes);
   app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;

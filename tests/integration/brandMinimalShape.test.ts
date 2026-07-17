@@ -20,7 +20,7 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
     createdOrgIds.length = 0;
   });
 
-  it('returns only id, domain, url, name, logoUrl, clickDestinationUrl, createdAt, updatedAt — no business fields', async () => {
+  it('returns only id, domain, url, name, logoUrl, clickDestinationUrl, whatsAppLink, createdAt, updatedAt — no business fields', async () => {
     const orgId = randomUUID();
     createdOrgIds.push(orgId);
     const id = randomUUID();
@@ -42,10 +42,12 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
 
     expect(res.status).toBe(200);
     expect(Object.keys(res.body.brand).sort()).toEqual(
-      ['clickDestinationUrl', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'updatedAt', 'url'],
+      ['clickDestinationUrl', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'updatedAt', 'url', 'whatsAppLink'],
     );
     // Unset brand: producer defaults clickDestinationUrl to the brand's own url.
     expect(res.body.brand.clickDestinationUrl).toBe(url);
+    // Unset brand: whatsAppLink has no sensible default → null.
+    expect(res.body.brand.whatsAppLink).toBeNull();
     expect(res.body.brand.bio).toBeUndefined();
     expect(res.body.brand.categories).toBeUndefined();
     expect(res.body.brand.mission).toBeUndefined();

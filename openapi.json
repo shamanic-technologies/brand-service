@@ -282,6 +282,11 @@
             "type": "string",
             "description": "Page outreach clicks should land on. Never null: defaults to the brand's own landing URL (`url`) when the user has not set an override, so the value is always a valid href. Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination."
           },
+          "whatsAppLink": {
+            "type": "string",
+            "nullable": true,
+            "description": "The brand's WhatsApp link — the click destination for the \"maximize WhatsApp conversations\" goal. `null` when unset (no sensible default, unlike clickDestinationUrl). Per-brand config, set via PUT /orgs/brands/{brandId}/whatsapp-link."
+          },
           "createdAt": {
             "type": "string",
             "description": "ISO timestamp when the brand row was created."
@@ -298,6 +303,7 @@
           "name",
           "logoUrl",
           "clickDestinationUrl",
+          "whatsAppLink",
           "createdAt",
           "updatedAt"
         ]
@@ -1464,7 +1470,8 @@
           "sales",
           "website_visits",
           "positive_replies",
-          "form_submissions"
+          "form_submissions",
+          "whatsapp_conversations"
         ]
       },
       "SalesEconomicsMetrics": {
@@ -1662,6 +1669,32 @@
           "clickDestinationUrl"
         ]
       },
+      "UpsertWhatsAppLinkResponse": {
+        "type": "object",
+        "properties": {
+          "whatsAppLink": {
+            "type": "string",
+            "description": "The saved (normalized) WhatsApp link."
+          }
+        },
+        "required": [
+          "whatsAppLink"
+        ]
+      },
+      "UpsertWhatsAppLinkRequest": {
+        "type": "object",
+        "properties": {
+          "whatsAppLink": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The brand's WhatsApp link. Accepts a WhatsApp URL (wa.me / whatsapp.com / api.whatsapp.com / chat.whatsapp.com, https only) OR a phone number (7-15 digits, optional leading `+`). A bare number is normalized to `https://wa.me/<digits>`. Anything else is rejected 400.",
+            "example": "https://wa.me/15551234567"
+          }
+        },
+        "required": [
+          "whatsAppLink"
+        ]
+      },
       "UpdateCurrentGoalResponse": {
         "type": "object",
         "properties": {
@@ -1680,7 +1713,8 @@
           "meetingBooked",
           "purchase",
           "websiteVisit",
-          "positiveReply"
+          "positiveReply",
+          "whatsappConversation"
         ]
       },
       "UpdateCurrentGoalRequest": {
@@ -4144,6 +4178,56 @@
           },
           "400": {
             "description": "Invalid brand ID format or invalid/missing/non-http(s) clickDestinationUrl"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/whatsapp-link": {
+      "put": {
+        "summary": "Set a brand's WhatsApp link",
+        "description": "Persist the brand's WhatsApp link — the click destination the outreach / sending pipeline points recipients at for the \"maximize WhatsApp conversations\" goal. Per-brand config (one row per brand, reused across the brand's campaigns), mirroring the click-destination / sales-economics write routes — NOT brand global identity. Body `{ whatsAppLink }` accepts a WhatsApp URL (wa.me / api.whatsapp.com, https only) or a phone number; a bare number is normalized to `https://wa.me/<digits>`. Non-WhatsApp / non-https / unparseable input is rejected 400. Idempotent upsert: repeating the same PUT yields the same end state. Returns `{ whatsAppLink }` (the saved, normalized value). The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403. Read it back via the `whatsAppLink` field on the brand read (GET /internal/brands/{id} and the batch read), `null` when unset.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertWhatsAppLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved WhatsApp link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpsertWhatsAppLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format or invalid/missing WhatsApp link"
           },
           "403": {
             "description": "Brand does not belong to the caller's org"

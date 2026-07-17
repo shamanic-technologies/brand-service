@@ -533,6 +533,22 @@ describe('Sales Economics Endpoints', () => {
     expect(getRes.body.salesEconomics.optimizationGoal).toBe('positive_replies');
   });
 
+  // AC2 — whatsapp_conversations (dedicated Pattern-A goal) round-trips on write + read.
+  it('PUT optimizationGoal "whatsapp_conversations" → GET returns it', async () => {
+    const putRes = await request(app)
+      .put(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, optimizationGoal: 'whatsapp_conversations' });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('whatsapp_conversations');
+
+    const getRes = await request(app)
+      .get(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('whatsapp_conversations');
+  });
+
   // Omitting the single-step rates leaves prior values unchanged (partial update).
   it('PUT 5 metrics with no single-step rates preserves the stored 7.5 / 40', async () => {
     const putRes = await request(app)

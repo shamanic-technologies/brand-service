@@ -31,7 +31,7 @@ export const brands = pgTable("brands", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	uniqueIndex("brands_domain_key").on(table.domain),
-	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply')`),
+	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply', 'whatsappConversation')`),
 ]);
 
 /**
@@ -170,6 +170,31 @@ export const brandClickDestinations = pgTable("brand_click_destinations", {
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
 		name: "brand_click_destinations_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
+ * Brand-level WhatsApp link. One row per brand (PK = brand_id) — "unique per
+ * brand" — reused across every outreach campaign for that brand, analogous to
+ * `brand_click_destinations` / `brand_sales_economics` per-brand config, NOT
+ * brand global identity. Stores the WhatsApp click destination the outreach /
+ * sending pipeline points recipients at for the "maximize WhatsApp
+ * conversations" goal. `whatsapp_link` is NOT NULL — the row's presence IS the
+ * "set" signal; an unset brand simply has no row, and the brand read
+ * (getBrandDetail) then returns `whatsAppLink: null`. A bare phone number is
+ * normalized to a `https://wa.me/<digits>` link before storage; an existing
+ * wa.me / api.whatsapp.com URL is stored as-is.
+ */
+export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
+	brandId: uuid("brand_id").primaryKey(),
+	whatsappLink: text("whatsapp_link").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_whatsapp_links_brand_id_fkey",
 	}).onDelete("cascade"),
 ]);
 
