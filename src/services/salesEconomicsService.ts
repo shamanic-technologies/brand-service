@@ -22,7 +22,8 @@ export type OptimizationGoal =
   | 'sales'
   | 'website_visits'
   | 'positive_replies'
-  | 'form_submissions';
+  | 'form_submissions'
+  | 'whatsapp_conversations';
 
 /**
  * Self-serve close rate DERIVED from the two sub-rates:

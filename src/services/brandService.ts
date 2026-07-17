@@ -9,7 +9,7 @@
  */
 
 import { eq, and, sql } from 'drizzle-orm';
-import { db, brands, orgBrands, brandClickDestinations } from '../db';
+import { db, brands, orgBrands, brandClickDestinations, brandWhatsappLinks } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { Caller, OrgCaller } from '../lib/chat-client';
 import { buildLogoDevUrl } from '../lib/logo-dev';
@@ -34,6 +34,12 @@ export interface BrandDetail {
   // presence remains the "user-set" signal. Per-brand config, mirrors
   // sales-economics scoping — never on the brand identity row.
   clickDestinationUrl: string;
+  // The brand's WhatsApp link — the click destination for the "maximize
+  // WhatsApp conversations" goal. `null` when unset: unlike clickDestinationUrl
+  // there is no sensible default (a brand may have no WhatsApp), so the row's
+  // presence is the only "set" signal. Per-brand config, mirrors
+  // click-destination scoping — never on the brand identity row.
+  whatsAppLink: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +82,7 @@ export async function getBrandDetail(
       name: brands.name,
       logoUrl: brands.logoUrl,
       clickDestinationUrl: brandClickDestinations.clickDestinationUrl,
+      whatsAppLink: brandWhatsappLinks.whatsappLink,
       createdAt: brands.createdAt,
       updatedAt: brands.updatedAt,
     })
@@ -83,6 +90,10 @@ export async function getBrandDetail(
     .leftJoin(
       brandClickDestinations,
       eq(brandClickDestinations.brandId, brands.id)
+    )
+    .leftJoin(
+      brandWhatsappLinks,
+      eq(brandWhatsappLinks.brandId, brands.id)
     )
     .where(eq(brands.id, brandId))
     .limit(1);
@@ -101,6 +112,8 @@ export async function getBrandDetail(
     // Producer owns the default: unset brands fall back to their own landing
     // URL so the field is never null and the consumer's link is never empty.
     clickDestinationUrl: row.clickDestinationUrl ?? row.url,
+    // No sensible default (a brand may have no WhatsApp) — null when unset.
+    whatsAppLink: row.whatsAppLink ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
