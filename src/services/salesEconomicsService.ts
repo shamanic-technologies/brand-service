@@ -15,7 +15,12 @@ export type BusinessModel = 'b2c' | 'b2b';
 /** Sales-funnel stage a brand has (multi-select, 0..2). */
 export type FunnelStage = 'website_purchase' | 'sales_meeting';
 
-/** Single brand-level optimization goal. Server default 'sales'. */
+/**
+ * Single brand-level optimization goal (wire vocabulary). Server default 'sales'.
+ * `sales` + `website_purchase` are both the "website purchase" goal (`website_purchase`
+ * is the new preferred spelling; `sales` is kept for backward-compat). `combined_sales`
+ * is the NEW combined "Sales" goal (paying clients via reply OR visit, at CLTV).
+ */
 export type OptimizationGoal =
   | 'signups'
   | 'booked_meetings'
@@ -23,7 +28,9 @@ export type OptimizationGoal =
   | 'website_visits'
   | 'positive_replies'
   | 'form_submissions'
-  | 'whatsapp_conversations';
+  | 'whatsapp_conversations'
+  | 'website_purchase'
+  | 'combined_sales';
 
 /**
  * Self-serve close rate DERIVED from the two sub-rates:

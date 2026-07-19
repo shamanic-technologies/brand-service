@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import { createTestApp, getAuthHeaders } from '../helpers/test-app';
+import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandSalesEconomics } from '../../src/db';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
@@ -26,6 +26,7 @@ describe('Sales Economics Endpoints', () => {
   const singleStepUnsetBrandId = randomUUID(); // owned by ownerOrgId, reads single-step rate defaults
   const formSubBrandId = randomUUID(); // owned by ownerOrgId, form_submissions goal + rates lifecycle
   const formSubUnsetBrandId = randomUUID(); // owned by ownerOrgId, reads null form-submission rates
+  const combinedGoalBrandId = randomUUID(); // owned by ownerOrgId, combined-sales + website_purchase goal lifecycle
 
   // visitToSignupPct 40 * signupToPaidClientPct 25 / 100 = 10 (derived visitToClosePct)
   const validMetrics = {
@@ -38,7 +39,7 @@ describe('Sales Economics Endpoints', () => {
   };
 
   beforeAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId, formSubBrandId, formSubUnsetBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId, formSubBrandId, formSubUnsetBrandId, combinedGoalBrandId]) {
       await db.insert(brands).values({
         id,
         url: `https://sales-econ-${id.slice(0, 8)}.com`,
@@ -57,10 +58,11 @@ describe('Sales Economics Endpoints', () => {
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: singleStepUnsetBrandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: formSubBrandId });
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: formSubUnsetBrandId });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: combinedGoalBrandId });
   });
 
   afterAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId, formSubBrandId, formSubUnsetBrandId]) {
+    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId, formSubBrandId, formSubUnsetBrandId, combinedGoalBrandId]) {
       await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
@@ -409,6 +411,63 @@ describe('Sales Economics Endpoints', () => {
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...validMetrics, optimizationGoal: 'revenue' });
     expect(res.status).toBe(400);
+  });
+
+  // ── combined "Sales" goal + "website purchase" rename ────────────
+  // The org GET/PUT accept the NEW combined-sales goal AND the renamed
+  // website-purchase goal, backward-compatible with the legacy `sales` spelling,
+  // with a hard guarantee the two never collide.
+
+  const internalPath = (id: string) => `/internal/brands/${id}/sales-economics`;
+
+  it('PUT combined_sales → GET round-trips it exactly (new combined goal)', async () => {
+    const putRes = await request(app)
+      .put(path(combinedGoalBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, optimizationGoal: 'combined_sales' });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('combined_sales');
+
+    const getRes = await request(app)
+      .get(path(combinedGoalBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('combined_sales');
+  });
+
+  it('PUT website_purchase → org GET recovers it; internal GET collapses to sales', async () => {
+    const putRes = await request(app)
+      .put(path(combinedGoalBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, optimizationGoal: 'website_purchase' });
+
+    expect(putRes.status).toBe(200);
+    // Org (dashboard) read recovers the new preferred spelling from the stored column.
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('website_purchase');
+
+    const orgGet = await request(app)
+      .get(path(combinedGoalBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(orgGet.body.salesEconomics.optimizationGoal).toBe('website_purchase');
+
+    // Internal (campaign-service) read collapses the sub-type to the runtime-safe
+    // legacy spelling `sales` so downstream runtime consumers never see a new value.
+    const internalGet = await request(app)
+      .get(internalPath(combinedGoalBrandId))
+      .set(getInternalAuthHeaders());
+    expect(internalGet.body.salesEconomics.optimizationGoal).toBe('sales');
+  });
+
+  it('PUT legacy sales spelling still accepted → website-purchase, never combined (backward-compat + no collision)', async () => {
+    const putRes = await request(app)
+      .put(path(combinedGoalBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, optimizationGoal: 'sales' });
+
+    expect(putRes.status).toBe(200);
+    // Stays website-purchase (`sales`), is NEVER reinterpreted as combined_sales.
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('sales');
+    expect(putRes.body.salesEconomics.optimizationGoal).not.toBe('combined_sales');
   });
 
   // ── split self-serve close (visit→signup, signup→paid) ───────────
