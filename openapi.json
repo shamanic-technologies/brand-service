@@ -1471,7 +1471,9 @@
           "website_visits",
           "positive_replies",
           "form_submissions",
-          "whatsapp_conversations"
+          "whatsapp_conversations",
+          "website_purchase",
+          "combined_sales"
         ]
       },
       "SalesEconomicsMetrics": {
@@ -1714,7 +1716,8 @@
           "purchase",
           "websiteVisit",
           "positiveReply",
-          "whatsappConversation"
+          "whatsappConversation",
+          "combinedSales"
         ]
       },
       "UpdateCurrentGoalRequest": {
