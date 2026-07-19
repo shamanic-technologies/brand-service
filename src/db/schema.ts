@@ -31,7 +31,7 @@ export const brands = pgTable("brands", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	uniqueIndex("brands_domain_key").on(table.domain),
-	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply', 'whatsappConversation')`),
+	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply', 'whatsappConversation', 'combinedSales')`),
 ]);
 
 /**

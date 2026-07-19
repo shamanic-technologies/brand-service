@@ -1775,6 +1775,17 @@ export const OptimizationGoalSchema = z
     // goal (1:1 with the `whatsappConversation` current-goal), NOT a wire-only
     // sub-type — its cost-per-outcome math is a separate features-service task.
     'whatsapp_conversations',
+    // `website_purchase` is the NEW preferred spelling of the "website purchase"
+    // goal — a wire-only sub-type of the `purchase` current-goal (like
+    // `form_submissions` is of `signup`). The legacy `sales` spelling stays
+    // accepted for backward-compat; both mean website-purchase and can NEVER be
+    // reinterpreted as the new combined goal.
+    'website_purchase',
+    // `combined_sales` is the NEW combined "Sales" goal: paying clients won via
+    // EITHER the positive-reply path OR the website-visit path, valued at CLTV. A
+    // dedicated runtime goal (1:1 with the `combinedSales` current-goal) reusing
+    // the existing replyToPaidClientPct + visitToPaidClientPct rates.
+    'combined_sales',
   ])
   .openapi('OptimizationGoal');
 
@@ -1784,10 +1795,13 @@ export const CurrentGoalSchema = z
   .enum([
     'signup',
     'meetingBooked',
+    // "website purchase" goal (display renamed; canonical token unchanged).
     'purchase',
     'websiteVisit',
     'positiveReply',
     'whatsappConversation',
+    // NEW combined "Sales" goal — paying clients via reply OR visit, at CLTV.
+    'combinedSales',
   ])
   .openapi('CurrentGoal');
 

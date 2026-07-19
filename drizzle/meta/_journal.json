@@ -281,6 +281,13 @@
       "when": 1784296118302,
       "tag": "0039_whatsapp_link_and_goal",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1784446714349,
+      "tag": "0040_sales_combined_goal",
+      "breakpoints": true
     }
   ]
 }
