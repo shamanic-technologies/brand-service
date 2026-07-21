@@ -2343,6 +2343,72 @@ registry.registerPath({
   },
 });
 
+// ── DEPRECATED brand-profile compat shim (over brand_user_fields) ───────────
+// Kept ONLY so the live prod dashboard (onboarding / strategy / new-campaign)
+// keeps working until it migrates to /user-fields. Remove after migration.
+export const BrandProfileShimRequestSchema = z
+  .object({
+    fields: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+  })
+  .openapi('BrandProfileShimRequest');
+
+export const BrandProfileShimResponseSchema = z
+  .object({
+    current: z.object({ fields: BrandProfileFieldsSchema }),
+    versions: z.array(
+      z.object({
+        id: z.string().nullable(),
+        version: z.number().int(),
+        fields: BrandProfileFieldsSchema,
+        createdAt: z.string(),
+      }),
+    ),
+  })
+  .openapi('BrandProfileShimResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/brand-profile',
+  summary: '[DEPRECATED] Brand profile (compat shim over brand_user_fields)',
+  deprecated: true,
+  description:
+    'DEPRECATED compat shim — use `/orgs/brands/:brandId/user-fields` instead. Returns the OLD ' +
+    '`{ current: { fields }, versions }` shape sourced from the new confirmed store. `fields` = ' +
+    'confirmed-overlaid-on-derived, plus a `valueProposition` alias of `dreamOutcome`. `versions` ' +
+    'is `[{ id: null, version: 1, fields, createdAt }]` when the brand has confirmed fields, else `[]`.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Legacy profile shape', content: { 'application/json': { schema: BrandProfileShimResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/brand-profile',
+  summary: '[DEPRECATED] Save brand profile (compat shim over brand_user_fields)',
+  deprecated: true,
+  description:
+    'DEPRECATED compat shim — use `PUT /orgs/brands/:brandId/user-fields` instead. Maps legacy ' +
+    '`valueProposition` → `dreamOutcome`, keeps ONLY the 7 user-facing keys (services, dreamOutcome, ' +
+    'perceivedLikelihood, socialProof, riskReversal, urgency, scarcity), upserts them into ' +
+    'brand_user_fields and ignores every other key (extracted-only now). Returns the same shape as GET.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: BrandProfileShimRequestSchema } } },
+  },
+  responses: {
+    201: { description: 'Legacy profile shape', content: { 'application/json': { schema: BrandProfileShimResponseSchema } } },
+    400: { description: 'Invalid brand ID format or invalid body' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 registry.registerPath({
   method: 'put',
   path: '/orgs/brands/{brandId}/user-fields',
