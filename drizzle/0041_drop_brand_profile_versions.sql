@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS "brand_profile_versions" CASCADE;

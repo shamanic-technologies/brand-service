@@ -199,29 +199,31 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
 ]);
 
 /**
- * Brand Profile — per-brand, VERSIONED and IMMUTABLE. Saving = a NEW version
- * (v1 → v2 → …); prior versions are never mutated. `fields` is a free-form map
- * (key → string | string[]) of the brand's OWN info (overview, value prop, key
- * features, differentiators, competitors, leadership, funding, social proof,
- * CTAs, urgency…) — NOT the target audience.
- *
- * For a brand with no saved version, the read derives a virtual v1 from
- * brand_extracted_fields (not persisted until the first save).
+ * Brand USER fields — the user-facing "confirmed" layer of the 2-layer brand
+ * fields model. One row per (brand_id, field_key), restricted to the 7
+ * user-validated field keys (services, dreamOutcome, perceivedLikelihood,
+ * socialProof, riskReversal, urgency, scarcity). DURABLE — no TTL, never
+ * garbage-collected (the ephemeral auto-extract cache lives on
+ * brand_extracted_fields). A row's presence means the user confirmed that
+ * field; consumers tag it provenance `confirmed`. `value` is a free-form jsonb
+ * (string | string[] | object).
  */
-export const brandProfileVersions = pgTable("brand_profile_versions", {
+export const brandUserFields = pgTable("brand_user_fields", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	brandId: uuid("brand_id").notNull(),
-	version: integer().notNull(),
-	fields: jsonb().$type<Record<string, string | string[]>>().default({}).notNull(),
+	fieldKey: text("field_key").notNull(),
+	value: jsonb(),
+	confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	uniqueIndex("brand_profile_versions_brand_id_version_key").on(table.brandId, table.version),
-	index("brand_profile_versions_brand_id_idx").on(table.brandId),
+	uniqueIndex("brand_user_fields_brand_id_field_key_key").on(table.brandId, table.fieldKey),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
-		name: "brand_profile_versions_brand_id_fkey",
+		name: "brand_user_fields_brand_id_fkey",
 	}).onDelete("cascade"),
+	check("brand_user_fields_field_key_check", sql`${table.fieldKey} IN ('services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity')`),
 ]);
 
 /**

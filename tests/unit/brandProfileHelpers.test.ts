@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 // helper doesn't require a DB.
 vi.mock('../../src/db', () => ({
   db: {},
-  brandProfileVersions: {},
+  brandUserFields: {},
   brandExtractedFields: {},
   brands: {},
 }));

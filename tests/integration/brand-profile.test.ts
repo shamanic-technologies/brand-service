@@ -1,124 +1,150 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import { createTestApp, getAuthHeaders } from '../helpers/test-app';
-import { db, brands, orgBrands, brandProfileVersions, brandExtractedFields } from '../../src/db';
-import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
+import { eq } from 'drizzle-orm';
+import { createTestApp, getAuthHeaders } from '../helpers/test-app';
+import { db, brands, orgBrands, brandUserFields } from '../../src/db';
 
 /**
- * Brand Profile — per-brand, versioned, immutable. GET returns current (latest
- * saved or derived virtual v1) + version list; POST saves a new version.
+ * DEPRECATED compat shim: GET/POST /orgs/brands/:brandId/brand-profile over
+ * brand_user_fields. Old wire shape `{ current: { fields }, versions }` with the
+ * legacy `valueProposition` <-> `dreamOutcome` alias. Kept until the dashboard
+ * migrates to /user-fields.
  */
-describe('Brand Profile Endpoints', () => {
+describe('Brand profile compat shim', () => {
   const app = createTestApp();
 
   const ownerOrgId = randomUUID();
   const otherOrgId = randomUUID();
-  const derivedBrandId = randomUUID(); // owned, no saved version, has extracted fields
-  const savedBrandId = randomUUID(); // owned, gets saved versions
-  const foreignBrandId = randomUUID(); // owned by otherOrgId
+  const brandId = randomUUID();
+  const foreignBrandId = randomUUID();
   const unknownBrandId = randomUUID();
 
+  const profilePath = (id: string) => `/orgs/brands/${id}/brand-profile`;
+
   beforeAll(async () => {
-    for (const id of [derivedBrandId, savedBrandId, foreignBrandId]) {
+    for (const id of [brandId, foreignBrandId]) {
       await db.insert(brands).values({
         id,
-        url: `https://profile-${id.slice(0, 8)}.com`,
-        domain: `profile-${id.slice(0, 8)}.com`,
-        name: 'Profile Test Brand',
+        url: `https://bp-${id.slice(0, 8)}.com`,
+        domain: `bp-${id.slice(0, 8)}.com`,
+        name: 'Brand Profile Shim Test',
       });
     }
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: derivedBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: savedBrandId });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId });
     await db.insert(orgBrands).values({ orgId: otherOrgId, brandId: foreignBrandId });
-
-    // Seed extracted fields for the derived brand (campaignId null = canonical).
-    await db.insert(brandExtractedFields).values([
-      { brandId: derivedBrandId, fieldKey: 'companyOverview', fieldValue: 'We build widgets' },
-      { brandId: derivedBrandId, fieldKey: 'keyFeatures', fieldValue: ['fast', 'cheap'] },
-      { brandId: derivedBrandId, fieldKey: 'targetAudience', fieldValue: ['CTOs'] }, // audience → excluded
-      { brandId: derivedBrandId, fieldKey: 'name', fieldValue: 'Acme' }, // identity → excluded
-    ]);
   });
 
   afterAll(async () => {
-    for (const id of [derivedBrandId, savedBrandId, foreignBrandId]) {
-      await db.delete(brandProfileVersions).where(eq(brandProfileVersions.brandId, id));
-      await db.delete(brandExtractedFields).where(eq(brandExtractedFields.brandId, id));
+    for (const id of [brandId, foreignBrandId]) {
+      await db.delete(brandUserFields).where(eq(brandUserFields.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
     }
   });
 
-  const profilePath = (id: string) => `/orgs/brands/${id}/brand-profile`;
-
-  it('GET with no saved version derives a virtual v1 (audience excluded), versions empty', async () => {
-    const res = await request(app).get(profilePath(derivedBrandId)).set(getAuthHeaders(ownerOrgId));
+  it('GET on an unconfirmed brand returns empty current + no versions', async () => {
+    const res = await request(app).get(profilePath(brandId)).set(getAuthHeaders(ownerOrgId));
     expect(res.status).toBe(200);
-    expect(res.body.versions).toEqual([]);
-    expect(res.body.current.version).toBe(1);
-    expect(res.body.current.fields).toEqual({
-      companyOverview: 'We build widgets',
-      keyFeatures: ['fast', 'cheap'],
-    });
-    // audience + identity keys excluded
-    expect(res.body.current.fields.targetAudience).toBeUndefined();
-    expect(res.body.current.fields.name).toBeUndefined();
+    expect(res.body).toEqual({ current: { fields: {} }, versions: [] });
   });
 
-  it('POST saves v1 and returns it', async () => {
-    const res = await request(app)
-      .post(profilePath(savedBrandId))
+  it('POST maps legacy valueProposition→dreamOutcome, keeps only the 7 keys, and GET round-trips with the alias', async () => {
+    const post = await request(app)
+      .post(profilePath(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ fields: { valueProposition: 'Saves time', differentiators: ['A', 'B'] } });
-    expect(res.status).toBe(201);
-    expect(res.body.version).toMatchObject({
-      brandId: savedBrandId,
-      version: 1,
-      fields: { valueProposition: 'Saves time', differentiators: ['A', 'B'] },
-    });
-    expect(typeof res.body.version.id).toBe('string');
-  });
+      .send({
+        fields: {
+          // Legacy alias — must land under dreamOutcome in brand_user_fields.
+          valueProposition: 'Save 10 hours a week',
+          services: ['Consulting', 'Audit'],
+          // Non-user-facing key — must be silently ignored (extracted-only now).
+          companyOverview: 'We do B2B analytics',
+          industry: 'SaaS',
+        },
+      });
 
-  it('POST again saves v2; GET current=v2, versions has both, v1 unchanged', async () => {
-    const v2 = await request(app)
-      .post(profilePath(savedBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ fields: { valueProposition: 'Saves more time' } });
-    expect(v2.status).toBe(201);
-    expect(v2.body.version.version).toBe(2);
+    expect(post.status).toBe(201);
+    // Response exposes dreamOutcome AND its valueProposition alias.
+    expect(post.body.current.fields.dreamOutcome).toBe('Save 10 hours a week');
+    expect(post.body.current.fields.valueProposition).toBe('Save 10 hours a week');
+    expect(post.body.current.fields.services).toEqual(['Consulting', 'Audit']);
+    // Ignored non-7 keys are NOT persisted / returned.
+    expect(post.body.current.fields.companyOverview).toBeUndefined();
+    expect(post.body.current.fields.industry).toBeUndefined();
+    // hasConfirmed → one synthetic version.
+    expect(post.body.versions).toHaveLength(1);
+    expect(post.body.versions[0]).toMatchObject({ id: null, version: 1 });
+    expect(post.body.versions[0].fields.dreamOutcome).toBe('Save 10 hours a week');
 
-    const get = await request(app).get(profilePath(savedBrandId)).set(getAuthHeaders(ownerOrgId));
+    // Persisted under the canonical keys in brand_user_fields (not valueProposition).
+    const rows = await db
+      .select({ fieldKey: brandUserFields.fieldKey })
+      .from(brandUserFields)
+      .where(eq(brandUserFields.brandId, brandId));
+    const keys = rows.map((r) => r.fieldKey).sort();
+    expect(keys).toEqual(['dreamOutcome', 'services']);
+
+    // GET reflects the same shape.
+    const get = await request(app).get(profilePath(brandId)).set(getAuthHeaders(ownerOrgId));
     expect(get.status).toBe(200);
-    expect(get.body.current.version).toBe(2);
-    expect(get.body.current.fields).toEqual({ valueProposition: 'Saves more time' });
-    expect(get.body.versions.map((v: any) => v.version)).toEqual([2, 1]);
-
-    // v1 row unchanged
-    const [v1row] = await db
-      .select()
-      .from(brandProfileVersions)
-      .where(and(
-        eq(brandProfileVersions.brandId, savedBrandId),
-        eq(brandProfileVersions.version, 1),
-      ));
-    expect(v1row.fields).toEqual({ valueProposition: 'Saves time', differentiators: ['A', 'B'] });
+    expect(get.body.current.fields.dreamOutcome).toBe('Save 10 hours a week');
+    expect(get.body.current.fields.valueProposition).toBe('Save 10 hours a week');
+    expect(get.body.current.fields.services).toEqual(['Consulting', 'Audit']);
+    expect(get.body.versions).toHaveLength(1);
   });
 
-  it('POST with missing fields returns 400', async () => {
-    const res = await request(app)
-      .post(profilePath(savedBrandId))
+  it('POST with an explicit dreamOutcome is not clobbered by valueProposition', async () => {
+    const post = await request(app)
+      .post(profilePath(brandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({});
-    expect(res.status).toBe(400);
+      .send({ fields: { dreamOutcome: 'Explicit dream', valueProposition: 'Legacy alias' } });
+
+    expect(post.status).toBe(201);
+    expect(post.body.current.fields.dreamOutcome).toBe('Explicit dream');
+    expect(post.body.current.fields.valueProposition).toBe('Explicit dream');
   });
 
-  it('rejects bad uuid (400), foreign brand (403), unknown brand (404)', async () => {
-    const bad = await request(app).get(profilePath('not-a-uuid')).set(getAuthHeaders(ownerOrgId));
-    expect(bad.status).toBe(400);
-    const foreign = await request(app).get(profilePath(foreignBrandId)).set(getAuthHeaders(ownerOrgId));
-    expect(foreign.status).toBe(403);
-    const unknown = await request(app).get(profilePath(unknownBrandId)).set(getAuthHeaders(ownerOrgId));
-    expect(unknown.status).toBe(404);
+  it('POST with only non-7 keys writes nothing and returns empty', async () => {
+    const freshBrandId = randomUUID();
+    await db.insert(brands).values({
+      id: freshBrandId,
+      url: `https://bp-${freshBrandId.slice(0, 8)}.com`,
+      domain: `bp-${freshBrandId.slice(0, 8)}.com`,
+      name: 'No user fields',
+    });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: freshBrandId });
+
+    const post = await request(app)
+      .post(profilePath(freshBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ fields: { companyOverview: 'Only extracted-only fields', keyFeatures: ['a', 'b'] } });
+
+    expect(post.status).toBe(201);
+    expect(post.body).toEqual({ current: { fields: {} }, versions: [] });
+
+    const rows = await db.select().from(brandUserFields).where(eq(brandUserFields.brandId, freshBrandId));
+    expect(rows).toHaveLength(0);
+
+    await db.delete(orgBrands).where(eq(orgBrands.brandId, freshBrandId));
+    await db.delete(brands).where(eq(brands.id, freshBrandId));
+  });
+
+  it('enforces id validation + ownership', async () => {
+    expect((await request(app).get(profilePath('not-a-uuid')).set(getAuthHeaders(ownerOrgId))).status).toBe(400);
+    expect((await request(app).get(profilePath(foreignBrandId)).set(getAuthHeaders(ownerOrgId))).status).toBe(403);
+    expect((await request(app).get(profilePath(unknownBrandId)).set(getAuthHeaders(ownerOrgId))).status).toBe(404);
+
+    const putForeign = await request(app)
+      .post(profilePath(foreignBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ fields: { services: ['x'] } });
+    expect(putForeign.status).toBe(403);
+
+    const badBody = await request(app)
+      .post(profilePath(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ notFields: true });
+    expect(badBody.status).toBe(400);
   });
 });

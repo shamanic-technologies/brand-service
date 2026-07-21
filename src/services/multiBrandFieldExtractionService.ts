@@ -11,6 +11,7 @@ import { eq, gt, sql, and } from 'drizzle-orm';
 import { extractFields, getBrand, buildFieldsResponseSchema, FieldSpec, ExtractedFieldResult, UrlStrategy } from './fieldExtractionService';
 import { chat, Caller, OrgCaller, PlatformCaller } from '../lib/chat-client';
 import { db, consolidatedFieldCache } from '../db';
+import { getConfirmedByBrandId, isUserFacingFieldKey, ConfirmedUserField } from './brandUserFieldsService';
 
 interface Brand {
   id: string;
@@ -49,13 +50,23 @@ export interface BrandFieldDetail {
   sourceUrls: string[] | null;
 }
 
-/** Unified response: always brands + { value, byBrand } per field */
+/**
+ * Provenance of a returned field value:
+ * - `confirmed`: a user-facing field the user has validated (value = the confirmed value).
+ * - `suggested`: a user-facing field NOT yet confirmed (value = the auto-extract prefill).
+ * - `extracted`: a pure backend field (not user-facing).
+ */
+export type FieldProvenance = 'confirmed' | 'suggested' | 'extracted';
+
+/** Unified response: always brands + { value, byBrand } per field + provenance map */
 export interface MultiBrandFieldsResponse {
   brands: BrandMeta[];
   fields: Record<string, {
     value: unknown;
     byBrand: Record<string, BrandFieldDetail>;
   }>;
+  /** Per requested field key → provenance tag (sibling to `fields`, additive). */
+  provenance: Record<string, FieldProvenance>;
 }
 
 // ─── DB-backed consolidated fields cache ────────────────────────────────────
@@ -294,5 +305,46 @@ export async function multiBrandExtractFields(
     };
   }
 
-  return { brands: brandsMeta, fields: responseFields };
+  // ── Confirmed (user-validated) overlay + provenance tagging ────────────────
+  // For every requested key ∈ the 7 user-facing keys, overlay the per-brand
+  // confirmed value (when present) and tag provenance. A user-facing key with a
+  // confirmed value for EVERY brand in the request → `confirmed` (and for the
+  // single-brand case the top-level `value` is overlaid too); a user-facing key
+  // missing a confirmed value on any brand → `suggested` (value stays the
+  // auto-extract prefill). Any non-user-facing key → `extracted`. The `fields`
+  // values shape is unchanged — this is purely additive.
+  const confirmedByBrandId = new Map<string, Map<string, ConfirmedUserField>>();
+  await Promise.all(
+    brandIds.map(async (id) => {
+      confirmedByBrandId.set(id, await getConfirmedByBrandId(id));
+    }),
+  );
+
+  const provenance: Record<string, FieldProvenance> = {};
+  for (const key of fieldKeys) {
+    if (!isUserFacingFieldKey(key)) {
+      provenance[key] = 'extracted';
+      continue;
+    }
+
+    let allConfirmed = true;
+    for (const meta of brandsMeta) {
+      const entry = confirmedByBrandId.get(meta.brandId)?.get(key);
+      if (entry) {
+        const perBrand = responseFields[key].byBrand[meta.domain];
+        if (perBrand) perBrand.value = entry.value;
+      } else {
+        allConfirmed = false;
+      }
+    }
+
+    provenance[key] = allConfirmed ? 'confirmed' : 'suggested';
+
+    if (allConfirmed && brandIds.length === 1) {
+      const entry = confirmedByBrandId.get(brandsMeta[0].brandId)?.get(key);
+      if (entry) responseFields[key].value = entry.value;
+    }
+  }
+
+  return { brands: brandsMeta, fields: responseFields, provenance };
 }

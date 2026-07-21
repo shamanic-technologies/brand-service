@@ -4,7 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { apiKeyAuth, requireOrgId } from './middleware/auth';
-import { db } from './db';
+import { db, brandExtractedFields } from './db';
+import { lt, sql } from 'drizzle-orm';
 
 // Import routes — mixed files export { orgRouter, internalRouter }
 import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes, publicRouter as brandsPublicRoutes } from './routes/brands.routes';
@@ -14,7 +15,8 @@ import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalR
 import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from './routes/transfer.routes';
 import { orgRouter as salesEconomicsOrgRoutes, internalRouter as salesEconomicsInternalRoutes } from './routes/sales-economics.routes';
 import { orgRouter as icpOrgRoutes } from './routes/icp.routes';
-import { orgRouter as brandProfileOrgRoutes } from './routes/brand-profile.routes';
+import { orgRouter as userFieldsOrgRoutes } from './routes/user-fields.routes';
+import { orgRouter as brandProfileShimOrgRoutes } from './routes/brand-profile.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from './routes/brand-goal.routes';
 import { orgRouter as whatsAppLinkOrgRoutes } from './routes/whatsapp-link.routes';
 import { orgRouter as clickDestinationOrgRoutes } from './routes/click-destination.routes';
@@ -92,11 +94,44 @@ app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, salesEconomicsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, icpOrgRoutes);
-app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, userFieldsOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileShimOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, whatsAppLinkOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
+
+// ── Expired extracted-fields cleanup cron ────────────────────────
+// Daily DELETE of expired rows from brand_extracted_fields (the ephemeral 3-day
+// auto-extract cache). Confirmed user fields live in a DIFFERENT table
+// (brand_user_fields, no TTL) and are NEVER touched. Started AFTER app.listen()
+// per the boot-window rule; also runs once ~60s after boot so it doesn't wait 24h.
+const EXPIRED_FIELDS_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const EXPIRED_FIELDS_CLEANUP_BOOT_DELAY_MS = 60 * 1000; // 60 seconds after boot
+
+async function cleanupExpiredExtractedFields(): Promise<void> {
+  const deleted = await db
+    .delete(brandExtractedFields)
+    .where(lt(brandExtractedFields.expiresAt, sql`NOW()`))
+    .returning({ id: brandExtractedFields.id });
+  if (deleted.length > 0) {
+    console.log(`[brand-service] Cleaned up ${deleted.length} expired extracted-field row(s)`);
+  }
+}
+
+function startExpiredFieldsCleanup(): void {
+  setTimeout(() => {
+    cleanupExpiredExtractedFields().catch((err) =>
+      console.error('[brand-service] Expired-fields cleanup (boot) failed:', err),
+    );
+  }, EXPIRED_FIELDS_CLEANUP_BOOT_DELAY_MS);
+
+  setInterval(() => {
+    cleanupExpiredExtractedFields().catch((err) =>
+      console.error('[brand-service] Expired-fields cleanup (interval) failed:', err),
+    );
+  }, EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
+}
 
 // Only start server if not in test environment
 if (process.env.NODE_ENV !== "test") {
@@ -105,6 +140,7 @@ if (process.env.NODE_ENV !== "test") {
       console.log("Migrations complete");
       app.listen(Number(port), "::", () => {
         console.log(`Service running on port ${port}`);
+        startExpiredFieldsCleanup();
       });
     })
     .catch((err) => {

@@ -2,22 +2,22 @@ import { describe, it, expect } from 'vitest';
 import { buildProfileContextBlock } from '../../src/services/profileContext';
 
 describe('buildProfileContextBlock', () => {
-  it('returns null when there is no human-saved profile version', () => {
+  it('returns null when the brand has no confirmed fields', () => {
     expect(
-      buildProfileContextBlock({ hasSavedVersion: false, fields: { industry: 'SaaS' } }),
+      buildProfileContextBlock({ hasConfirmed: false, fields: { industry: 'SaaS' } }),
     ).toBeNull();
   });
 
-  it('returns null when a saved version has no usable fields', () => {
-    expect(buildProfileContextBlock({ hasSavedVersion: true, fields: {} })).toBeNull();
+  it('returns null when the confirmed layer has no usable fields', () => {
+    expect(buildProfileContextBlock({ hasConfirmed: true, fields: {} })).toBeNull();
     expect(
-      buildProfileContextBlock({ hasSavedVersion: true, fields: { industry: '  ', tags: [] } }),
+      buildProfileContextBlock({ hasConfirmed: true, fields: { industry: '  ', tags: [] } }),
     ).toBeNull();
   });
 
-  it('renders saved string + array fields with the source-of-truth instruction', () => {
+  it('renders confirmed string + array fields with the source-of-truth instruction', () => {
     const block = buildProfileContextBlock({
-      hasSavedVersion: true,
+      hasConfirmed: true,
       fields: { industry: 'Hospitality', valueProps: ['boutique', 'beachfront'] },
     });
     expect(block).not.toBeNull();
@@ -29,7 +29,7 @@ describe('buildProfileContextBlock', () => {
 
   it('drops empty-string and empty-array fields but keeps the rest', () => {
     const block = buildProfileContextBlock({
-      hasSavedVersion: true,
+      hasConfirmed: true,
       fields: { industry: 'SaaS', empty: '', emptyArr: [], geography: 'EU' },
     });
     expect(block).toContain('"industry": SaaS');

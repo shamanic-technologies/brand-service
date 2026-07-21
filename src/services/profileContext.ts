@@ -2,19 +2,20 @@ import type { ProfileFields } from './brandProfileService';
 
 export interface ProfileForContext {
   /**
-   * True only when a HUMAN has saved at least one brand_profile_versions row.
-   * The derived virtual-v1 profile (no saved version) is just our own past
-   * field extractions re-coerced — injecting it as authoritative would feed the
+   * True only when a HUMAN has confirmed at least one brand_user_fields row.
+   * The derived fields (no confirmation) are just our own past field
+   * extractions re-coerced — injecting them as authoritative would feed the
    * LLM its prior output and freeze any earlier error, so we never do that.
+   * `fields` here must be the CONFIRMED-only layer, not the merged profile.
    */
-  hasSavedVersion: boolean;
+  hasConfirmed: boolean;
   fields: ProfileFields;
 }
 
 /**
  * Build the client-validated brand-profile block injected into the field
- * extraction prompt. Returns null when there is no human-saved profile version,
- * or when the saved profile carries no usable fields.
+ * extraction prompt. Returns null when the brand has no confirmed fields, or
+ * when the confirmed fields carry no usable value.
  *
  * The instruction tells the LLM to treat the profile as the source of truth and
  * only override a profile value when the scraped website explicitly and
@@ -22,7 +23,7 @@ export interface ProfileForContext {
  * website is often outdated, the validated profile is not.
  */
 export function buildProfileContextBlock(profile: ProfileForContext): string | null {
-  if (!profile.hasSavedVersion) return null;
+  if (!profile.hasConfirmed) return null;
 
   const entries = Object.entries(profile.fields).filter(([, value]) =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim().length > 0,

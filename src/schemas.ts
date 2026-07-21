@@ -504,10 +504,24 @@ export const MultiBrandFieldValueSchema = z
   })
   .openapi('MultiBrandFieldValue');
 
+// Provenance on the extract-fields response is ternary: a non-user-facing key is
+// always `extracted`; a user-facing key is `confirmed` (user-validated value
+// overlaid) or `suggested` (auto-extract prefill).
+export const ExtractFieldProvenanceSchema = z
+  .enum(['confirmed', 'suggested', 'extracted'])
+  .openapi('ExtractFieldProvenance');
+
 export const MultiBrandExtractFieldsResponseSchema = z
   .object({
     brands: z.array(BrandMetaSchema).openapi({ description: 'Metadata for each brand in the request' }),
     fields: z.record(z.string(), MultiBrandFieldValueSchema),
+    provenance: z.record(z.string(), ExtractFieldProvenanceSchema).openapi({
+      description:
+        'Per requested field key → provenance tag (sibling to `fields`, additive). ' +
+        '`confirmed` = a user-facing field with a user-validated value (overlaid into `fields`/`byBrand`); ' +
+        '`suggested` = a user-facing field not yet confirmed (value = auto-extract prefill); ' +
+        '`extracted` = a pure backend field.',
+    }),
   })
   .openapi('MultiBrandExtractFieldsResponse');
 
@@ -583,6 +597,10 @@ registry.registerPath({
                   },
                 },
               },
+            },
+            provenance: {
+              industry: 'extracted',
+              target_audience: 'extracted',
             },
           },
         },
@@ -2210,70 +2228,29 @@ registry.registerPath({
 });
 
 // ============================================================
-// Brand Profile (per-brand, versioned, immutable)
+// Brand own-info fields + user-facing "confirmed" layer
 // ============================================================
 
 // Free-form map of the brand's OWN info: key → string | string[]. Caller-flex
-// by design.
+// by design. Reused by the runtime-context brandProfile payload.
 export const BrandProfileFieldsSchema = z.record(
   z.string(),
   z.union([z.string(), z.array(z.string())])
 );
 
-// A saved (or derived virtual v1) brand-profile version. `createdAt` is an ISO
-// string.
-export const BrandProfileVersionSchema = z
-  .object({
-    id: z.string(),
-    brandId: z.string(),
-    version: z.number().int(),
-    fields: BrandProfileFieldsSchema,
-    createdAt: z.string(),
-  })
-  .openapi('BrandProfileVersion');
-
-// CREATE body — the new version's fields. No `.default()`: missing fails loud.
-export const CreateBrandProfileRequestSchema = z
-  .object({
-    fields: BrandProfileFieldsSchema,
-  })
-  .openapi('CreateBrandProfileRequest');
-
-// Version summary in the list (no fields payload).
-export const BrandProfileVersionSummarySchema = z
-  .object({
-    id: z.string(),
-    version: z.number().int(),
-    createdAt: z.string(),
-  })
-  .openapi('BrandProfileVersionSummary');
-
-// GET response. `current` is inlined + `.nullable()` (not a named $ref) for the
-// same OAS-3.0 bare-$ref-cannot-be-nullable reason as SavedSalesEconomicsSchema.
-export const GetBrandProfileResponseSchema = z
-  .object({
-    current: z
-      .object({
-        id: z.string(),
-        brandId: z.string(),
-        version: z.number().int(),
-        fields: BrandProfileFieldsSchema,
-        createdAt: z.string(),
-      })
-      .nullable(),
-    versions: z.array(BrandProfileVersionSummarySchema),
-  })
-  .openapi('GetBrandProfileResponse');
-
 export const BrandRuntimeContextResponseSchema = z
   .object({
     brand: BrandDetailSchema,
     currentGoal: CurrentGoalSchema,
+    // Backward-compatible with the pre-2-layer shape campaign-service consumes.
+    // `id`/`version` are null (no version rows anymore); `fields` is the
+    // confirmed-overlaid-on-derived profile. Kept `.nullable()` to mirror the
+    // prior contract exactly (consumers read `brandProfile?.id` null-safe).
     brandProfile: z
       .object({
-        id: z.string(),
+        id: z.string().nullable(),
         brandId: z.string(),
-        version: z.number().int(),
+        version: z.number().int().nullable(),
         fields: BrandProfileFieldsSchema,
         createdAt: z.string(),
       })
@@ -2281,25 +2258,127 @@ export const BrandRuntimeContextResponseSchema = z
   })
   .openapi('BrandRuntimeContextResponse');
 
-// POST response — never null (you just wrote it).
-export const CreateBrandProfileResponseSchema = z
-  .object({ version: BrandProfileVersionSchema })
-  .openapi('CreateBrandProfileResponse');
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/runtime-context',
+  summary: "Get a brand's runtime context for one campaign loop",
+  description:
+    'Service-authenticated snapshot for campaign-service per-lead loops. Returns the canonical ' +
+    'brand-owned `currentGoal` together with the minimal brand identity and the brand-profile ' +
+    'fields (the confirmed user-validated fields overlaid on the derived extract fields). ' +
+    'Brand-service does not perform candidate selection or bandit logic; campaign-service passes ' +
+    '`currentGoal` onward to features-service runtime candidate selection and snapshots the ' +
+    'returned brand context for the loop.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'Runtime context snapshot',
+      content: { 'application/json': { schema: BrandRuntimeContextResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format' },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ── User fields (the 7 user-facing "confirmed" fields) ──────────────────────
+// A permissive value: string | string[] | object | null (jsonb-backed).
+const UserFieldValueType = z.union([
+  z.string(),
+  z.array(z.unknown()),
+  z.record(z.string(), z.unknown()),
+  z.null(),
+]);
+
+// GET/PUT-response provenance is binary (a user-facing field is either confirmed
+// or a not-yet-confirmed suggestion).
+export const UserFieldProvenanceSchema = z
+  .enum(['confirmed', 'suggested'])
+  .openapi('UserFieldProvenance');
+
+export const UserFieldViewSchema = z
+  .object({
+    value: UserFieldValueType.openapi({ description: 'Confirmed value, or the auto-extract prefill (may be null)' }),
+    provenance: UserFieldProvenanceSchema,
+  })
+  .openapi('UserFieldView');
+
+// GET/PUT response: all 7 user-facing keys, each with value + provenance.
+export const UserFieldsResponseSchema = z
+  .object({
+    fields: z.record(z.string(), UserFieldViewSchema).openapi({
+      description:
+        'Map keyed by user-facing field key (services, dreamOutcome, perceivedLikelihood, ' +
+        'socialProof, riskReversal, urgency, scarcity). Each value carries the resolved value ' +
+        'and its provenance (`confirmed` = user-validated; `suggested` = auto-extract prefill).',
+    }),
+  })
+  .openapi('UserFieldsResponse');
+
+// PUT body: partial map of user-facing key → value. An unknown key → 400.
+export const PutUserFieldsRequestSchema = z
+  .object({
+    fields: z.record(z.string(), z.unknown()).openapi({
+      description: 'Confirmed values keyed by user-facing field key. Unknown keys are rejected (400).',
+    }),
+  })
+  .openapi('PutUserFieldsRequest');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/user-fields',
+  summary: "Get a brand's user-facing fields (confirmed + suggested)",
+  description:
+    'Returns `{ fields: { <key>: { value, provenance } } }` for all 7 user-facing keys. For each ' +
+    'key: a user-validated (confirmed) value wins with `provenance: "confirmed"`; otherwise the ' +
+    'most-recent NON-EXPIRED auto-extract prefill is returned with `provenance: "suggested"` ' +
+    '(value may be null). Does NOT trigger extraction. The brand must belong to the caller\'s org.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'User-facing fields with provenance', content: { 'application/json': { schema: UserFieldsResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ── DEPRECATED brand-profile compat shim (over brand_user_fields) ───────────
+// Kept ONLY so the live prod dashboard (onboarding / strategy / new-campaign)
+// keeps working until it migrates to /user-fields. Remove after migration.
+export const BrandProfileShimRequestSchema = z
+  .object({
+    fields: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+  })
+  .openapi('BrandProfileShimRequest');
+
+export const BrandProfileShimResponseSchema = z
+  .object({
+    current: z.object({ fields: BrandProfileFieldsSchema }),
+    versions: z.array(
+      z.object({
+        id: z.string().nullable(),
+        version: z.number().int(),
+        fields: BrandProfileFieldsSchema,
+        createdAt: z.string(),
+      }),
+    ),
+  })
+  .openapi('BrandProfileShimResponse');
 
 registry.registerPath({
   method: 'get',
   path: '/orgs/brands/{brandId}/brand-profile',
-  summary: "Get a brand's profile (current version + version list)",
+  summary: '[DEPRECATED] Brand profile (compat shim over brand_user_fields)',
+  deprecated: true,
   description:
-    'Returns `{ current, versions }`. `current` is the latest SAVED version, or — when no ' +
-    'version has been saved yet — a DERIVED virtual v1 built from the brand\'s existing ' +
-    'extracted fields (audience fields excluded). The derived v1 is ' +
-    'NOT persisted (synthetic id, `version: 1`) until the first POST. `versions` lists the ' +
-    'saved versions only (id/version/createdAt), newest first — empty until the first save. ' +
-    "The brand must belong to the caller's org (x-org-id); a brand outside the org is 403.",
+    'DEPRECATED compat shim — use `/orgs/brands/:brandId/user-fields` instead. Returns the OLD ' +
+    '`{ current: { fields }, versions }` shape sourced from the new confirmed store. `fields` = ' +
+    'confirmed-overlaid-on-derived, plus a `valueProposition` alias of `dreamOutcome`. `versions` ' +
+    'is `[{ id: null, version: 1, fields, createdAt }]` when the brand has confirmed fields, else `[]`.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
-    200: { description: 'Current version + version list', content: { 'application/json': { schema: GetBrandProfileResponseSchema } } },
+    200: { description: 'Legacy profile shape', content: { 'application/json': { schema: BrandProfileShimResponseSchema } } },
     400: { description: 'Invalid brand ID format' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
@@ -2310,18 +2389,20 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/orgs/brands/{brandId}/brand-profile',
-  summary: 'Save a new brand-profile version',
+  summary: '[DEPRECATED] Save brand profile (compat shim over brand_user_fields)',
+  deprecated: true,
   description:
-    'Saves a new IMMUTABLE version (v1 → v2 → …) from the supplied `fields` map (key → ' +
-    'string | string[]). Prior versions are never mutated. Returns 201 with the new ' +
-    "version. The brand must belong to the caller's org (x-org-id).",
+    'DEPRECATED compat shim — use `PUT /orgs/brands/:brandId/user-fields` instead. Maps legacy ' +
+    '`valueProposition` → `dreamOutcome`, keeps ONLY the 7 user-facing keys (services, dreamOutcome, ' +
+    'perceivedLikelihood, socialProof, riskReversal, urgency, scarcity), upserts them into ' +
+    'brand_user_fields and ignores every other key (extracted-only now). Returns the same shape as GET.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
-    body: { content: { 'application/json': { schema: CreateBrandProfileRequestSchema } } },
+    body: { content: { 'application/json': { schema: BrandProfileShimRequestSchema } } },
   },
   responses: {
-    201: { description: 'New version', content: { 'application/json': { schema: CreateBrandProfileResponseSchema } } },
-    400: { description: 'Invalid brand ID format or invalid/missing fields' },
+    201: { description: 'Legacy profile shape', content: { 'application/json': { schema: BrandProfileShimResponseSchema } } },
+    400: { description: 'Invalid brand ID format or invalid body' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
@@ -2329,22 +2410,22 @@ registry.registerPath({
 });
 
 registry.registerPath({
-  method: 'get',
-  path: '/internal/brands/{brandId}/runtime-context',
-  summary: "Get a brand's runtime context for one campaign loop",
+  method: 'put',
+  path: '/orgs/brands/{brandId}/user-fields',
+  summary: "Confirm (upsert) a brand's user-facing fields",
   description:
-    'Service-authenticated snapshot for campaign-service per-lead loops. Returns the canonical ' +
-    'brand-owned `currentGoal` (`signup` | `meetingBooked` | `purchase`) together with the minimal ' +
-    'brand identity and the current brand-profile version/derived profile. Brand-service does not ' +
-    'perform candidate selection or bandit logic; campaign-service passes `currentGoal` onward to ' +
-    'features-service runtime candidate selection and snapshots the returned brand context for the loop.',
-  request: { params: z.object({ brandId: z.string().uuid() }) },
+    'Upserts confirmed user fields (DURABLE — no TTL). Body `{ fields: { <key>: value } }`; each ' +
+    'key MUST be one of the 7 user-facing keys or the request is rejected 400 and nothing is ' +
+    'written. Returns the updated view in the same shape as GET. The brand must belong to the ' +
+    "caller's org (x-org-id).",
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PutUserFieldsRequestSchema } } },
+  },
   responses: {
-    200: {
-      description: 'Runtime context snapshot',
-      content: { 'application/json': { schema: BrandRuntimeContextResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID format' },
+    200: { description: 'Updated user-facing fields with provenance', content: { 'application/json': { schema: UserFieldsResponseSchema } } },
+    400: { description: 'Invalid brand ID format or unknown field key' },
+    403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
   },
