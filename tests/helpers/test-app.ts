@@ -12,7 +12,6 @@ import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoute
 import { orgRouter as salesEconomicsOrgRoutes, internalRouter as salesEconomicsInternalRoutes } from '../../src/routes/sales-economics.routes';
 import { orgRouter as icpOrgRoutes } from '../../src/routes/icp.routes';
 import { orgRouter as userFieldsOrgRoutes } from '../../src/routes/user-fields.routes';
-import { orgRouter as brandProfileShimOrgRoutes } from '../../src/routes/brand-profile.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from '../../src/routes/brand-goal.routes';
 import { orgRouter as clickDestinationOrgRoutes } from '../../src/routes/click-destination.routes';
 import { orgRouter as whatsAppLinkOrgRoutes } from '../../src/routes/whatsapp-link.routes';
@@ -73,7 +72,6 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, salesEconomicsOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, icpOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, userFieldsOrgRoutes);
-  app.use('/orgs', apiKeyAuth, requireOrgId, brandProfileShimOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, whatsAppLinkOrgRoutes);
