@@ -294,7 +294,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
 
   // 1. Seed context from existing brand data (no persistence happens here).
   const profile = await brandProfileService.getByBrandId(brandId);
-  const profileFields = profile.current?.fields ?? {};
+  const profileFields = profile.current.fields;
   // Fail loud when there is nothing OFFER/TARGETING-relevant to seed from — an
   // empty profile OR one carrying only conversion-copy / brand-vanity fields
   // (which are dropped from the ICP context) cannot define who to prospect.

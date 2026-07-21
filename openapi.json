@@ -414,11 +414,19 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/MultiBrandFieldValue"
             }
+          },
+          "provenance": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExtractFieldProvenance"
+            },
+            "description": "Per requested field key → provenance tag (sibling to `fields`, additive). `confirmed` = a user-facing field with a user-validated value (overlaid into `fields`/`byBrand`); `suggested` = a user-facing field not yet confirmed (value = auto-extract prefill); `extracted` = a pure backend field."
           }
         },
         "required": [
           "brands",
-          "fields"
+          "fields",
+          "provenance"
         ]
       },
       "BrandMeta": {
@@ -555,6 +563,14 @@
           "extractedAt",
           "expiresAt",
           "sourceUrls"
+        ]
+      },
+      "ExtractFieldProvenance": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "suggested",
+          "extracted"
         ]
       },
       "ExtractFieldsRequest": {
@@ -1845,156 +1861,6 @@
           }
         }
       },
-      "GetBrandProfileResponse": {
-        "type": "object",
-        "properties": {
-          "current": {
-            "type": "object",
-            "nullable": true,
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "brandId": {
-                "type": "string"
-              },
-              "version": {
-                "type": "integer"
-              },
-              "fields": {
-                "type": "object",
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  ]
-                }
-              },
-              "createdAt": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "brandId",
-              "version",
-              "fields",
-              "createdAt"
-            ]
-          },
-          "versions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/BrandProfileVersionSummary"
-            }
-          }
-        },
-        "required": [
-          "current",
-          "versions"
-        ]
-      },
-      "BrandProfileVersionSummary": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer"
-          },
-          "createdAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "version",
-          "createdAt"
-        ]
-      },
-      "CreateBrandProfileResponse": {
-        "type": "object",
-        "properties": {
-          "version": {
-            "$ref": "#/components/schemas/BrandProfileVersion"
-          }
-        },
-        "required": [
-          "version"
-        ]
-      },
-      "BrandProfileVersion": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "brandId": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer"
-          },
-          "fields": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            }
-          },
-          "createdAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "brandId",
-          "version",
-          "fields",
-          "createdAt"
-        ]
-      },
-      "CreateBrandProfileRequest": {
-        "type": "object",
-        "properties": {
-          "fields": {
-            "type": "object",
-            "additionalProperties": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ]
-            }
-          }
-        },
-        "required": [
-          "fields"
-        ]
-      },
       "BrandRuntimeContextResponse": {
         "type": "object",
         "properties": {
@@ -2006,17 +1872,7 @@
           },
           "brandProfile": {
             "type": "object",
-            "nullable": true,
             "properties": {
-              "id": {
-                "type": "string"
-              },
-              "brandId": {
-                "type": "string"
-              },
-              "version": {
-                "type": "integer"
-              },
               "fields": {
                 "type": "object",
                 "additionalProperties": {
@@ -2032,17 +1888,10 @@
                     }
                   ]
                 }
-              },
-              "createdAt": {
-                "type": "string"
               }
             },
             "required": [
-              "id",
-              "brandId",
-              "version",
-              "fields",
-              "createdAt"
+              "fields"
             ]
           }
         },
@@ -2050,6 +1899,78 @@
           "brand",
           "currentGoal",
           "brandProfile"
+        ]
+      },
+      "UserFieldsResponse": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/UserFieldView"
+            },
+            "description": "Map keyed by user-facing field key (services, dreamOutcome, perceivedLikelihood, socialProof, riskReversal, urgency, scarcity). Each value carries the resolved value and its provenance (`confirmed` = user-validated; `suggested` = auto-extract prefill)."
+          }
+        },
+        "required": [
+          "fields"
+        ]
+      },
+      "UserFieldView": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "nullable": true
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "nullable": true
+                }
+              },
+              {
+                "nullable": true
+              }
+            ],
+            "description": "Confirmed value, or the auto-extract prefill (may be null)"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/UserFieldProvenance"
+          }
+        },
+        "required": [
+          "value",
+          "provenance"
+        ]
+      },
+      "UserFieldProvenance": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "suggested"
+        ]
+      },
+      "PutUserFieldsRequest": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            },
+            "description": "Confirmed values keyed by user-facing field key. Unknown keys are rejected (400)."
+          }
+        },
+        "required": [
+          "fields"
         ]
       }
     },
@@ -2575,6 +2496,10 @@
                         }
                       }
                     }
+                  },
+                  "provenance": {
+                    "industry": "extracted",
+                    "target_audience": "extracted"
                   }
                 }
               }
@@ -4394,99 +4319,10 @@
         }
       }
     },
-    "/orgs/brands/{brandId}/brand-profile": {
-      "get": {
-        "summary": "Get a brand's profile (current version + version list)",
-        "description": "Returns `{ current, versions }`. `current` is the latest SAVED version, or — when no version has been saved yet — a DERIVED virtual v1 built from the brand's existing extracted fields (audience fields excluded). The derived v1 is NOT persisted (synthetic id, `version: 1`) until the first POST. `versions` lists the saved versions only (id/version/createdAt), newest first — empty until the first save. The brand must belong to the caller's org (x-org-id); a brand outside the org is 403.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "brandId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Current version + version list",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetBrandProfileResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid brand ID format"
-          },
-          "403": {
-            "description": "Brand does not belong to the caller's org"
-          },
-          "404": {
-            "description": "Brand not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      },
-      "post": {
-        "summary": "Save a new brand-profile version",
-        "description": "Saves a new IMMUTABLE version (v1 → v2 → …) from the supplied `fields` map (key → string | string[]). Prior versions are never mutated. Returns 201 with the new version. The brand must belong to the caller's org (x-org-id).",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "brandId",
-            "in": "path"
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateBrandProfileRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "New version",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateBrandProfileResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid brand ID format or invalid/missing fields"
-          },
-          "403": {
-            "description": "Brand does not belong to the caller's org"
-          },
-          "404": {
-            "description": "Brand not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/internal/brands/{brandId}/runtime-context": {
       "get": {
         "summary": "Get a brand's runtime context for one campaign loop",
-        "description": "Service-authenticated snapshot for campaign-service per-lead loops. Returns the canonical brand-owned `currentGoal` (`signup` | `meetingBooked` | `purchase`) together with the minimal brand identity and the current brand-profile version/derived profile. Brand-service does not perform candidate selection or bandit logic; campaign-service passes `currentGoal` onward to features-service runtime candidate selection and snapshots the returned brand context for the loop.",
+        "description": "Service-authenticated snapshot for campaign-service per-lead loops. Returns the canonical brand-owned `currentGoal` together with the minimal brand identity and the brand-profile fields (the confirmed user-validated fields overlaid on the derived extract fields). Brand-service does not perform candidate selection or bandit logic; campaign-service passes `currentGoal` onward to features-service runtime candidate selection and snapshots the returned brand context for the loop.",
         "parameters": [
           {
             "schema": {
@@ -4511,6 +4347,95 @@
           },
           "400": {
             "description": "Invalid brand ID format"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/user-fields": {
+      "get": {
+        "summary": "Get a brand's user-facing fields (confirmed + suggested)",
+        "description": "Returns `{ fields: { <key>: { value, provenance } } }` for all 7 user-facing keys. For each key: a user-validated (confirmed) value wins with `provenance: \"confirmed\"`; otherwise the most-recent NON-EXPIRED auto-extract prefill is returned with `provenance: \"suggested\"` (value may be null). Does NOT trigger extraction. The brand must belong to the caller's org.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User-facing fields with provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFieldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Confirm (upsert) a brand's user-facing fields",
+        "description": "Upserts confirmed user fields (DURABLE — no TTL). Body `{ fields: { <key>: value } }`; each key MUST be one of the 7 user-facing keys or the request is rejected 400 and nothing is written. Returns the updated view in the same shape as GET. The brand must belong to the caller's org (x-org-id).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutUserFieldsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user-facing fields with provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFieldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format or unknown field key"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
           },
           "404": {
             "description": "Brand not found"

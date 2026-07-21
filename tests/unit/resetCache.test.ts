@@ -121,6 +121,14 @@ vi.mock('../../src/services/fieldExtractionService', () => ({
   buildFieldsResponseSchema: (keys: string[]) => ({ type: 'object', properties: {}, required: keys }),
 }));
 
+// Confirmed-store read is mocked out — no confirmed values → every non-user-facing
+// key is `extracted`, no overlay, no DB hit in the provenance path.
+vi.mock('../../src/services/brandUserFieldsService', () => ({
+  getConfirmedByBrandId: vi.fn().mockResolvedValue(new Map()),
+  isUserFacingFieldKey: (k: string) =>
+    ['services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity'].includes(k),
+}));
+
 import { multiBrandExtractFields } from '../../src/services/multiBrandFieldExtractionService';
 import { extractFields, getBrand } from '../../src/services/fieldExtractionService';
 

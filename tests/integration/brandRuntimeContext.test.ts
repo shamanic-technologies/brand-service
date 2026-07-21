@@ -8,7 +8,7 @@ import {
   brands,
   orgBrands,
   brandSalesEconomics,
-  brandProfileVersions,
+  brandUserFields,
 } from '../../src/db';
 import { salesEconomicsService } from '../../src/services/salesEconomicsService';
 
@@ -49,10 +49,10 @@ describe('Brand runtime context and current goal', () => {
     await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: runtimeBrandId });
     await db.insert(orgBrands).values({ orgId: otherOrgId, brandId: foreignBrandId });
 
-    await db.insert(brandProfileVersions).values({
+    await db.insert(brandUserFields).values({
       brandId: runtimeBrandId,
-      version: 1,
-      fields: { valueProposition: 'Books qualified meetings' },
+      fieldKey: 'dreamOutcome',
+      value: 'Books qualified meetings',
     });
 
     await salesEconomicsService.upsertByBrandId(runtimeBrandId, {
@@ -63,7 +63,7 @@ describe('Brand runtime context and current goal', () => {
 
   afterAll(async () => {
     for (const id of [defaultGoalBrandId, runtimeBrandId, foreignBrandId]) {
-      await db.delete(brandProfileVersions).where(eq(brandProfileVersions.brandId, id));
+      await db.delete(brandUserFields).where(eq(brandUserFields.brandId, id));
       await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
@@ -82,11 +82,7 @@ describe('Brand runtime context and current goal', () => {
       domain: `runtime-${defaultGoalBrandId.slice(0, 8)}.com`,
       name: 'Runtime Test Brand',
     });
-    expect(res.body.brandProfile).toMatchObject({
-      brandId: defaultGoalBrandId,
-      version: 1,
-      fields: {},
-    });
+    expect(res.body.brandProfile).toEqual({ fields: {} });
   });
 
   it('updates the current goal independently and changes subsequent runtime reads', async () => {
@@ -105,9 +101,7 @@ describe('Brand runtime context and current goal', () => {
     expect(runtime.status).toBe(200);
     expect(runtime.body.currentGoal).toBe('meetingBooked');
     expect(runtime.body.brandProfile).toMatchObject({
-      brandId: runtimeBrandId,
-      version: 1,
-      fields: { valueProposition: 'Books qualified meetings' },
+      fields: { dreamOutcome: 'Books qualified meetings' },
     });
 
     const legacyRead = await request(app)

@@ -71,12 +71,22 @@ vi.mock('../../src/services/imageExtractionService', () => ({
   getBrandForImages: vi.fn(),
 }));
 
+// Mock the confirmed-fields store: no confirmed values → every non-user-facing
+// key is `extracted`, no overlay. Keeps the DB out of the provenance path.
+vi.mock('../../src/services/brandUserFieldsService', () => ({
+  getConfirmedByBrandId: vi.fn().mockResolvedValue(new Map()),
+  isUserFacingFieldKey: (k: string) =>
+    ['services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity'].includes(k),
+}));
+
 import { multiBrandExtractFields } from '../../src/services/multiBrandFieldExtractionService';
 import { multiBrandExtractImages } from '../../src/services/multiBrandImageExtractionService';
 import { extractFields, getBrand } from '../../src/services/fieldExtractionService';
 import { extractImages, getBrandForImages } from '../../src/services/imageExtractionService';
 import { chat } from '../../src/lib/chat-client';
+import { getConfirmedByBrandId } from '../../src/services/brandUserFieldsService';
 
+const mockedGetConfirmed = vi.mocked(getConfirmedByBrandId);
 const mockedGetBrand = vi.mocked(getBrand);
 const mockedExtractFields = vi.mocked(extractFields);
 const mockedGetBrandForImages = vi.mocked(getBrandForImages);
@@ -154,6 +164,7 @@ describe('multiBrandExtractFields', () => {
           },
         },
       },
+      provenance: { industry: 'extracted', size: 'extracted' },
     });
   });
 
@@ -200,10 +211,51 @@ describe('multiBrandExtractFields', () => {
           },
         },
       },
+      provenance: { industry: 'extracted' },
     });
 
     // Verify consolidated result was persisted to DB
     expect(mockInsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('overlays a confirmed user-facing field and tags provenance confirmed/extracted', async () => {
+    mockedGetBrand.mockResolvedValue({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' });
+    mockedExtractFields.mockResolvedValue([
+      { key: 'services', value: 'extracted svc', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/'] },
+      { key: 'industry', value: 'SaaS', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/'] },
+    ]);
+    // `services` is user-facing AND confirmed → overlaid + tagged confirmed.
+    mockedGetConfirmed.mockResolvedValueOnce(new Map([['services', { value: ['Consulting', 'Audit'], confirmedAt: '2026-01-01T00:00:00.000Z' }]]));
+
+    const result = await multiBrandExtractFields({
+      brandIds: ['brand-1'],
+      fields: [{ key: 'services', description: 'x' }, { key: 'industry', description: 'y' }],
+      caller: orgCaller,
+    });
+
+    expect(result.provenance).toEqual({ services: 'confirmed', industry: 'extracted' });
+    // Confirmed value overlaid at both the top level and byBrand.
+    expect(result.fields.services.value).toEqual(['Consulting', 'Audit']);
+    expect(result.fields.services.byBrand['acme.com'].value).toEqual(['Consulting', 'Audit']);
+    // Non-user-facing key untouched.
+    expect(result.fields.industry.value).toBe('SaaS');
+  });
+
+  it('tags an unconfirmed user-facing field as suggested (prefill kept)', async () => {
+    mockedGetBrand.mockResolvedValue({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com' });
+    mockedExtractFields.mockResolvedValue([
+      { key: 'urgency', value: 'Ends Friday', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://acme.com/'] },
+    ]);
+    // No confirmed value (default empty Map from factory).
+
+    const result = await multiBrandExtractFields({
+      brandIds: ['brand-1'],
+      fields: [{ key: 'urgency', description: 'x' }],
+      caller: orgCaller,
+    });
+
+    expect(result.provenance).toEqual({ urgency: 'suggested' });
+    expect(result.fields.urgency.value).toBe('Ends Friday');
   });
 
   it('should throw when a brand is not found', async () => {

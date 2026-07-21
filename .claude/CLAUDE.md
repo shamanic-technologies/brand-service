@@ -160,3 +160,20 @@ Concurrency is still coordinated: multiple null-name reads share one in-process 
 - URLs selected but 0 usable page content is a scraping failure. Throw a diagnostic error with selected/cached/fresh/empty counts and the affected URLs.
 
 Observed 2026-06-09 (new brand `luxvillageseminyak.com`): parallel name-fill runs (then LLM-based) caused one `/internal/brands/:id` request to 500 with opaque `Failed to scrape any pages`. The deterministic fill removes that failure mode for names entirely.
+
+## Two-layer brand fields: `brand_user_fields` (confirmed, durable) vs `brand_extracted_fields` (auto, 3-day TTL) + provenance
+
+Brand fields are TWO layers, and every field returned to a consumer carries a **provenance** tag:
+
+- **7 user-facing "confirmed" fields** — `services`, `dreamOutcome`, `perceivedLikelihood`, `socialProof`, `riskReversal`, `urgency`, `scarcity` (hardcoded `USER_FACING_FIELD_KEYS` in `src/services/brandUserFieldsService.ts`). The user validates these in the dashboard; they persist in **`brand_user_fields`** (one row per `(brand_id, field_key)`, DB CHECK on the 7 keys, NO TTL, `value` jsonb). `dreamOutcome` REPLACED the old `valueProposition` in the user-facing set — `valueProposition` is now a pure backend-extract field only (don't reintroduce it as user-facing; the icpSuggestion denylist etc. still reference it legitimately).
+- **Everything else** = auto-extracted, ephemeral 3-day cache on `brand_extracted_fields` (unchanged; `CACHE_DURATION_MS` untouched).
+- **Provenance**: `confirmed` (a user-facing field with a saved `brand_user_fields` value) | `suggested` (a user-facing field NOT yet confirmed — value = the auto-extract prefill) | `extracted` (a pure backend field).
+
+**Endpoints** (`src/routes/user-fields.routes.ts`, orgRouter, mounted in `index.ts` AND `tests/helpers/test-app.ts`):
+- `GET /orgs/brands/:brandId/user-fields` → `{ fields: { <key>: { value, provenance } } }` for all 7 keys. Confirmed value wins; else most-recent NON-EXPIRED `brand_extracted_fields` prefill (campaign_id IS NULL, expires_at NULL-or-future), else null. Does NOT trigger extraction.
+- `PUT /orgs/brands/:brandId/user-fields` body `{ fields: Record<key,value> }` → `upsertUserFields` (validates every key ∈ the 7 → 400 `UnknownUserFieldKeyError` on any unknown key, NOTHING written), returns the GET shape.
+- `POST /orgs/brands/extract-fields` response gained an ADDITIVE sibling `provenance: Record<key, 'confirmed'|'suggested'|'extracted'>` (built in `multiBrandFieldExtractionService`). Confirmed values overlay `fields[key].value` (single brand) + `byBrand[domain][key].value`; the existing `fields` value SHAPE is unchanged (content-generation-service reads `fields` directly and must keep working). A user-facing key tags `confirmed` only when EVERY brand in the request has a confirmed value, else `suggested`.
+
+`brandProfileService.getByBrandId` now returns `{ current: { fields }, hasConfirmed, confirmedFields }` (was `{ current: version|null, versions[] }`). `current.fields` = confirmed overlaid on the derived-from-extracted fields; `confirmedFields` = the confirmed layer alone (the ONLY client-validated truth injected into the extraction prompt — `profileContext.buildProfileContextBlock` gates on `hasConfirmed`, NOT the merged fields, so we never feed our own past extractions back as authoritative). The versioned `brand_profile_versions` table + the standalone `/orgs/brands/:brandId/brand-profile` GET/POST (beta editor) were DROPPED (migration `0041`); the new confirmed store is the replacement.
+
+**Cron**: `index.ts` runs a daily `setInterval` (24h, + one run 60s after boot) AFTER `app.listen()` deleting `brand_extracted_fields WHERE expires_at < NOW()`. Confirmed rows live in `brand_user_fields` (different table) so they're never touched. Reference: PR (this branch).

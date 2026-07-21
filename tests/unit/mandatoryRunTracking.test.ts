@@ -32,7 +32,7 @@ vi.mock('../../src/lib/scraping-client', () => ({
 // indices intact).
 vi.mock('../../src/services/brandProfileService', () => ({
   brandProfileService: {
-    getByBrandId: vi.fn().mockResolvedValue({ current: null, versions: [] }),
+    getByBrandId: vi.fn().mockResolvedValue({ current: { fields: {} }, hasConfirmed: false, confirmedFields: {} }),
   },
 }));
 
