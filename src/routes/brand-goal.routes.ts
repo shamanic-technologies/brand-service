@@ -69,7 +69,7 @@ internalRouter.get('/brands/:brandId/runtime-context', async (req: Request, res:
     return res.status(200).json({
       brand,
       currentGoal,
-      brandProfile: profile.current,
+      brandProfile: { fields: profile.current.fields },
     });
   } catch (error: any) {
     console.error('[brand-service] Get runtime context error:', error);

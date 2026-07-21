@@ -35,7 +35,7 @@ vi.mock('../../src/lib/trace-event', () => ({
 // db calls so the prompt assertions stay focused on the extraction message.
 vi.mock('../../src/services/brandProfileService', () => ({
   brandProfileService: {
-    getByBrandId: vi.fn().mockResolvedValue({ current: null, versions: [] }),
+    getByBrandId: vi.fn().mockResolvedValue({ current: { fields: {} }, hasConfirmed: false, confirmedFields: {} }),
   },
 }));
 

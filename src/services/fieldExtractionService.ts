@@ -645,11 +645,11 @@ export async function extractFields(
     // feed the LLM its prior output and freeze earlier errors.
     const profileResponse = await brandProfileService.getByBrandId(brandId);
     const profileContext = buildProfileContextBlock({
-      hasSavedVersion: profileResponse.versions.length > 0,
-      fields: profileResponse.current?.fields ?? {},
+      hasConfirmed: profileResponse.hasConfirmed,
+      fields: profileResponse.confirmedFields,
     });
     if (profileContext) {
-      console.log(`[brand-service] [${brandId}] Injecting client-validated brand profile (${profileResponse.versions.length} saved version(s))`);
+      console.log(`[brand-service] [${brandId}] Injecting client-validated brand profile (${Object.keys(profileResponse.confirmedFields).length} confirmed field(s))`);
     }
 
     const fieldsDescription = missingFields
