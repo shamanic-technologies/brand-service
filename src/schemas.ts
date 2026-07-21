@@ -2242,7 +2242,19 @@ export const BrandRuntimeContextResponseSchema = z
   .object({
     brand: BrandDetailSchema,
     currentGoal: CurrentGoalSchema,
-    brandProfile: z.object({ fields: BrandProfileFieldsSchema }),
+    // Backward-compatible with the pre-2-layer shape campaign-service consumes.
+    // `id`/`version` are null (no version rows anymore); `fields` is the
+    // confirmed-overlaid-on-derived profile. Kept `.nullable()` to mirror the
+    // prior contract exactly (consumers read `brandProfile?.id` null-safe).
+    brandProfile: z
+      .object({
+        id: z.string().nullable(),
+        brandId: z.string(),
+        version: z.number().int().nullable(),
+        fields: BrandProfileFieldsSchema,
+        createdAt: z.string(),
+      })
+      .nullable(),
   })
   .openapi('BrandRuntimeContextResponse');
 

@@ -1872,7 +1872,19 @@
           },
           "brandProfile": {
             "type": "object",
+            "nullable": true,
             "properties": {
+              "id": {
+                "type": "string",
+                "nullable": true
+              },
+              "brandId": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer",
+                "nullable": true
+              },
               "fields": {
                 "type": "object",
                 "additionalProperties": {
@@ -1888,10 +1900,17 @@
                     }
                   ]
                 }
+              },
+              "createdAt": {
+                "type": "string"
               }
             },
             "required": [
-              "fields"
+              "id",
+              "brandId",
+              "version",
+              "fields",
+              "createdAt"
             ]
           }
         },

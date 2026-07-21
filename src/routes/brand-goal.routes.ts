@@ -69,7 +69,17 @@ internalRouter.get('/brands/:brandId/runtime-context', async (req: Request, res:
     return res.status(200).json({
       brand,
       currentGoal,
-      brandProfile: { fields: profile.current.fields },
+      // Backward-compatible with the pre-2-layer shape campaign-service consumes
+      // (brand-runtime-client + audience bandit read `brandProfile?.id`). There
+      // are no version rows anymore → `id`/`version` are null; `fields` is the
+      // confirmed-overlaid-on-derived profile. Consumers read `.id` null-safe.
+      brandProfile: {
+        id: null,
+        brandId,
+        version: null,
+        fields: profile.current.fields,
+        createdAt: new Date().toISOString(),
+      },
     });
   } catch (error: any) {
     console.error('[brand-service] Get runtime context error:', error);
