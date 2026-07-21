@@ -82,7 +82,14 @@ describe('Brand runtime context and current goal', () => {
       domain: `runtime-${defaultGoalBrandId.slice(0, 8)}.com`,
       name: 'Runtime Test Brand',
     });
-    expect(res.body.brandProfile).toEqual({ fields: {} });
+    // Backward-compatible shape: id/version null, fields present, createdAt ISO.
+    expect(res.body.brandProfile).toMatchObject({
+      id: null,
+      brandId: defaultGoalBrandId,
+      version: null,
+      fields: {},
+    });
+    expect(typeof res.body.brandProfile.createdAt).toBe('string');
   });
 
   it('updates the current goal independently and changes subsequent runtime reads', async () => {
@@ -101,6 +108,9 @@ describe('Brand runtime context and current goal', () => {
     expect(runtime.status).toBe(200);
     expect(runtime.body.currentGoal).toBe('meetingBooked');
     expect(runtime.body.brandProfile).toMatchObject({
+      id: null,
+      brandId: runtimeBrandId,
+      version: null,
       fields: { dreamOutcome: 'Books qualified meetings' },
     });
 
