@@ -31,6 +31,7 @@ pnpm dev              # starts on PORT (default 3008)
 | `pnpm dev` | Dev server with hot reload |
 | `pnpm build` | Compile TypeScript + generate OpenAPI spec |
 | `pnpm generate:openapi` | Generate openapi.json from routes |
+| `pnpm recover:brand-user-fields` | One-shot idempotent recovery of confirmed offer fields from a Neon PITR branch into `brand_user_fields` (`--commit` to write) |
 | `pnpm start` | Run compiled server |
 | `pnpm test` | Run full test suite |
 | `pnpm test:unit` | Unit tests only |
