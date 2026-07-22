@@ -102,6 +102,14 @@ brand-service does NOT hand-write `provisioned`/`actual`/`cancelled` cost rows f
 - After schema changes: `pnpm db:generate` to scaffold, then **hand-verify the emitted SQL** before committing.
 - See `.cursor/skills/neon-migrations/SKILL.md` for Neon-specific gotchas.
 
+### A destructive DROP of a user-data table MUST backfill into its replacement BEFORE the drop — in the SAME migration
+
+When a migration `DROP`s a table that holds **user-authored / confirmed** data (offer fields, sales economics, thesis, confirmed profile values — anything a user validated in the dashboard, not an ephemeral extract cache), the same migration MUST first `INSERT INTO <replacement> SELECT ... FROM <dropped_table>` (mapping renamed keys). Creating the replacement EMPTY and dropping the old table in one PR with NO backfill is silent user-data loss — the read path then falls through to the ephemeral "suggested" layer and every confirmed field renders as amber "AI-suggested". Recovery is only possible inside the Neon PITR retention window (24h) via a point-in-time branch; past that, the data is gone forever.
+
+Enforced by `tests/unit/migrationDropGuard.test.ts`: a new migration dropping a table in `USER_DATA_TABLES` fails CI unless it contains an in-file `INSERT INTO` backfill OR is listed in `ACKNOWLEDGED_DROPS` with a recovery reference. Do NOT edit an already-applied migration `.sql` to satisfy the guard (it changes the drizzle hash → the runtime migrator re-runs/errors); acknowledge historical drops in the test's `ACKNOWLEDGED_DROPS` map instead.
+
+Incident 2026-07-21 (PR #349): `0041_drop_brand_profile_versions.sql` dropped the confirmed-offer-fields table while `0042_brand_user_fields.sql` created the replacement empty with no backfill → 20 brands' confirmed values lost. Recovered post-hoc via `scripts/recover-brand-user-fields-from-pitr.ts` (Neon PITR branch → `brand_user_fields`, `valueProposition`→`dreamOutcome`, idempotent `ON CONFLICT DO NOTHING`, FK-safe).
+
 ### Drizzle state is partially hand-authored — `db:generate` produces spurious drift
 
 Migrations `0024_silver_gold_bronze` / `0025_drop_brand_id_remap` were **hand-authored** (idempotent `DO $$ ... IF NOT EXISTS`) without running `drizzle-kit generate`, so the `drizzle/meta/*` snapshots never recorded the silver/gold/bronze restructure. Consequence: `pnpm db:generate` diffs `schema.ts` against a stale snapshot and emits an entire fake "restructure" (recreating `org_brands`/`scrape_raw`/`brands_old`, dropping `brands` columns) on top of your real change. **Do NOT commit that drift.** Hand-author the new `drizzle/<n>_*.sql` with ONLY your real change, idempotent (`CREATE TABLE IF NOT EXISTS`, FK guarded by a `pg_constraint` existence check). Keep the regenerated `<n>_snapshot.json` + `_journal.json` entry — the fresh snapshot reflects true `schema.ts` and repairs the baseline so the NEXT generate is clean.
