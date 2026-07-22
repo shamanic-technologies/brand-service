@@ -20,8 +20,12 @@
  *
  * MAPPING
  * -------
- *  - The old store kept a per-brand versioned `fields` jsonb blob. We take the
- *    LATEST version per brand and lift only the 7 user-facing keys.
+ *  - The old store kept a per-brand versioned `fields` jsonb blob. For each of
+ *    the 7 user-facing keys we take the value from the LATEST version that has
+ *    a non-empty value for THAT key (per-field, not per-row) — because a later
+ *    version can be a partial snapshot that omits a field the user confirmed in
+ *    an earlier version (e.g. `services` present in v1, absent in v2). Taking
+ *    the latest version wholesale would silently drop those fields.
  *  - The user-facing key `valueProposition` was RENAMED to `dreamOutcome`
  *    (see brandUserFieldsService.USER_FACING_FIELD_KEYS). We map the old
  *    `valueProposition` value onto the new `dreamOutcome` key. A pre-existing
@@ -97,18 +101,22 @@ async function main() {
   const target = postgres(TARGET_URL!, { max: 4, ssl: 'require' });
 
   try {
-    // Latest confirmed version per brand from the recovered table.
-    const latest = await source<
+    // All versions, newest-first, so we can pick the latest non-empty value
+    // PER FIELD (a later version may omit a field an earlier one confirmed).
+    const versions = await source<
       { brand_id: string; created_at: string; fields: Record<string, unknown> }[]
     >`
-      SELECT DISTINCT ON (brand_id) brand_id, created_at, fields
+      SELECT brand_id, created_at, fields
       FROM brand_profile_versions
       ORDER BY brand_id, version DESC, created_at DESC
     `;
 
-    const recovered: RecoveredRow[] = [];
-    for (const row of latest) {
+    // key = `${brandId}::${fieldKey}` → first (newest) non-empty wins.
+    const picked = new Map<string, RecoveredRow>();
+    for (const row of versions) {
       for (const { target: fieldKey, sourceKeys } of KEY_MAP) {
+        const mapKey = `${row.brand_id}::${fieldKey}`;
+        if (picked.has(mapKey)) continue; // newer version already supplied it
         let value: unknown;
         for (const sk of sourceKeys) {
           if (row.fields[sk] !== undefined && !isEmpty(row.fields[sk])) {
@@ -117,7 +125,7 @@ async function main() {
           }
         }
         if (isEmpty(value)) continue;
-        recovered.push({
+        picked.set(mapKey, {
           brandId: row.brand_id,
           fieldKey,
           value,
@@ -126,8 +134,10 @@ async function main() {
       }
     }
 
+    const recovered: RecoveredRow[] = [...picked.values()];
+    const brandCount = new Set(recovered.map((r) => r.brandId)).size;
     console.log(
-      `Recovered ${recovered.length} field values across ${latest.length} brands from the PITR source.`,
+      `Recovered ${recovered.length} field values across ${brandCount} brands from the PITR source.`,
     );
 
     if (!COMMIT) {
