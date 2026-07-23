@@ -333,6 +333,7 @@ internalRouter.get('/brands/:id/runs', async (req: Request, res: Response) => {
 
     const result = await listRuns({
       orgId: row.orgId,
+      brandId: id,
       userId: req.userId,
       serviceName: 'brand-service',
       taskName,

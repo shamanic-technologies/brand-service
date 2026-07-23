@@ -5,6 +5,7 @@ import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
 import { brands, orgBrands } from '../../src/db/schema';
 import { eq } from 'drizzle-orm';
+import { listRuns } from '../../src/lib/runs-client';
 
 // Mock runs-client to avoid calling real runs-service in tests
 vi.mock('../../src/lib/runs-client', () => ({
@@ -71,5 +72,21 @@ describe('GET /brands/:id/runs - Integration Tests', () => {
     expect(response.status).toBe(200);
     expect(response.body.runs).toBeDefined();
     expect(Array.isArray(response.body.runs)).toBe(true);
+  });
+
+  it('should scope the runs query to the brand id (not just the org)', async () => {
+    vi.mocked(listRuns).mockClear();
+
+    await request(app)
+      .get(`/internal/brands/${testBrandId}/runs`)
+      .set(getAuthHeaders(testOrgId))
+      .expect(200);
+
+    expect(listRuns).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(listRuns).mock.calls[0][0]).toMatchObject({
+      brandId: testBrandId,
+      orgId: testOrgId,
+      serviceName: 'brand-service',
+    });
   });
 });
