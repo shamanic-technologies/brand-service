@@ -16,24 +16,30 @@ import { buildLogoDevUrl } from '../lib/logo-dev';
 
 interface Brand {
   id: string;
-  url: string;
+  // NULLABLE — a no-website brand has neither url nor domain (identified by name).
+  url: string | null;
   name: string | null;
-  domain: string;
+  domain: string | null;
 }
 
 export interface BrandDetail {
   id: string;
-  domain: string;
-  url: string;
+  // NULLABLE — a no-website brand has no domain / url. Consumers must handle null
+  // (the brand is identified by `name`, which is always non-null here).
+  domain: string | null;
+  url: string | null;
   name: string;
-  logoUrl: string;
-  // Page outreach clicks should land on. Never null: when the brand has no
-  // saved override, this defaults to the brand's own landing URL (`url`) so a
-  // consumer's `.clickDestinationUrl` is always a valid href. The default is
-  // computed on read (free), not persisted — the click-destinations row's
-  // presence remains the "user-set" signal. Per-brand config, mirrors
-  // sales-economics scoping — never on the brand identity row.
-  clickDestinationUrl: string;
+  // NULLABLE — the deterministic logo.dev fill needs a domain; a no-website brand
+  // (domain null) has no logo, so this stays null.
+  logoUrl: string | null;
+  // Page outreach clicks should land on. Defaults to the brand's own landing URL
+  // (`url`) when the brand has no saved override, so a website brand's
+  // `.clickDestinationUrl` is always a valid href. NULLABLE only for a no-website
+  // brand (url null) with no override set — there is no landing URL to fall back
+  // to. The default is computed on read (free), not persisted — the
+  // click-destinations row's presence remains the "user-set" signal. Per-brand
+  // config, mirrors sales-economics scoping — never on the brand identity row.
+  clickDestinationUrl: string | null;
   // The brand's WhatsApp link — the click destination for the "maximize
   // WhatsApp conversations" goal. `null` when unset: unlike clickDestinationUrl
   // there is no sensible default (a brand may have no WhatsApp), so the row's
@@ -101,7 +107,9 @@ export async function getBrandDetail(
   if (!row) return null;
 
   const name = row.name ?? (await ensureBrandName(row.id, caller));
-  const logoUrl = row.logoUrl ?? (await ensureBrandLogoUrl(row.id));
+  // Logo fill is deterministic from the domain; a no-website brand (domain null)
+  // has no logo, so it stays null rather than fabricating one.
+  const logoUrl = row.logoUrl ?? (row.domain ? await ensureBrandLogoUrl(row.id) : null);
 
   return {
     id: row.id,
@@ -109,8 +117,9 @@ export async function getBrandDetail(
     url: row.url,
     name,
     logoUrl,
-    // Producer owns the default: unset brands fall back to their own landing
-    // URL so the field is never null and the consumer's link is never empty.
+    // Website brands fall back to their own landing URL so the click destination
+    // is never empty. A no-website brand (url null) with no override has no
+    // sensible landing fallback → null.
     clickDestinationUrl: row.clickDestinationUrl ?? row.url,
     // No sensible default (a brand may have no WhatsApp) — null when unset.
     whatsAppLink: row.whatsAppLink ?? null,
@@ -140,11 +149,21 @@ export async function ensureBrandName(
   if (!row) throw new Error(`Brand not found: ${brandId}`);
   if (row.name) return row.name;
 
+  // A no-website brand (url null) always has a user-provided name set at create,
+  // so it returns above. If we reach here with no name AND no URL, there is no
+  // source to derive a name from — fail loud rather than fabricate one.
+  if (!row.url) {
+    throw new Error(
+      `Cannot derive name for brand ${brandId}: no stored name and no website URL to extract one from`,
+    );
+  }
+
   // Test environments bypass the network fetch. Persist domain as name so
   // callers still receive a non-null value deterministically.
   if (process.env.NODE_ENV === 'test') {
-    await persistBrandName(brandId, row.domain);
-    return row.domain;
+    const fallback = row.domain ?? extractDomain(row.url);
+    await persistBrandName(brandId, fallback);
+    return fallback;
   }
 
   const inFlight = inFlightBrandNameFills.get(brandId);
@@ -185,14 +204,22 @@ async function fillBrandName(brandId: string): Promise<string> {
   if (!row) throw new Error(`Brand not found: ${brandId}`);
   if (row.name) return row.name;
 
+  if (!row.url) {
+    throw new Error(
+      `Cannot derive name for brand ${brandId}: no stored name and no website URL to extract one from`,
+    );
+  }
+
+  const domainFallback = row.domain ?? extractDomain(row.url);
+
   if (process.env.NODE_ENV === 'test') {
-    await persistBrandName(brandId, row.domain);
-    return row.domain;
+    await persistBrandName(brandId, domainFallback);
+    return domainFallback;
   }
 
   console.log(`[brand-service] ensureBrandName: deriving name for brand ${brandId} (${row.url})`);
 
-  const name = await deriveBrandName(row.url, row.domain);
+  const name = await deriveBrandName(row.url, domainFallback);
   await persistBrandName(brandId, name);
 
   console.log(`[brand-service] ensureBrandName: persisted name "${name}" for brand ${brandId}`);
@@ -363,6 +390,12 @@ export async function ensureBrandLogoUrl(brandId: string): Promise<string> {
 
   if (!row) throw new Error(`Brand not found: ${brandId}`);
   if (row.logoUrl) return row.logoUrl;
+  // The logo.dev URL is derived from the domain; a no-website brand (domain null)
+  // has no logo. Callers must gate on `domain` before invoking this — fail loud
+  // rather than fabricate a logo for a domain-less brand.
+  if (!row.domain) {
+    throw new Error(`Cannot build logo URL for brand ${brandId}: brand has no domain`);
+  }
 
   // Test environments bypass key-service. Persist a deterministic stub URL so
   // tests can verify the lazy-fill code path without a live key-service.
@@ -404,7 +437,9 @@ export async function resolveBrandByDomain(
     .from(brands)
     .where(eq(brands.domain, domain))
     .limit(1);
-  if (existing.length > 0) return existing[0];
+  // `domain` is a real, non-null domain here (derived from the input), so the
+  // stored row's domain is non-null too — return the const to satisfy the type.
+  if (existing.length > 0) return { id: existing[0].id, domain, name: existing[0].name };
 
   // CASE 2: create the global brand row. Race-safe via ON CONFLICT on the
   // unique domain index; re-fetch on conflict (a concurrent insert won).
@@ -413,14 +448,14 @@ export async function resolveBrandByDomain(
     .values({ url: normalizedUrl, domain })
     .onConflictDoNothing({ target: brands.domain })
     .returning({ id: brands.id, domain: brands.domain, name: brands.name });
-  if (inserted.length > 0) return inserted[0];
+  if (inserted.length > 0) return { id: inserted[0].id, domain, name: inserted[0].name };
 
   const [refetched] = await db
     .select({ id: brands.id, domain: brands.domain, name: brands.name })
     .from(brands)
     .where(eq(brands.domain, domain))
     .limit(1);
-  return refetched;
+  return { id: refetched.id, domain, name: refetched.name };
 }
 
 /**
@@ -496,4 +531,92 @@ export async function getOrCreateBrand(
   // the name. The name is derived lazily on the first getBrandDetail read
   // (ensureBrandName). `brand.name` is returned as-is (may be null).
   return brand;
+}
+
+/** Thrown when adding a website to a brand collides with an existing brand's domain. */
+export class BrandDomainConflictError extends Error {
+  readonly code = 'DOMAIN_CONFLICT';
+  constructor(domain: string) {
+    super(`A brand already exists for domain "${domain}"`);
+    this.name = 'BrandDomainConflictError';
+  }
+}
+
+/**
+ * Create a brand that has NO website — identified by a user-provided display
+ * `name` instead of a URL. `url` and `domain` are left null; the extraction
+ * source is the pasted business context (brand_business_context), not a scrape.
+ *
+ * Unlike `getOrCreateBrand`, there is NO domain-based dedup: a no-website brand
+ * has no domain, so every call creates a distinct row (two nameless-domain
+ * businesses are genuinely distinct identities). Membership in `org_brands` is
+ * written for the calling org.
+ */
+export async function createBrandWithoutWebsite(
+  orgId: string,
+  name: string,
+): Promise<Brand> {
+  const [inserted] = await db
+    .insert(brands)
+    .values({ name, url: null, domain: null })
+    .returning({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+    });
+
+  await db
+    .insert(orgBrands)
+    .values({ orgId, brandId: inserted.id })
+    .onConflictDoNothing({ target: [orgBrands.orgId, orgBrands.brandId] });
+
+  console.log(`[brand-service] Created NEW no-website brand "${name}": ${inserted.id}`);
+  return inserted;
+}
+
+/**
+ * Attach a website to an existing brand (e.g. a no-website brand whose user later
+ * adds their site). Normalizes the URL, derives the domain, and persists both on
+ * the brand identity row.
+ *
+ * The extraction source-switch is automatic and rides the EXISTING field cache:
+ * `extractFields` reads `brands.url` fresh on every call, so once the URL is set,
+ * the next post-cache-expiry extraction re-sources from the site — no new
+ * TTL/cron. Throws `BrandDomainConflictError` if the derived domain is already
+ * claimed by a different brand row.
+ */
+export async function updateBrandWebsite(
+  brandId: string,
+  url: string,
+): Promise<Brand> {
+  const normalizedUrl = normalizeUrl(url);
+  const domain = extractDomain(normalizedUrl);
+
+  // Reject if another brand already owns this domain (the unique index would
+  // 23505 anyway; check first for a clean 409).
+  const [clash] = await db
+    .select({ id: brands.id })
+    .from(brands)
+    .where(eq(brands.domain, domain))
+    .limit(1);
+  if (clash && clash.id !== brandId) {
+    throw new BrandDomainConflictError(domain);
+  }
+
+  const [updated] = await db
+    .update(brands)
+    .set({ url: normalizedUrl, domain, updatedAt: sql`NOW()` })
+    .where(eq(brands.id, brandId))
+    .returning({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+    });
+
+  if (!updated) throw new Error(`Brand not found: ${brandId}`);
+
+  console.log(`[brand-service] Attached website ${normalizedUrl} (domain ${domain}) to brand ${brandId}`);
+  return updated;
 }

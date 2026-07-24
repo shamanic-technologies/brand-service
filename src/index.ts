@@ -19,6 +19,7 @@ import { orgRouter as userFieldsOrgRoutes } from './routes/user-fields.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from './routes/brand-goal.routes';
 import { orgRouter as whatsAppLinkOrgRoutes } from './routes/whatsapp-link.routes';
 import { orgRouter as clickDestinationOrgRoutes } from './routes/click-destination.routes';
+import { orgRouter as businessContextOrgRoutes } from './routes/business-context.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
 import organizationRoutes from './routes/organization.routes';
@@ -42,7 +43,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-External-Organization-Id', 'X-Org-Id', 'X-User-Id', 'X-Run-Id', 'X-Campaign-Id', 'X-Brand-Id', 'X-Workflow-Slug', 'X-Feature-Slug', 'X-Audience-Id'],
 }));
 
-app.use(express.json());
+// Body limit raised to 2mb so a brand's pasted business context (~1MB / ~300k
+// chars — the no-website field-extraction source) is accepted without a 413.
+app.use(express.json({ limit: '2mb' }));
 
 // ── Public routes (no auth) ──────────────────────────────────────
 
@@ -97,6 +100,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, userFieldsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, whatsAppLinkOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, businessContextOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
 // ── Expired extracted-fields cleanup cron ────────────────────────

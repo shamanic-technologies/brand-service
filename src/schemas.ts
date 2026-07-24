@@ -74,11 +74,11 @@ export const GetBrandQuerySchema = z
 export const BrandDetailSchema = z
   .object({
     id: z.string().openapi({ description: 'Brand UUID' }),
-    domain: z.string().openapi({ description: 'Normalized domain (subdomains preserved, www stripped)' }),
-    url: z.string().openapi({ description: 'Full brand website URL' }),
-    name: z.string().openapi({ description: 'Brand display name. Lazy-extracted from the website on first read if missing.' }),
-    logoUrl: z.string().openapi({ description: 'Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing.' }),
-    clickDestinationUrl: z.string().openapi({ description: 'Page outreach clicks should land on. Never null: defaults to the brand\'s own landing URL (`url`) when the user has not set an override, so the value is always a valid href. Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination.' }),
+    domain: z.string().nullable().openapi({ description: 'Normalized domain (subdomains preserved, www stripped). `null` for a no-website brand (identified by `name`).' }),
+    url: z.string().nullable().openapi({ description: 'Full brand website URL. `null` for a no-website brand.' }),
+    name: z.string().openapi({ description: 'Brand display name. Lazy-extracted from the website on first read if missing; user-provided for a no-website brand.' }),
+    logoUrl: z.string().nullable().openapi({ description: 'Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing. `null` for a no-website brand (no domain to build one from).' }),
+    clickDestinationUrl: z.string().nullable().openapi({ description: 'Page outreach clicks should land on. Defaults to the brand\'s own landing URL (`url`) when the user has not set an override. `null` only for a no-website brand with no override (no landing URL to fall back to). Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination.' }),
     whatsAppLink: z.string().nullable().openapi({ description: 'The brand\'s WhatsApp link — the click destination for the "maximize WhatsApp conversations" goal. `null` when unset (no sensible default, unlike clickDestinationUrl). Per-brand config, set via PUT /orgs/brands/{brandId}/whatsapp-link.' }),
     createdAt: z.string().openapi({ description: 'ISO timestamp when the brand row was created.' }),
     updatedAt: z.string().openapi({ description: 'ISO timestamp when the brand row was last updated.' }),
@@ -121,11 +121,12 @@ export const BrandRunsQuerySchema = z
 
 export const UpsertBrandRequestSchema = z
   .object({
-    url: BrandUrlSchema,
+    url: OptionalBrandUrlSchema,
+    name: z.string().trim().min(1).max(255).optional(),
   })
   .openapi('UpsertBrandRequest', {
     description:
-      'Brand website URL. Accepts either bare domain (acme.com) or full URL (https://acme.com). Normalized server-side. Rejects localhost, IP literals, and inputs without a valid TLD.',
+      'Create or return a brand. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized server-side; rejects localhost/IP literals/no-TLD) OR `name` (no-website brand — a user-provided display name; fields are later extracted from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.',
     example: { url: 'https://acme.com' },
   });
 
@@ -137,6 +138,41 @@ export const UpsertBrandResponseSchema = z
     created: z.boolean(),
   })
   .openapi('UpsertBrandResponse');
+
+export const SetBrandWebsiteRequestSchema = z
+  .object({
+    url: BrandUrlSchema,
+  })
+  .openapi('SetBrandWebsiteRequest', {
+    description:
+      'Attach a website to an existing brand (e.g. a no-website brand whose user later adds their site). URL may be a bare domain or full URL; normalized server-side. Sets the brand\'s url + domain. The next post-cache-expiry field extraction re-sources from the site (rides the existing field cache — no new TTL).',
+    example: { url: 'https://acme.com' },
+  });
+
+export const SetBrandWebsiteResponseSchema = z
+  .object({
+    brandId: z.string(),
+    domain: z.string().nullable(),
+    name: z.string().nullable(),
+    url: z.string().nullable(),
+  })
+  .openapi('SetBrandWebsiteResponse');
+
+export const PutBusinessContextRequestSchema = z
+  .object({
+    content: z.string().min(1),
+  })
+  .openapi('PutBusinessContextRequest', {
+    description:
+      'Free-form business-context text used as the field-extraction source for a brand with NO website. Can be large (up to ~1MB / ~300k chars — think several pasted PDFs). Idempotent per brand.',
+    example: { content: 'Acme Corp is a B2B SaaS that helps ...' },
+  });
+
+export const BusinessContextResponseSchema = z
+  .object({
+    content: z.string().nullable(),
+  })
+  .openapi('BusinessContextResponse');
 
 export const ResolveByDomainRequestSchema = z
   .object({
@@ -239,16 +275,64 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/orgs/brands',
-  summary: 'Upsert a brand by orgId + URL (no scraping)',
+  summary: 'Create or return a brand by URL (website) or name (no-website)',
   description:
-    'Creates or returns a brand for the given organization. URL may be a bare domain (acme.com) or full URL (https://acme.com); the service normalizes input and derives the domain. Rejects unparseable input, localhost, and IP literals with code INVALID_URL.',
+    'Creates or returns a brand for the given organization. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL) OR `name` (no-website brand — created fresh each time, no domain dedup; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.',
   request: { body: { content: { 'application/json': { schema: UpsertBrandRequestSchema } } } },
   responses: {
     200: { description: 'Brand found or created', content: { 'application/json': { schema: UpsertBrandResponseSchema } } },
     400: {
-      description: 'Invalid or missing URL',
+      description: 'Invalid/missing URL, or neither/both of url and name provided',
       content: { 'application/json': { schema: ValidationErrorResponseSchema } },
     },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/orgs/brands/{brandId}',
+  summary: 'Attach a website to an existing brand',
+  description:
+    'Sets brands.url + brands.domain on an existing brand (e.g. a no-website brand whose user later adds their site). The next post-cache-expiry field extraction re-sources from the site automatically (rides the existing field cache — no new TTL). 409 if the derived domain is already claimed by a different brand.',
+  request: { body: { content: { 'application/json': { schema: SetBrandWebsiteRequestSchema } } } },
+  responses: {
+    200: { description: 'Website attached', content: { 'application/json': { schema: SetBrandWebsiteResponseSchema } } },
+    400: { description: 'Invalid brand ID or URL', content: { 'application/json': { schema: ValidationErrorResponseSchema } } },
+    403: { description: 'Brand not owned by the requesting org' },
+    404: { description: 'Brand not found' },
+    409: { description: 'Domain already claimed by another brand' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/business-context',
+  summary: 'Get a brand\'s pasted business context',
+  description:
+    'Returns the free-form business-context text used as the field-extraction source for a no-website brand, or `{ content: null }` when unset.',
+  responses: {
+    200: { description: 'Business context (or null)', content: { 'application/json': { schema: BusinessContextResponseSchema } } },
+    400: { description: 'Invalid brand ID' },
+    403: { description: 'Brand not owned by the requesting org' },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/business-context',
+  summary: 'Set a brand\'s pasted business context (no-website extraction source)',
+  description:
+    'Stores the free-form business context a brand with no website is extracted from. Large bodies (up to ~1MB) accepted. Idempotent per brand.',
+  request: { body: { content: { 'application/json': { schema: PutBusinessContextRequestSchema } } } },
+  responses: {
+    200: { description: 'Stored', content: { 'application/json': { schema: BusinessContextResponseSchema } } },
+    400: { description: 'Invalid brand ID or empty content' },
+    403: { description: 'Brand not owned by the requesting org' },
+    404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
   },
 });
@@ -472,9 +556,9 @@ registry.registerPath({
 export const BrandMetaSchema = z
   .object({
     brandId: z.string().uuid().openapi({ description: 'Brand UUID', example: '550e8400-e29b-41d4-a716-446655440000' }),
-    domain: z.string().openapi({ description: 'Brand domain', example: 'acme.com' }),
+    domain: z.string().openapi({ description: 'Brand domain (falls back to the brand UUID for a no-website brand)', example: 'acme.com' }),
     name: z.string().openapi({ description: 'Brand display name', example: 'Acme Corp' }),
-    brandUrl: z.string().openapi({ description: 'Full brand URL', example: 'https://acme.com' }),
+    brandUrl: z.string().nullable().openapi({ description: 'Full brand URL. `null` for a no-website brand (extracts from pasted context).', example: 'https://acme.com' }),
   })
   .openapi('BrandMeta');
 

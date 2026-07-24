@@ -39,7 +39,8 @@ export interface BrandMeta {
   brandId: string;
   domain: string;
   name: string;
-  brandUrl: string;
+  // NULLABLE — a no-website brand has no URL (it extracts from pasted context).
+  brandUrl: string | null;
 }
 
 export interface BrandFieldDetail {
@@ -205,22 +206,21 @@ export async function multiBrandExtractFields(
     if (!brand) {
       throw new Error(`Brand not found: ${brandIds[i]}`);
     }
-    if (!brand.url) {
-      throw new Error(`Brand has no URL: ${brandIds[i]}`);
-    }
     brandsMap.set(brandIds[i], brand);
   }
 
-  // Build brands metadata array
+  // Build brands metadata array. A brand WITH a website keys its per-brand result
+  // on its domain; a no-website brand (url + domain both null, identified by name)
+  // has no domain, so it keys on its brandId — a stable, unique fallback so the
+  // byDomain/byBrand maps never collide. The "no website AND no pasted business
+  // context → fail loud" gate lives in extractFields (the layer that reads the
+  // business context), so we do NOT reject a null-url brand here.
   const brandsMeta: BrandMeta[] = brandIds.map((id) => {
     const brand = brandsMap.get(id)!;
-    if (!brand.url || !brand.domain) {
-      throw new Error(`Brand ${id} missing url or domain (data integrity error)`);
-    }
     return {
       brandId: id,
-      domain: brand.domain,
-      name: brand.name || brand.domain,
+      domain: brand.domain ?? id,
+      name: brand.name || brand.domain || id,
       brandUrl: brand.url,
     };
   });
