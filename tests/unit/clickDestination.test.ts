@@ -11,6 +11,7 @@ import {
   assertClickDestinationOnBrandDomain,
   ClickDestinationValidationError,
 } from '../../src/services/clickDestinationService';
+import { isWhatsAppLink } from '../../src/services/whatsAppLinkService';
 
 describe('normalizeClickDestinationUrl', () => {
   it('accepts an https URL and returns it', () => {
@@ -146,5 +147,32 @@ describe('assertClickDestinationOnBrandDomain', () => {
     expect(() =>
       assertClickDestinationOnBrandDomain('https://acme.com.evil.com/x', 'acme.com')
     ).toThrow(ClickDestinationValidationError);
+  });
+});
+
+describe('isWhatsAppLink — click destination may be a WhatsApp link off-domain', () => {
+  it('accepts a wa.me link', () => {
+    expect(isWhatsAppLink('https://wa.me/6287779242054')).toBe(true);
+    expect(isWhatsAppLink('https://wa.me/6287779242054?text=Hello')).toBe(true);
+  });
+
+  it('accepts the other WhatsApp hosts (www-stripped)', () => {
+    expect(isWhatsAppLink('https://whatsapp.com/x')).toBe(true);
+    expect(isWhatsAppLink('https://api.whatsapp.com/send?phone=1555')).toBe(true);
+    expect(isWhatsAppLink('https://chat.whatsapp.com/ABC123')).toBe(true);
+    expect(isWhatsAppLink('https://www.wa.me/1555')).toBe(true);
+  });
+
+  it('rejects a non-WhatsApp host', () => {
+    expect(isWhatsAppLink('https://evil.com/x')).toBe(false);
+    expect(isWhatsAppLink('https://acme.com/welcome')).toBe(false);
+  });
+
+  it('rejects a non-https WhatsApp URL', () => {
+    expect(isWhatsAppLink('http://wa.me/1555')).toBe(false);
+  });
+
+  it('rejects an unparseable string', () => {
+    expect(isWhatsAppLink('not a url')).toBe(false);
   });
 });
