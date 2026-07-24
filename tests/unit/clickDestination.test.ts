@@ -11,7 +11,10 @@ import {
   assertClickDestinationOnBrandDomain,
   ClickDestinationValidationError,
 } from '../../src/services/clickDestinationService';
-import { isWhatsAppLink } from '../../src/services/whatsAppLinkService';
+import {
+  isWhatsAppLink,
+  tryNormalizeWhatsAppLink,
+} from '../../src/services/whatsAppLinkService';
 
 describe('normalizeClickDestinationUrl', () => {
   it('accepts an https URL and returns it', () => {
@@ -174,5 +177,36 @@ describe('isWhatsAppLink — click destination may be a WhatsApp link off-domain
 
   it('rejects an unparseable string', () => {
     expect(isWhatsAppLink('not a url')).toBe(false);
+  });
+});
+
+describe('tryNormalizeWhatsAppLink — click destination accepts WhatsApp links + bare phones', () => {
+  it('returns a WhatsApp URL unchanged', () => {
+    expect(tryNormalizeWhatsAppLink('https://wa.me/6287779242054')).toBe(
+      'https://wa.me/6287779242054'
+    );
+    expect(tryNormalizeWhatsAppLink('https://api.whatsapp.com/send?phone=1555')).toBe(
+      'https://api.whatsapp.com/send?phone=1555'
+    );
+  });
+
+  it('normalizes a bare phone number to a wa.me link (the #372 gap)', () => {
+    expect(tryNormalizeWhatsAppLink('+62 877-7924-2054')).toBe('https://wa.me/6287779242054');
+    expect(tryNormalizeWhatsAppLink('6287779242054')).toBe('https://wa.me/6287779242054');
+  });
+
+  it('returns null for a non-WhatsApp URL (falls through to the on-domain rule)', () => {
+    expect(tryNormalizeWhatsAppLink('https://acme.com/welcome')).toBeNull();
+    expect(tryNormalizeWhatsAppLink('https://evil.com/x')).toBeNull();
+  });
+
+  it('returns null for a non-https WhatsApp URL', () => {
+    expect(tryNormalizeWhatsAppLink('http://wa.me/1555')).toBeNull();
+  });
+
+  it('returns null for garbage / non-string input', () => {
+    expect(tryNormalizeWhatsAppLink('not a url')).toBeNull();
+    expect(tryNormalizeWhatsAppLink('')).toBeNull();
+    expect(tryNormalizeWhatsAppLink(42 as unknown)).toBeNull();
   });
 });

@@ -176,6 +176,29 @@ describe('Click Destination Endpoints', () => {
     expect(res.body.clickDestinationUrl).toContain('wa.me/6287779242054');
   });
 
+  it('PUT an api.whatsapp.com link is accepted 200 off-domain', async () => {
+    const url = 'https://api.whatsapp.com/send?phone=6287779242054';
+    const res = await request(app)
+      .put(path(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ clickDestinationUrl: url });
+
+    expect(res.status).toBe(200);
+    expect(res.body.clickDestinationUrl).toBe(url);
+  });
+
+  // Bare phone number → accepted 200, normalized to a wa.me link (the #372 gap:
+  // a phone is not a valid http(s) URL so it must go through the WhatsApp path).
+  it('PUT a bare phone number is accepted 200 and normalized to a wa.me link', async () => {
+    const res = await request(app)
+      .put(path(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ clickDestinationUrl: '+62 877-7924-2054' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ clickDestinationUrl: 'https://wa.me/6287779242054' });
+  });
+
   // AC2 — reject non-http(s) URL
   it('PUT an ftp URL is rejected 400', async () => {
     const res = await request(app)
