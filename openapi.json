@@ -680,6 +680,15 @@
             ],
             "description": "Controls which pages are considered for extraction. url_map maps the site and selects relevant pages; landing skips URL mapping and extracts from the submitted brand URL only.",
             "example": "landing"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "extract",
+              "suggest"
+            ],
+            "description": "Extraction behavior. `extract` (default, or when omitted): site-grounded — returns the string \"Unknown\" (or [\"Unknown\"] for arrays) when the info is absent. `suggest`: a generative Alex-Hormozi + top-3-industry-expert persona that writes the most logical best-effort answer for every field, inferring from the business where the source is silent, and NEVER returns \"Unknown\"/empty (no fabricated absurd/unverifiable claims). The two modes use disjoint cache slots.",
+            "example": "suggest"
           }
         },
         "required": [

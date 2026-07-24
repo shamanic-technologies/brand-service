@@ -180,6 +180,16 @@ export interface ExtractedFieldResult {
 
 export type UrlStrategy = 'url_map' | 'landing';
 
+/**
+ * Extraction behavior selector.
+ * - `extract` (default): site-grounded extraction; returns "Unknown"/["Unknown"]
+ *   when the info is absent. Byte-identical to the pre-mode behavior.
+ * - `suggest`: generative best-effort — flips the prompt to an Alex-Hormozi +
+ *   top-3-industry-expert persona that always produces a plausible value and
+ *   NEVER returns "Unknown"/empty (see extractFieldsFromContent).
+ */
+export type ExtractionMode = 'extract' | 'suggest';
+
 interface Brand {
   id: string;
   url: string | null;
@@ -195,14 +205,26 @@ interface Brand {
  * the same `field_key` with different prompt descriptions resolves to
  * different cache slots — two callers asking for `industry` with different
  * extraction prompts do not pollute each other's cached value.
+ *
+ * `mode` also participates in the key so `extract` and `suggest` NEVER collide:
+ * the two modes can produce different values for the same (field, description),
+ * so a suggest result must never be served to an extract request or vice-versa.
+ * `extract` hashes the raw description (byte-identical to the pre-mode key, so
+ * every existing `brand_extracted_fields` slot stays valid after deploy);
+ * `suggest` salts the input, yielding a disjoint hash space.
  */
-export function hashFieldDescription(description: string): string {
-  return crypto.createHash('md5').update(description).digest('hex');
+export function hashFieldDescription(
+  description: string,
+  mode: ExtractionMode = 'extract',
+): string {
+  const input = mode === 'suggest' ? `mode:suggest ${description}` : description;
+  return crypto.createHash('md5').update(input).digest('hex');
 }
 
 async function getCachedFields(
   brandId: string,
   fields: FieldSpec[],
+  mode: ExtractionMode,
   campaignId?: string,
 ): Promise<Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>> {
   if (fields.length === 0) return new Map();
@@ -213,8 +235,9 @@ async function getCachedFields(
 
   // Expected (key → description hash) from the request. Within a single
   // request each field_key appears at most once, so the map is unambiguous.
+  // The hash includes `mode`, so a suggest request never matches an extract row.
   const expectedHashByKey = new Map<string, string>(
-    fields.map((f) => [f.key, hashFieldDescription(f.description)]),
+    fields.map((f) => [f.key, hashFieldDescription(f.description, mode)]),
   );
 
   const rows = await db
@@ -344,6 +367,7 @@ export async function extractFieldsFromContent(
   campaignContext: string | null,
   profileContext: string | null,
   urlStrategy: UrlStrategy,
+  mode: ExtractionMode = 'extract',
 ): Promise<Record<string, unknown>> {
   // Per-page cap is generous (100k chars ≈ 25k tokens) so services listed lower
   // on a long landing/pricing page still reach the model. Page counts are
@@ -396,10 +420,54 @@ export async function extractFieldsFromContent(
   // "shutting down on December 9, 2024" note surfaced in 2026) as current urgency.
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
+  // Two behaviors share the same content/schema/model/temperature and the same
+  // date guard; only the persona + the missing-info contract differ:
+  //  - extract (default): site-grounded, returns "Unknown"/["Unknown"] when the
+  //    info is absent. BYTE-IDENTICAL to the pre-mode prompt.
+  //  - suggest: an Alex-Hormozi + top-3-industry-expert persona that always
+  //    writes a plausible best-effort value and NEVER returns "Unknown"/empty.
+  const sourceNoun = pageContents.some((p) => p.url.startsWith('business-context://'))
+    ? 'business context'
+    : 'website content';
+
+  let systemPrompt: string;
+  let message: string;
+
+  if (mode === 'suggest') {
+    systemPrompt =
+      `You are an elite brand offer strategist. Today's date is ${today}. ` +
+      `Act as Alex Hormozi together with a panel of the top 3 experts in this brand's industry. ` +
+      `For each requested field, write the single most logical, specific, and compelling answer, ` +
+      `grounded in the scraped ${sourceNoun} plus any provided context. Where the source is silent on a field, ` +
+      `infer the most sensible answer from what the business evidently does. ` +
+      `NEVER return "Unknown", null, undefined, or empty values — always produce a best-effort answer for every field. ` +
+      `Never fabricate absurd, false, or unverifiable claims: do not invent specific numbers, named customers, ` +
+      `testimonials, awards, or guarantees that do not plainly exist. The user reviews and edits every output, ` +
+      `so favor a strong, plausible draft over a hedge. For any time-sensitive or urgency claim (deadlines, ` +
+      `countdowns, "shutting down on DATE", "ends soon", "limited time until DATE"), only treat it as current if ` +
+      `its date is on or after ${today}; if a referenced deadline has already passed, do NOT present it as live ` +
+      `urgency — instead infer a sensible current urgency/scarcity angle from the business rather than echoing the ` +
+      `stale date. Return ONLY valid JSON with the requested field keys.`;
+    message =
+      `Write the most logical, specific, and compelling answer for each of these fields:\n\n` +
+      `${fieldDescriptions}${profileBlock}${contextBlock}\n\n` +
+      `Today's date is ${today}. Treat any time-sensitive or urgency claim as current ONLY if its date is on or ` +
+      `after ${today}; if a deadline or countdown has already passed, do not present the stale date as live ` +
+      `urgency — infer a sensible current angle instead.\n\n` +
+      `${sourceNoun.charAt(0).toUpperCase()}${sourceNoun.slice(1)}:\n${combinedContent}\n\n` +
+      `Return a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. ` +
+      `NEVER return "Unknown", null, undefined, or empty strings/arrays — always produce a best-effort value. ` +
+      `Where the source is silent, infer the most sensible answer from the business (without fabricating absurd, ` +
+      `false, or unverifiable specifics). For array fields, return arrays of strings.`;
+  } else {
+    systemPrompt = `You are a brand information extraction assistant. Today's date is ${today}. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys. NEVER return null, undefined, or empty values — if information is not present in the content, return the string "Unknown" for string fields and ["Unknown"] for array fields. For any time-sensitive or urgency claim (deadlines, countdowns, "shutting down on DATE", "ends soon", "limited time until DATE"), only treat it as current if its date is on or after ${today}; if the referenced deadline has already passed, treat it as expired/stale and do NOT surface it as live urgency — return "Unknown" for that field instead of echoing the past-dated claim.`;
+    message = `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nToday's date is ${today}. Treat any time-sensitive or urgency claim as current ONLY if its date is on or after ${today}; if a deadline or countdown has already passed, treat it as expired and return "Unknown" for that field rather than presenting the stale deadline as live urgency.\n\nWebsite content:\n${combinedContent}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`;
+  }
+
   const result = await chat(
     {
-      systemPrompt: `You are a brand information extraction assistant. Today's date is ${today}. Analyze website content and extract the requested fields. Return ONLY valid JSON with the requested field keys. NEVER return null, undefined, or empty values — if information is not present in the content, return the string "Unknown" for string fields and ["Unknown"] for array fields. For any time-sensitive or urgency claim (deadlines, countdowns, "shutting down on DATE", "ends soon", "limited time until DATE"), only treat it as current if its date is on or after ${today}; if the referenced deadline has already passed, treat it as expired/stale and do NOT surface it as live urgency — return "Unknown" for that field instead of echoing the past-dated claim.`,
-      message: `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nToday's date is ${today}. Treat any time-sensitive or urgency claim as current ONLY if its date is on or after ${today}; if a deadline or countdown has already passed, treat it as expired and return "Unknown" for that field rather than presenting the stale deadline as live urgency.\n\nWebsite content:\n${combinedContent}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`,
+      systemPrompt,
+      message,
       provider: 'google',
       responseFormat: 'json',
       responseSchema,
@@ -422,12 +490,13 @@ async function upsertExtractedFields(
   brandId: string,
   fields: Array<{ key: string; description: string; value: unknown }>,
   sourceUrls: string[],
+  mode: ExtractionMode,
   campaignId?: string,
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
 
   for (const field of fields) {
-    const descriptionHash = hashFieldDescription(field.description);
+    const descriptionHash = hashFieldDescription(field.description, mode);
     if (campaignId) {
       await db
         .insert(brandExtractedFields)
@@ -526,6 +595,12 @@ export interface ExtractFieldsOptions {
   scrapeCacheTtlDays?: number;
   resetCache?: boolean;
   urlStrategy?: UrlStrategy;
+  /**
+   * Extraction behavior. `extract` (default) = site-grounded, returns "Unknown"
+   * when absent (byte-identical to pre-mode). `suggest` = generative best-effort
+   * persona that never returns "Unknown". Modes use disjoint cache slots.
+   */
+  mode?: ExtractionMode;
 }
 
 export async function extractFields(
@@ -533,6 +608,7 @@ export async function extractFields(
 ): Promise<ExtractedFieldResult[]> {
   const { brandId, fields, caller, resetCache } = options;
   const urlStrategy = options.urlStrategy ?? 'url_map';
+  const mode: ExtractionMode = options.mode ?? 'extract';
   const scrapeTtlDays = options.scrapeCacheTtlDays ?? DEFAULT_SCRAPE_CACHE_TTL_DAYS;
 
   const campaignId = caller.mode === 'org' ? caller.campaignId : undefined;
@@ -547,7 +623,7 @@ export async function extractFields(
     console.log(`[brand-service] [${brandId}] resetCache=true — bypassing all caches, re-extracting ${fields.length} fields`);
     missingFields = fields;
   } else {
-    const cached = await getCachedFields(brandId, fields, campaignId);
+    const cached = await getCachedFields(brandId, fields, mode, campaignId);
 
     missingFields = [];
     for (const field of fields) {
@@ -781,6 +857,15 @@ export async function extractFields(
         console.log(`[brand-service] [${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
       }
 
+      // In suggest mode we must NEVER return "Unknown", so we can't take the
+      // store-Unknown shortcut when URL selection finds nothing relevant. Fall
+      // back to the landing page so the generative persona always has the
+      // homepage to ground/infer from.
+      if (selectedUrls.length === 0 && mode === 'suggest') {
+        console.log(`[brand-service] [${brandId}] suggest mode + no relevant URLs — falling back to landing ${brandUrl}`);
+        selectedUrls = [brandUrl];
+      }
+
       if (selectedUrls.length === 0) {
         console.log(`[brand-service] [${brandId}] URL selection returned no relevant pages; storing Unknown for ${missingFields.length} fields`);
 
@@ -797,7 +882,7 @@ export async function extractFields(
           description: f.description,
           value: 'Unknown',
         }));
-        await upsertExtractedFields(brandId, fieldsToStore, [], campaignIdForRun);
+        await upsertExtractedFields(brandId, fieldsToStore, [], mode, campaignIdForRun);
 
         try {
           await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug, audienceId });
@@ -887,6 +972,7 @@ export async function extractFields(
       campaignContext,
       profileContext,
       urlStrategy,
+      mode,
     );
 
     traceEvent(run.id, {
@@ -904,7 +990,7 @@ export async function extractFields(
       description: f.description,
       value: extracted[f.key] ?? null,
     }));
-    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, campaignIdForRun);
+    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, mode, campaignIdForRun);
 
     // 8. Complete run
     try {

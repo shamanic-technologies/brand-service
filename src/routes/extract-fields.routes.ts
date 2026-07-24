@@ -73,6 +73,7 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
       scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
       resetCache: parsed.data.resetCache,
       urlStrategy: parsed.data.urlStrategy,
+      mode: parsed.data.mode,
     });
 
     return res.json(result);
@@ -132,6 +133,7 @@ internalRouter.post('/brands/extract-fields', async (req: Request, res: Response
       scrapeCacheTtlDays: parsed.data.scrapeCacheTtlDays,
       resetCache: parsed.data.resetCache,
       urlStrategy: parsed.data.urlStrategy,
+      mode: parsed.data.mode,
     });
 
     return res.json(result);
