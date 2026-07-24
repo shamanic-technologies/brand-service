@@ -2136,9 +2136,11 @@ registry.registerPath({
   description:
     'Persist the page outreach clicks should land on for this brand. Per-brand config ' +
     '(reused across the brand\'s campaigns), mirroring the sales-economics write route — NOT brand ' +
-    'global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL whose host is the ' +
-    "brand's OWN domain (or a subdomain of it; `www` is treated as the bare domain on both sides). " +
-    'Non-http(s), unparseable, or off-domain input (incl. lookalike suffixes like `<domain>.evil.com`) is ' +
+    'global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL that is EITHER on the ' +
+    "brand's OWN domain (or a subdomain of it; `www` is treated as the bare domain on both sides) OR a " +
+    'WhatsApp link (wa.me / whatsapp.com / api.whatsapp.com / chat.whatsapp.com, https) — a WhatsApp ' +
+    'destination is allowed off-domain so the outreach click can land in a WhatsApp chat. ' +
+    'Non-http(s), unparseable, or any other off-domain input (incl. lookalike suffixes like `<domain>.evil.com`) is ' +
     'rejected 400. Idempotent upsert: repeating the same PUT yields the same end ' +
     'state. Returns `{ clickDestinationUrl }` (the saved value). The brand must belong to the caller\'s ' +
     'org (x-org-id); a brand outside the org is rejected 403. Read it back via the `clickDestinationUrl` ' +

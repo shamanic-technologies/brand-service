@@ -26,6 +26,22 @@ const WHATSAPP_HOSTS = new Set([
   'chat.whatsapp.com',
 ]);
 
+/**
+ * True when `url` is an absolute https URL whose host is a recognised WhatsApp
+ * host (wa.me / whatsapp.com / api.whatsapp.com / chat.whatsapp.com). Used by the
+ * click-destination route to allow a WhatsApp link as an off-domain destination.
+ * Single source of the "what is a WhatsApp link" host set (see `WHATSAPP_HOSTS`).
+ */
+export function isWhatsAppLink(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return parsed.protocol === 'https:' && WHATSAPP_HOSTS.has(canonicalHost(parsed.hostname));
+}
+
 function canonicalHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, '');
 }

@@ -163,6 +163,19 @@ describe('Click Destination Endpoints', () => {
     expect(res.status).toBe(400);
   });
 
+  // A WhatsApp link is an allowed OFF-domain destination (the click can land in a
+  // WhatsApp chat) — see isWhatsAppLink in whatsAppLinkService.
+  it('PUT a wa.me WhatsApp link is accepted 200 even though it is off-domain', async () => {
+    const url = 'https://wa.me/6287779242054?text=Hello';
+    const res = await request(app)
+      .put(path(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ clickDestinationUrl: url });
+
+    expect(res.status).toBe(200);
+    expect(res.body.clickDestinationUrl).toContain('wa.me/6287779242054');
+  });
+
   // AC2 — reject non-http(s) URL
   it('PUT an ftp URL is rejected 400', async () => {
     const res = await request(app)
