@@ -2112,11 +2112,14 @@ export const UpsertClickDestinationRequestSchema = z
   .object({
     clickDestinationUrl: z
       .string()
-      .url()
+      .min(1)
       .openapi({
         description:
-          'The page outreach clicks should land on. Must be an absolute http(s) URL. ' +
-          'Non-http(s) or unparseable input is rejected 400.',
+          'The page outreach clicks should land on. Accepts an on-brand-domain absolute ' +
+          'http(s) URL, OR a WhatsApp link (wa.me / whatsapp.com / api.whatsapp.com / ' +
+          'chat.whatsapp.com, https) OR a phone number (7-15 digits, optional leading `+`) ' +
+          'normalized to `https://wa.me/<digits>`. An off-domain non-WhatsApp URL, or ' +
+          'non-http(s)/unparseable input, is rejected 400.',
         example: 'https://example.com/welcome',
       }),
   })
@@ -2136,9 +2139,12 @@ registry.registerPath({
   description:
     'Persist the page outreach clicks should land on for this brand. Per-brand config ' +
     '(reused across the brand\'s campaigns), mirroring the sales-economics write route — NOT brand ' +
-    'global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL whose host is the ' +
-    "brand's OWN domain (or a subdomain of it; `www` is treated as the bare domain on both sides). " +
-    'Non-http(s), unparseable, or off-domain input (incl. lookalike suffixes like `<domain>.evil.com`) is ' +
+    'global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL that is EITHER on the ' +
+    "brand's OWN domain (or a subdomain of it; `www` is treated as the bare domain on both sides) OR a " +
+    'WhatsApp link (wa.me / whatsapp.com / api.whatsapp.com / chat.whatsapp.com, https; or a bare phone ' +
+    'number 7-15 digits normalized to `https://wa.me/<digits>`) — a WhatsApp ' +
+    'destination is allowed off-domain so the outreach click can land in a WhatsApp chat. ' +
+    'Non-http(s), unparseable, or any other off-domain input (incl. lookalike suffixes like `<domain>.evil.com`) is ' +
     'rejected 400. Idempotent upsert: repeating the same PUT yields the same end ' +
     'state. Returns `{ clickDestinationUrl }` (the saved value). The brand must belong to the caller\'s ' +
     'org (x-org-id); a brand outside the org is rejected 403. Read it back via the `clickDestinationUrl` ' +

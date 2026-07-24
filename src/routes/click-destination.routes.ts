@@ -12,6 +12,7 @@ import {
   ClickDestinationValidationError,
 } from '../services/clickDestinationService';
 import { getBrand } from '../services/brandService';
+import { tryNormalizeWhatsAppLink } from '../services/whatsAppLinkService';
 
 export const orgRouter = Router();
 
@@ -21,7 +22,10 @@ export const orgRouter = Router();
  * Persist the brand's chosen click-destination URL — the page outreach clicks
  * should land on. Per-brand config (mirrors the sales-economics write route),
  * reused across the brand's campaigns. Body `{ clickDestinationUrl: string }`;
- * the URL must be an absolute http(s) URL (non-http(s) / unparseable → 400).
+ * the URL must be an absolute http(s) URL (non-http(s) / unparseable → 400) that
+ * is EITHER on the brand's own domain (or a subdomain) OR a WhatsApp link (wa.me /
+ * whatsapp.com / api.whatsapp.com / chat.whatsapp.com) — any other off-domain URL
+ * on a website brand is rejected 400.
  * Idempotent upsert. Returns `{ clickDestinationUrl }` (the saved value).
  *
  * Same auth as the per-brand sales-economics PUT: org-scoped + the brand must
@@ -51,12 +55,23 @@ orgRouter.put('/brands/:brandId/click-destination', async (req: Request, res: Re
 
     let clickDestinationUrl: string;
     try {
-      clickDestinationUrl = normalizeClickDestinationUrl(parsed.data.clickDestinationUrl);
-      // The own-domain constraint only applies to website brands. A no-website
-      // brand (domain null) has no site to constrain against, so any destination
-      // is allowed.
-      if (brand.domain) {
-        assertClickDestinationOnBrandDomain(clickDestinationUrl, brand.domain);
+      // A WhatsApp link/phone is accepted off-domain — the outreach click can
+      // legitimately land in a WhatsApp chat. Try it FIRST (reusing the single
+      // WhatsApp normalizer): this also lets a BARE phone number through, which
+      // is not a valid http(s) URL and would otherwise fail the parse below. It
+      // is normalized to `https://wa.me/<digits>`.
+      const whatsapp = tryNormalizeWhatsAppLink(parsed.data.clickDestinationUrl);
+      if (whatsapp) {
+        clickDestinationUrl = whatsapp;
+      } else {
+        // Not a WhatsApp value → an http(s) URL that, for a website brand, must
+        // be on the brand's OWN domain (or a subdomain). A no-website brand
+        // (domain null) has no site to constrain against, so any http(s) URL is
+        // allowed. Everything else is rejected 400.
+        clickDestinationUrl = normalizeClickDestinationUrl(parsed.data.clickDestinationUrl);
+        if (brand.domain) {
+          assertClickDestinationOnBrandDomain(clickDestinationUrl, brand.domain);
+        }
       }
     } catch (err) {
       if (err instanceof ClickDestinationValidationError) {

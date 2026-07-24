@@ -26,6 +26,22 @@ const WHATSAPP_HOSTS = new Set([
   'chat.whatsapp.com',
 ]);
 
+/**
+ * True when `url` is an absolute https URL whose host is a recognised WhatsApp
+ * host (wa.me / whatsapp.com / api.whatsapp.com / chat.whatsapp.com). Used by the
+ * click-destination route to allow a WhatsApp link as an off-domain destination.
+ * Single source of the "what is a WhatsApp link" host set (see `WHATSAPP_HOSTS`).
+ */
+export function isWhatsAppLink(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return parsed.protocol === 'https:' && WHATSAPP_HOSTS.has(canonicalHost(parsed.hostname));
+}
+
 function canonicalHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, '');
 }
@@ -80,6 +96,24 @@ export function normalizeWhatsAppLink(input: unknown): string {
   throw new WhatsAppLinkValidationError(
     'whatsAppLink must be a WhatsApp URL (wa.me / api.whatsapp.com) or a phone number (7-15 digits)'
   );
+}
+
+/**
+ * Non-throwing variant of `normalizeWhatsAppLink`: returns the normalized
+ * WhatsApp link when `input` is an accepted WhatsApp value (an https WhatsApp-host
+ * URL OR a bare phone number normalized to `https://wa.me/<digits>`), else null.
+ *
+ * Used by the click-destination route to accept a WhatsApp link/phone as an
+ * off-domain destination WITHOUT first requiring it to parse as an http(s) URL
+ * (a bare phone number is not a URL). Single source of "what is a WhatsApp link"
+ * — it delegates to `normalizeWhatsAppLink`, never re-defines the rules.
+ */
+export function tryNormalizeWhatsAppLink(input: unknown): string | null {
+  try {
+    return normalizeWhatsAppLink(input);
+  } catch {
+    return null;
+  }
 }
 
 export class WhatsAppLinkService {
