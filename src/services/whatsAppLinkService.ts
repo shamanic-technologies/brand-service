@@ -98,6 +98,24 @@ export function normalizeWhatsAppLink(input: unknown): string {
   );
 }
 
+/**
+ * Non-throwing variant of `normalizeWhatsAppLink`: returns the normalized
+ * WhatsApp link when `input` is an accepted WhatsApp value (an https WhatsApp-host
+ * URL OR a bare phone number normalized to `https://wa.me/<digits>`), else null.
+ *
+ * Used by the click-destination route to accept a WhatsApp link/phone as an
+ * off-domain destination WITHOUT first requiring it to parse as an http(s) URL
+ * (a bare phone number is not a URL). Single source of "what is a WhatsApp link"
+ * — it delegates to `normalizeWhatsAppLink`, never re-defines the rules.
+ */
+export function tryNormalizeWhatsAppLink(input: unknown): string | null {
+  try {
+    return normalizeWhatsAppLink(input);
+  } catch {
+    return null;
+  }
+}
+
 export class WhatsAppLinkService {
   /** The saved WhatsApp link for a brand, or null when unset (no row). */
   async getByBrandId(brandId: string): Promise<string | null> {
