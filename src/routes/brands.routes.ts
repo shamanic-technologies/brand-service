@@ -3,9 +3,10 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
+import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandWebsite, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
-import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema } from '../schemas';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, SetBrandWebsiteRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema } from '../schemas';
+import { resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 
 /** Max brand ids accepted per batch request. ~3.7KB query string at 36-char UUIDs. */
 const MAX_BATCH_IDS = 100;
@@ -40,13 +41,35 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
         details: parsed.error.flatten(),
       });
     }
-    const { url } = parsed.data;
+    const { url, name } = parsed.data;
     const orgId = req.orgId!;
     if (!req.userId) {
       return res.status(400).json({ error: 'x-user-id header is required' });
     }
     if (!req.runId) {
       return res.status(400).json({ error: 'x-run-id header is required' });
+    }
+
+    // Exactly one of `url` (website brand) or `name` (no-website brand) must be
+    // supplied. A website brand derives its identity from the URL/domain; a
+    // no-website brand is identified by the user-provided display name and
+    // extracts fields from its pasted business context instead of a scrape.
+    if (url && name) {
+      return res.status(400).json({ error: 'Provide either url (website brand) or name (no-website brand), not both' });
+    }
+    if (!url && !name) {
+      return res.status(400).json({ error: 'Either url (website brand) or name (no-website brand) is required' });
+    }
+
+    if (!url) {
+      // No-website brand: create by name, no domain dedup (each is distinct).
+      const brand = await createBrandWithoutWebsite(orgId, name!);
+      return res.json({
+        brandId: brand.id,
+        domain: brand.domain,
+        name: brand.name,
+        created: true,
+      });
     }
 
     const domain = extractDomain(url);
@@ -120,6 +143,61 @@ orgRouter.get('/brands', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('List brands error:', error);
     res.status(500).json({ error: error.message || 'Failed to list brands' });
+  }
+});
+
+/**
+ * PATCH /orgs/brands/:brandId
+ * Attach a website to an existing brand (e.g. a no-website brand whose user later
+ * adds their site). Sets brands.url + brands.domain. The extraction source-switch
+ * is automatic and rides the existing field cache: extractFields reads brands.url
+ * fresh on every call, so the next post-cache-expiry extraction re-sources from
+ * the site — no new TTL/cron. Body `{ url }`.
+ */
+orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const parsed = SetBrandWebsiteRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const { code, message } = parseZodIssueCode(issue?.message);
+      return res.status(400).json({
+        error: 'Invalid request',
+        code,
+        field: issue?.path?.join('.') ?? 'url',
+        message,
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    try {
+      const brand = await updateBrandWebsite(brandId, parsed.data.url);
+      return res.json({
+        brandId: brand.id,
+        domain: brand.domain,
+        name: brand.name,
+        url: brand.url,
+      });
+    } catch (err) {
+      if (err instanceof BrandDomainConflictError) {
+        return res.status(409).json({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
+  } catch (error: unknown) {
+    if (error instanceof InvalidUrlError || error instanceof UrlRequiredError) {
+      return res.status(400).json({ error: error.message, code: error.code, field: error.field, message: error.message });
+    }
+    console.error('[brand-service] Set brand website error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to set brand website';
+    res.status(500).json({ error: message });
   }
 });
 
@@ -238,7 +316,9 @@ internalRouter.get('/brands/all', async (_req: Request, res: Response) => {
 
     const result = rows.map((r) => ({
       id: r.id,
-      name: r.name ?? titlecaseDomain(r.domain),
+      // No-website brands always have a user-provided name (r.name); website
+      // brands fall back to the titlecased domain when name isn't filled yet.
+      name: r.name ?? (r.domain ? titlecaseDomain(r.domain) : 'Unknown'),
       domain: r.domain,
       orgId: r.orgId,
     }));

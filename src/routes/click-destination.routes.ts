@@ -52,7 +52,12 @@ orgRouter.put('/brands/:brandId/click-destination', async (req: Request, res: Re
     let clickDestinationUrl: string;
     try {
       clickDestinationUrl = normalizeClickDestinationUrl(parsed.data.clickDestinationUrl);
-      assertClickDestinationOnBrandDomain(clickDestinationUrl, brand.domain);
+      // The own-domain constraint only applies to website brands. A no-website
+      // brand (domain null) has no site to constrain against, so any destination
+      // is allowed.
+      if (brand.domain) {
+        assertClickDestinationOnBrandDomain(clickDestinationUrl, brand.domain);
+      }
     } catch (err) {
       if (err instanceof ClickDestinationValidationError) {
         return res.status(400).json({ error: err.message });

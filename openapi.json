@@ -174,14 +174,85 @@
         "properties": {
           "url": {
             "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "description": "Create or return a brand. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized server-side; rejects localhost/IP literals/no-TLD) OR `name` (no-website brand — a user-provided display name; fields are later extracted from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.",
+        "example": {
+          "url": "https://acme.com"
+        }
+      },
+      "SetBrandWebsiteResponse": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "brandId",
+          "domain",
+          "name",
+          "url"
+        ]
+      },
+      "SetBrandWebsiteRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
           }
         },
         "required": [
           "url"
         ],
-        "description": "Brand website URL. Accepts either bare domain (acme.com) or full URL (https://acme.com). Normalized server-side. Rejects localhost, IP literals, and inputs without a valid TLD.",
+        "description": "Attach a website to an existing brand (e.g. a no-website brand whose user later adds their site). URL may be a bare domain or full URL; normalized server-side. Sets the brand's url + domain. The next post-cache-expiry field extraction re-sources from the site (rides the existing field cache — no new TTL).",
         "example": {
           "url": "https://acme.com"
+        }
+      },
+      "BusinessContextResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "PutBusinessContextRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "description": "Free-form business-context text used as the field-extraction source for a brand with NO website. Can be large (up to ~1MB / ~300k chars — think several pasted PDFs). Idempotent per brand.",
+        "example": {
+          "content": "Acme Corp is a B2B SaaS that helps ..."
         }
       },
       "ListBrandsResponse": {
@@ -264,23 +335,27 @@
           },
           "domain": {
             "type": "string",
-            "description": "Normalized domain (subdomains preserved, www stripped)"
+            "nullable": true,
+            "description": "Normalized domain (subdomains preserved, www stripped). `null` for a no-website brand (identified by `name`)."
           },
           "url": {
             "type": "string",
-            "description": "Full brand website URL"
+            "nullable": true,
+            "description": "Full brand website URL. `null` for a no-website brand."
           },
           "name": {
             "type": "string",
-            "description": "Brand display name. Lazy-extracted from the website on first read if missing."
+            "description": "Brand display name. Lazy-extracted from the website on first read if missing; user-provided for a no-website brand."
           },
           "logoUrl": {
             "type": "string",
-            "description": "Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing."
+            "nullable": true,
+            "description": "Logo image URL. Lazy-filled with a deterministic logo.dev URL on first read if missing. `null` for a no-website brand (no domain to build one from)."
           },
           "clickDestinationUrl": {
             "type": "string",
-            "description": "Page outreach clicks should land on. Never null: defaults to the brand's own landing URL (`url`) when the user has not set an override, so the value is always a valid href. Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination."
+            "nullable": true,
+            "description": "Page outreach clicks should land on. Defaults to the brand's own landing URL (`url`) when the user has not set an override. `null` only for a no-website brand with no override (no landing URL to fall back to). Per-brand config, set via PUT /orgs/brands/{brandId}/click-destination."
           },
           "whatsAppLink": {
             "type": "string",
@@ -440,7 +515,7 @@
           },
           "domain": {
             "type": "string",
-            "description": "Brand domain",
+            "description": "Brand domain (falls back to the brand UUID for a no-website brand)",
             "example": "acme.com"
           },
           "name": {
@@ -450,7 +525,8 @@
           },
           "brandUrl": {
             "type": "string",
-            "description": "Full brand URL",
+            "nullable": true,
+            "description": "Full brand URL. `null` for a no-website brand (extracts from pasted context).",
             "example": "https://acme.com"
           }
         },
@@ -2116,8 +2192,8 @@
     },
     "/orgs/brands": {
       "post": {
-        "summary": "Upsert a brand by orgId + URL (no scraping)",
-        "description": "Creates or returns a brand for the given organization. URL may be a bare domain (acme.com) or full URL (https://acme.com); the service normalizes input and derives the domain. Rejects unparseable input, localhost, and IP literals with code INVALID_URL.",
+        "summary": "Create or return a brand by URL (website) or name (no-website)",
+        "description": "Creates or returns a brand for the given organization. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL) OR `name` (no-website brand — created fresh each time, no domain dedup; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2139,7 +2215,7 @@
             }
           },
           "400": {
-            "description": "Invalid or missing URL",
+            "description": "Invalid/missing URL, or neither/both of url and name provided",
             "content": {
               "application/json": {
                 "schema": {
@@ -2168,6 +2244,122 @@
           },
           "400": {
             "description": "Missing orgId"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}": {
+      "patch": {
+        "summary": "Attach a website to an existing brand",
+        "description": "Sets brands.url + brands.domain on an existing brand (e.g. a no-website brand whose user later adds their site). The next post-cache-expiry field extraction re-sources from the site automatically (rides the existing field cache — no new TTL). 409 if the derived domain is already claimed by a different brand.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBrandWebsiteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Website attached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetBrandWebsiteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brand not owned by the requesting org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "409": {
+            "description": "Domain already claimed by another brand"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/business-context": {
+      "get": {
+        "summary": "Get a brand's pasted business context",
+        "description": "Returns the free-form business-context text used as the field-extraction source for a no-website brand, or `{ content: null }` when unset.",
+        "responses": {
+          "200": {
+            "description": "Business context (or null)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessContextResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID"
+          },
+          "403": {
+            "description": "Brand not owned by the requesting org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set a brand's pasted business context (no-website extraction source)",
+        "description": "Stores the free-form business context a brand with no website is extracted from. Large bodies (up to ~1MB) accepted. Idempotent per brand.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutBusinessContextRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessContextResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or empty content"
+          },
+          "403": {
+            "description": "Brand not owned by the requesting org"
+          },
+          "404": {
+            "description": "Brand not found"
           },
           "500": {
             "description": "Internal server error"

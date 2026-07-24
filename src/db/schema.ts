@@ -22,8 +22,15 @@ export const pgmigrations = pgTable("pgmigrations", {
  */
 export const brands = pgTable("brands", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
-	domain: text().notNull(),
-	url: text().notNull(),
+	// `domain` and `url` are NULLABLE: a brand created WITHOUT a website (the
+	// no-website onboarding flow) has neither. Such a brand is identified by its
+	// user-provided `name` instead, and its extraction source is the pasted
+	// business context (brand_business_context) rather than a scraped site. The
+	// unique index on `domain` still dedups website brands (Postgres treats NULLs
+	// as distinct, so multiple no-website brands each get their own row — correct:
+	// two nameless-domain businesses are genuinely distinct identities).
+	domain: text(),
+	url: text(),
 	name: text(),
 	logoUrl: text("logo_url"),
 	currentGoal: text("current_goal").default('purchase').notNull(),
@@ -195,6 +202,30 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
 		name: "brand_whatsapp_links_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
+ * Brand business context — the free-form text a user pastes when their brand
+ * has NO website. It is the ALTERNATIVE field-extraction SOURCE to a scraped
+ * site: when a brand has no `url`, `fieldExtractionService.extractFields` reads
+ * this text and runs the same LLM extraction against it instead of scraping.
+ * One row per brand (PK = brand_id), durable (no TTL — this is user-authored
+ * input, not the ephemeral extract cache). `content` can be large (~1MB / ~300k
+ * chars — think several pasted PDFs); Postgres `text` has no practical limit and
+ * the write route raises the body-size cap. Per-brand config, mirrors
+ * click-destination / whatsapp-link scoping — never on the brand identity row.
+ */
+export const brandBusinessContext = pgTable("brand_business_context", {
+	brandId: uuid("brand_id").primaryKey(),
+	content: text().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_business_context_brand_id_fkey",
 	}).onDelete("cascade"),
 ]);
 

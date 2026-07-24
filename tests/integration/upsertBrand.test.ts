@@ -25,7 +25,7 @@ describe('POST /brands - Upsert Brand', () => {
     expect(response.status).toBe(401);
   });
 
-  it('should return 400 if url is missing', async () => {
+  it('should return 400 if neither url nor name is provided', async () => {
     const orgId = randomUUID();
     const response = await request(app)
       .post('/orgs/brands')
@@ -33,7 +33,8 @@ describe('POST /brands - Upsert Brand', () => {
       .send({});
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toBe('Invalid request');
+    // A brand needs EITHER a website url OR a display name (no-website brand).
+    expect(response.body.error).toMatch(/url .* or name/i);
   });
 
   it('should create a new brand and return created=true', async () => {
@@ -240,15 +241,17 @@ describe('POST /brands - Upsert Brand', () => {
     expect(response.body.code).toBe('INVALID_URL');
   });
 
-  it('rejects empty URL with INVALID_URL', async () => {
+  it('rejects an empty URL (treated as no url provided) with 400', async () => {
     const orgId = randomUUID();
     const response = await request(app)
       .post('/orgs/brands')
       .set(getAuthHeaders(orgId, randomUUID()))
       .send({ url: '' });
 
+    // An empty url string is normalized to "absent"; with no name either, the
+    // request is rejected as "url or name required".
     expect(response.status).toBe(400);
-    expect(response.body.code).toBe('INVALID_URL');
+    expect(response.body.error).toMatch(/url .* or name/i);
   });
 
   it('returns 400 when x-user-id header is missing', async () => {

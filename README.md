@@ -86,7 +86,10 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/orgs/brands` | Upsert brand by orgId + URL (accepts bare domain or full URL) |
+| POST | `/orgs/brands` | Create/return a brand. Provide EITHER `url` (website brand — bare domain or full URL, domain-deduped) OR `name` (no-website brand — created fresh each time, no dedup; fields later extracted from pasted business context). Exactly one required (else 400) |
+| PATCH | `/orgs/brands/:brandId` | Attach a website (`{ url }`) to an existing brand (e.g. a no-website brand whose user later adds their site). Sets url + domain; the next post-cache-expiry field extraction re-sources from the site (rides the existing field cache — no new TTL). 409 if the domain is already claimed by another brand; 403 if not in caller's org |
+| GET | `/orgs/brands/:brandId/business-context` | Read the brand's pasted business context (the no-website field-extraction source), or `{ content: null }` when unset. 403 if brand not in caller's org |
+| PUT | `/orgs/brands/:brandId/business-context` | Set the brand's business context (`{ content }`, up to ~1MB). Idempotent upsert; used as the extraction source when the brand has no website. 403 if brand not in caller's org |
 | GET | `/orgs/brands` | List brands by orgId |
 | POST | `/orgs/brands/extract-fields` | Multi-brand field extraction (reads `x-brand-id` header). Response carries a sibling `provenance: Record<key, 'confirmed'\|'suggested'\|'extracted'>`: a user-facing key (services, dreamOutcome, perceivedLikelihood, socialProof, riskReversal, urgency, scarcity) with a confirmed value is overlaid + tagged `confirmed`; a user-facing key without one is `suggested` (value = auto-extract prefill); any other key is `extracted` |
 | POST | `/orgs/brands/extract-images` | Multi-brand image extraction (reads `x-brand-id` header) |
@@ -216,7 +219,8 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 
 Uses Drizzle ORM with PostgreSQL (Neon). Key tables:
 
-- `brands` — global silver brand identity keyed by normalized domain, with `current_goal` (`signup`/`meetingBooked`/`purchase`) as the brand-owned runtime goal
+- `brands` — global silver brand identity keyed by normalized domain, with `current_goal` (`signup`/`meetingBooked`/`purchase`) as the brand-owned runtime goal. `url` and `domain` are NULLABLE: a no-website brand (created via `POST /orgs/brands { name }`) has neither and is identified by its user-provided `name`; it extracts fields from its pasted business context instead of a scrape
+- `brand_business_context` — one row per brand: the free-form text (`content`, up to ~1MB) a no-website brand is field-extracted from (the alternative source to a scraped site). DURABLE (no TTL — user-authored input). Per-brand config (mirrors `brand_click_destinations` scoping)
 - `brand_linkedin_posts`
 - `individuals`, `brand_individuals`, `individuals_pdl_enrichment`
 - `media_assets`, `supabase_storage`

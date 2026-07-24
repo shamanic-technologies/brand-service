@@ -25,9 +25,25 @@ import { getCampaignFeatureInputs } from '../lib/campaign-client';
 import { traceEvent } from '../lib/trace-event';
 import { brandProfileService } from './brandProfileService';
 import { buildProfileContextBlock } from './profileContext';
+import { getBrandBusinessContext } from './brandBusinessContextService';
 
 const CACHE_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
 const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180; // 6 months
+
+// Business context (pasted when a brand has no website) is fed to the LLM through
+// the SAME extractFieldsFromContent path as scraped pages, which caps each "page"
+// at 100k chars. Chunk the pasted text into ≤100k-char segments so nothing is
+// sliced — worst case ~1MB ≈ 10 chunks, well within Gemini's context window.
+const BUSINESS_CONTEXT_CHUNK_CHARS = 100000;
+
+/** Split pasted business context into ≤100k-char chunks (never empty). */
+export function chunkBusinessContext(text: string): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += BUSINESS_CONTEXT_CHUNK_CHARS) {
+    chunks.push(text.slice(i, i + BUSINESS_CONTEXT_CHUNK_CHARS));
+  }
+  return chunks.length > 0 ? chunks : [text];
+}
 
 /** Show first 3 names then "+N more" for the rest */
 export function formatFieldPreview(keys: string[], maxShown = 3): string {
@@ -561,10 +577,22 @@ export async function extractFields(
     }
   }
 
-  // 2. Need extraction — look up brand
+  // 2. Need extraction — look up brand and resolve the extraction SOURCE.
   const brand = await getBrand(brandId);
   if (!brand) throw new Error('Brand not found');
-  if (!brand.url) throw new Error('Brand has no URL');
+
+  // Source switch: a brand WITH a website scrapes+extracts from the site (as
+  // before, unchanged). A brand with NO website extracts from its pasted
+  // business context instead. `extractFields` reads `brand.url` fresh on every
+  // call, so when a URL is added later the next post-cache-expiry extraction
+  // naturally re-sources from the site — no new TTL/cron. Fail loud when a brand
+  // has NEITHER source (no fabrication, no silent empty result).
+  const businessContext = brand.url ? null : await getBrandBusinessContext(brandId);
+  if (!brand.url && !businessContext) {
+    throw new Error(
+      `Brand ${brandId} has neither a website URL nor pasted business context to extract from`,
+    );
+  }
 
   // Build the identity context used for tracking infrastructure (runs-service,
   // scraping-service, trace events). For org mode this comes from the caller.
@@ -612,9 +640,9 @@ export async function extractFields(
   traceEvent(run.id, {
     service: 'brand-service',
     event: 'field-extraction-start',
-    detail: `Extracting ${missingFields.length} fields for brand ${brandId} (${brand.url}): ${formatFieldPreview(missingFields.map(f => f.key))}`,
+    detail: `Extracting ${missingFields.length} fields for brand ${brandId} (${brand.url ?? 'pasted business context'}): ${formatFieldPreview(missingFields.map(f => f.key))}`,
     level: 'info',
-    data: { brandId, fieldCount: missingFields.length, cachedCount: cachedResults.length, url: brand.url },
+    data: { brandId, fieldCount: missingFields.length, cachedCount: cachedResults.length, url: brand.url, source: brand.url ? 'website' : 'business-context' },
   }, traceHeaders).catch(() => {});
 
   const scrapingTracking: ScrapingTrackingContext = {
@@ -656,173 +684,198 @@ export async function extractFields(
       .map((f) => `- ${f.key}: ${f.description}`)
       .join('\n');
 
-    let allUrls: string[] = [brand.url];
-    let selectedUrls: string[];
+    // Content to feed the extractor — populated from EITHER the pasted business
+    // context (no website) OR the scraped website pages (has website).
+    let successfulScrapes: { url: string; content: string }[];
 
-    if (urlStrategy === 'landing') {
-      selectedUrls = [brand.url];
-      console.log(`[brand-service] [${brandId}] Using landing URL strategy; scraping only ${brand.url}`);
+    if (!brand.url) {
+      // ── SOURCE: pasted business context (brand has no website) ──
+      // Chunk into ≤100k-char "pages" so extractFieldsFromContent's per-page cap
+      // never slices the text; the synthetic source markers are never scraped.
+      const chunks = chunkBusinessContext(businessContext!);
+      successfulScrapes = chunks.map((content, i) => ({
+        url: `business-context://${brandId}#${i + 1}`,
+        content,
+      }));
+      console.log(`[brand-service] [${brandId}] No website; extracting ${missingFields.length} fields from pasted business context (${businessContext!.length} chars, ${chunks.length} chunk(s))`);
       traceEvent(run.id, {
         service: 'brand-service',
-        event: 'url-selection-complete',
-        detail: `Landing URL strategy selected ${brand.url}`,
+        event: 'business-context-source',
+        detail: `Extracting ${missingFields.length} fields from pasted business context (${businessContext!.length} chars, ${chunks.length} chunk(s)) — brand has no website`,
         level: 'info',
-        data: { brandId, urlStrategy, selectedUrls },
+        data: { brandId, chars: businessContext!.length, chunks: chunks.length },
       }, traceHeaders).catch(() => {});
     } else {
-      // 3. Map site URLs (DB-cached to survive redeploys)
-      console.log(`[brand-service] [${brandId}] Mapping site URLs for: ${brand.url}`);
-      try {
-        let primaryUrls: string[];
-        const cachedMap = resetCache ? null : await getCachedUrlMap(brand.url);
-        if (cachedMap) {
-          console.log(`[brand-service] [${brandId}] URL map cache hit for ${brand.url} (${cachedMap.length} URLs)`);
-          primaryUrls = cachedMap;
-        } else {
-          primaryUrls = await mapSiteUrls(brand.url, scrapingTracking);
-          await upsertUrlMap(brand.url, primaryUrls, scrapeTtlDays).catch((err) =>
-            console.warn(`[brand-service] [${brandId}] Failed to cache URL map: ${err.message}`),
-          );
-        }
+      // ── SOURCE: scraped website (unchanged behavior) ──
+      const brandUrl: string = brand.url;
+      let allUrls: string[] = [brandUrl];
+      let selectedUrls: string[];
 
-        const mapResults: string[][] = [primaryUrls];
-
-        // If the brand URL is on a subdomain, also map the root domain
-        const rootDomainUrl = getRootDomainUrl(brand.url);
-        if (rootDomainUrl && rootDomainUrl !== brand.url) {
-          const cachedRootMap = resetCache ? null : await getCachedUrlMap(rootDomainUrl);
-          if (cachedRootMap) {
-            console.log(`[brand-service] [${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
-            mapResults.push(cachedRootMap);
-          } else {
-            console.log(`[brand-service] [${brandId}] Also mapping root domain: ${rootDomainUrl}`);
-            try {
-              const rootUrls = await mapSiteUrls(rootDomainUrl, scrapingTracking);
-              await upsertUrlMap(rootDomainUrl, rootUrls, scrapeTtlDays).catch((err) =>
-                console.warn(`[brand-service] [${brandId}] Failed to cache root URL map: ${err.message}`),
-              );
-              mapResults.push(rootUrls);
-            } catch (err: any) {
-              console.warn(`[brand-service] [${brandId}] Root domain mapping failed: ${err.message}`);
-            }
-          }
-        }
-
-        allUrls = [...new Set(mapResults.flat())];
-        console.log(`[brand-service] [${brandId}] Found ${allUrls.length} unique URLs`);
+      if (urlStrategy === 'landing') {
+        selectedUrls = [brandUrl];
+        console.log(`[brand-service] [${brandId}] Using landing URL strategy; scraping only ${brandUrl}`);
         traceEvent(run.id, {
           service: 'brand-service',
-          event: 'url-map-complete',
-          detail: `Mapped ${allUrls.length} unique URLs for ${brand.url}`,
+          event: 'url-selection-complete',
+          detail: `Landing URL strategy selected ${brandUrl}`,
           level: 'info',
-          data: { urlCount: allUrls.length, brandUrl: brand.url },
+          data: { brandId, urlStrategy, selectedUrls },
         }, traceHeaders).catch(() => {});
-      } catch (mapError: any) {
-        console.warn(`[brand-service] [${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
-        allUrls = [brand.url];
-      }
-      if (allUrls.length === 0) allUrls = [brand.url];
-
-      // 4. Select relevant URLs via chat-service
-      console.log(`[brand-service] [${brandId}] Selecting relevant URLs...`);
-      selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, chatCaller, campaignContext);
-      console.log(`[brand-service] [${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
-    }
-
-    if (selectedUrls.length === 0) {
-      console.log(`[brand-service] [${brandId}] URL selection returned no relevant pages; storing Unknown for ${missingFields.length} fields`);
-
-      traceEvent(run.id, {
-        service: 'brand-service',
-        event: 'url-selection-empty',
-        detail: `No relevant URLs selected for ${missingFields.length} fields: ${formatFieldPreview(missingFields.map(f => f.key))}`,
-        level: 'info',
-        data: { brandId, fieldCount: missingFields.length, availableUrlCount: allUrls.length },
-      }, traceHeaders).catch(() => {});
-
-      const fieldsToStore = missingFields.map((f) => ({
-        key: f.key,
-        description: f.description,
-        value: 'Unknown',
-      }));
-      await upsertExtractedFields(brandId, fieldsToStore, [], campaignIdForRun);
-
-      try {
-        await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug, audienceId });
-      } catch (err) {
-        console.warn(`[brand-service] [${brandId}] Failed to complete run ${run.id}:`, err);
-      }
-
-      const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
-      const now = new Date().toISOString();
-      const freshResults: ExtractedFieldResult[] = missingFields.map((f) => ({
-        key: f.key,
-        value: 'Unknown',
-        cached: false,
-        extractedAt: now,
-        expiresAt,
-        sourceUrls: [],
-      }));
-
-      traceEvent(run.id, {
-        service: 'brand-service',
-        event: 'field-extraction-complete',
-        detail: `Completed with no relevant URLs: ${cachedResults.length} cached + ${freshResults.length} Unknown = ${cachedResults.length + freshResults.length} total fields`,
-        level: 'info',
-        data: { cached: cachedResults.length, extracted: freshResults.length, total: cachedResults.length + freshResults.length, sourceUrls: 0 },
-      }, traceHeaders).catch(() => {});
-
-      return [...cachedResults, ...freshResults];
-    }
-
-    // 5. Scrape pages (DB-cached to survive redeploys)
-    const urlsToScrape: string[] = [];
-    const cachedPages: { url: string; content: string }[] = [];
-    for (const url of selectedUrls) {
-      const cachedContent = resetCache ? null : await getCachedPageContent(url);
-      if (cachedContent) {
-        cachedPages.push({ url, content: cachedContent });
       } else {
-        urlsToScrape.push(url);
-      }
-    }
-    if (cachedPages.length > 0) {
-      console.log(`[brand-service] [${brandId}] Page cache hit for ${cachedPages.length}/${selectedUrls.length} URLs`);
-    }
-    if (urlsToScrape.length > 0) {
-      console.log(`[brand-service] [${brandId}] Scraping ${urlsToScrape.length} pages (${cachedPages.length} cached)...`);
-    } else {
-      console.log(`[brand-service] [${brandId}] All ${selectedUrls.length} pages served from cache`);
-    }
-    const scrapePromises = urlsToScrape.map((url) =>
-      scrapeUrl(url, scrapingTracking).then(async (content) => {
-        if (content) {
-          await upsertPageContent(url, content, scrapeTtlDays).catch((err) =>
-            console.warn(`[brand-service] [${brandId}] Failed to cache page content for ${url}: ${err.message}`),
-          );
-        }
-        return { url, content: content || '' };
-      }),
-    );
-    const freshPages = await Promise.all(scrapePromises);
-    const pageContents = [...cachedPages, ...freshPages];
-    const successfulScrapes = pageContents.filter((p) => p.content);
-    console.log(`[brand-service] [${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
-    traceEvent(run.id, {
-      service: 'brand-service',
-      event: 'scrape-complete',
-      detail: `Scraped ${successfulScrapes.length}/${selectedUrls.length} pages (${cachedPages.length} from cache, ${urlsToScrape.length} fresh)`,
-      level: 'info',
-      data: { scraped: successfulScrapes.length, total: selectedUrls.length, cached: cachedPages.length, fresh: urlsToScrape.length },
-    }, traceHeaders).catch(() => {});
+        // 3. Map site URLs (DB-cached to survive redeploys)
+        console.log(`[brand-service] [${brandId}] Mapping site URLs for: ${brandUrl}`);
+        try {
+          let primaryUrls: string[];
+          const cachedMap = resetCache ? null : await getCachedUrlMap(brandUrl);
+          if (cachedMap) {
+            console.log(`[brand-service] [${brandId}] URL map cache hit for ${brandUrl} (${cachedMap.length} URLs)`);
+            primaryUrls = cachedMap;
+          } else {
+            primaryUrls = await mapSiteUrls(brandUrl, scrapingTracking);
+            await upsertUrlMap(brandUrl, primaryUrls, scrapeTtlDays).catch((err) =>
+              console.warn(`[brand-service] [${brandId}] Failed to cache URL map: ${err.message}`),
+            );
+          }
 
-    if (successfulScrapes.length === 0) {
-      const emptyUrls = pageContents
-        .filter((p) => !p.content)
-        .map((p) => p.url);
-      throw new Error(
-        `[brand-service] Failed to scrape any usable pages for brand ${brandId}: selected=${selectedUrls.length}, cached=${cachedPages.length}, fresh=${urlsToScrape.length}, empty=${emptyUrls.length}, urls=${emptyUrls.slice(0, 10).join(', ')}`,
+          const mapResults: string[][] = [primaryUrls];
+
+          // If the brand URL is on a subdomain, also map the root domain
+          const rootDomainUrl = getRootDomainUrl(brandUrl);
+          if (rootDomainUrl && rootDomainUrl !== brandUrl) {
+            const cachedRootMap = resetCache ? null : await getCachedUrlMap(rootDomainUrl);
+            if (cachedRootMap) {
+              console.log(`[brand-service] [${brandId}] URL map cache hit for root domain ${rootDomainUrl}`);
+              mapResults.push(cachedRootMap);
+            } else {
+              console.log(`[brand-service] [${brandId}] Also mapping root domain: ${rootDomainUrl}`);
+              try {
+                const rootUrls = await mapSiteUrls(rootDomainUrl, scrapingTracking);
+                await upsertUrlMap(rootDomainUrl, rootUrls, scrapeTtlDays).catch((err) =>
+                  console.warn(`[brand-service] [${brandId}] Failed to cache root URL map: ${err.message}`),
+                );
+                mapResults.push(rootUrls);
+              } catch (err: any) {
+                console.warn(`[brand-service] [${brandId}] Root domain mapping failed: ${err.message}`);
+              }
+            }
+          }
+
+          allUrls = [...new Set(mapResults.flat())];
+          console.log(`[brand-service] [${brandId}] Found ${allUrls.length} unique URLs`);
+          traceEvent(run.id, {
+            service: 'brand-service',
+            event: 'url-map-complete',
+            detail: `Mapped ${allUrls.length} unique URLs for ${brandUrl}`,
+            level: 'info',
+            data: { urlCount: allUrls.length, brandUrl },
+          }, traceHeaders).catch(() => {});
+        } catch (mapError: any) {
+          console.warn(`[brand-service] [${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
+          allUrls = [brandUrl];
+        }
+        if (allUrls.length === 0) allUrls = [brandUrl];
+
+        // 4. Select relevant URLs via chat-service
+        console.log(`[brand-service] [${brandId}] Selecting relevant URLs...`);
+        selectedUrls = await selectRelevantUrls(allUrls, fieldsDescription, chatCaller, campaignContext);
+        console.log(`[brand-service] [${brandId}] Selected ${selectedUrls.length} URLs:`, selectedUrls);
+      }
+
+      if (selectedUrls.length === 0) {
+        console.log(`[brand-service] [${brandId}] URL selection returned no relevant pages; storing Unknown for ${missingFields.length} fields`);
+
+        traceEvent(run.id, {
+          service: 'brand-service',
+          event: 'url-selection-empty',
+          detail: `No relevant URLs selected for ${missingFields.length} fields: ${formatFieldPreview(missingFields.map(f => f.key))}`,
+          level: 'info',
+          data: { brandId, fieldCount: missingFields.length, availableUrlCount: allUrls.length },
+        }, traceHeaders).catch(() => {});
+
+        const fieldsToStore = missingFields.map((f) => ({
+          key: f.key,
+          description: f.description,
+          value: 'Unknown',
+        }));
+        await upsertExtractedFields(brandId, fieldsToStore, [], campaignIdForRun);
+
+        try {
+          await updateRun(run.id, 'completed', { orgId: trackingOrgId, userId: trackingUserId, runId: run.id, campaignId: campaignIdForRun, featureSlug, brandIdHeader, workflowSlug, audienceId });
+        } catch (err) {
+          console.warn(`[brand-service] [${brandId}] Failed to complete run ${run.id}:`, err);
+        }
+
+        const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
+        const now = new Date().toISOString();
+        const freshResults: ExtractedFieldResult[] = missingFields.map((f) => ({
+          key: f.key,
+          value: 'Unknown',
+          cached: false,
+          extractedAt: now,
+          expiresAt,
+          sourceUrls: [],
+        }));
+
+        traceEvent(run.id, {
+          service: 'brand-service',
+          event: 'field-extraction-complete',
+          detail: `Completed with no relevant URLs: ${cachedResults.length} cached + ${freshResults.length} Unknown = ${cachedResults.length + freshResults.length} total fields`,
+          level: 'info',
+          data: { cached: cachedResults.length, extracted: freshResults.length, total: cachedResults.length + freshResults.length, sourceUrls: 0 },
+        }, traceHeaders).catch(() => {});
+
+        return [...cachedResults, ...freshResults];
+      }
+
+      // 5. Scrape pages (DB-cached to survive redeploys)
+      const urlsToScrape: string[] = [];
+      const cachedPages: { url: string; content: string }[] = [];
+      for (const url of selectedUrls) {
+        const cachedContent = resetCache ? null : await getCachedPageContent(url);
+        if (cachedContent) {
+          cachedPages.push({ url, content: cachedContent });
+        } else {
+          urlsToScrape.push(url);
+        }
+      }
+      if (cachedPages.length > 0) {
+        console.log(`[brand-service] [${brandId}] Page cache hit for ${cachedPages.length}/${selectedUrls.length} URLs`);
+      }
+      if (urlsToScrape.length > 0) {
+        console.log(`[brand-service] [${brandId}] Scraping ${urlsToScrape.length} pages (${cachedPages.length} cached)...`);
+      } else {
+        console.log(`[brand-service] [${brandId}] All ${selectedUrls.length} pages served from cache`);
+      }
+      const scrapePromises = urlsToScrape.map((url) =>
+        scrapeUrl(url, scrapingTracking).then(async (content) => {
+          if (content) {
+            await upsertPageContent(url, content, scrapeTtlDays).catch((err) =>
+              console.warn(`[brand-service] [${brandId}] Failed to cache page content for ${url}: ${err.message}`),
+            );
+          }
+          return { url, content: content || '' };
+        }),
       );
+      const freshPages = await Promise.all(scrapePromises);
+      const pageContents = [...cachedPages, ...freshPages];
+      successfulScrapes = pageContents.filter((p) => p.content);
+      console.log(`[brand-service] [${brandId}] Successfully scraped ${successfulScrapes.length} pages`);
+      traceEvent(run.id, {
+        service: 'brand-service',
+        event: 'scrape-complete',
+        detail: `Scraped ${successfulScrapes.length}/${selectedUrls.length} pages (${cachedPages.length} from cache, ${urlsToScrape.length} fresh)`,
+        level: 'info',
+        data: { scraped: successfulScrapes.length, total: selectedUrls.length, cached: cachedPages.length, fresh: urlsToScrape.length },
+      }, traceHeaders).catch(() => {});
+
+      if (successfulScrapes.length === 0) {
+        const emptyUrls = pageContents
+          .filter((p) => !p.content)
+          .map((p) => p.url);
+        throw new Error(
+          `[brand-service] Failed to scrape any usable pages for brand ${brandId}: selected=${selectedUrls.length}, cached=${cachedPages.length}, fresh=${urlsToScrape.length}, empty=${emptyUrls.length}, urls=${emptyUrls.slice(0, 10).join(', ')}`,
+        );
+      }
     }
 
     // 6. Extract fields via chat-service

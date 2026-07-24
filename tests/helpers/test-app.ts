@@ -15,6 +15,7 @@ import { orgRouter as userFieldsOrgRoutes } from '../../src/routes/user-fields.r
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from '../../src/routes/brand-goal.routes';
 import { orgRouter as clickDestinationOrgRoutes } from '../../src/routes/click-destination.routes';
 import { orgRouter as whatsAppLinkOrgRoutes } from '../../src/routes/whatsapp-link.routes';
+import { orgRouter as businessContextOrgRoutes } from '../../src/routes/business-context.routes';
 
 // Import routes — single-tier files
 import organizationRoutes from '../../src/routes/organization.routes';
@@ -28,7 +29,7 @@ import intakeFormRoutes from '../../src/routes/intake-form.routes';
 export function createTestApp() {
   const app = express();
 
-  app.use(express.json());
+  app.use(express.json({ limit: '2mb' }));
 
   // ── Public routes (no auth) ──────────────────────────────────
   app.get('/', (req, res) => {
@@ -74,7 +75,8 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, userFieldsOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
-app.use('/orgs', apiKeyAuth, requireOrgId, whatsAppLinkOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, whatsAppLinkOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, businessContextOrgRoutes);
   app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;
