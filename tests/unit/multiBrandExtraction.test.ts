@@ -270,21 +270,30 @@ describe('multiBrandExtractFields', () => {
     ).rejects.toThrow('Brand not found');
   });
 
-  it('should throw when a brand has no URL', async () => {
+  it('should pass a no-website brand through to extractFields, keyed by brandId', async () => {
+    // A no-website brand (url + domain null, identified by name) is NOT rejected
+    // here — the source-switch / fail-loud gate lives in extractFields. With no
+    // domain, its per-brand result keys on the brandId instead.
     mockedGetBrand.mockResolvedValue({
       id: 'brand-1',
       url: null,
-      name: 'Acme',
+      name: 'Acme (no site)',
       domain: null,
     });
+    mockedExtractFields.mockResolvedValue([
+      { key: 'industry', value: 'Consulting', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['business-context://brand-1'] },
+    ]);
 
-    await expect(
-      multiBrandExtractFields({
-        brandIds: ['brand-1'],
-        fields: [{ key: 'industry', description: 'test' }],
-        caller: orgCaller,
-      }),
-    ).rejects.toThrow('Brand has no URL');
+    const result = await multiBrandExtractFields({
+      brandIds: ['brand-1'],
+      fields: [{ key: 'industry', description: 'test' }],
+      caller: orgCaller,
+    });
+
+    expect(mockedExtractFields).toHaveBeenCalledTimes(1);
+    expect(result.fields.industry.value).toBe('Consulting');
+    expect(result.brands[0]).toMatchObject({ brandId: 'brand-1', domain: 'brand-1', brandUrl: null });
+    expect(result.fields.industry.byBrand['brand-1'].value).toBe('Consulting');
   });
 
   it('should use DB-backed consolidated cache on second call with same per-brand values', async () => {
