@@ -8,7 +8,7 @@
 
 import crypto from 'crypto';
 import { eq, gt, sql, and } from 'drizzle-orm';
-import { extractFields, getBrand, buildFieldsResponseSchema, FieldSpec, ExtractedFieldResult, UrlStrategy } from './fieldExtractionService';
+import { extractFields, getBrand, buildFieldsResponseSchema, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
 import { chat, Caller, OrgCaller, PlatformCaller } from '../lib/chat-client';
 import { db, consolidatedFieldCache } from '../db';
 import { getConfirmedByBrandId, isUserFacingFieldKey, ConfirmedUserField } from './brandUserFieldsService';
@@ -33,6 +33,13 @@ export interface MultiBrandExtractFieldsOptions {
   scrapeCacheTtlDays?: number;
   resetCache?: boolean;
   urlStrategy?: UrlStrategy;
+  /**
+   * Extraction behavior — `extract` (default, returns "Unknown" when absent) or
+   * `suggest` (generative best-effort persona, never "Unknown"). Threaded to
+   * every per-brand `extractFields` and the cross-brand consolidation prompt;
+   * modes use disjoint cache slots.
+   */
+  mode?: ExtractionMode;
 }
 
 export interface BrandMeta {
@@ -79,12 +86,14 @@ function buildConsolidatedCacheKey(
   brandIds: string[],
   fieldKeys: string[],
   valuesByDomain: Record<string, Record<string, unknown>>,
+  mode: ExtractionMode,
   campaignId?: string,
 ): string {
   const payload = JSON.stringify({
     brands: [...brandIds].sort(),
     fields: [...fieldKeys].sort(),
     campaign: campaignId ?? '',
+    mode,
     values: Object.keys(valuesByDomain)
       .sort()
       .map((domain) => [domain, valuesByDomain[domain]]),
@@ -143,17 +152,29 @@ async function consolidateFields(
   fieldKeys: string[],
   byBrand: Record<string, Record<string, unknown>>,
   chatCaller: Caller,
+  mode: ExtractionMode = 'extract',
 ): Promise<Record<string, unknown>> {
   const perBrandSummary = Object.entries(byBrand)
     .map(([domain, fields]) => `Brand "${domain}":\n${JSON.stringify(fields, null, 2)}`)
     .join('\n\n');
 
+  // In suggest mode the per-brand values are already best-effort (never
+  // "Unknown"); the consolidation persona mirrors the per-brand one so the
+  // merged view stays generative and never collapses to "Unknown".
+  const systemPrompt =
+    mode === 'suggest'
+      ? 'You are an elite brand offer strategist consolidating field values across multiple brands. ' +
+        'Act as Alex Hormozi with a panel of the top 3 experts in the brands’ industry. Produce a single ' +
+        'merged view that is the most logical, specific, and compelling per field. NEVER return "Unknown", null, ' +
+        'or empty values; never fabricate absurd, false, or unverifiable specifics. Return ONLY valid JSON with ' +
+        'the requested field keys.'
+      : 'You are a brand consolidation assistant. Given field values extracted from multiple brands, ' +
+        'produce a single consolidated view that merges insights across all brands. ' +
+        'Return ONLY valid JSON with the requested field keys.';
+
   const result = await chat(
     {
-      systemPrompt:
-        'You are a brand consolidation assistant. Given field values extracted from multiple brands, ' +
-        'produce a single consolidated view that merges insights across all brands. ' +
-        'Return ONLY valid JSON with the requested field keys.',
+      systemPrompt,
       message:
         `Consolidate the following field values across multiple brands into a single merged view.\n\n` +
         `Fields to consolidate: ${fieldKeys.join(', ')}\n\n` +
@@ -161,7 +182,10 @@ async function consolidateFields(
         `Return a JSON object with exactly these keys: ${fieldKeys.map((k) => `"${k}"`).join(', ')}. ` +
         `For each field, produce a consolidated value that combines insights from all brands. ` +
         `For string fields, write a merged summary. For array fields, merge and deduplicate. ` +
-        `For object fields, merge sensibly.`,
+        `For object fields, merge sensibly.` +
+        (mode === 'suggest'
+          ? ` NEVER return "Unknown", null, or empty values — always produce a best-effort merged value.`
+          : ''),
       provider: 'google',
       model: 'pro',
       responseFormat: 'json',
@@ -196,6 +220,7 @@ export async function multiBrandExtractFields(
   options: MultiBrandExtractFieldsOptions,
 ): Promise<MultiBrandFieldsResponse> {
   const { brandIds, fields, caller, scrapeCacheTtlDays, resetCache, urlStrategy } = options;
+  const mode: ExtractionMode = options.mode ?? 'extract';
 
   // Look up all brands first to validate and get domains
   const brandLookups = await Promise.all(brandIds.map((id) => getBrand(id)));
@@ -235,6 +260,7 @@ export async function multiBrandExtractFields(
         scrapeCacheTtlDays,
         resetCache,
         urlStrategy,
+        mode,
       }),
     ),
   );
@@ -268,7 +294,7 @@ export async function multiBrandExtractFields(
   } else {
     // Check DB-backed consolidated cache — keyed by brand IDs + field keys + campaign + per-brand values
     const consolidationCampaignId = caller.mode === 'org' ? caller.campaignId : undefined;
-    const cacheKey = buildConsolidatedCacheKey(brandIds, fieldKeys, valuesByDomain, consolidationCampaignId);
+    const cacheKey = buildConsolidatedCacheKey(brandIds, fieldKeys, valuesByDomain, mode, consolidationCampaignId);
     const cachedConsolidated = resetCache ? null : await getCachedConsolidated(cacheKey);
 
     if (cachedConsolidated) {
@@ -276,7 +302,7 @@ export async function multiBrandExtractFields(
       valueMap = cachedConsolidated;
     } else {
       console.log(`[brand-service] Consolidating fields across ${brandIds.length} brands`);
-      valueMap = await consolidateFields(fieldKeys, valuesByDomain, caller);
+      valueMap = await consolidateFields(fieldKeys, valuesByDomain, caller, mode);
 
       // Cache the consolidated result. Expires at the earliest per-brand expiry.
       const allExpiries = Object.values(byDomain)
