@@ -4,6 +4,8 @@ import { db, brands, orgBrands, brandsOld } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandWebsite, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
+import { rewriteBrandReferences } from '../services/brandMergeService';
+import { CheckoutStatusUnavailableError } from '../lib/client-client';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, SetBrandWebsiteRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema } from '../schemas';
 import { resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
@@ -62,13 +64,14 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
     }
 
     if (!url) {
-      // No-website brand: create by name, no domain dedup (each is distinct).
-      const brand = await createBrandWithoutWebsite(orgId, name!);
+      // No-website brand: identity is (orgId, name) — repeating the same create
+      // returns the existing brand instead of stacking a duplicate row.
+      const { brand, created } = await createBrandWithoutWebsite(orgId, name!);
       return res.json({
         brandId: brand.id,
         domain: brand.domain,
         name: brand.name,
-        created: true,
+        created,
       });
     }
 
@@ -178,7 +181,7 @@ orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
     if (rejectOwnership(res, ownership)) return;
 
     try {
-      const brand = await updateBrandWebsite(brandId, parsed.data.url);
+      const brand = await updateBrandWebsite(brandId, parsed.data.url, req.orgId!);
       return res.json({
         brandId: brand.id,
         domain: brand.domain,
@@ -187,13 +190,25 @@ orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
       });
     } catch (err) {
       if (err instanceof BrandDomainConflictError) {
-        return res.status(409).json({ error: err.message, code: err.code });
+        return res.status(409).json({
+          error: err.message,
+          code: err.code,
+          message: err.message,
+          domain: err.domain,
+          conflictingBrandId: err.conflictingBrandId,
+        });
       }
       throw err;
     }
   } catch (error: unknown) {
     if (error instanceof InvalidUrlError || error instanceof UrlRequiredError) {
       return res.status(400).json({ error: error.message, code: error.code, field: error.field, message: error.message });
+    }
+    if (error instanceof CheckoutStatusUnavailableError) {
+      // client-service owns the checkout answer; without it we cannot tell a
+      // free domain from a paid one. Fail loud rather than guess.
+      console.error('[brand-service] Set brand website: checkout status unavailable:', error);
+      return res.status(502).json({ error: error.message, code: error.code });
     }
     console.error('[brand-service] Set brand website error:', error);
     const message = error instanceof Error ? error.message : 'Failed to set brand website';
@@ -499,63 +514,3 @@ internalRouter.post('/transfer-brand', async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message || 'Failed to transfer brand' });
   }
 });
-
-/**
- * Rewrite brand_id from sourceBrandId to targetBrandId on all dependent tables.
- * Handles unique constraint conflicts by deleting source rows that collide with target.
- */
-export async function rewriteBrandReferences(
-  sourceBrandId: string,
-  targetBrandId: string,
-): Promise<{ tableName: string; count: number }[]> {
-  // 1. Delete source rows that would violate unique constraints when rewritten
-  // brand_extracted_fields: unique(brand_id, field_key) per campaign presence
-  await query(
-    `DELETE FROM brand_extracted_fields WHERE brand_id = $1
-     AND (field_key, COALESCE(campaign_id::text, '')) IN (
-       SELECT field_key, COALESCE(campaign_id::text, '') FROM brand_extracted_fields WHERE brand_id = $2
-     )`,
-    [sourceBrandId, targetBrandId],
-  );
-  // intake_forms: unique(brand_id)
-  await query(
-    `DELETE FROM intake_forms WHERE brand_id = $1 AND EXISTS (SELECT 1 FROM intake_forms WHERE brand_id = $2)`,
-    [sourceBrandId, targetBrandId],
-  );
-  // brand_thesis: unique(brand_id, thesis_html, contrarian_level)
-  await query(
-    `DELETE FROM brand_thesis WHERE brand_id = $1
-     AND (thesis_html, contrarian_level) IN (
-       SELECT thesis_html, contrarian_level FROM brand_thesis WHERE brand_id = $2
-     )`,
-    [sourceBrandId, targetBrandId],
-  );
-  // brand_individuals: PK(brand_id, individual_id)
-  await query(
-    `DELETE FROM brand_individuals WHERE brand_id = $1
-     AND individual_id IN (SELECT individual_id FROM brand_individuals WHERE brand_id = $2)`,
-    [sourceBrandId, targetBrandId],
-  );
-
-  // 2. Rewrite brand_id on all dependent tables
-  const tables = [
-    'media_assets',
-    'brand_extracted_fields',
-    'brand_extracted_images',
-    'brand_linkedin_posts',
-    'intake_forms',
-    'brand_thesis',
-    'brand_individuals',
-  ];
-
-  const results: { tableName: string; count: number }[] = [];
-  for (const table of tables) {
-    const r = await query(
-      `UPDATE ${table} SET brand_id = $1 WHERE brand_id = $2`,
-      [targetBrandId, sourceBrandId],
-    );
-    results.push({ tableName: table, count: r.rowCount });
-  }
-
-  return results;
-}

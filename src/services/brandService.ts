@@ -8,11 +8,13 @@
  * name. The brand-create path (getOrCreateBrand) no longer blocks on it.
  */
 
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull } from 'drizzle-orm';
 import { db, brands, orgBrands, brandClickDestinations, brandWhatsappLinks } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { Caller, OrgCaller } from '../lib/chat-client';
 import { buildLogoDevUrl } from '../lib/logo-dev';
+import { getBrandCheckoutStatus } from '../lib/client-client';
+import { rewriteBrandReferences } from './brandMergeService';
 
 interface Brand {
   id: string;
@@ -533,11 +535,34 @@ export async function getOrCreateBrand(
   return brand;
 }
 
-/** Thrown when adding a website to a brand collides with an existing brand's domain. */
+/**
+ * Machine-readable reason a domain could NOT be attached, so a UI can render
+ * distinct copy per case. Both mean "someone paid on the brand holding this
+ * domain" — they differ only in WHO, which drives completely different user
+ * guidance ("switch to your existing brand" vs "this domain isn't yours").
+ */
+export type DomainConflictCode =
+  /** The caller's OWN org already checked out on another brand holding this domain. */
+  | 'DOMAIN_OWNED_BY_YOUR_PAID_BRAND'
+  /** A DIFFERENT org checked out on the brand holding this domain. */
+  | 'DOMAIN_OWNED_BY_ANOTHER_ORG';
+
+/**
+ * Thrown when adding a website to a brand collides with a domain held by a brand
+ * somebody has ALREADY CHECKED OUT on. A domain held by a never-paid brand is not
+ * a conflict — it is taken over (see `updateBrandWebsite`).
+ */
 export class BrandDomainConflictError extends Error {
-  readonly code = 'DOMAIN_CONFLICT';
-  constructor(domain: string) {
-    super(`A brand already exists for domain "${domain}"`);
+  constructor(
+    readonly code: DomainConflictCode,
+    readonly domain: string,
+    readonly conflictingBrandId: string,
+  ) {
+    super(
+      code === 'DOMAIN_OWNED_BY_YOUR_PAID_BRAND'
+        ? `Your organization already has a paid brand on domain "${domain}"`
+        : `Domain "${domain}" belongs to a paid brand of another organization`,
+    );
     this.name = 'BrandDomainConflictError';
   }
 }
@@ -547,15 +572,42 @@ export class BrandDomainConflictError extends Error {
  * `name` instead of a URL. `url` and `domain` are left null; the extraction
  * source is the pasted business context (brand_business_context), not a scrape.
  *
- * Unlike `getOrCreateBrand`, there is NO domain-based dedup: a no-website brand
- * has no domain, so every call creates a distinct row (two nameless-domain
- * businesses are genuinely distinct identities). Membership in `org_brands` is
- * written for the calling org.
+ * There is no domain to dedup on, so identity is `(orgId, lower(name))`:
+ * re-running the same create for the same org RETURNS the existing brand instead
+ * of minting another row. Without this, a user who restarts onboarding stacks a
+ * fresh brand every time (that is how one org ended up with three rows for one
+ * business). Two DIFFERENT names for one org stay genuinely distinct brands, and
+ * two orgs with the same name stay distinct (no cross-org reuse — there is no
+ * shared domain identity to justify it).
  */
 export async function createBrandWithoutWebsite(
   orgId: string,
   name: string,
-): Promise<Brand> {
+): Promise<{ brand: Brand; created: boolean }> {
+  // Reuse this org's existing no-website brand of the same name (case-insensitive).
+  const [existing] = await db
+    .select({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+    })
+    .from(orgBrands)
+    .innerJoin(brands, eq(brands.id, orgBrands.brandId))
+    .where(
+      and(
+        eq(orgBrands.orgId, orgId),
+        isNull(brands.domain),
+        sql`lower(${brands.name}) = lower(${name})`,
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    console.log(`[brand-service] Reusing existing no-website brand "${name}" for org ${orgId}: ${existing.id}`);
+    return { brand: existing, created: false };
+  }
+
   const [inserted] = await db
     .insert(brands)
     .values({ name, url: null, domain: null })
@@ -572,7 +624,7 @@ export async function createBrandWithoutWebsite(
     .onConflictDoNothing({ target: [orgBrands.orgId, orgBrands.brandId] });
 
   console.log(`[brand-service] Created NEW no-website brand "${name}": ${inserted.id}`);
-  return inserted;
+  return { brand: inserted, created: true };
 }
 
 /**
@@ -583,25 +635,59 @@ export async function createBrandWithoutWebsite(
  * The extraction source-switch is automatic and rides the EXISTING field cache:
  * `extractFields` reads `brands.url` fresh on every call, so once the URL is set,
  * the next post-cache-expiry extraction re-sources from the site — no new
- * TTL/cron. Throws `BrandDomainConflictError` if the derived domain is already
- * claimed by a different brand row.
+ * TTL/cron.
+ *
+ * DOMAIN OWNERSHIP RULE (owner decision, 2026-07-29): a domain belongs to
+ * whoever has CHECKED OUT on it. When another brand row already holds the derived
+ * domain, client-service (the single source of truth for checkout) decides:
+ *
+ * - nobody ever checked out on the holder  → the domain is up for grabs: it is
+ *   MOVED onto `brandId`, and the holder is left as a no-website brand so any
+ *   other org still pointing at it keeps a working identity.
+ * - the CALLER's org checked out on it     → `DOMAIN_OWNED_BY_YOUR_PAID_BRAND`
+ * - ANOTHER org checked out on it          → `DOMAIN_OWNED_BY_ANOTHER_ORG`
+ *
+ * Both refusals are 409 `BrandDomainConflictError` with a distinct `code` so a UI
+ * can render distinct copy. A failure to reach client-service throws (502) — it
+ * is never treated as "nobody paid", which would let a domain be taken from a
+ * paying org.
+ *
+ * Cleanup: when the never-paid holder belongs to the CALLER's own org, its child
+ * rows are merged onto `brandId` (target always wins on conflict) and the org's
+ * membership row is dropped, so the abandoned shell stops polluting their brand
+ * list. Holders belonging to OTHER orgs are never unlinked or stripped.
  */
 export async function updateBrandWebsite(
   brandId: string,
   url: string,
+  callerOrgId: string,
 ): Promise<Brand> {
   const normalizedUrl = normalizeUrl(url);
   const domain = extractDomain(normalizedUrl);
 
-  // Reject if another brand already owns this domain (the unique index would
-  // 23505 anyway; check first for a clean 409).
-  const [clash] = await db
+  // Another brand row may already hold this domain (the unique index would 23505
+  // anyway; resolve it first so the outcome is a takeover or a clean 409).
+  const [holder] = await db
     .select({ id: brands.id })
     .from(brands)
     .where(eq(brands.domain, domain))
     .limit(1);
-  if (clash && clash.id !== brandId) {
-    throw new BrandDomainConflictError(domain);
+
+  if (holder && holder.id !== brandId) {
+    // Throws when client-service can't answer — never assume "nobody paid".
+    const checkout = await getBrandCheckoutStatus(holder.id);
+
+    if (checkout.checkedOut) {
+      throw new BrandDomainConflictError(
+        checkout.orgIds.includes(callerOrgId)
+          ? 'DOMAIN_OWNED_BY_YOUR_PAID_BRAND'
+          : 'DOMAIN_OWNED_BY_ANOTHER_ORG',
+        domain,
+        holder.id,
+      );
+    }
+
+    await takeOverDomain({ holderBrandId: holder.id, targetBrandId: brandId, callerOrgId, domain });
   }
 
   const [updated] = await db
@@ -619,4 +705,56 @@ export async function updateBrandWebsite(
 
   console.log(`[brand-service] Attached website ${normalizedUrl} (domain ${domain}) to brand ${brandId}`);
   return updated;
+}
+
+/**
+ * Release `domain` from a never-paid holder brand so the caller's brand can take
+ * it, and absorb the holder when it belongs to the caller's own org.
+ *
+ * Runs BEFORE the target's domain is written: the unique index on `brands.domain`
+ * means the holder must be cleared first. The reference merge runs before the
+ * clear so a failure leaves the domain exactly where it was (and both steps are
+ * idempotent, so a retry converges).
+ */
+async function takeOverDomain(params: {
+  holderBrandId: string;
+  targetBrandId: string;
+  callerOrgId: string;
+  domain: string;
+}): Promise<void> {
+  const { holderBrandId, targetBrandId, callerOrgId, domain } = params;
+
+  const [callerClaimsHolder] = await db
+    .select({ brandId: orgBrands.brandId })
+    .from(orgBrands)
+    .where(and(eq(orgBrands.orgId, callerOrgId), eq(orgBrands.brandId, holderBrandId)))
+    .limit(1);
+
+  if (callerClaimsHolder) {
+    // The abandoned holder is the caller's own row — absorb its data into the
+    // brand that is taking the domain (target wins on every conflict).
+    const merged = await rewriteBrandReferences(holderBrandId, targetBrandId);
+    console.log(
+      `[brand-service] Domain takeover merge ${holderBrandId} -> ${targetBrandId}: ${JSON.stringify(merged)}`,
+    );
+  }
+
+  // Release the domain. The holder survives as a no-website brand so any OTHER
+  // org still claiming it keeps a working (if website-less) identity.
+  await db
+    .update(brands)
+    .set({ domain: null, url: null, updatedAt: sql`NOW()` })
+    .where(eq(brands.id, holderBrandId));
+
+  if (callerClaimsHolder) {
+    // Stop the emptied shell from polluting the caller's brand list. Other orgs'
+    // memberships are left untouched.
+    await db
+      .delete(orgBrands)
+      .where(and(eq(orgBrands.orgId, callerOrgId), eq(orgBrands.brandId, holderBrandId)));
+  }
+
+  console.log(
+    `[brand-service] Domain "${domain}" taken from never-paid brand ${holderBrandId} for brand ${targetBrandId} (org ${callerOrgId}, absorbed=${Boolean(callerClaimsHolder)})`,
+  );
 }

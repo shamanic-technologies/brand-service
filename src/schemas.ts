@@ -158,6 +158,26 @@ export const SetBrandWebsiteResponseSchema = z
   })
   .openapi('SetBrandWebsiteResponse');
 
+export const DomainConflictErrorResponseSchema = z
+  .object({
+    error: z.string(),
+    code: z.enum(['DOMAIN_OWNED_BY_YOUR_PAID_BRAND', 'DOMAIN_OWNED_BY_ANOTHER_ORG']),
+    message: z.string(),
+    domain: z.string(),
+    conflictingBrandId: z.string(),
+  })
+  .openapi('DomainConflictErrorResponse', {
+    description:
+      'A domain can only be refused when somebody has CHECKED OUT on the brand holding it. `code` tells the two refusals apart so a UI can render distinct copy: DOMAIN_OWNED_BY_YOUR_PAID_BRAND (the caller\'s own org already paid on another brand with this domain — point the user at that brand) vs DOMAIN_OWNED_BY_ANOTHER_ORG (a different, paying organization holds it). `conflictingBrandId` is the brand holding the domain.',
+    example: {
+      error: 'Your organization already has a paid brand on domain "acme.com"',
+      code: 'DOMAIN_OWNED_BY_YOUR_PAID_BRAND',
+      message: 'Your organization already has a paid brand on domain "acme.com"',
+      domain: 'acme.com',
+      conflictingBrandId: '0b5f5b1e-2b1a-4a6a-9f1e-0d3a5c7b9e11',
+    },
+  });
+
 export const PutBusinessContextRequestSchema = z
   .object({
     content: z.string().min(1),
@@ -277,7 +297,7 @@ registry.registerPath({
   path: '/orgs/brands',
   summary: 'Create or return a brand by URL (website) or name (no-website)',
   description:
-    'Creates or returns a brand for the given organization. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL) OR `name` (no-website brand — created fresh each time, no domain dedup; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.',
+    'Creates or returns a brand for the given organization. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL) OR `name` (no-website brand — deduped per organization on the case-insensitive name, so repeating the same create returns the same brand with `created: false` instead of stacking duplicates; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.',
   request: { body: { content: { 'application/json': { schema: UpsertBrandRequestSchema } } } },
   responses: {
     200: { description: 'Brand found or created', content: { 'application/json': { schema: UpsertBrandResponseSchema } } },
@@ -294,14 +314,20 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}',
   summary: 'Attach a website to an existing brand',
   description:
-    'Sets brands.url + brands.domain on an existing brand (e.g. a no-website brand whose user later adds their site). The next post-cache-expiry field extraction re-sources from the site automatically (rides the existing field cache — no new TTL). 409 if the derived domain is already claimed by a different brand.',
+    'Sets brands.url + brands.domain on an existing brand (e.g. a no-website brand whose user later adds their site). The next post-cache-expiry field extraction re-sources from the site automatically (rides the existing field cache — no new TTL). ' +
+    'A domain belongs to whoever has CHECKED OUT on it (client-service is the source of truth). If another brand already holds the derived domain but NOBODY ever checked out on it, the domain is moved onto this brand and the abandoned holder is left as a no-website brand (and, when it belongs to the caller\'s own org, its data is merged in and it is removed from the caller\'s brand list). ' +
+    'Only a holder somebody paid for is a 409, with a distinct `code` per case: `DOMAIN_OWNED_BY_YOUR_PAID_BRAND` (the caller\'s own org already checked out on it) or `DOMAIN_OWNED_BY_ANOTHER_ORG`.',
   request: { body: { content: { 'application/json': { schema: SetBrandWebsiteRequestSchema } } } },
   responses: {
     200: { description: 'Website attached', content: { 'application/json': { schema: SetBrandWebsiteResponseSchema } } },
     400: { description: 'Invalid brand ID or URL', content: { 'application/json': { schema: ValidationErrorResponseSchema } } },
     403: { description: 'Brand not owned by the requesting org' },
     404: { description: 'Brand not found' },
-    409: { description: 'Domain already claimed by another brand' },
+    409: {
+      description: 'Domain is held by a brand somebody has checked out on. `code` distinguishes DOMAIN_OWNED_BY_YOUR_PAID_BRAND from DOMAIN_OWNED_BY_ANOTHER_ORG.',
+      content: { 'application/json': { schema: DomainConflictErrorResponseSchema } },
+    },
+    502: { description: 'client-service could not answer whether the holding brand was checked out (code CHECKOUT_STATUS_UNAVAILABLE)' },
     500: { description: 'Internal server error' },
   },
 });

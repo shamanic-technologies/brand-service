@@ -20,6 +20,26 @@
 - Don't add verbose descriptions - match the existing terse style
 - If removing a feature, remove its README entry too
 
+## A domain belongs to whoever CHECKED OUT on it — brand-service never computes checkout itself
+
+Owner decision (Kevin, 2026-07-29). `brands.domain` is globally unique, so attaching a website to a brand can collide with an existing holder row. The collision is NOT automatically a refusal:
+
+- **Holder never checked out (by ANY org)** → the domain is up for grabs. It is MOVED onto the target brand; the holder is left as a **no-website brand** (`domain = url = NULL`) so any OTHER org still claiming it keeps a working identity. Never delete a holder row, never touch another org's `org_brands` membership.
+- **Holder checked out by the CALLER's org** → 409 `DOMAIN_OWNED_BY_YOUR_PAID_BRAND`.
+- **Holder checked out by ANOTHER org** → 409 `DOMAIN_OWNED_BY_ANOTHER_ORG`.
+
+The two refusals MUST stay distinguishable by `code` (plus `domain` + `conflictingBrandId` on the body) — a dashboard renders different copy per case ("switch to your paid brand" vs "this domain isn't yours"). Do NOT collapse them back into one generic `DOMAIN_CONFLICT`.
+
+**Checkout state is NOT ours to compute.** client-service owns the (org, brand) ↔ money join and derives it live from stripe + billing: `GET /internal/brands/{brandId}/checkout-status` → `{ brandId, status: 'checked_out'|'not_checked_out'|'no_org_claims_brand', checkedOut, orgs: [{ orgId, checkedOut, reason, ... }] }`. The paying orgs are the `orgs` entries with `checkedOut: true`. Never re-derive this from billing/stripe here, and never mirror it locally. Client: `src/lib/client-client.ts` (`CLIENT_SERVICE_URL` / `CLIENT_SERVICE_API_KEY`).
+
+**Fail CLOSED, never fail open.** A network error / non-2xx / unparseable body from client-service throws `CheckoutStatusUnavailableError` → the route 502s. Defaulting to "nobody paid" would hand a paying org's domain to somebody else. There is deliberately no `?? false`, no 404-means-unpaid branch (client-service answers never-paid with a truthful 200, so a 404 means the route is wrong, not that the brand is free).
+
+**Cleanup uses the EXISTING merge primitive** — `rewriteBrandReferences` in `src/services/brandMergeService.ts` (moved there out of `brands.routes.ts` so services can call it without importing a router). When the never-paid holder belongs to the CALLER's own org, its child rows are merged onto the target (target always wins on conflict) and the caller's `org_brands` row is deleted, so the abandoned shell stops polluting their brand list. The primitive now also carries the user-authored one-row-per-brand tables (`brand_business_context`, `brand_sales_economics`, `brand_click_destinations`, `brand_whatsapp_links`) and `brand_user_fields` — without them a merge silently strands confirmed user data on the abandoned row. `brand_transfers` (audit log) and `brand_relations` (PK(source,target), a rewrite can self-collapse an edge) are deliberately NOT rewritten. Reference: `tests/integration/domainTakeover.test.ts`.
+
+## No-website brand identity is `(orgId, lower(name))` — creates are idempotent
+
+A no-website brand has no domain to dedup on, so `createBrandWithoutWebsite` keys on the caller's org + the case-insensitive name and RETURNS the existing brand (`created: false`) instead of inserting. Re-running onboarding used to mint a fresh row every time — that is how one org accumulated three brands for one business. Two different names for one org stay distinct; two orgs with the same name stay distinct (no cross-org reuse — there is no shared domain identity to justify it). Regression: `tests/integration/noWebsiteBrandDedup.test.ts`.
+
 ## Identity / tracking headers are threaded FIELD-BY-FIELD — no central builder
 
 brand-service has NO `buildInternalHeaders`/allowlist helper (unlike instantly-service). Each identity/tracking header (`x-org-id`, `x-user-id`, `x-run-id`, `x-campaign-id`, `x-feature-slug`, `x-brand-id`, `x-workflow-slug`, `x-audience-id`) is cherry-picked explicitly at every site. So adding a NEW tracking header means threading it through ALL of these, or it silently drops:

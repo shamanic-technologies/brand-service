@@ -9,7 +9,7 @@ import {
   fanOutTransfer,
   ServiceResult,
 } from '../services/transferService';
-import { rewriteBrandReferences } from './brands.routes';
+import { rewriteBrandReferences } from '../services/brandMergeService';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
