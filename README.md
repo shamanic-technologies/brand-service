@@ -86,8 +86,8 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/orgs/brands` | Create/return a brand. Provide EITHER `url` (website brand — bare domain or full URL, domain-deduped) OR `name` (no-website brand — created fresh each time, no dedup; fields later extracted from pasted business context). Exactly one required (else 400) |
-| PATCH | `/orgs/brands/:brandId` | Attach a website (`{ url }`) to an existing brand (e.g. a no-website brand whose user later adds their site). Sets url + domain; the next post-cache-expiry field extraction re-sources from the site (rides the existing field cache — no new TTL). 409 if the domain is already claimed by another brand; 403 if not in caller's org |
+| POST | `/orgs/brands` | Create/return a brand. Provide EITHER `url` (website brand — bare domain or full URL, domain-deduped) OR `name` (no-website brand — deduped per org on the case-insensitive name, so repeating the same create returns the same brand with `created: false` instead of stacking duplicate rows; fields later extracted from pasted business context). Exactly one required (else 400) |
+| PATCH | `/orgs/brands/:brandId` | Attach a website (`{ url }`) to an existing brand (e.g. a no-website brand whose user later adds their site). Sets url + domain; the next post-cache-expiry field extraction re-sources from the site (rides the existing field cache — no new TTL). **A domain belongs to whoever CHECKED OUT on it** (client-service `GET /internal/brands/:brandId/checkout-status` is the source of truth): if another brand holds the domain but nobody ever checked out on it, the domain is MOVED here and the abandoned holder is left as a no-website brand — and when that holder is the caller's own, its data is merged in and it is dropped from the caller's brand list. Only a paid-on holder is a 409, with a distinct `code`: `DOMAIN_OWNED_BY_YOUR_PAID_BRAND` vs `DOMAIN_OWNED_BY_ANOTHER_ORG` (body also carries `domain` + `conflictingBrandId`). 502 `CHECKOUT_STATUS_UNAVAILABLE` if client-service can't answer (never assumed unpaid); 403 if not in caller's org |
 | GET | `/orgs/brands/:brandId/business-context` | Read the brand's pasted business context (the no-website field-extraction source), or `{ content: null }` when unset. 403 if brand not in caller's org |
 | PUT | `/orgs/brands/:brandId/business-context` | Set the brand's business context (`{ content }`, up to ~1MB). Idempotent upsert; used as the extraction source when the brand has no website. 403 if brand not in caller's org |
 | GET | `/orgs/brands` | List brands by orgId |
@@ -251,6 +251,7 @@ See `.env.example` for all required variables:
 - `BILLING_SERVICE_URL` / `BILLING_SERVICE_API_KEY` - Credit authorization before paid ops
 - `CAMPAIGN_SERVICE_URL` / `CAMPAIGN_SERVICE_API_KEY` - Campaign context (featureInputs for LLM enrichment)
 - `CLOUDFLARE_SERVICE_URL` / `CLOUDFLARE_SERVICE_API_KEY` - R2 image storage (brand image extraction)
+- `CLIENT_SERVICE_URL` / `CLIENT_SERVICE_API_KEY` - Brand checkout status (who has paid on a brand), used to arbitrate domain ownership on `PATCH /orgs/brands/:brandId`
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` - Storage
 - `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` - Google Drive
 - `BRAND_SERVICE_URL` - Public URL for OpenAPI spec (used in generated spec, defaults to localhost)
