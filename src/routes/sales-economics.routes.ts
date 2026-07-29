@@ -2,7 +2,10 @@ import { Router, Request, Response } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { db, brands, orgBrands } from '../db';
 import { UpsertSalesEconomicsRequestSchema } from '../schemas';
-import { salesEconomicsService } from '../services/salesEconomicsService';
+import {
+  IncompleteSalesEconomicsError,
+  salesEconomicsService,
+} from '../services/salesEconomicsService';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -113,7 +116,16 @@ orgRouter.get('/brands/:brandId/sales-economics', async (req: Request, res: Resp
 
 /**
  * PUT /orgs/brands/:brandId/sales-economics
- * Idempotent upsert of the full 5-metric set. Returns the saved set (non-null).
+ * Idempotent PARTIAL upsert. Returns the saved set (non-null).
+ *
+ * Every field is optional: what the caller sends is written, what it OMITS is
+ * left unchanged. So a screen editing one metric sends only that metric and
+ * cannot clobber the rest with a stale copy of them. Sending the full set is
+ * unchanged behaviour.
+ *
+ * A brand with NO stored economics has nothing to leave unchanged, so a partial
+ * payload there is a 400 naming the missing core metrics — never a default and
+ * never a cross-brand average.
  */
 orgRouter.put('/brands/:brandId/sales-economics', async (req: Request, res: Response) => {
   try {
@@ -133,6 +145,12 @@ orgRouter.put('/brands/:brandId/sales-economics', async (req: Request, res: Resp
     const salesEconomics = await salesEconomicsService.upsertByBrandId(brandId, parsed.data);
     return res.status(200).json({ salesEconomics });
   } catch (error: any) {
+    // Partial payload on a brand that has nothing stored: the caller must send
+    // the full core set. A client error, not a server one.
+    if (error instanceof IncompleteSalesEconomicsError) {
+      console.error('[brand-service] Upsert sales economics incomplete create:', error.message);
+      return res.status(400).json({ error: error.message, missing: error.missing });
+    }
     console.error('[brand-service] Upsert sales economics error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }

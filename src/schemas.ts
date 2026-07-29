@@ -1927,10 +1927,20 @@ export const UpdateCurrentGoalResponseSchema = z
   })
   .openapi('UpdateCurrentGoalResponse');
 
-// UPSERT request body = the 5 required metrics + optional businessModel +
-// optional funnelStages / optimizationGoal.
-// businessModel: omitted = leave unchanged (legacy 5-field PUT never wipes it),
-// `null` = clear it explicitly.
+// UPSERT request body — a PARTIAL patch: EVERY field is optional and an omitted
+// field is left unchanged. That is the same leave-unchanged contract the optional
+// metrics already had; `.partial()` extends it to the 6 core metrics so a caller
+// changing one value (e.g. only lifetimeRevenueUsd) never has to restate the rest
+// from its own in-memory copy — restating is how a stale copy silently overwrites
+// values the user confirmed elsewhere (prod data loss, 2026-07-29).
+// A field that IS sent is validated exactly as before (no `.coerce`, no
+// `.default()`, range-checked) — sending the full set behaves identically to today.
+// CREATE is the one exception: a brand with NO stored row has nothing to leave
+// unchanged, so the 6 core metrics are ALL required there and the route fails loud
+// (400, naming the missing fields) rather than inventing a default or an average.
+// That requirement is enforced in salesEconomicsService.upsertByBrandId, not here,
+// because only the service knows whether a row exists.
+// businessModel: omitted = leave unchanged, `null` = clear it explicitly.
 // funnelStages: omitted = leave unchanged; sending the array (including `[]`)
 // sets it. NOT nullable — there is no "clear to null", only "set to []".
 // optimizationGoal: omitted = leave unchanged; sending sets it. NOT nullable.
@@ -1938,7 +1948,7 @@ export const UpdateCurrentGoalResponseSchema = z
 // website_visits / positive_replies goals. Optional — omitted = leave unchanged.
 // visitToFormSubmissionPct / formSubmissionToPaidClientPct: two-step rates for
 // the form_submissions goal. Optional — omitted = leave unchanged.
-export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.extend({
+export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.partial().extend({
   visitToPaidClientPct: PercentSchema.optional(),
   replyToPaidClientPct: PercentSchema.optional(),
   visitToFormSubmissionPct: PercentSchema.optional(),
@@ -2074,9 +2084,14 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/sales-economics',
   summary: "Upsert a brand's sales conversion economics",
   description:
-    'Idempotent write of the full metric set. Required: `lifetimeRevenueUsd`, `replyToMeetingPct`, ' +
-    '`visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` ' +
-    '(percents 0..100, decimals allowed). `visitToClosePct` is NOT accepted on the request — it is DERIVED on ' +
+    'Idempotent PARTIAL write. EVERY field is optional: what you send is written, what you OMIT is ' +
+    'left unchanged — so a screen editing one value (e.g. only `lifetimeRevenueUsd`) sends only that ' +
+    'value and cannot overwrite the rest with a stale copy of them. Sending the full set behaves as ' +
+    'before. EXCEPTION — a brand with NO stored economics has nothing to leave unchanged, so the six ' +
+    'core metrics (`lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, ' +
+    '`visitToSignupPct`, `signupToPaidClientPct`) are ALL required on that first write; a partial ' +
+    'payload there is rejected 400 with a `missing` array (never defaulted, never averaged). ' +
+    'Percents are 0..100, decimals allowed. `visitToClosePct` is NOT accepted on the request — it is DERIVED on ' +
     'the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent ' +
     'is ignored. Optional `businessModel` ' +
     '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array ' +
@@ -2098,7 +2113,11 @@ registry.registerPath({
       description: 'Saved metrics',
       content: { 'application/json': { schema: UpsertSalesEconomicsResponseSchema } },
     },
-    400: { description: 'Invalid brand ID format or invalid/missing metric field' },
+    400: {
+      description:
+        'Invalid brand ID format, an invalid metric value, or a partial payload for a brand that has ' +
+        'no stored economics (body carries `missing`: the core metrics that must be sent)',
+    },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
