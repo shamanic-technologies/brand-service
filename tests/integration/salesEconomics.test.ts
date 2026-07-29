@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandSalesEconomics } from '../../src/db';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 /**
@@ -27,6 +27,10 @@ describe('Sales Economics Endpoints', () => {
   const formSubBrandId = randomUUID(); // owned by ownerOrgId, form_submissions goal + rates lifecycle
   const formSubUnsetBrandId = randomUUID(); // owned by ownerOrgId, reads null form-submission rates
   const combinedGoalBrandId = randomUUID(); // owned by ownerOrgId, combined-sales + website_purchase goal lifecycle
+  const partialLtvBrandId = randomUUID(); // owned by ownerOrgId, single-field LTV patch
+  const partialRateBrandId = randomUUID(); // owned by ownerOrgId, single-field conversion-rate patch
+  const partialFullSetBrandId = randomUUID(); // owned by ownerOrgId, full-set write parity
+  const partialUnsetBrandId = randomUUID(); // owned by ownerOrgId, patch against no stored row
 
   // visitToSignupPct 40 * signupToPaidClientPct 25 / 100 = 10 (derived visitToClosePct)
   const validMetrics = {
@@ -38,35 +42,39 @@ describe('Sales Economics Endpoints', () => {
     signupToPaidClientPct: 25,
   };
 
+  // Every brand this suite owns. Kept as ONE list so setup/teardown stay in
+  // lockstep as brands are added.
+  const allBrandIds = [
+    brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId,
+    funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId,
+    formSubBrandId, formSubUnsetBrandId, combinedGoalBrandId,
+    partialLtvBrandId, partialRateBrandId, partialFullSetBrandId, partialUnsetBrandId,
+  ];
+
   beforeAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId, formSubBrandId, formSubUnsetBrandId, combinedGoalBrandId]) {
-      await db.insert(brands).values({
+    // Batched: one round trip each, not one per brand — the per-row loop grew
+    // past the 10s hook budget as brands were added.
+    await db.insert(brands).values(
+      allBrandIds.map((id) => ({
         id,
         url: `https://sales-econ-${id.slice(0, 8)}.com`,
         domain: `sales-econ-${id.slice(0, 8)}.com`,
         name: 'Sales Econ Test Brand',
-      });
-    }
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: unsetBrandId });
-    await db.insert(orgBrands).values({ orgId: otherOrgId, brandId: foreignBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: bmBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: funnelBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: funnelUnsetBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: defaultsBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: singleStepBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: singleStepUnsetBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: formSubBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: formSubUnsetBrandId });
-    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: combinedGoalBrandId });
+      }))
+    );
+    await db.insert(orgBrands).values(
+      allBrandIds.map((id) => ({
+        // foreignBrandId is the cross-org fixture — every other brand is the caller's.
+        orgId: id === foreignBrandId ? otherOrgId : ownerOrgId,
+        brandId: id,
+      }))
+    );
   });
 
   afterAll(async () => {
-    for (const id of [brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId, funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId, formSubBrandId, formSubUnsetBrandId, combinedGoalBrandId]) {
-      await db.delete(brandSalesEconomics).where(eq(brandSalesEconomics.brandId, id));
-      await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
-      await db.delete(brands).where(eq(brands.id, id));
-    }
+    await db.delete(brandSalesEconomics).where(inArray(brandSalesEconomics.brandId, allBrandIds));
+    await db.delete(orgBrands).where(inArray(orgBrands.brandId, allBrandIds));
+    await db.delete(brands).where(inArray(brands.id, allBrandIds));
   });
 
   const path = (id: string) => `/orgs/brands/${id}/sales-economics`;
@@ -169,23 +177,37 @@ describe('Sales Economics Endpoints', () => {
     expect(res.status).toBe(404);
   });
 
-  // AC7 — missing field fails loud
-  it('PUT with a missing metric field returns 400', async () => {
+  // AC7 — a metric omitted from a patch on an EXISTING brand is LEFT UNCHANGED.
+  // It is no longer a 400: the all-or-nothing write is exactly what let a caller
+  // holding a stale copy overwrite values it never meant to touch. The 400 now
+  // applies only where there is nothing to leave unchanged (unset brand) — see
+  // the partial-update block below.
+  it('PUT omitting a metric on a brand that has a saved set leaves it unchanged', async () => {
+    await request(app).put(path(brandId)).set(getAuthHeaders(ownerOrgId)).send(validMetrics);
+
     const { visitToSignupPct, ...incomplete } = validMetrics;
     const res = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
       .send(incomplete);
-    expect(res.status).toBe(400);
+
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics.visitToSignupPct).toBe(validMetrics.visitToSignupPct);
   });
 
-  it('PUT with a missing signupToPaidClientPct returns 400', async () => {
+  it('PUT omitting signupToPaidClientPct on a saved brand leaves it unchanged', async () => {
+    await request(app).put(path(brandId)).set(getAuthHeaders(ownerOrgId)).send(validMetrics);
+
     const { signupToPaidClientPct, ...incomplete } = validMetrics;
     const res = await request(app)
       .put(path(brandId))
       .set(getAuthHeaders(ownerOrgId))
       .send(incomplete);
-    expect(res.status).toBe(400);
+
+    expect(res.status).toBe(200);
+    expect(res.body.salesEconomics.signupToPaidClientPct).toBe(
+      validMetrics.signupToPaidClientPct
+    );
   });
 
   // AC8 — out-of-range percentage fails loud
@@ -709,6 +731,199 @@ describe('Sales Economics Endpoints', () => {
       .put(path(formSubBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...validMetrics, optimizationGoal: 'form_submission' }); // singular, not the enum value
+    expect(res.status).toBe(400);
+  });
+
+  // ============================================================
+  // PARTIAL UPDATE — a caller may send a subset; anything it does NOT send is
+  // left unchanged. All-or-nothing writes are what let a screen holding a stale
+  // in-memory copy silently overwrite rates the user had just confirmed
+  // (prod incident 2026-07-29, brand 7604c385: visitToSignupPct 8.4 -> 5 and
+  // signupToPaidClientPct 16.2 -> 10, neither of them touched by the user).
+  // ============================================================
+
+  // AC1 — update ONLY the lifetime revenue; every other stored metric survives.
+  it('PUT with only lifetimeRevenueUsd changes it and leaves every other metric unchanged', async () => {
+    const seed = {
+      ...validMetrics,
+      lifetimeRevenueUsd: 9000,
+      visitToSignupPct: 8.4,
+      signupToPaidClientPct: 16.2,
+      visitToPaidClientPct: 3.5,
+      replyToPaidClientPct: 12,
+      visitToFormSubmissionPct: 18,
+      formSubmissionToPaidClientPct: 22,
+      businessModel: 'b2b',
+      funnelStages: ['sales_meeting'],
+    };
+    const seeded = await request(app)
+      .put(path(partialLtvBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(seed);
+    expect(seeded.status).toBe(200);
+
+    const patched = await request(app)
+      .put(path(partialLtvBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ lifetimeRevenueUsd: 12345 });
+
+    expect(patched.status).toBe(200);
+    expect(patched.body.salesEconomics.lifetimeRevenueUsd).toBe(12345);
+
+    const after = await request(app)
+      .get(path(partialLtvBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    const before = seeded.body.salesEconomics;
+    expect(after.body.salesEconomics).toEqual({
+      ...before,
+      lifetimeRevenueUsd: 12345,
+      updatedAt: after.body.salesEconomics.updatedAt,
+    });
+  });
+
+  // AC2 — update ONLY one conversion rate; the sibling rate is untouched and the
+  // derived visitToClosePct follows the pair actually stored.
+  it('PUT with only visitToSignupPct leaves signupToPaidClientPct unchanged and re-derives visitToClosePct', async () => {
+    const seeded = await request(app)
+      .put(path(partialRateBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, visitToSignupPct: 8.4, signupToPaidClientPct: 16.2 });
+    expect(seeded.status).toBe(200);
+    // 8.4 * 16.2 / 100 = 1.3608
+    expect(seeded.body.salesEconomics.visitToClosePct).toBeCloseTo(1.3608, 4);
+
+    const patched = await request(app)
+      .put(path(partialRateBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ visitToSignupPct: 10 });
+
+    expect(patched.status).toBe(200);
+    expect(patched.body.salesEconomics.visitToSignupPct).toBe(10);
+    // the rate the caller never sent keeps its confirmed value
+    expect(patched.body.salesEconomics.signupToPaidClientPct).toBeCloseTo(16.2, 4);
+    // derived from the MERGED pair: 10 * 16.2 / 100 = 1.62
+    expect(patched.body.salesEconomics.visitToClosePct).toBeCloseTo(1.62, 4);
+
+    const after = await request(app)
+      .get(path(partialRateBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(after.body.salesEconomics.signupToPaidClientPct).toBeCloseTo(16.2, 4);
+    expect(after.body.salesEconomics.visitToClosePct).toBeCloseTo(1.62, 4);
+  });
+
+  // AC2 (mirror) — patching a NON-core optional rate still leaves the core alone.
+  it('PUT with only replyToPaidClientPct leaves the core metrics unchanged', async () => {
+    const seeded = await request(app)
+      .put(path(partialRateBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...validMetrics, replyToPaidClientPct: 12 });
+    expect(seeded.status).toBe(200);
+
+    const patched = await request(app)
+      .put(path(partialRateBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ replyToPaidClientPct: 31 });
+
+    expect(patched.status).toBe(200);
+    expect(patched.body.salesEconomics.replyToPaidClientPct).toBe(31);
+    expect(patched.body.salesEconomics).toMatchObject(validMetrics);
+  });
+
+  // AC3 — a full-set write behaves exactly as before, derived value included.
+  it('PUT with the full set writes every field and derives visitToClosePct as before', async () => {
+    const full = {
+      ...validMetrics,
+      lifetimeRevenueUsd: 7500,
+      visitToSignupPct: 40,
+      signupToPaidClientPct: 25,
+    };
+    const first = await request(app)
+      .put(path(partialFullSetBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(full);
+
+    expect(first.status).toBe(200);
+    expect(first.body.salesEconomics).toMatchObject(full);
+    expect(first.body.salesEconomics.visitToClosePct).toBe(10); // 40 * 25 / 100
+
+    // A second identical full-set write is still idempotent.
+    const second = await request(app)
+      .put(path(partialFullSetBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(full);
+    const strip = (b: any) => ({ ...b.salesEconomics, updatedAt: undefined });
+    expect(strip(second.body)).toEqual(strip(first.body));
+
+    // A full set OVERWRITES a previously patched value — no leave-unchanged
+    // surprise for callers that do send everything.
+    const overwritten = await request(app)
+      .put(path(partialFullSetBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ ...full, lifetimeRevenueUsd: 100 });
+    expect(overwritten.body.salesEconomics.lifetimeRevenueUsd).toBe(100);
+  });
+
+  // AC4 — a brand with NOTHING stored has nothing to leave unchanged: a partial
+  // payload fails loud rather than inventing a default or a cross-brand average.
+  it('PUT a partial payload on a brand with no stored economics returns 400 naming the missing metrics', async () => {
+    const res = await request(app)
+      .put(path(partialUnsetBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ lifetimeRevenueUsd: 5000 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.missing).toEqual(
+      expect.arrayContaining([
+        'replyToMeetingPct',
+        'visitToMeetingPct',
+        'meetingToClosePct',
+        'visitToSignupPct',
+        'signupToPaidClientPct',
+      ])
+    );
+    expect(res.body.missing).not.toContain('lifetimeRevenueUsd');
+
+    // Nothing was written — the brand is still unset, no invented row.
+    const after = await request(app)
+      .get(path(partialUnsetBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(after.body).toEqual({ salesEconomics: null });
+  });
+
+  // AC4 — the same brand accepts the full set, then accepts patches.
+  it('PUT the full set on a previously unset brand creates it, then a partial patch works', async () => {
+    const created = await request(app)
+      .put(path(partialUnsetBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send(validMetrics);
+    expect(created.status).toBe(200);
+    expect(created.body.salesEconomics).toMatchObject(validMetrics);
+
+    const patched = await request(app)
+      .put(path(partialUnsetBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ meetingToClosePct: 42 });
+    expect(patched.status).toBe(200);
+    expect(patched.body.salesEconomics.meetingToClosePct).toBe(42);
+    expect(patched.body.salesEconomics.lifetimeRevenueUsd).toBe(
+      validMetrics.lifetimeRevenueUsd
+    );
+  });
+
+  // Validation of a field that IS sent is unchanged by the partial contract.
+  it('PUT a partial payload with an out-of-range percentage still returns 400', async () => {
+    const res = await request(app)
+      .put(path(partialLtvBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ replyToMeetingPct: 150 });
+    expect(res.status).toBe(400);
+  });
+
+  it('PUT a partial payload with a string value (no coercion) still returns 400', async () => {
+    const res = await request(app)
+      .put(path(partialLtvBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ lifetimeRevenueUsd: '4000' });
     expect(res.status).toBe(400);
   });
 });

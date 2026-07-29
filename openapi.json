@@ -1697,54 +1697,76 @@
         ]
       },
       "UpsertSalesEconomicsRequest": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/SalesEconomicsMetrics"
+        "type": "object",
+        "properties": {
+          "lifetimeRevenueUsd": {
+            "type": "integer",
+            "minimum": 0
           },
-          {
-            "type": "object",
-            "properties": {
-              "visitToPaidClientPct": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
-              },
-              "replyToPaidClientPct": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
-              },
-              "visitToFormSubmissionPct": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
-              },
-              "formSubmissionToPaidClientPct": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
-              },
-              "businessModel": {
-                "type": "string",
-                "nullable": true,
-                "enum": [
-                  "b2c",
-                  "b2b",
-                  null
-                ]
-              },
-              "funnelStages": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/FunnelStage"
-                }
-              },
-              "optimizationGoal": {
-                "$ref": "#/components/schemas/OptimizationGoal"
-              }
+          "replyToMeetingPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "visitToMeetingPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "meetingToClosePct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "visitToSignupPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "signupToPaidClientPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "visitToPaidClientPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "replyToPaidClientPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "visitToFormSubmissionPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "formSubmissionToPaidClientPct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "businessModel": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "b2c",
+              "b2b",
+              null
+            ]
+          },
+          "funnelStages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FunnelStage"
             }
+          },
+          "optimizationGoal": {
+            "$ref": "#/components/schemas/OptimizationGoal"
           }
-        ]
+        }
       },
       "UpsertClickDestinationResponse": {
         "type": "object",
@@ -4207,7 +4229,7 @@
       },
       "put": {
         "summary": "Upsert a brand's sales conversion economics",
-        "description": "Idempotent write of the full metric set. Required: `lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct` (percents 0..100, decimals allowed). `visitToClosePct` is NOT accepted on the request — it is DERIVED on the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent is ignored. Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | `booked_meetings` | `sales` | `website_visits` | `positive_replies` | `form_submissions`): omitting leaves it unchanged, sending sets it. Optional `visitToFormSubmissionPct` + `formSubmissionToPaidClientPct` (form_submissions two-step rates): omitting leaves them unchanged. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Idempotent PARTIAL write. EVERY field is optional: what you send is written, what you OMIT is left unchanged — so a screen editing one value (e.g. only `lifetimeRevenueUsd`) sends only that value and cannot overwrite the rest with a stale copy of them. Sending the full set behaves as before. EXCEPTION — a brand with NO stored economics has nothing to leave unchanged, so the six core metrics (`lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct`) are ALL required on that first write; a partial payload there is rejected 400 with a `missing` array (never defaulted, never averaged). Percents are 0..100, decimals allowed. `visitToClosePct` is NOT accepted on the request — it is DERIVED on the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent is ignored. Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | `booked_meetings` | `sales` | `website_visits` | `positive_replies` | `form_submissions`): omitting leaves it unchanged, sending sets it. Optional `visitToFormSubmissionPct` + `formSubmissionToPaidClientPct` (form_submissions two-step rates): omitting leaves them unchanged. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {
@@ -4240,7 +4262,7 @@
             }
           },
           "400": {
-            "description": "Invalid brand ID format or invalid/missing metric field"
+            "description": "Invalid brand ID format, an invalid metric value, or a partial payload for a brand that has no stored economics (body carries `missing`: the core metrics that must be sent)"
           },
           "403": {
             "description": "Brand does not belong to the caller's org"

@@ -50,8 +50,12 @@ export function deriveVisitToClosePct(
  * every sales-cold-email campaign. Wire field names are consumed byte-stable
  * by api-service + the dashboard.
  *
+ * This is the READ shape (every core metric present). The WRITE shape is
+ * `SalesEconomicsPatch` below — a partial patch where an omitted field is left
+ * unchanged.
+ *
  * `businessModel` is optional on write: omitted (`undefined`) = leave the
- * stored value unchanged; `null` = clear it. The 5 metrics stay required.
+ * stored value unchanged; `null` = clear it.
  *
  * `funnelStages` / `optimizationGoal` are optional on write: omitted
  * (`undefined`) = leave unchanged; sending sets. Neither is nullable — there is
@@ -81,6 +85,92 @@ export interface SalesEconomicsMetrics {
   businessModel?: BusinessModel | null;
   funnelStages?: FunnelStage[];
   optimizationGoal?: OptimizationGoal;
+}
+
+/**
+ * WRITE shape: a PARTIAL patch of the metrics. Every field is optional and an
+ * omitted field is LEFT UNCHANGED — the same contract the optional metrics
+ * already had, extended to the 6 core ones so a caller changing a single value
+ * never has to restate the others from its own (possibly stale) in-memory copy.
+ * Restating is exactly how a stale copy silently overwrote confirmed conversion
+ * rates in prod (2026-07-29).
+ *
+ * CREATE is the exception: a brand with no stored row has nothing to leave
+ * unchanged, so the 6 core metrics are all required there (see
+ * `IncompleteSalesEconomicsError`). Nothing is ever defaulted or averaged in.
+ */
+export type SalesEconomicsPatch = Partial<SalesEconomicsMetrics>;
+
+/**
+ * The 6 core metrics — required to CREATE a brand's economics row (there is no
+ * previous value to leave unchanged, and inventing one is forbidden).
+ * `visitToClosePct` is absent on purpose: it is derived, never written.
+ */
+export const CORE_SALES_ECONOMICS_KEYS = [
+  'lifetimeRevenueUsd',
+  'replyToMeetingPct',
+  'visitToMeetingPct',
+  'meetingToClosePct',
+  'visitToSignupPct',
+  'signupToPaidClientPct',
+] as const;
+
+export type CoreSalesEconomicsKey = (typeof CORE_SALES_ECONOMICS_KEYS)[number];
+
+/** The 6 core metrics as a standalone shape (the patch-merge unit). */
+export type CoreSalesEconomics = Pick<SalesEconomicsMetrics, CoreSalesEconomicsKey>;
+
+/**
+ * Thrown when a PARTIAL patch targets a brand that has NO stored economics.
+ * Fail loud (→ 400) instead of filling the gaps with a default or a cross-brand
+ * average: a value nobody sent must never be invented.
+ */
+export class IncompleteSalesEconomicsError extends Error {
+  constructor(public readonly missing: CoreSalesEconomicsKey[]) {
+    super(
+      `Cannot create sales economics from a partial payload: missing ${missing.join(', ')}. ` +
+      'A brand with no stored economics must be written with the full set of core metrics.'
+    );
+    this.name = 'IncompleteSalesEconomicsError';
+  }
+}
+
+/** Core metrics absent from a patch — empty when the patch can create a row. */
+export function missingCoreMetrics(
+  patch: SalesEconomicsPatch
+): CoreSalesEconomicsKey[] {
+  return CORE_SALES_ECONOMICS_KEYS.filter((key) => patch[key] === undefined);
+}
+
+/**
+ * Merge a partial patch over the CURRENT stored core metrics.
+ * `undefined` in the patch = keep the stored value (leave-unchanged); a value
+ * present in the patch wins. Callers pass `current: null` only when the patch is
+ * already known complete (the `missingCoreMetrics` guard runs first), so no
+ * value is ever invented here.
+ */
+export function mergeCoreMetrics(
+  current: CoreSalesEconomics | null,
+  patch: SalesEconomicsPatch
+): CoreSalesEconomics {
+  const pick = (key: CoreSalesEconomicsKey): number => {
+    const patched = patch[key];
+    if (patched !== undefined) return patched;
+    if (current === null) {
+      // Unreachable via upsertByBrandId (guarded), but never silently default.
+      throw new IncompleteSalesEconomicsError([key]);
+    }
+    return current[key];
+  };
+
+  return {
+    lifetimeRevenueUsd: pick('lifetimeRevenueUsd'),
+    replyToMeetingPct: pick('replyToMeetingPct'),
+    visitToMeetingPct: pick('visitToMeetingPct'),
+    meetingToClosePct: pick('meetingToClosePct'),
+    visitToSignupPct: pick('visitToSignupPct'),
+    signupToPaidClientPct: pick('signupToPaidClientPct'),
+  };
 }
 
 export interface SavedSalesEconomics extends SalesEconomicsMetrics {
@@ -311,13 +401,50 @@ export class SalesEconomicsService {
   }
 
   /**
-   * Idempotent upsert of the full 5-metric set. Single row per brand
-   * (PK = brand_id). Repeating the same write yields the same end state.
+   * Idempotent PARTIAL upsert. Single row per brand (PK = brand_id).
+   *
+   * Every field is optional: what the caller sends is written, what it OMITS is
+   * left exactly as stored. A caller changing one metric therefore does not have
+   * to restate the others — restating from a stale in-memory copy is what
+   * silently overwrote confirmed conversion rates in prod (2026-07-29).
+   * Sending the full set behaves identically to before this became partial.
+   *
+   * CREATE (no stored row) still requires the 6 core metrics: there is no
+   * previous value to leave unchanged and a missing one must never be filled
+   * with a default or a cross-brand average → `IncompleteSalesEconomicsError`
+   * (route → 400).
    */
   async upsertByBrandId(
     brandId: string,
-    metrics: SalesEconomicsMetrics
+    metrics: SalesEconomicsPatch
   ): Promise<SavedSalesEconomics> {
+    // Current stored core metrics — the base an omitted field falls back to.
+    // Read from the row itself (not the formatted read) so the merge is over
+    // what is actually persisted.
+    const [storedRow] = await db
+      .select()
+      .from(brandSalesEconomics)
+      .where(eq(brandSalesEconomics.brandId, brandId))
+      .limit(1);
+
+    const storedCore: CoreSalesEconomics | null = storedRow
+      ? {
+        lifetimeRevenueUsd: storedRow.lifetimeRevenueUsd,
+        replyToMeetingPct: storedRow.replyToMeetingPct,
+        visitToMeetingPct: storedRow.visitToMeetingPct,
+        meetingToClosePct: storedRow.meetingToClosePct,
+        visitToSignupPct: storedRow.visitToSignupPct,
+        signupToPaidClientPct: storedRow.signupToPaidClientPct,
+      }
+      : null;
+
+    if (!storedCore) {
+      const missing = missingCoreMetrics(metrics);
+      if (missing.length > 0) throw new IncompleteSalesEconomicsError(missing);
+    }
+
+    const core = mergeCoreMetrics(storedCore, metrics);
+
     const currentGoal = metrics.optimizationGoal !== undefined
       ? await updateCurrentGoalByBrandId(
         brandId,
@@ -336,21 +463,24 @@ export class SalesEconomicsService {
       metrics.optimizationGoal ?? currentGoalToLegacyOptimizationGoal(currentGoal);
 
     // visit_to_close_pct is a STORED-but-DERIVED column: recompute on every
-    // write from the two sub-rates so the column never drifts from them.
+    // write from the two sub-rates so the column never drifts from them. Derived
+    // from the MERGED values, so a patch touching only one sub-rate still leaves
+    // the column coherent with the pair actually stored. The formula itself is
+    // unchanged.
     const visitToClosePct = deriveVisitToClosePct(
-      metrics.visitToSignupPct,
-      metrics.signupToPaidClientPct
+      core.visitToSignupPct,
+      core.signupToPaidClientPct
     );
     const result = await db
       .insert(brandSalesEconomics)
       .values({
         brandId,
-        lifetimeRevenueUsd: metrics.lifetimeRevenueUsd,
-        replyToMeetingPct: metrics.replyToMeetingPct,
-        visitToMeetingPct: metrics.visitToMeetingPct,
-        meetingToClosePct: metrics.meetingToClosePct,
-        visitToSignupPct: metrics.visitToSignupPct,
-        signupToPaidClientPct: metrics.signupToPaidClientPct,
+        lifetimeRevenueUsd: core.lifetimeRevenueUsd,
+        replyToMeetingPct: core.replyToMeetingPct,
+        visitToMeetingPct: core.visitToMeetingPct,
+        meetingToClosePct: core.meetingToClosePct,
+        visitToSignupPct: core.visitToSignupPct,
+        signupToPaidClientPct: core.signupToPaidClientPct,
         visitToClosePct,
         // Single-step rates: omitted → column DB default (5 / 25) on a fresh row.
         ...(metrics.visitToPaidClientPct !== undefined
@@ -377,12 +507,29 @@ export class SalesEconomicsService {
       .onConflictDoUpdate({
         target: brandSalesEconomics.brandId,
         set: {
-          lifetimeRevenueUsd: metrics.lifetimeRevenueUsd,
-          replyToMeetingPct: metrics.replyToMeetingPct,
-          visitToMeetingPct: metrics.visitToMeetingPct,
-          meetingToClosePct: metrics.meetingToClosePct,
-          visitToSignupPct: metrics.visitToSignupPct,
-          signupToPaidClientPct: metrics.signupToPaidClientPct,
+          // Only touch a core metric when the caller supplied it. Omitted =
+          // preserve the stored value (the UPDATE never names the column), so a
+          // partial patch cannot overwrite a metric the caller never sent.
+          ...(metrics.lifetimeRevenueUsd !== undefined
+            ? { lifetimeRevenueUsd: metrics.lifetimeRevenueUsd }
+            : {}),
+          ...(metrics.replyToMeetingPct !== undefined
+            ? { replyToMeetingPct: metrics.replyToMeetingPct }
+            : {}),
+          ...(metrics.visitToMeetingPct !== undefined
+            ? { visitToMeetingPct: metrics.visitToMeetingPct }
+            : {}),
+          ...(metrics.meetingToClosePct !== undefined
+            ? { meetingToClosePct: metrics.meetingToClosePct }
+            : {}),
+          ...(metrics.visitToSignupPct !== undefined
+            ? { visitToSignupPct: metrics.visitToSignupPct }
+            : {}),
+          ...(metrics.signupToPaidClientPct !== undefined
+            ? { signupToPaidClientPct: metrics.signupToPaidClientPct }
+            : {}),
+          // Always rewritten: it is derived, and the merged pair above is what
+          // the row ends up holding.
           visitToClosePct,
           updatedAt: sql`NOW()`,
           // Only touch the single-step rates when supplied. Omitted = preserve.
