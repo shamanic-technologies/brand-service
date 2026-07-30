@@ -53,9 +53,10 @@ describe('getOrCreateBrand - CRITICAL', () => {
     expect(result.id).toBeDefined();
     expect(result.domain).toBe(expectedDomain);
     expect(result.url).toBe(url);
-    // The create path no longer blocks on the name fill — name is derived
-    // lazily on the first getBrandDetail read, so it is null right after create.
-    expect(result.name).toBeNull();
+    // The create path resolves the display name (company index -> page HTML ->
+    // titlecased domain) so onboarding never shows a null name. Test env skips
+    // the network and lands on the terminal fallback.
+    expect(result.name).toBe('New Brand Test');
 
     const member = await db
       .select()

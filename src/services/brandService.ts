@@ -1,11 +1,22 @@
 /**
  * Brand CRUD utilities.
  *
- * Includes a lazy-fill helper (ensureBrandName) that derives brands.name on
- * first read (getBrandDetail) by fetching the landing page HTML and parsing
- * og:site_name / <title> / JSON-LD — NO LLM, Firecrawl, chat-service, run, or
- * cost. It falls back to a titlecased domain, so it always yields a non-empty
- * name. The brand-create path (getOrCreateBrand) no longer blocks on it.
+ * brands.name is derived through ONE priority chain — NO LLM, Firecrawl,
+ * chat-service, run, or cost anywhere in it:
+ *
+ *   1. the logo.dev company index (authoritative, domain-matched — see
+ *      lib/logo-dev-search.ts)
+ *   2. the landing page HTML (og:site_name / <title> / JSON-LD)
+ *   3. the titlecased domain — the guaranteed non-empty terminal fallback
+ *
+ * The chain runs at CREATE (getOrCreateBrand) so the onboarding header has a
+ * real name immediately, but the create path never WAITS on the customer's own
+ * website: only the index lookup is awaited, and an index miss returns the
+ * titlecased domain right away while the page-HTML derivation runs in the
+ * background and upgrades that provisional value in place.
+ *
+ * ensureBrandName remains the read-path (getBrandDetail) safety net for rows
+ * created before this — it runs the same chain and guarantees a non-null name.
  */
 
 import { eq, and, sql, isNull } from 'drizzle-orm';
@@ -13,6 +24,7 @@ import { db, brands, orgBrands, brandClickDestinations, brandWhatsappLinks } fro
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { Caller, OrgCaller } from '../lib/chat-client';
 import { buildLogoDevUrl } from '../lib/logo-dev';
+import { searchBrandNameByDomain } from '../lib/logo-dev-search';
 import { getBrandCheckoutStatus } from '../lib/client-client';
 import { rewriteBrandReferences } from './brandMergeService';
 
@@ -200,6 +212,101 @@ async function persistBrandName(brandId: string, name: string): Promise<void> {
     .where(eq(brands.id, brandId));
 }
 
+/**
+ * Persist `name` ONLY while brands.name is still NULL, and return the name the
+ * row actually ends up with. A name that is already stored is never re-derived
+ * nor overwritten (that includes a user-set name and a name another concurrent
+ * fill just wrote).
+ */
+async function persistBrandNameIfAbsent(brandId: string, name: string): Promise<string> {
+  const [updated] = await db
+    .update(brands)
+    .set({ name, updatedAt: sql`NOW()` })
+    .where(and(eq(brands.id, brandId), isNull(brands.name)))
+    .returning({ name: brands.name });
+
+  if (updated?.name) return updated.name;
+
+  // Somebody else won the race — keep their value.
+  const row = await getBrandNameRow(brandId);
+  return row?.name ?? name;
+}
+
+/**
+ * Resolve brands.name at CREATE time, so the onboarding header shows a real
+ * company name on the very next screen instead of waiting for the first read.
+ *
+ * Awaits ONLY the logo.dev index lookup (our own vendor, bounded, cheap). On an
+ * index miss it returns the titlecased domain immediately and kicks off the
+ * page-HTML derivation in the BACKGROUND — the create call never waits on a
+ * fetch of the customer's own website, and a later read never has to pay for it
+ * either.
+ *
+ * Always returns a non-empty name.
+ */
+export async function fillBrandNameOnCreate(
+  brandId: string,
+  url: string,
+  domain: string,
+): Promise<string> {
+  const provisional = titlecaseDomain(domain);
+
+  // Test environments bypass the network entirely (index + landing fetch) and
+  // land straight on the terminal fallback, so creates stay deterministic.
+  if (process.env.NODE_ENV === 'test') {
+    return persistBrandNameIfAbsent(brandId, provisional);
+  }
+
+  const indexed = await searchBrandNameByDomain(domain);
+  if (indexed) {
+    const stored = await persistBrandNameIfAbsent(brandId, indexed);
+    console.log(`[brand-service] fillBrandNameOnCreate: resolved name "${stored}" from the company index for brand ${brandId} (${domain})`);
+    return stored;
+  }
+
+  const stored = await persistBrandNameIfAbsent(brandId, provisional);
+
+  // Only upgrade the placeholder WE just wrote. If the row already carried a
+  // name, there is nothing provisional to replace.
+  if (stored === provisional) {
+    void upgradeProvisionalBrandName(brandId, url, domain, provisional).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[brand-service] fillBrandNameOnCreate: background name upgrade failed for brand ${brandId}: ${message}`);
+    });
+  }
+
+  return stored;
+}
+
+/**
+ * Background half of the create-time fill: derive the name from the landing
+ * page and replace the titlecased-domain placeholder in place.
+ *
+ * The UPDATE is conditioned on the name still BEING that placeholder, so a real
+ * name stored meanwhile (user edit, concurrent fill) is never clobbered. A page
+ * that yields nothing better resolves to the same placeholder and writes
+ * nothing.
+ */
+async function upgradeProvisionalBrandName(
+  brandId: string,
+  url: string,
+  domain: string,
+  provisional: string,
+): Promise<void> {
+  const derived = await deriveBrandNameFromPage(url, domain);
+  if (derived === provisional) return;
+
+  const [updated] = await db
+    .update(brands)
+    .set({ name: derived, updatedAt: sql`NOW()` })
+    .where(and(eq(brands.id, brandId), eq(brands.name, provisional)))
+    .returning({ name: brands.name });
+
+  if (updated) {
+    console.log(`[brand-service] upgradeProvisionalBrandName: brand ${brandId} "${provisional}" -> "${derived}"`);
+  }
+}
+
 async function fillBrandName(brandId: string): Promise<string> {
   const row = await getBrandNameRow(brandId);
 
@@ -229,11 +336,25 @@ async function fillBrandName(brandId: string): Promise<string> {
 }
 
 /**
- * Derive a brand display name with no LLM / external service. Fetches the
- * landing page HTML and parses it; on any fetch failure falls back to the
- * titlecased domain. Always returns a non-empty string.
+ * Derive a brand display name with no LLM / run / cost. Priority chain:
+ *   1. the logo.dev company index (domain-matched)
+ *   2. the landing page HTML
+ *   3. the titlecased domain
+ * Always returns a non-empty string.
  */
 async function deriveBrandName(url: string, domain: string): Promise<string> {
+  const indexed = await searchBrandNameByDomain(domain);
+  if (indexed) return indexed;
+
+  return deriveBrandNameFromPage(url, domain);
+}
+
+/**
+ * Links 2 and 3 of the chain: the landing page HTML, then the titlecased
+ * domain. Split out so the create path can run it in the BACKGROUND (it is
+ * bounded by a fetch of the customer's own site) after the index misses.
+ */
+async function deriveBrandNameFromPage(url: string, domain: string): Promise<string> {
   const html = await fetchLandingHtml(url);
   if (html === null) return titlecaseDomain(domain);
   return parseBrandNameFromHtml(html, domain);
@@ -529,9 +650,15 @@ export async function getOrCreateBrand(
     .values({ orgId, brandId: brand.id })
     .onConflictDoNothing({ target: [orgBrands.orgId, orgBrands.brandId] });
 
-  // Do NOT block the create on the name fill — onboarding shows the domain, not
-  // the name. The name is derived lazily on the first getBrandDetail read
-  // (ensureBrandName). `brand.name` is returned as-is (may be null).
+  // Resolve the display name here so the onboarding header has a real company
+  // name on the very next screen. Only the logo.dev index lookup is awaited;
+  // an index miss returns the titlecased domain immediately and derives from
+  // the landing page in the background, so the create never waits on a fetch of
+  // the customer's own website. A brand that already has a name is untouched.
+  if (!brand.name && brand.url && brand.domain) {
+    brand.name = await fillBrandNameOnCreate(brand.id, brand.url, brand.domain);
+  }
+
   return brand;
 }
 
