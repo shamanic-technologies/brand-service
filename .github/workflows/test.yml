@@ -105,12 +105,17 @@ jobs:
           files: ./coverage/coverage-final.json
           fail_ci_if_error: false
 
+      # Delete by the id the create step reported, not by a re-derived name. The create step now
+      # names the branch `ci-<run_id>`, so asking for `pr-<number>` deleted nothing, failed the
+      # whole job with `ERROR: Branch pr-387 not found`, and left the branch behind on every run.
+      # Deleting the branch is the entire point of provisioning a throwaway one, so a name this
+      # step derives on its own must not appear here.
       - name: Delete Neon branch
-        if: always() && steps.neon.outputs.db_url_pooled
+        if: always() && steps.neon.outputs.branch_id
         uses: neondatabase/delete-branch-action@v3
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch: pr-${{ github.event.number }}
+          branch: ${{ steps.neon.outputs.branch_id }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
   test-coverage-check:
