@@ -17,5 +17,9 @@ export default defineConfig({
     maxWorkers: 1,
     // Increase timeout for integration tests that connect to DB
     testTimeout: 10000,
+    // Hooks have their OWN budget, separate from testTimeout, and it defaults to 10s.
+    // CI now provisions a throwaway Neon branch per run, so setup and teardown pay cold,
+    // cross-region round-trips that a warm long-lived database never charged.
+    hookTimeout: 30000,
   },
 });

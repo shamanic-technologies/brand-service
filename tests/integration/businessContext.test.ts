@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandBusinessContext } from '../../src/db';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 /**
@@ -35,15 +35,17 @@ describe('Business context & no-website brands', () => {
     createdBrandIds.push(foreignBrandId);
   });
 
-  // Three sequential deletes per created brand — vitest gives hooks their own
-  // 10s budget, which this cleanup outgrew on CI's Neon branch.
+  // One statement per table, not one per brand: the per-brand loop this replaces issued
+  // 3 round-trips × ~9 brands, which overruns vitest's separate 10s hook budget as soon as
+  // the database is a freshly provisioned (cold, cross-region) branch rather than a warm one.
   afterAll(async () => {
-    for (const id of createdBrandIds) {
-      await db.delete(brandBusinessContext).where(eq(brandBusinessContext.brandId, id));
-      await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
-      await db.delete(brands).where(eq(brands.id, id));
-    }
-  }, 60000);
+    if (createdBrandIds.length === 0) return;
+    await db
+      .delete(brandBusinessContext)
+      .where(inArray(brandBusinessContext.brandId, createdBrandIds));
+    await db.delete(orgBrands).where(inArray(orgBrands.brandId, createdBrandIds));
+    await db.delete(brands).where(inArray(brands.id, createdBrandIds));
+  });
 
   async function createNoWebsiteBrand(name: string): Promise<string> {
     const res = await request(app)
