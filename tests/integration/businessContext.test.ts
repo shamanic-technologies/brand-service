@@ -35,13 +35,15 @@ describe('Business context & no-website brands', () => {
     createdBrandIds.push(foreignBrandId);
   });
 
+  // Three sequential deletes per created brand — vitest gives hooks their own
+  // 10s budget, which this cleanup outgrew on CI's Neon branch.
   afterAll(async () => {
     for (const id of createdBrandIds) {
       await db.delete(brandBusinessContext).where(eq(brandBusinessContext.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
     }
-  });
+  }, 60000);
 
   async function createNoWebsiteBrand(name: string): Promise<string> {
     const res = await request(app)
