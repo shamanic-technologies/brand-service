@@ -56,10 +56,17 @@ vi.mock('../../src/db', () => {
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: 'eq', args })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
+  isNull: vi.fn((...args: unknown[]) => ({ type: 'isNull', args })),
   sql: Object.assign(
     vi.fn((strings: TemplateStringsArray) => ({ type: 'sql', raw: strings.raw })),
     {},
   ),
+}));
+
+// This file covers the page-HTML link of the chain, so the company index always
+// misses here. Index-first behaviour lives in brandNameIndex.test.ts.
+vi.mock('../../src/lib/logo-dev-search', () => ({
+  searchBrandNameByDomain: vi.fn().mockResolvedValue(null),
 }));
 
 import { ensureBrandName } from '../../src/services/brandService';

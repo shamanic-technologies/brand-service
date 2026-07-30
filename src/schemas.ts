@@ -297,7 +297,7 @@ registry.registerPath({
   path: '/orgs/brands',
   summary: 'Create or return a brand by URL (website) or name (no-website)',
   description:
-    'Creates or returns a brand for the given organization. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL) OR `name` (no-website brand — deduped per organization on the case-insensitive name, so repeating the same create returns the same brand with `created: false` instead of stacking duplicates; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.',
+    'Creates or returns a brand for the given organization. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL) OR `name` (no-website brand — deduped per organization on the case-insensitive name, so repeating the same create returns the same brand with `created: false` instead of stacking duplicates; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required. A website brand\'s display `name` is resolved on this call (logo.dev company index → landing-page HTML → titlecased domain) and comes back populated; only the index lookup is awaited, so the create never waits on a fetch of the customer\'s own site.',
   request: { body: { content: { 'application/json': { schema: UpsertBrandRequestSchema } } } },
   responses: {
     200: { description: 'Brand found or created', content: { 'application/json': { schema: UpsertBrandResponseSchema } } },
@@ -382,8 +382,9 @@ registry.registerPath({
   description:
     'Returns the canonical minimal brand shape (identity + name + logoUrl). All business fields ' +
     '(industry, target audience, mission, etc.) must be fetched via POST /internal/brands/extract-fields. ' +
-    'Lazy fills name (via extract-fields, platform-billed) and logoUrl (via deterministic logo.dev URL) ' +
-    'when null in the database.',
+    'name is never null: it is normally resolved at brand-create; this route keeps the lazy-fill safety ' +
+    'net for rows created before that (logo.dev company index → landing-page HTML → titlecased domain, ' +
+    'no LLM / run / cost). logoUrl is lazy-filled from a deterministic logo.dev image URL when null.',
   request: { query: GetBrandQuerySchema },
   responses: {
     200: { description: 'Brand details', content: { 'application/json': { schema: GetBrandResponseSchema } } },
