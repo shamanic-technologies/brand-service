@@ -61,24 +61,26 @@ jobs:
           SCRAPING_SERVICE_URL: http://localhost:3010
           SCRAPING_SERVICE_API_KEY: test-scraping-key
 
-      # Create isolated Neon branch for PR integration tests
-      - name: Create Neon branch for PR
-        if: github.event_name == 'pull_request'
+      # Isolated, throwaway Neon branch for EVERY run — pull_request AND push.
+      #
+      # A push to main/staging used to run against `secrets.BRAND_SERVICE_DATABASE_URL`, a LIVE database:
+      # the integration suite created and deleted brand rows there (~12.5k inserts sustaining ~157 live
+      # rows), and the `drizzle-kit push --force` step below reconciled its SCHEMA to whatever the branch
+      # declared — a forced, unreviewed schema change against a database serving traffic. See issue #385.
+      #
+      # `github.run_id` is unique per run, so concurrent pushes never share a branch. The delete step at
+      # the end runs `if: always()`, so a failed run still cleans up.
+      - name: Create isolated Neon branch
         id: neon
         uses: neondatabase/create-branch-action@v6
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: pr-${{ github.event.number }}
+          branch_name: ci-${{ github.run_id }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
-      # Use Neon branch URL for PRs, dev secret for main
+      # ALWAYS the throwaway branch. No CI job may hold a DSN for a database Railway points at.
       - name: Set database URL
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "DB_URL=${{ steps.neon.outputs.db_url_pooled }}" >> "$GITHUB_ENV"
-          else
-            echo "DB_URL=${{ secrets.BRAND_SERVICE_DATABASE_URL }}" >> "$GITHUB_ENV"
-          fi
+        run: echo "DB_URL=${{ steps.neon.outputs.db_url_pooled }}" >> "$GITHUB_ENV"
 
       - name: Push schema to database
         run: pnpm exec drizzle-kit push --force
@@ -104,7 +106,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Delete Neon branch
-        if: always() && github.event_name == 'pull_request' && steps.neon.outputs.db_url_pooled
+        if: always() && steps.neon.outputs.db_url_pooled
         uses: neondatabase/delete-branch-action@v3
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
