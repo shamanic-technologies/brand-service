@@ -1,5 +1,5 @@
 {
-  "id": "9876828b-99a8-4735-8aac-33362456a03b",
+  "id": "9ee44957-c94d-4e1a-af62-5f2c72632fe8",
   "prevId": "d9442b3a-a578-4dc5-aeca-ee84861bf847",
   "version": "7",
   "dialect": "postgresql",
@@ -1536,27 +1536,87 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.brand_share_links": {
-      "name": "brand_share_links",
+    "public.brand_sales_funnels": {
+      "name": "brand_sales_funnels",
       "schema": "",
       "columns": {
-        "org_id": {
-          "name": "org_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "brand_id": {
           "name": "brand_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "token": {
-          "name": "token",
+        "funnel_key": {
+          "name": "funnel_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "lifetime_revenue_usd": {
+          "name": "lifetime_revenue_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reply_to_meeting_pct": {
+          "name": "reply_to_meeting_pct",
+          "type": "numeric(7, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "visit_to_meeting_pct": {
+          "name": "visit_to_meeting_pct",
+          "type": "numeric(7, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meeting_booked_to_attended_pct": {
+          "name": "meeting_booked_to_attended_pct",
+          "type": "numeric(7, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meeting_to_close_pct": {
+          "name": "meeting_to_close_pct",
+          "type": "numeric(7, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "visit_to_signup_pct": {
+          "name": "visit_to_signup_pct",
+          "type": "numeric(7, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "signup_to_paid_client_pct": {
+          "name": "signup_to_paid_client_pct",
+          "type": "numeric(7, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "visit_to_form_submission_pct": {
+          "name": "visit_to_form_submission_pct",
+          "type": "numeric(7, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "form_submission_to_paid_client_pct": {
+          "name": "form_submission_to_paid_client_pct",
+          "type": "numeric(7, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination_url": {
+          "name": "destination_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "booking_url": {
+          "name": "booking_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -1573,42 +1633,11 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "brand_share_links_token_key": {
-          "name": "brand_share_links_token_key",
-          "columns": [
-            {
-              "expression": "token",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "brand_share_links_brand_id_idx": {
-          "name": "brand_share_links_brand_id_idx",
-          "columns": [
-            {
-              "expression": "brand_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "brand_share_links_brand_id_fkey": {
-          "name": "brand_share_links_brand_id_fkey",
-          "tableFrom": "brand_share_links",
+        "brand_sales_funnels_brand_id_fkey": {
+          "name": "brand_sales_funnels_brand_id_fkey",
+          "tableFrom": "brand_sales_funnels",
           "tableTo": "brands",
           "columnsFrom": [
             "brand_id"
@@ -1621,17 +1650,22 @@
         }
       },
       "compositePrimaryKeys": {
-        "brand_share_links_org_id_brand_id_pk": {
-          "name": "brand_share_links_org_id_brand_id_pk",
+        "brand_sales_funnels_brand_id_funnel_key_pk": {
+          "name": "brand_sales_funnels_brand_id_funnel_key_pk",
           "columns": [
-            "org_id",
-            "brand_id"
+            "brand_id",
+            "funnel_key"
           ]
         }
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "brand_sales_funnels_funnel_key_check": {
+          "name": "brand_sales_funnels_funnel_key_check",
+          "value": "\"brand_sales_funnels\".\"funnel_key\" IN ('reply_meeting', 'visit_meeting', 'visit_signup', 'visit_form')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.brand_thesis": {

@@ -20,10 +20,13 @@ export type FunnelStage = 'website_purchase' | 'sales_meeting';
  * `sales` + `website_purchase` are both the "website purchase" goal (`website_purchase`
  * is the new preferred spelling; `sales` is kept for backward-compat). `combined_sales`
  * is the NEW combined "Sales" goal (paying clients via reply OR visit, at CLTV).
+ * `sales_meetings` is ACCEPTED-ON-WRITE ONLY — the dashboard's local spelling of
+ * `booked_meetings`; every read answers `booked_meetings`.
  */
 export type OptimizationGoal =
   | 'signups'
   | 'booked_meetings'
+  | 'sales_meetings'
   | 'sales'
   | 'website_visits'
   | 'positive_replies'
@@ -192,19 +195,30 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   updatedAt: string;
 }
 
+/**
+ * `brands.current_goal` is the ONLY authority on what a brand optimizes for.
+ * `brand_sales_economics.optimization_goal` is NOT a second goal field: it is a
+ * discriminator that records the RAW wire spelling the caller sent, and it is
+ * consulted only to tell two wire values that share ONE runtime goal apart
+ * (`form_submissions` under `signup`, `website_purchase` under `purchase`). It
+ * is never read as a goal on its own, so the two can no longer answer
+ * differently — there is only one answer, plus a spelling for it.
+ *
+ * `currentGoal` is therefore REQUIRED here. It used to be optional, with a
+ * fall-back that read the stored column as if it were a goal; that branch was
+ * the one place the two fields could contradict each other.
+ */
 function formatSalesEconomics(
   row: typeof brandSalesEconomics.$inferSelect,
-  currentGoal?: CurrentGoal,
+  currentGoal: CurrentGoal,
   // ORG (dashboard) reads pass wire=true so the form_submissions sub-type is
-  // recovered from the stored column. INTERNAL (campaign-service) reads use the
-  // default (false) so the goal collapses to the runtime-safe `signups`.
+  // recovered from the stored spelling. INTERNAL (campaign-service) reads use
+  // the default (false) so the goal collapses to the runtime-safe `signups`.
   wireOptimizationGoal = false
 ): SavedSalesEconomics {
-  const optimizationGoal = currentGoal
-    ? (wireOptimizationGoal
-        ? resolveWireOptimizationGoal(currentGoal, row.optimizationGoal)
-        : currentGoalToLegacyOptimizationGoal(currentGoal))
-    : row.optimizationGoal as OptimizationGoal;
+  const optimizationGoal = wireOptimizationGoal
+    ? resolveWireOptimizationGoal(currentGoal, row.optimizationGoal)
+    : currentGoalToLegacyOptimizationGoal(currentGoal);
 
   return {
     lifetimeRevenueUsd: row.lifetimeRevenueUsd,

@@ -121,6 +121,12 @@ describe('Business context & no-website brands', () => {
     expect(res.body).toEqual({ content: null });
   });
 
+  // This is the only test in the repo that moves a megabyte, and it moves it four
+  // times: request body in, INSERT out, SELECT back, response body out. Against the
+  // throwaway Neon branch CI provisions in ap-southeast-1 that does not reliably fit
+  // in the 10s default, so the suite went red on a genuinely passing assertion.
+  // Timing, not behaviour — hence an explicit budget rather than a smaller payload,
+  // which would stop testing the thing the test exists for (the 2mb body cap).
   it('PUT accepts a ~1MB business context without a body-size error', async () => {
     const brandId = await createNoWebsiteBrand('Big Context Brand');
     const bigContent = 'A'.repeat(1_000_000); // ~1MB
@@ -131,7 +137,7 @@ describe('Business context & no-website brands', () => {
       .send({ content: bigContent });
     expect(put.status).toBe(200);
     expect(put.body.content.length).toBe(1_000_000);
-  });
+  }, 60_000);
 
   it('PUT empty content → 400', async () => {
     const brandId = await createNoWebsiteBrand('Empty Content Brand');
