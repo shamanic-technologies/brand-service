@@ -1811,6 +1811,9 @@
       "GetSalesFunnelsResponse": {
         "type": "object",
         "properties": {
+          "declared": {
+            "type": "boolean"
+          },
           "funnels": {
             "type": "array",
             "items": {
@@ -1819,6 +1822,7 @@
           }
         },
         "required": [
+          "declared",
           "funnels"
         ]
       },
@@ -1898,6 +1902,20 @@
           "positiveReply",
           "whatsappConversation",
           "combinedSales"
+        ]
+      },
+      "StateSalesFunnelSetRequest": {
+        "type": "object",
+        "properties": {
+          "funnelKeys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SalesFunnelKey"
+            }
+          }
+        },
+        "required": [
+          "funnelKeys"
         ]
       },
       "DeclareSalesFunnelResponse": {
@@ -4532,7 +4550,7 @@
     "/orgs/brands/{brandId}/sales-funnels": {
       "get": {
         "summary": "Get the sales funnels a brand has declared it sells through",
-        "description": "The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime revenue, landing page and booking link. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. An EMPTY array means the brand has declared nothing yet — read it as unknown, NOT as \"this brand sells through nothing\"; the set can only be declared, never derived from the brand's stored economics (every rate there carries a server default, so absence signals nothing). The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+        "description": "The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime revenue, landing page and booking link. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Read `declared` BEFORE `funnels`: `declared: true` with an empty list means the brand STATED it sells through none (a real answer — it is unrankable, say so), while `declared: false` means it has never told us anything (a gap — surface it, do NOT render it as \"sells through nothing\"). The set can only be stated, never derived from the brand's stored economics (every rate there carries a server default, so absence signals nothing). The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
         "parameters": [
           {
             "schema": {
@@ -4557,6 +4575,54 @@
           },
           "400": {
             "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "State the whole set of funnels a brand sells through",
+        "description": "State the WHOLE set at once: exactly these funnels, no others. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Funnels already in the set keep the economics they were priced with (restating a set never wipes them); funnels dropped from it lose their declaration and their economics together. `{ \"funnelKeys\": [] }` is legal and is the ONLY way a brand can state it sells through NOTHING — a different answer from never having said anything, which is why this route exists alongside the per-funnel one. The set is validated whole before anything is written, so a set naming a website-led funnel on a brand with no website is rejected 400 and nothing is half-applied. Returns the stated set.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StateSalesFunnelSetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stated set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID, an unknown funnel key, or a website-led funnel on a brand with no website"
           },
           "403": {
             "description": "Brand does not belong to the caller's org"
@@ -4629,7 +4695,7 @@
       },
       "delete": {
         "summary": "Undeclare a sales funnel",
-        "description": "The brand no longer sells through this funnel. Removing the declaration removes its economics with it — a funnel a brand stopped selling through must not leave numbers behind that a consumer could still rank on. Idempotent: undeclaring a funnel that was never declared is a 200 with the unchanged set. Returns the funnels still declared.",
+        "description": "The brand no longer sells through this funnel. Removing the declaration removes its economics with it — a funnel a brand stopped selling through must not leave numbers behind that a consumer could still rank on. Idempotent: undeclaring a funnel that was never declared is a 200 with the unchanged set. Does NOT un-state the set: a brand that removes its LAST funnel keeps `declared: true`, because it has stated it sells through none. Returns the set that is left.",
         "parameters": [
           {
             "schema": {
@@ -4678,7 +4744,7 @@
     "/internal/brands/{brandId}/sales-funnels": {
       "get": {
         "summary": "Internal read of the funnels a brand has declared",
-        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for (`goal` on the brand-service wire, `currentGoal` as the runtime token) and the economics it is ranked on. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. An EMPTY array means the brand has declared nothing — do NOT substitute a plausible set, and do NOT derive one from the brand's stored economics.",
+        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for (`goal` on the brand-service wire, `currentGoal` as the runtime token) and the economics it is ranked on. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Read `declared` BEFORE `funnels`: `declared: true` with an empty list is the brand stating it sells through NONE (report it unrankable), `declared: false` is a producer gap (surface it). Do NOT substitute a plausible set, and do NOT derive one from the stored economics.",
         "parameters": [
           {
             "schema": {
