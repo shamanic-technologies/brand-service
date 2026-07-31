@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { DeclareSalesFunnelRequestSchema } from '../schemas';
+import { DeclareSalesFunnelRequestSchema, StateSalesFunnelSetRequestSchema } from '../schemas';
 import {
   UUID_REGEX,
   resolveBrandOwnership,
@@ -62,7 +62,9 @@ function rejectDeclaration(res: Response, error: unknown): boolean {
 
 /**
  * GET /orgs/brands/:brandId/sales-funnels
- * The funnels this brand declared, in catalogue order. `[]` = declared nothing.
+ * `{ declared, funnels }` — whether the brand has stated a set at all, and the
+ * funnels in it. Read `declared` first: an empty list means opposite things
+ * either side of it.
  */
 orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
   try {
@@ -74,10 +76,59 @@ orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Respon
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const funnels = await salesFunnelsService.listByBrandId(brandId);
-    return res.status(200).json({ funnels });
+    const set = await salesFunnelsService.readByBrandId(brandId);
+    return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Get sales funnels error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * PUT /orgs/brands/:brandId/sales-funnels
+ * State the WHOLE set: exactly these funnels, no others. Funnels already in the
+ * set keep their economics; funnels dropped from it lose theirs with the
+ * declaration.
+ *
+ * `{ funnelKeys: [] }` is legal and is the ONLY way a brand can say it sells
+ * through nothing — which is a different answer from never having said anything,
+ * and the reason this route exists alongside the per-funnel one.
+ */
+orgRouter.put('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    const parsed = StateSalesFunnelSetRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    let set;
+    try {
+      set = await salesFunnelsService.statesetByBrandId(
+        brandId,
+        parsed.data.funnelKeys,
+        brand.domain ?? null
+      );
+    } catch (error) {
+      if (rejectDeclaration(res, error)) return;
+      throw error;
+    }
+
+    return res.status(200).json(set);
+  } catch (error: any) {
+    console.error('[brand-service] State sales funnel set error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
@@ -151,8 +202,8 @@ orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Reques
     if (rejectOwnership(res, ownership)) return;
 
     await salesFunnelsService.undeclareByBrandId(brandId, funnelKey);
-    const funnels = await salesFunnelsService.listByBrandId(brandId);
-    return res.status(200).json({ funnels });
+    const set = await salesFunnelsService.readByBrandId(brandId);
+    return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Undeclare sales funnel error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
@@ -163,6 +214,12 @@ orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Reques
  * GET /internal/brands/:brandId/sales-funnels
  * Service-auth read of the funnels a brand AUTHORIZES, keyed by brandId with no
  * org context — what campaign-service arbitration ranks over.
+ *
+ * A brand id we hold nothing for is a THIRD answer, and it 404s rather than
+ * joining either of the other two. Serving `declared: false` for it would say
+ * "this brand has told us nothing" about a brand that does not exist, which
+ * reads to the caller as a producer gap to surface and wait on — when what it
+ * actually has is a bad id, and no amount of waiting will fill it in.
  */
 internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
   try {
@@ -171,8 +228,13 @@ internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: R
       return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
     }
 
-    const funnels = await salesFunnelsService.listByBrandId(brandId);
-    return res.status(200).json({ funnels });
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    const set = await salesFunnelsService.readByBrandId(brandId);
+    return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Internal get sales funnels error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });

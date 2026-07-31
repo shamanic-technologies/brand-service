@@ -313,6 +313,34 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 ]);
 
 /**
+ * Whether a brand has STATED which funnels it sells through — one row per brand
+ * (PK = brand_id), the row's presence being the statement.
+ *
+ * This exists because "the brand told us it sells through nothing" and "the
+ * brand has never told us anything" are different answers that
+ * `brand_sales_funnels` alone cannot tell apart: both are zero rows. They lead
+ * to opposite consumer behaviour — an empty STATED set means the brand is
+ * genuinely unrankable and should be reported as such, while no statement at
+ * all is a gap that must surface as one and never be quietly rendered as "sells
+ * through nothing".
+ *
+ * Declaring any funnel states the set (declaring a funnel IS saying your set
+ * includes it). Undeclaring one does NOT un-state it — a brand that removes its
+ * last funnel has still answered the question.
+ */
+export const brandSalesFunnelDeclarations = pgTable("brand_sales_funnel_declarations", {
+	brandId: uuid("brand_id").primaryKey(),
+	declaredAt: timestamp("declared_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_sales_funnel_declarations_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * Brand business context — the free-form text a user pastes when their brand
  * has NO website. It is the ALTERNATIVE field-extraction SOURCE to a scraped
  * site: when a brand has no `url`, `fieldExtractionService.extractFields` reads
