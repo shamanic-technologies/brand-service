@@ -2777,6 +2777,15 @@ export const ResolveShareTokenRequestSchema = z
 export const ResolveShareTokenResponseSchema = z
   .object({
     brandId: z.string().openapi({ description: 'The brand the credential refers to.' }),
+    orgId: z.string().openapi({
+      description:
+        'The org that shared this brand — recorded when the credential was minted (or last ' +
+        'rotated), never derived from brand membership, which cannot answer it for a brand ' +
+        'several orgs claim. Present so the server-side renderer can ask for the figures a ' +
+        "shared brand page shows: they are all served per-org, so the credential alone leaves it " +
+        'unable to fetch any of them. It sits here rather than inside `brand`, which stays exactly ' +
+        'the public payload it always was.',
+    }),
     brand: BrandDetailSchema.openapi({
       description:
         "The brand's public-safe identity — the same shape GET /public/brands/{id} already " +
@@ -2863,19 +2872,24 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/internal/share-tokens/resolve',
-  summary: 'Resolve a share credential to its brand',
+  summary: 'Resolve a share credential to its brand and org',
   description:
-    'Present the credential alone and learn which brand it refers to, plus that brand\'s ' +
-    'public-safe identity. Service auth only (x-api-key) — NO org context is required or ' +
-    'accepted, because the caller (distribute\'s own server-side dashboard renderer) has not ' +
-    'identified an org yet. Deliberately not reachable unauthenticated from the internet. ' +
+    'Present the credential alone and learn which brand it refers to, WHICH ORG shared it, and ' +
+    "that brand's public-safe identity. Service auth only (x-api-key) — NO org context is " +
+    "required or accepted on the way in, because the caller (distribute's own server-side " +
+    'dashboard renderer) has not identified an org yet, and learning the org is what it comes ' +
+    'here for: everything a shared brand page shows (outreach, audiences, leads, strategy) is ' +
+    'served per-org, so the credential alone leaves it unable to ask for any of it. `orgId` sits ' +
+    'at the top level beside `brandId`, NOT inside `brand` — the brand payload is unchanged, so ' +
+    'the public brand read exposes exactly what it did before. ' +
+    'Deliberately not reachable unauthenticated from the internet. ' +
     'The credential travels in the BODY rather than the path so it does not land in access logs ' +
     'and proxy traces. The `brand` payload is the same shape GET /public/brands/{id} already ' +
     'serves: no org id, no money, no prospect PII. A revoked or rotated-away credential matches ' +
     'no row and is indistinguishable from an unknown one (both 404).',
   request: { body: { content: { 'application/json': { schema: ResolveShareTokenRequestSchema } } } },
   responses: {
-    200: { description: 'The brand the credential refers to', content: { 'application/json': { schema: ResolveShareTokenResponseSchema } } },
+    200: { description: 'The brand the credential refers to, and the org that shared it', content: { 'application/json': { schema: ResolveShareTokenResponseSchema } } },
     400: { description: 'Missing or empty shareToken' },
     404: { description: 'Unknown, revoked or rotated-away credential' },
     500: { description: 'Internal server error' },

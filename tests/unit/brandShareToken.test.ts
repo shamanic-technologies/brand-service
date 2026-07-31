@@ -5,7 +5,9 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../src/db', () => ({ db: {}, brandShareTokens: {} }));
 
 import {
+  createIfAbsent,
   generateShareToken,
+  rotate,
   SHARE_TOKEN_PREFIX,
 } from '../../src/services/brandShareTokenService';
 
@@ -38,10 +40,25 @@ describe('brand share token generation', () => {
 
   it('is not derived from any identifier the customer already exposes', () => {
     // Nothing goes in, so nothing about the brand, the org or the caller can
-    // come out: the signature takes no arguments at all.
+    // come out: the signature takes no arguments at all. The row now records
+    // WHICH ORG shared the brand — that must stay on the row and never migrate
+    // into the credential, which is what this arity pins.
     expect(generateShareToken.length).toBe(0);
 
     // And two mints in the same tick differ, so it is not clock-derived either.
     expect(generateShareToken()).not.toBe(generateShareToken());
+  });
+});
+
+/**
+ * The sharing org is recorded at WRITE time, so both write paths must be handed
+ * one. Pinning the arity is what stops a route from quietly dropping it: without
+ * an org the insert violates NOT NULL at runtime rather than at compile time in
+ * any caller that reaches these through a loosely-typed boundary.
+ */
+describe('brand share token writes carry the sharing org', () => {
+  it('minting and rotating both take the org alongside the brand', () => {
+    expect(createIfAbsent.length).toBe(2);
+    expect(rotate.length).toBe(2);
   });
 });
