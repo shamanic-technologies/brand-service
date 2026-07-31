@@ -40,6 +40,24 @@ The two refusals MUST stay distinguishable by `code` (plus `domain` + `conflicti
 
 A no-website brand has no domain to dedup on, so `createBrandWithoutWebsite` keys on the caller's org + the case-insensitive name and RETURNS the existing brand (`created: false`) instead of inserting. Re-running onboarding used to mint a fresh row every time — that is how one org accumulated three brands for one business. Two different names for one org stay distinct; two orgs with the same name stay distinct (no cross-org reuse — there is no shared domain identity to justify it). Regression: `tests/integration/noWebsiteBrandDedup.test.ts`.
 
+## A brand's share credential is ABSENT by default, unguessable, and NEVER the conversion-tracking token
+
+`brand_share_tokens` (PK = `brand_id`, `token` text NOT NULL UNIQUE) holds the per-brand read-only SHARE credential: a customer mints one so somebody outside the org (investor, client, colleague) can open a read-only public brand page without signing in. Owner: `src/services/brandShareTokenService.ts`; routes: `src/routes/share-token.routes.ts`.
+
+**Absent by default.** No row is created at brand create. A brand with no row is NOT shareable and nothing resolves — absence IS the state, so there is no `enabled` flag and no null-token row.
+
+**One row per brand, so rotate/revoke are the row's own semantics.** Rotating overwrites `token` in place — that single UPDATE is exactly what makes the previous link stop resolving. Revoking DELETEs the row. Never add a second live credential per brand (a `SELECT ... WHERE token = $1` must stay a one-row exact match, and "rotate stops the old link" must stay true by construction, not by a sweep).
+
+**The credential must not be derivable from anything the customer already exposes.** The brand id and the org id both sit in the customer's own address bar and in every support ticket they paste, so a link built from either is a one-line transform of a public string. `generateShareToken()` takes NO arguments: `bshr_` + `randomBytes(32).toString('base64url')`. Do not "improve" it into an HMAC/hash of the brand id, do not seed it from the clock, and do not encode the org id in it — resolving a credential must reveal the brand and nothing about who owns it. Regression: `tests/unit/brandShareToken.test.ts` pins the zero-arg signature + entropy.
+
+**Do NOT reuse or extend the conversion-tracking token (lead-service).** That one is a WRITE credential for conversion ingest; putting it in a shared URL would let the link holder forge conversions. These are different credentials with different blast radii and must stay separate.
+
+**The resolve is service-auth, org-less, and body-carried.** `POST /internal/share-tokens/resolve` body `{ shareToken }` → `{ brandId, brand }`. It takes no org context by design (the caller is distribute's own server-side public-page renderer, which has not identified an org yet), and service auth is enough — this deliberately is NOT reachable unauthenticated from the internet. The credential rides in the BODY, not the path, so it does not land in access logs and proxy traces. Unknown / revoked / rotated-away all return the same 404.
+
+**`brand` is `getBrandDetail(..., { mode: 'platform' })` — the exact shape `GET /public/brands/:id` already serves.** Nothing new is exposed. Never widen this payload with money (spend, daily budget, cost per outcome, ROI, credits), prospect PII (lead names/emails), audiences, or the org id. If the public page needs more, it composes it from endpoints it already calls — a share credential does not unlock new data classes.
+
+**NOT rewritten by `rewriteBrandReferences`** (the merge primitive), alongside `brand_transfers` / `brand_relations`. Moving a credential minted for an abandoned holder onto the target brand would silently widen what every existing link holder can see; the credential stays with the brand it was minted for. Regression: `tests/integration/brandShareToken.test.ts` (full lifecycle + cross-org 403 + "a credential minted for brand A never resolves to brand B").
+
 ## Identity / tracking headers are threaded FIELD-BY-FIELD — no central builder
 
 brand-service has NO `buildInternalHeaders`/allowlist helper (unlike instantly-service). Each identity/tracking header (`x-org-id`, `x-user-id`, `x-run-id`, `x-campaign-id`, `x-feature-slug`, `x-brand-id`, `x-workflow-slug`, `x-audience-id`) is cherry-picked explicitly at every site. So adding a NEW tracking header means threading it through ALL of these, or it silently drops:

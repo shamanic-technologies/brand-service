@@ -2712,6 +2712,177 @@ registry.registerPath({
 });
 
 // ============================================================
+// Brand share token (per-brand read-only share credential)
+// ============================================================
+
+// READ / WRITE response. `shareToken` is null ONLY on the GET of a brand nobody
+// has shared yet — a brand is not shareable until someone asks for it.
+export const ShareTokenResponseSchema = z
+  .object({
+    shareToken: z.string().nullable().openapi({
+      description:
+        'The brand\'s read-only share credential (`bshr_` + 43 URL-safe chars, 32 bytes of ' +
+        'CSPRNG output). Opaque: not derived from the brand id or the org id, and it carries no ' +
+        'org identity. `null` when the brand has no credential (not shareable).',
+      example: 'bshr_9Xk2ZQe5Yb0m1sJvA7RtLp3NfWc8HdUgKzE4TnQiOyM',
+    }),
+    createdAt: z.string().nullable().openapi({ description: 'When the credential was first minted. `null` when there is none.' }),
+    updatedAt: z.string().nullable().openapi({ description: 'When the credential was last rotated. `null` when there is none.' }),
+  })
+  .openapi('ShareTokenResponse');
+
+// CREATE response: the credential (never null — you just ensured one exists) plus
+// whether this call minted it.
+export const CreateShareTokenResponseSchema = z
+  .object({
+    shareToken: z.string().openapi({ description: 'The brand\'s share credential.' }),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    created: z.boolean().openapi({
+      description:
+        '`true` when this call minted the credential (201), `false` when the brand already had ' +
+        'one and it was left untouched (200).',
+    }),
+  })
+  .openapi('CreateShareTokenResponse');
+
+// ROTATE response: the NEW credential. The previous one no longer resolves.
+export const RotateShareTokenResponseSchema = z
+  .object({
+    shareToken: z.string().openapi({ description: 'The newly minted credential. The previous one no longer resolves.' }),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('RotateShareTokenResponse');
+
+export const RevokeShareTokenResponseSchema = z
+  .object({
+    revoked: z.boolean().openapi({
+      description: '`true` when a credential was removed, `false` when the brand had none (no-op).',
+    }),
+  })
+  .openapi('RevokeShareTokenResponse');
+
+// RESOLVE request: the credential alone. It travels in the body rather than the
+// path so it does not land in access logs and proxy traces.
+export const ResolveShareTokenRequestSchema = z
+  .object({
+    shareToken: z.string().min(1).openapi({
+      description: 'The share credential to resolve.',
+      example: 'bshr_9Xk2ZQe5Yb0m1sJvA7RtLp3NfWc8HdUgKzE4TnQiOyM',
+    }),
+  })
+  .openapi('ResolveShareTokenRequest');
+
+export const ResolveShareTokenResponseSchema = z
+  .object({
+    brandId: z.string().openapi({ description: 'The brand the credential refers to.' }),
+    brand: BrandDetailSchema.openapi({
+      description:
+        "The brand's public-safe identity — the same shape GET /public/brands/{id} already " +
+        'serves. No org id, no money (spend, budget, cost per outcome, ROI, credits), no prospect PII.',
+    }),
+  })
+  .openapi('ResolveShareTokenResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/share-token',
+  summary: "Read a brand's share credential",
+  description:
+    "The brand's current read-only share credential, or `{ shareToken: null }` when the brand has " +
+    'none — a brand is not shareable until someone asks for it. Does NOT create one. The brand ' +
+    "must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The credential, or nulls when the brand is not shareable', content: { 'application/json': { schema: ShareTokenResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/share-token',
+  summary: 'Make a brand shareable',
+  description:
+    'Mints a read-only share credential so a member of the owning org can hand a link to somebody ' +
+    'outside the org. Idempotent: a brand that already has a credential keeps it (200, ' +
+    '`created: false`) rather than getting a fresh one — creating must never invalidate a link ' +
+    'somebody is already holding. Use the rotate route for that. 201 with `created: true` when the ' +
+    "credential is minted. The brand must belong to the caller's org (x-org-id).",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    201: { description: 'Credential minted', content: { 'application/json': { schema: CreateShareTokenResponseSchema } } },
+    200: { description: 'Brand already had a credential; returned untouched', content: { 'application/json': { schema: CreateShareTokenResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/share-token/rotate',
+  summary: "Rotate a brand's share credential",
+  description:
+    'Mints a NEW credential for the brand. The previous one stops resolving immediately, which is ' +
+    'what makes a leaked link recoverable. Mints one if the brand had none, so rotating is safe ' +
+    "without a prior create. The brand must belong to the caller's org (x-org-id).",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The new credential', content: { 'application/json': { schema: RotateShareTokenResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/share-token',
+  summary: "Revoke a brand's share credential",
+  description:
+    'The brand becomes unshareable again and every link ever handed out for it stops resolving. ' +
+    '`revoked` reports whether a credential was actually removed, so revoking an already-unshared ' +
+    "brand is a truthful no-op rather than a 404. The brand must belong to the caller's org.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Revocation result', content: { 'application/json': { schema: RevokeShareTokenResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/share-tokens/resolve',
+  summary: 'Resolve a share credential to its brand',
+  description:
+    'Present the credential alone and learn which brand it refers to, plus that brand\'s ' +
+    'public-safe identity. Service auth only (x-api-key) — NO org context is required or ' +
+    'accepted, because the caller (distribute\'s own server-side dashboard renderer) has not ' +
+    'identified an org yet. Deliberately not reachable unauthenticated from the internet. ' +
+    'The credential travels in the BODY rather than the path so it does not land in access logs ' +
+    'and proxy traces. The `brand` payload is the same shape GET /public/brands/{id} already ' +
+    'serves: no org id, no money, no prospect PII. A revoked or rotated-away credential matches ' +
+    'no row and is indistinguishable from an unknown one (both 404).',
+  request: { body: { content: { 'application/json': { schema: ResolveShareTokenRequestSchema } } } },
+  responses: {
+    200: { description: 'The brand the credential refers to', content: { 'application/json': { schema: ResolveShareTokenResponseSchema } } },
+    400: { description: 'Missing or empty shareToken' },
+    404: { description: 'Unknown, revoked or rotated-away credential' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ============================================================
 // Health / Root
 // ============================================================
 
