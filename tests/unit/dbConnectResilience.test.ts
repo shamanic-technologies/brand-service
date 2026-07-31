@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import net from 'net';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Regression for the `AggregateError [ETIMEDOUT]` that took down two integration files
@@ -26,5 +28,20 @@ describe('db client connect resilience', () => {
 
   it('raises the happy-eyeballs per-candidate timeout above the 250ms default', () => {
     expect(net.getDefaultAutoSelectFamilyAttemptTimeout()).toBeGreaterThanOrEqual(5000);
+  });
+
+  /**
+   * postgres.js defaults to `idle_timeout: null` — idle connections are never closed. The
+   * first attempt at the fix above also set `idle_timeout: 60`, reasoning that it kept a
+   * warm cross-region socket alive. It does the opposite: it makes the socket close, so the
+   * next request pays a fresh TCP and TLS handshake to ap-southeast-1 for no benefit. That
+   * reasoning came from node-postgres, whose default really is a 10s idle teardown; this
+   * service is on postgres.js, where there is nothing to lengthen.
+   *
+   * Asserted against the source rather than the client, which drizzle does not expose.
+   */
+  it('does not close idle connections, so a warm cross-region socket is kept', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../src/db/index.ts'), 'utf-8');
+    expect(source).not.toMatch(/idle_timeout/);
   });
 });
