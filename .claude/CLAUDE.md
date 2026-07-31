@@ -20,6 +20,18 @@
 - Don't add verbose descriptions - match the existing terse style
 - If removing a feature, remove its README entry too
 
+## An org's brand identity is its FIRST claim, and it is answered by an indexed batch read — never by the full catalogue
+
+`POST /internal/brands/identity-by-org` (`src/services/orgBrandIdentityService.ts`) answers "what brand identity belongs to these orgs?" — a display `name` plus the `domain` a logo is rendered from, and nothing else. The consumer (billing-service, naming the org whose conversion earned a pending referral reward) is showing a customer who referred them, not opening a window onto another customer's business, so **never widen this payload** with money, campaigns, performance, configuration, prospect PII, audiences, or the brand's other orgs.
+
+**It is a BATCH read, and it must stay one indexed query.** `GET /internal/brands/all` is the whole-catalogue staff listing; answering one org from it is the bulk-reader antipattern — the work grows with the platform and is almost entirely wasted. `getBrandIdentitiesByOrgIds` is a single `DISTINCT ON (org_id)` over `org_brands` (hitting `org_brands_org_id_idx`) joined to `brands`, bounded by the ids asked for. Do not reimplement it on top of the catalogue listing, and do not let a caller fan out one request per org.
+
+**An org with several brands resolves to the one it claimed FIRST** — `org_brands.claimed_at` ascending, ties broken by `brand_id` ascending so the order is total even when two claims share a timestamp. The first claim is the brand the org onboarded with, and the pick is *stable*: every brand claimed later leaves the answer untouched, so a referral reward keeps naming the same business for the life of the row. A "most recent" or "any" pick would let the displayed name drift under a customer looking at a months-old reward.
+
+**Absence is the answer for an org with no brand.** No entry, no placeholder, no empty string — the caller renders nothing rather than something wrong. `resolveDisplayName` returns a stored name, else the titlecased domain (a deterministic derivation of data the brand actually has), else `null`; a row that identifies nothing is filtered out in SQL so the org still resolves via its NEXT claim rather than being lost to an unidentifiable first one. Do not add an `'Unknown'`-style fallback here.
+
+**Internal only.** Service auth, org-less, deliberately not on `publicRouter` and not org-scopable by a customer — the caller legitimately holds org ids that are not its own. The batch rides in the BODY, not a query string, so org ids do not land in access logs and proxy traces. Regression: `tests/integration/orgBrandIdentity.test.ts`, `tests/unit/orgBrandIdentity.test.ts`.
+
 ## A domain belongs to whoever CHECKED OUT on it — brand-service never computes checkout itself
 
 Owner decision (Kevin, 2026-07-29). `brands.domain` is globally unique, so attaching a website to a brand can collide with an existing holder row. The collision is NOT automatically a refusal:
