@@ -7,9 +7,20 @@
 -- and then read or overwrite another org's sales economics, confirmed fields,
 -- click destination, WhatsApp link, share credential or goal.
 --
--- Attribution rule for existing rows: the org that claimed the brand FIRST
--- (`org_brands.claimed_at`, tie-broken by org_id so the result is
--- deterministic). Every other org loses access, which IS the fix.
+-- Existing rows are COPIED to every org that claims the brand, not attributed to
+-- one of them. Today all those orgs read the same row, so copying is the
+-- faithful translation of the current state: each org keeps exactly what it
+-- already saw, and nothing propagates between them afterwards. Attributing to a
+-- single org would instead TAKE the configuration away from the others -- 42
+-- (org, brand) pairs would lose their economics and 177 confirmed fields would
+-- vanish from dashboards that show them today. Closing the leak does not
+-- require deleting anyone's data.
+--
+-- Two exceptions, both attributed to the first claiming org rather than copied:
+--   * `brand_share_tokens` -- a share credential is nominative and its token is
+--     globally unique, so duplicating it would mint a second live link the user
+--     never asked for. No multi-org brand has one today.
+--   * `brand_sales_funnels` -- no rows in any environment yet.
 --
 -- Rows whose brand has NO org at all cannot be attributed to anyone and are
 -- already unreachable (no membership => no /orgs route can serve them). They
@@ -81,7 +92,69 @@ ALTER TABLE "brand_user_fields" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> state
 ALTER TABLE "brand_share_tokens" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
 ALTER TABLE "brand_sales_funnels" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
 
--- The first org to claim the brand owns what was configured on it.
+-- The OLD keys go first: while `brand_id` alone is still the primary key, a
+-- second row for the same brand (the copy for another org) cannot be inserted.
+ALTER TABLE "brand_sales_economics" DROP CONSTRAINT IF EXISTS "brand_sales_economics_pkey";--> statement-breakpoint
+ALTER TABLE "brand_click_destinations" DROP CONSTRAINT IF EXISTS "brand_click_destinations_pkey";--> statement-breakpoint
+ALTER TABLE "brand_whatsapp_links" DROP CONSTRAINT IF EXISTS "brand_whatsapp_links_pkey";--> statement-breakpoint
+ALTER TABLE "brand_business_context" DROP CONSTRAINT IF EXISTS "brand_business_context_pkey";--> statement-breakpoint
+ALTER TABLE "brand_share_tokens" DROP CONSTRAINT IF EXISTS "brand_share_tokens_pkey";--> statement-breakpoint
+ALTER TABLE "brand_sales_funnels" DROP CONSTRAINT IF EXISTS "brand_sales_funnels_brand_id_funnel_key_pk";--> statement-breakpoint
+DROP INDEX IF EXISTS "brand_user_fields_brand_id_field_key_key";--> statement-breakpoint
+
+-- Every org that claims the brand gets its OWN copy of what it already reads.
+-- The copies go to the claiming orgs OTHER than the first one; the original row
+-- is then attributed to that first org, so no row is duplicated or lost.
+-- `jsonb_populate_record` rebuilds the row generically, so this stays correct
+-- whatever columns each table happens to have.
+INSERT INTO "brand_sales_economics"
+SELECT (jsonb_populate_record(NULL::"brand_sales_economics",
+        to_jsonb(x) || jsonb_build_object('org_id', o."org_id"))).*
+  FROM "brand_sales_economics" x
+  JOIN "org_brands" o ON o."brand_id" = x."brand_id"
+ WHERE x."org_id" IS NULL
+   AND o."org_id" <> (SELECT o2."org_id" FROM "org_brands" o2 WHERE o2."brand_id" = x."brand_id"
+                       ORDER BY o2."claimed_at" ASC, o2."org_id" ASC LIMIT 1);--> statement-breakpoint
+
+INSERT INTO "brand_click_destinations"
+SELECT (jsonb_populate_record(NULL::"brand_click_destinations",
+        to_jsonb(x) || jsonb_build_object('org_id', o."org_id"))).*
+  FROM "brand_click_destinations" x
+  JOIN "org_brands" o ON o."brand_id" = x."brand_id"
+ WHERE x."org_id" IS NULL
+   AND o."org_id" <> (SELECT o2."org_id" FROM "org_brands" o2 WHERE o2."brand_id" = x."brand_id"
+                       ORDER BY o2."claimed_at" ASC, o2."org_id" ASC LIMIT 1);--> statement-breakpoint
+
+INSERT INTO "brand_whatsapp_links"
+SELECT (jsonb_populate_record(NULL::"brand_whatsapp_links",
+        to_jsonb(x) || jsonb_build_object('org_id', o."org_id"))).*
+  FROM "brand_whatsapp_links" x
+  JOIN "org_brands" o ON o."brand_id" = x."brand_id"
+ WHERE x."org_id" IS NULL
+   AND o."org_id" <> (SELECT o2."org_id" FROM "org_brands" o2 WHERE o2."brand_id" = x."brand_id"
+                       ORDER BY o2."claimed_at" ASC, o2."org_id" ASC LIMIT 1);--> statement-breakpoint
+
+INSERT INTO "brand_business_context"
+SELECT (jsonb_populate_record(NULL::"brand_business_context",
+        to_jsonb(x) || jsonb_build_object('org_id', o."org_id"))).*
+  FROM "brand_business_context" x
+  JOIN "org_brands" o ON o."brand_id" = x."brand_id"
+ WHERE x."org_id" IS NULL
+   AND o."org_id" <> (SELECT o2."org_id" FROM "org_brands" o2 WHERE o2."brand_id" = x."brand_id"
+                       ORDER BY o2."claimed_at" ASC, o2."org_id" ASC LIMIT 1);--> statement-breakpoint
+
+-- `brand_user_fields` carries its own uuid primary key, so each copy needs a
+-- fresh one or the insert collides with the row it was copied from.
+INSERT INTO "brand_user_fields"
+SELECT (jsonb_populate_record(NULL::"brand_user_fields",
+        to_jsonb(x) || jsonb_build_object('org_id', o."org_id", 'id', gen_random_uuid()))).*
+  FROM "brand_user_fields" x
+  JOIN "org_brands" o ON o."brand_id" = x."brand_id"
+ WHERE x."org_id" IS NULL
+   AND o."org_id" <> (SELECT o2."org_id" FROM "org_brands" o2 WHERE o2."brand_id" = x."brand_id"
+                       ORDER BY o2."claimed_at" ASC, o2."org_id" ASC LIMIT 1);--> statement-breakpoint
+
+-- The original rows (and the two never-copied tables) go to the first claimer.
 UPDATE "brand_sales_economics" x SET "org_id" = (
   SELECT o."org_id" FROM "org_brands" o WHERE o."brand_id" = x."brand_id"
    ORDER BY o."claimed_at" ASC, o."org_id" ASC LIMIT 1
@@ -128,20 +201,13 @@ ALTER TABLE "brand_user_fields" ALTER COLUMN "org_id" SET NOT NULL;--> statement
 ALTER TABLE "brand_share_tokens" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "brand_sales_funnels" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 
-ALTER TABLE "brand_sales_economics" DROP CONSTRAINT IF EXISTS "brand_sales_economics_pkey";--> statement-breakpoint
 ALTER TABLE "brand_sales_economics" ADD CONSTRAINT "brand_sales_economics_org_id_brand_id_pk" PRIMARY KEY ("org_id", "brand_id");--> statement-breakpoint
-ALTER TABLE "brand_click_destinations" DROP CONSTRAINT IF EXISTS "brand_click_destinations_pkey";--> statement-breakpoint
 ALTER TABLE "brand_click_destinations" ADD CONSTRAINT "brand_click_destinations_org_id_brand_id_pk" PRIMARY KEY ("org_id", "brand_id");--> statement-breakpoint
-ALTER TABLE "brand_whatsapp_links" DROP CONSTRAINT IF EXISTS "brand_whatsapp_links_pkey";--> statement-breakpoint
 ALTER TABLE "brand_whatsapp_links" ADD CONSTRAINT "brand_whatsapp_links_org_id_brand_id_pk" PRIMARY KEY ("org_id", "brand_id");--> statement-breakpoint
-ALTER TABLE "brand_business_context" DROP CONSTRAINT IF EXISTS "brand_business_context_pkey";--> statement-breakpoint
 ALTER TABLE "brand_business_context" ADD CONSTRAINT "brand_business_context_org_id_brand_id_pk" PRIMARY KEY ("org_id", "brand_id");--> statement-breakpoint
-ALTER TABLE "brand_share_tokens" DROP CONSTRAINT IF EXISTS "brand_share_tokens_pkey";--> statement-breakpoint
 ALTER TABLE "brand_share_tokens" ADD CONSTRAINT "brand_share_tokens_org_id_brand_id_pk" PRIMARY KEY ("org_id", "brand_id");--> statement-breakpoint
-ALTER TABLE "brand_sales_funnels" DROP CONSTRAINT IF EXISTS "brand_sales_funnels_brand_id_funnel_key_pk";--> statement-breakpoint
 ALTER TABLE "brand_sales_funnels" ADD CONSTRAINT "brand_sales_funnels_org_id_brand_id_funnel_key_pk" PRIMARY KEY ("org_id", "brand_id", "funnel_key");--> statement-breakpoint
 
-DROP INDEX IF EXISTS "brand_user_fields_brand_id_field_key_key";--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "brand_user_fields_org_id_brand_id_field_key_key"
   ON "brand_user_fields" USING btree ("org_id", "brand_id", "field_key");--> statement-breakpoint
 
