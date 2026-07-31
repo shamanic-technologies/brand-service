@@ -1,0 +1,182 @@
+import { Router, Request, Response } from 'express';
+import { DeclareSalesFunnelRequestSchema } from '../schemas';
+import {
+  UUID_REGEX,
+  resolveBrandOwnership,
+  rejectOwnership,
+} from '../lib/brand-ownership';
+import { getBrand } from '../services/brandService';
+import { isSalesFunnelKey, SalesFunnelKey } from '../services/salesFunnelCatalogue';
+import {
+  SalesFunnelDestinationNotUsedError,
+  SalesFunnelRateNotInChainError,
+  SalesFunnelRequiresWebsiteError,
+  salesFunnelsService,
+} from '../services/salesFunnelsService';
+import { ClickDestinationValidationError } from '../services/clickDestinationService';
+
+export const orgRouter = Router();
+export const internalRouter = Router();
+
+/**
+ * The sales funnels a brand sells through, and the economics of each.
+ *
+ * The declared SET is the answer to "which ways does this brand sell?", and it
+ * can only be declared — it is not derivable from anything else brand-service
+ * stores, because every rate on `brand_sales_economics` is NOT NULL with a
+ * server default, so a brand that configured nothing still reads back
+ * plausible-looking numbers there and no absence signals anything.
+ */
+
+/** Resolve a funnel key from the path, or write the 400 and return null. */
+function parseFunnelKey(req: Request, res: Response): SalesFunnelKey | null {
+  const { funnelKey } = req.params;
+  if (!isSalesFunnelKey(funnelKey)) {
+    res.status(400).json({
+      error:
+        `Unknown sales funnel "${funnelKey}": expected one of reply_meeting, visit_meeting, ` +
+        'visit_signup, visit_form',
+    });
+    return null;
+  }
+  return funnelKey;
+}
+
+/**
+ * Map a declaration failure to its 400. Every one of these is the caller
+ * describing a funnel that does not exist as described — never something to
+ * clean up and store anyway.
+ */
+function rejectDeclaration(res: Response, error: unknown): boolean {
+  if (
+    error instanceof SalesFunnelRateNotInChainError ||
+    error instanceof SalesFunnelDestinationNotUsedError ||
+    error instanceof SalesFunnelRequiresWebsiteError ||
+    error instanceof ClickDestinationValidationError
+  ) {
+    res.status(400).json({ error: (error as Error).message });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * GET /orgs/brands/:brandId/sales-funnels
+ * The funnels this brand declared, in catalogue order. `[]` = declared nothing.
+ */
+orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    const funnels = await salesFunnelsService.listByBrandId(brandId);
+    return res.status(200).json({ funnels });
+  } catch (error: any) {
+    console.error('[brand-service] Get sales funnels error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * PUT /orgs/brands/:brandId/sales-funnels/:funnelKey
+ * Declare the funnel and write what the caller sent of its economics.
+ * Idempotent; PARTIAL (omit = leave unchanged, `null` = clear).
+ */
+orgRouter.put('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const funnelKey = parseFunnelKey(req, res);
+    if (!funnelKey) return;
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    const parsed = DeclareSalesFunnelRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    // Ownership already proved the brand exists; its domain is what a page
+    // destination must sit on, and its absence is what blocks a website-led funnel.
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    let funnel;
+    try {
+      funnel = await salesFunnelsService.declareByBrandId(
+        brandId,
+        funnelKey,
+        parsed.data,
+        brand.domain ?? null
+      );
+    } catch (error) {
+      if (rejectDeclaration(res, error)) return;
+      throw error;
+    }
+
+    return res.status(200).json({ funnel });
+  } catch (error: any) {
+    console.error('[brand-service] Declare sales funnel error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * DELETE /orgs/brands/:brandId/sales-funnels/:funnelKey
+ * The brand no longer sells through this funnel. Returns the remaining set so
+ * the caller renders the truth it just created rather than re-reading for it.
+ */
+orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const funnelKey = parseFunnelKey(req, res);
+    if (!funnelKey) return;
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    await salesFunnelsService.undeclareByBrandId(brandId, funnelKey);
+    const funnels = await salesFunnelsService.listByBrandId(brandId);
+    return res.status(200).json({ funnels });
+  } catch (error: any) {
+    console.error('[brand-service] Undeclare sales funnel error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * GET /internal/brands/:brandId/sales-funnels
+ * Service-auth read of the funnels a brand AUTHORIZES, keyed by brandId with no
+ * org context — what campaign-service arbitration ranks over.
+ */
+internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const funnels = await salesFunnelsService.listByBrandId(brandId);
+    return res.status(200).json({ funnels });
+  } catch (error: any) {
+    console.error('[brand-service] Internal get sales funnels error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+export default orgRouter;
