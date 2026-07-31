@@ -1,0 +1,163 @@
+import { randomBytes } from 'crypto';
+import { eq } from 'drizzle-orm';
+import { db, brandShareTokens } from '../db';
+
+/**
+ * Per-brand read-only SHARE credential.
+ *
+ * A customer looking at one of their brands can mint a credential and hand the
+ * resulting link to somebody outside the org. That person sees a read-only
+ * public brand page without signing in and without a distribute account, and
+ * reaches nothing else in the org.
+ *
+ * Three properties the credential must have, and where each one is enforced:
+ *
+ * 1. **Unguessable from what the customer already exposes.** The brand id and
+ *    the org id both sit in the customer's own address bar (and in every
+ *    support ticket and screenshot they paste), so a link derived from them is
+ *    a one-line transform of a public string. This token is 32 bytes of CSPRNG
+ *    output instead — independent of the brand, the org, and the clock.
+ * 2. **Reveals no org identity.** The token is opaque; resolving it yields the
+ *    brand it was minted for and nothing about who owns that brand.
+ * 3. **Revocable and rotatable.** One row per brand (PK = brand_id): rotating
+ *    overwrites `token` in place so the previous link stops resolving, and
+ *    revoking deletes the row so the brand stops being shareable at all.
+ *
+ * This is deliberately NOT the conversion-tracking token (lead-service). That
+ * one is a WRITE credential for conversion ingest; putting it in a shared URL
+ * would let the link holder forge conversions.
+ */
+
+/**
+ * Prefix on every minted credential. Purely for recognisability in logs and
+ * support ("that string is a brand share link"), never for authorisation — the
+ * resolve is an exact match against the stored value, so the prefix is not a
+ * shortcut past anything.
+ */
+export const SHARE_TOKEN_PREFIX = 'bshr_';
+
+/**
+ * 32 random bytes (256 bits) from the CSPRNG, base64url-encoded → 43 URL-safe
+ * chars after the prefix. Not derived from the brand id, the org id, the name,
+ * the domain or the time: a holder of any of those learns nothing about the
+ * credential, and a holder of the credential learns nothing about the org.
+ */
+export function generateShareToken(): string {
+  return `${SHARE_TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
+}
+
+export interface ShareTokenRow {
+  shareToken: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The brand's current credential, or null when the brand is not shareable. */
+export async function getByBrandId(brandId: string): Promise<ShareTokenRow | null> {
+  const [row] = await db
+    .select({
+      shareToken: brandShareTokens.token,
+      createdAt: brandShareTokens.createdAt,
+      updatedAt: brandShareTokens.updatedAt,
+    })
+    .from(brandShareTokens)
+    .where(eq(brandShareTokens.brandId, brandId))
+    .limit(1);
+
+  return row ?? null;
+}
+
+/**
+ * Mint a credential for a brand that has none. Idempotent: a brand that is
+ * already shareable keeps the credential it has (`created: false`) — creating
+ * must never silently invalidate a link that is already in somebody's hands.
+ * Use `rotate` for that.
+ *
+ * `onConflictDoNothing` + a read-back makes two concurrent creates converge on
+ * the same credential rather than racing one over the other.
+ */
+export async function createIfAbsent(
+  brandId: string
+): Promise<{ row: ShareTokenRow; created: boolean }> {
+  const inserted = await db
+    .insert(brandShareTokens)
+    .values({ brandId, token: generateShareToken() })
+    .onConflictDoNothing({ target: brandShareTokens.brandId })
+    .returning({
+      shareToken: brandShareTokens.token,
+      createdAt: brandShareTokens.createdAt,
+      updatedAt: brandShareTokens.updatedAt,
+    });
+
+  if (inserted.length > 0) {
+    return { row: inserted[0], created: true };
+  }
+
+  const existing = await getByBrandId(brandId);
+  if (!existing) {
+    // The insert conflicted, so a row exists; a read that finds none means it
+    // was revoked between the two statements. Fail loud rather than returning a
+    // credential we did not persist.
+    throw new Error('Share token vanished between insert and read-back');
+  }
+  return { row: existing, created: false };
+}
+
+/**
+ * Replace the brand's credential with a fresh one — the previous value stops
+ * resolving the moment this commits. Mints one if the brand had none, so
+ * rotating is safe to call without checking first.
+ */
+export async function rotate(brandId: string): Promise<ShareTokenRow> {
+  const token = generateShareToken();
+  const [row] = await db
+    .insert(brandShareTokens)
+    .values({ brandId, token })
+    .onConflictDoUpdate({
+      target: brandShareTokens.brandId,
+      set: { token, updatedAt: new Date().toISOString() },
+    })
+    .returning({
+      shareToken: brandShareTokens.token,
+      createdAt: brandShareTokens.createdAt,
+      updatedAt: brandShareTokens.updatedAt,
+    });
+
+  return row;
+}
+
+/**
+ * Make the brand unshareable again. Returns whether a credential was actually
+ * removed, so a revoke on an already-unshared brand is a truthful no-op rather
+ * than an error.
+ */
+export async function revoke(brandId: string): Promise<boolean> {
+  const deleted = await db
+    .delete(brandShareTokens)
+    .where(eq(brandShareTokens.brandId, brandId))
+    .returning({ brandId: brandShareTokens.brandId });
+
+  return deleted.length > 0;
+}
+
+/**
+ * Which brand does this credential refer to? Exact match on the stored value —
+ * a revoked or rotated-away credential matches no row and resolves to null.
+ */
+export async function resolve(shareToken: string): Promise<{ brandId: string } | null> {
+  const [row] = await db
+    .select({ brandId: brandShareTokens.brandId })
+    .from(brandShareTokens)
+    .where(eq(brandShareTokens.token, shareToken))
+    .limit(1);
+
+  return row ?? null;
+}
+
+export const brandShareTokenService = {
+  getByBrandId,
+  createIfAbsent,
+  rotate,
+  revoke,
+  resolve,
+};

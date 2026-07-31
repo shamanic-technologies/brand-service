@@ -441,12 +441,24 @@ describe('Sales Funnels Endpoints', () => {
   });
 
   it('tells a service caller a brand has said nothing, rather than that it sells nothing', async () => {
+    // A real brand — it exists, it has simply never answered the question.
     const res = await request(app)
-      .get(`/internal/brands/${unknownBrandId}/sales-funnels`)
+      .get(`/internal/brands/${foreignBrandId}/sales-funnels`)
       .set(getInternalAuthHeaders());
 
     expect(res.status).toBe(200);
     // A gap the caller must surface, NOT an empty set it should rank on.
     expect(res.body).toEqual({ declared: false, funnels: [] });
+  });
+
+  it('404s a brand it holds nothing for, rather than calling a bad id a gap', async () => {
+    const res = await request(app)
+      .get(`/internal/brands/${unknownBrandId}/sales-funnels`)
+      .set(getInternalAuthHeaders());
+
+    // The third answer. Served as `declared: false` it would read as a producer
+    // gap the caller should surface and wait on — but no statement is coming for
+    // a brand that does not exist.
+    expect(res.status).toBe(404);
   });
 });

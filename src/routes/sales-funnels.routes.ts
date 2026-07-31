@@ -214,12 +214,23 @@ orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Reques
  * GET /internal/brands/:brandId/sales-funnels
  * Service-auth read of the funnels a brand AUTHORIZES, keyed by brandId with no
  * org context — what campaign-service arbitration ranks over.
+ *
+ * A brand id we hold nothing for is a THIRD answer, and it 404s rather than
+ * joining either of the other two. Serving `declared: false` for it would say
+ * "this brand has told us nothing" about a brand that does not exist, which
+ * reads to the caller as a producer gap to surface and wait on — when what it
+ * actually has is a bad id, and no amount of waiting will fill it in.
  */
 internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
   try {
     const { brandId } = req.params;
     if (!UUID_REGEX.test(brandId)) {
       return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
     }
 
     const set = await salesFunnelsService.readByBrandId(brandId);

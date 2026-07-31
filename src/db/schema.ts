@@ -206,6 +206,48 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
 ]);
 
 /**
+ * Brand SHARE token — the per-brand read-only share credential. A member of an
+ * org that claims the brand mints one on demand so somebody OUTSIDE the org (an
+ * investor, a client, a colleague) can open a read-only public brand page with
+ * no distribute account.
+ *
+ * One row per brand (PK = brand_id), so a brand has AT MOST ONE live credential:
+ * rotating overwrites `token` in place, which is exactly what makes the previous
+ * link stop resolving. Revoking DELETES the row — absence is the "not shareable"
+ * signal, and a brand is not shareable until someone asks for it (no row is
+ * created at brand create).
+ *
+ * `token` is a 32-byte CSPRNG value (see `brandShareTokenService`), NOT derived
+ * from the brand id, the org id, or anything else the customer already exposes
+ * in their address bar, and it carries no org identity of its own — resolving it
+ * yields the brand and nothing about who owns it. UNIQUE so a resolve is an
+ * exact single-row lookup and two brands can never collide onto one credential.
+ *
+ * Deliberately NOT a conversion-tracking token: that one (lead-service) is a
+ * WRITE credential for conversion ingest, and a share link holder must never be
+ * able to forge conversions.
+ *
+ * NOT carried by `rewriteBrandReferences` (the merge primitive) — like
+ * `brand_transfers` / `brand_relations`. Moving a credential minted for the
+ * abandoned holder onto the target brand would silently widen what every
+ * existing link holder can see; the credential stays with the brand it was
+ * minted for.
+ */
+export const brandShareTokens = pgTable("brand_share_tokens", {
+	brandId: uuid("brand_id").primaryKey(),
+	token: text().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("brand_share_tokens_token_key").on(table.token),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_share_tokens_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * Sales funnels a brand sells through. One row per (brand_id, funnel_key) — the
  * row's PRESENCE is the declaration: a brand with no rows has declared nothing,
  * and a funnel with no row is one this brand does not sell through. Nothing is

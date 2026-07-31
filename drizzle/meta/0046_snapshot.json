@@ -1,6 +1,6 @@
 {
-  "id": "73619d16-188f-4c8f-82be-cb1384bdccfb",
-  "prevId": "9ee44957-c94d-4e1a-af62-5f2c72632fe8",
+  "id": "84129cb8-dcba-49ff-8668-de436f43835e",
+  "prevId": "73619d16-188f-4c8f-82be-cb1384bdccfb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1519,6 +1519,53 @@
         "brand_sales_economics_brand_id_fkey": {
           "name": "brand_sales_economics_brand_id_fkey",
           "tableFrom": "brand_sales_economics",
+          "tableTo": "brands",
+          "columnsFrom": [
+            "brand_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.brand_sales_funnel_declarations": {
+      "name": "brand_sales_funnel_declarations",
+      "schema": "",
+      "columns": {
+        "brand_id": {
+          "name": "brand_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "declared_at": {
+          "name": "declared_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "brand_sales_funnel_declarations_brand_id_fkey": {
+          "name": "brand_sales_funnel_declarations_brand_id_fkey",
+          "tableFrom": "brand_sales_funnel_declarations",
           "tableTo": "brands",
           "columnsFrom": [
             "brand_id"
