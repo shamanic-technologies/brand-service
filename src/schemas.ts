@@ -1903,6 +1903,11 @@ export const OptimizationGoalSchema = z
   .enum([
     'signups',
     'booked_meetings',
+    // The dashboard's local spelling of `booked_meetings`. ACCEPTED ON WRITE so
+    // a caller sending it is understood at the source instead of being patched
+    // up in a downstream tolerance layer; brand-service NEVER emits it — every
+    // read of a booked-meeting brand answers `booked_meetings`.
+    'sales_meetings',
     'sales',
     'website_visits',
     'positive_replies',
@@ -2147,6 +2152,203 @@ registry.registerPath({
     },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ── Sales funnels (the set a brand declares + each one's own economics) ──────
+// The funnels a brand sells through. A brand declares a SET, and each declared
+// funnel owns its own conversion rates, its own lifetime revenue, its own
+// landing page and — when its chain contains a meeting — its own booking link.
+// Nothing here has a server default: an absent value reads back `null`, which
+// means the brand never declared it and never means zero.
+
+export const SalesFunnelKeySchema = z
+  .enum(['reply_meeting', 'visit_meeting', 'visit_signup', 'visit_form'])
+  .openapi('SalesFunnelKey');
+
+// Every rate a funnel can price. A write may only carry the rates of the
+// funnel's OWN chain — the route rejects a foreign rate 400 rather than
+// dropping it (a silently-ignored write reads back as "never declared").
+// `null` clears a rate; omitting it leaves the stored value unchanged.
+export const SalesFunnelRatesSchema = z
+  .object({
+    replyToMeetingPct: PercentSchema.nullable(),
+    visitToMeetingPct: PercentSchema.nullable(),
+    // The meeting show-up rate. Stored ONLY on a funnel — no other table in the
+    // fleet has a column for it.
+    meetingBookedToAttendedPct: PercentSchema.nullable(),
+    meetingToClosePct: PercentSchema.nullable(),
+    visitToSignupPct: PercentSchema.nullable(),
+    signupToPaidClientPct: PercentSchema.nullable(),
+    visitToFormSubmissionPct: PercentSchema.nullable(),
+    formSubmissionToPaidClientPct: PercentSchema.nullable(),
+  })
+  .partial()
+  .openapi('SalesFunnelRates');
+
+// WRITE request — a PARTIAL patch. Omitted = leave unchanged; explicit `null` =
+// clear back to never-declared. Declaring a funnel needs no fields at all: the
+// declaration is the row, and its numbers can arrive later.
+export const DeclareSalesFunnelRequestSchema = z
+  .object({
+    rates: SalesFunnelRatesSchema.optional(),
+    lifetimeRevenueUsd: z.number().int().positive().nullable().optional(),
+    destinationUrl: z.string().min(1).nullable().optional(),
+    bookingUrl: z.string().min(1).nullable().optional(),
+  })
+  .openapi('DeclareSalesFunnelRequest');
+
+// READ shape of one declared funnel. `rates` carries exactly the legs of THIS
+// funnel's chain — a leg the brand has not given us is `null`, and a rate the
+// funnel does not price is absent entirely (it is not this funnel's business).
+export const DeclaredSalesFunnelSchema = z
+  .object({
+    funnelKey: SalesFunnelKeySchema,
+    name: z.string(),
+    steps: z.array(z.string()),
+    // brand-service wire goal. Always brand-service's own spelling.
+    goal: OptimizationGoalSchema,
+    // Canonical runtime goal — what features-service selects candidates on.
+    currentGoal: CurrentGoalSchema,
+    rates: z.record(z.string(), z.number().nullable()),
+    lifetimeRevenueUsd: z.number().int().nullable(),
+    destinationUrl: z.string().nullable(),
+    bookingUrl: z.string().nullable(),
+    updatedAt: z.string(),
+  })
+  .openapi('DeclaredSalesFunnel');
+
+// READ response — the declared SET. An EMPTY array means the brand has declared
+// nothing; it is never filled in with a plausible set, and it must not be read
+// as "this brand sells through nothing".
+export const GetSalesFunnelsResponseSchema = z
+  .object({
+    funnels: z.array(DeclaredSalesFunnelSchema),
+  })
+  .openapi('GetSalesFunnelsResponse');
+
+// WRITE response — the one funnel just declared (never null).
+export const DeclareSalesFunnelResponseSchema = z
+  .object({
+    funnel: DeclaredSalesFunnelSchema,
+  })
+  .openapi('DeclareSalesFunnelResponse');
+
+const SALES_FUNNELS_MODEL_DESCRIPTION =
+  'A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto ' +
+  'the site) down to a paid client, and it owns everything that chain needs priced: the conversion ' +
+  'rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach ' +
+  'click lands on and, when a meeting sits in the chain, a booking link. The catalogue is ' +
+  '`reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), ' +
+  '`visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), ' +
+  '`visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> ' +
+  'Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads ' +
+  '`null`, which never means zero.';
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/sales-funnels',
+  summary: 'Get the sales funnels a brand has declared it sells through',
+  description:
+    'The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime ' +
+    'revenue, landing page and booking link. ' + SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
+    'An EMPTY array means the brand has declared nothing yet — read it as unknown, NOT as "this ' +
+    'brand sells through nothing"; the set can only be declared, never derived from the brand\'s ' +
+    'stored economics (every rate there carries a server default, so absence signals nothing). ' +
+    "The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'The declared funnels (possibly empty)',
+      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/sales-funnels/{funnelKey}',
+  summary: 'Declare a sales funnel and write its economics',
+  description:
+    'Declare that the brand sells through this funnel, and write what you send of its economics. ' +
+    SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
+    'Idempotent: the declaration IS the row, so declaring twice is declaring once, and a body with ' +
+    'no fields declares the funnel without pricing it yet. PARTIAL: an omitted field is left exactly ' +
+    'as stored, an explicit `null` CLEARS the value back to never-declared. `rates` may only carry ' +
+    "the legs of THIS funnel's own chain — a foreign rate is rejected 400 rather than dropped. " +
+    '`destinationUrl` is accepted only for a funnel that lands a click on the site and must be on the ' +
+    "brand's own domain (or a subdomain); `bookingUrl` only for a funnel whose chain contains a " +
+    'meeting, and it may point at any third-party scheduler. A funnel that starts with a website ' +
+    'visit cannot be declared for a brand that has no website (400).',
+  request: {
+    params: z.object({ brandId: z.string().uuid(), funnelKey: SalesFunnelKeySchema }),
+    body: { content: { 'application/json': { schema: DeclareSalesFunnelRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The declared funnel',
+      content: { 'application/json': { schema: DeclareSalesFunnelResponseSchema } },
+    },
+    400: {
+      description:
+        'Invalid brand ID or funnel key, a rate outside this funnel\'s chain, a destination the ' +
+        'funnel has no use for, an off-domain page destination, or a website-led funnel on a brand ' +
+        'with no website',
+    },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/sales-funnels/{funnelKey}',
+  summary: 'Undeclare a sales funnel',
+  description:
+    'The brand no longer sells through this funnel. Removing the declaration removes its economics ' +
+    'with it — a funnel a brand stopped selling through must not leave numbers behind that a ' +
+    'consumer could still rank on. Idempotent: undeclaring a funnel that was never declared is a ' +
+    '200 with the unchanged set. Returns the funnels still declared.',
+  request: {
+    params: z.object({ brandId: z.string().uuid(), funnelKey: SalesFunnelKeySchema }),
+  },
+  responses: {
+    200: {
+      description: 'The funnels still declared',
+      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format or unknown funnel key' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/sales-funnels',
+  summary: 'Internal read of the funnels a brand has declared',
+  description:
+    'Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. ' +
+    'Built for the schedulers (campaign-service arbitration, features-service pricing): these are ' +
+    'the funnels a brand AUTHORIZES, each carrying the goal it optimizes for (`goal` on the ' +
+    "brand-service wire, `currentGoal` as the runtime token) and the economics it is ranked on. " +
+    SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
+    'An EMPTY array means the brand has declared nothing — do NOT substitute a plausible set, and ' +
+    'do NOT derive one from the brand\'s stored economics.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'The declared funnels (possibly empty)',
+      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format' },
     500: { description: 'Internal server error' },
   },
 });
@@ -2510,6 +2712,177 @@ registry.registerPath({
 });
 
 // ============================================================
+// Brand share token (per-brand read-only share credential)
+// ============================================================
+
+// READ / WRITE response. `shareToken` is null ONLY on the GET of a brand nobody
+// has shared yet — a brand is not shareable until someone asks for it.
+export const ShareTokenResponseSchema = z
+  .object({
+    shareToken: z.string().nullable().openapi({
+      description:
+        'The brand\'s read-only share credential (`bshr_` + 43 URL-safe chars, 32 bytes of ' +
+        'CSPRNG output). Opaque: not derived from the brand id or the org id, and it carries no ' +
+        'org identity. `null` when the brand has no credential (not shareable).',
+      example: 'bshr_9Xk2ZQe5Yb0m1sJvA7RtLp3NfWc8HdUgKzE4TnQiOyM',
+    }),
+    createdAt: z.string().nullable().openapi({ description: 'When the credential was first minted. `null` when there is none.' }),
+    updatedAt: z.string().nullable().openapi({ description: 'When the credential was last rotated. `null` when there is none.' }),
+  })
+  .openapi('ShareTokenResponse');
+
+// CREATE response: the credential (never null — you just ensured one exists) plus
+// whether this call minted it.
+export const CreateShareTokenResponseSchema = z
+  .object({
+    shareToken: z.string().openapi({ description: 'The brand\'s share credential.' }),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    created: z.boolean().openapi({
+      description:
+        '`true` when this call minted the credential (201), `false` when the brand already had ' +
+        'one and it was left untouched (200).',
+    }),
+  })
+  .openapi('CreateShareTokenResponse');
+
+// ROTATE response: the NEW credential. The previous one no longer resolves.
+export const RotateShareTokenResponseSchema = z
+  .object({
+    shareToken: z.string().openapi({ description: 'The newly minted credential. The previous one no longer resolves.' }),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('RotateShareTokenResponse');
+
+export const RevokeShareTokenResponseSchema = z
+  .object({
+    revoked: z.boolean().openapi({
+      description: '`true` when a credential was removed, `false` when the brand had none (no-op).',
+    }),
+  })
+  .openapi('RevokeShareTokenResponse');
+
+// RESOLVE request: the credential alone. It travels in the body rather than the
+// path so it does not land in access logs and proxy traces.
+export const ResolveShareTokenRequestSchema = z
+  .object({
+    shareToken: z.string().min(1).openapi({
+      description: 'The share credential to resolve.',
+      example: 'bshr_9Xk2ZQe5Yb0m1sJvA7RtLp3NfWc8HdUgKzE4TnQiOyM',
+    }),
+  })
+  .openapi('ResolveShareTokenRequest');
+
+export const ResolveShareTokenResponseSchema = z
+  .object({
+    brandId: z.string().openapi({ description: 'The brand the credential refers to.' }),
+    brand: BrandDetailSchema.openapi({
+      description:
+        "The brand's public-safe identity — the same shape GET /public/brands/{id} already " +
+        'serves. No org id, no money (spend, budget, cost per outcome, ROI, credits), no prospect PII.',
+    }),
+  })
+  .openapi('ResolveShareTokenResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/share-token',
+  summary: "Read a brand's share credential",
+  description:
+    "The brand's current read-only share credential, or `{ shareToken: null }` when the brand has " +
+    'none — a brand is not shareable until someone asks for it. Does NOT create one. The brand ' +
+    "must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The credential, or nulls when the brand is not shareable', content: { 'application/json': { schema: ShareTokenResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/share-token',
+  summary: 'Make a brand shareable',
+  description:
+    'Mints a read-only share credential so a member of the owning org can hand a link to somebody ' +
+    'outside the org. Idempotent: a brand that already has a credential keeps it (200, ' +
+    '`created: false`) rather than getting a fresh one — creating must never invalidate a link ' +
+    'somebody is already holding. Use the rotate route for that. 201 with `created: true` when the ' +
+    "credential is minted. The brand must belong to the caller's org (x-org-id).",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    201: { description: 'Credential minted', content: { 'application/json': { schema: CreateShareTokenResponseSchema } } },
+    200: { description: 'Brand already had a credential; returned untouched', content: { 'application/json': { schema: CreateShareTokenResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/share-token/rotate',
+  summary: "Rotate a brand's share credential",
+  description:
+    'Mints a NEW credential for the brand. The previous one stops resolving immediately, which is ' +
+    'what makes a leaked link recoverable. Mints one if the brand had none, so rotating is safe ' +
+    "without a prior create. The brand must belong to the caller's org (x-org-id).",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The new credential', content: { 'application/json': { schema: RotateShareTokenResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/share-token',
+  summary: "Revoke a brand's share credential",
+  description:
+    'The brand becomes unshareable again and every link ever handed out for it stops resolving. ' +
+    '`revoked` reports whether a credential was actually removed, so revoking an already-unshared ' +
+    "brand is a truthful no-op rather than a 404. The brand must belong to the caller's org.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Revocation result', content: { 'application/json': { schema: RevokeShareTokenResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/share-tokens/resolve',
+  summary: 'Resolve a share credential to its brand',
+  description:
+    'Present the credential alone and learn which brand it refers to, plus that brand\'s ' +
+    'public-safe identity. Service auth only (x-api-key) — NO org context is required or ' +
+    'accepted, because the caller (distribute\'s own server-side dashboard renderer) has not ' +
+    'identified an org yet. Deliberately not reachable unauthenticated from the internet. ' +
+    'The credential travels in the BODY rather than the path so it does not land in access logs ' +
+    'and proxy traces. The `brand` payload is the same shape GET /public/brands/{id} already ' +
+    'serves: no org id, no money, no prospect PII. A revoked or rotated-away credential matches ' +
+    'no row and is indistinguishable from an unknown one (both 404).',
+  request: { body: { content: { 'application/json': { schema: ResolveShareTokenRequestSchema } } } },
+  responses: {
+    200: { description: 'The brand the credential refers to', content: { 'application/json': { schema: ResolveShareTokenResponseSchema } } },
+    400: { description: 'Missing or empty shareToken' },
+    404: { description: 'Unknown, revoked or rotated-away credential' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ============================================================
 // Health / Root
 // ============================================================
 
@@ -2524,7 +2897,10 @@ registry.registerPath({
   method: 'get',
   path: '/health',
   summary: 'Health check',
-  responses: { 200: { description: 'Service healthy' } },
+  responses: {
+    200: { description: 'Service healthy (migrations pending or ready)' },
+    503: { description: 'Database migrations failed — the deploy is unhealthy' },
+  },
 });
 
 registry.registerPath({
