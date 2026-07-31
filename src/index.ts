@@ -6,6 +6,14 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { apiKeyAuth, requireOrgId } from './middleware/auth';
 import { db, brandExtractedFields } from './db';
 import { lt, sql } from 'drizzle-orm';
+import {
+  getMigrationFailure,
+  getMigrationStatus,
+  markMigrationsFailed,
+  markMigrationsReady,
+  requireMigrationsReady,
+  runMigrationsWithConnectRetry,
+} from './lib/boot-migrations';
 
 // Import routes — mixed files export { orgRouter, internalRouter }
 import { orgRouter as brandsOrgRoutes, internalRouter as brandsInternalRoutes, publicRouter as brandsPublicRoutes } from './routes/brands.routes';
@@ -53,8 +61,25 @@ app.get('/', (req: Request, res: Response) => {
   res.send('Company Service API');
 });
 
+// Liveness + readiness in one. `migrations: 'pending'` still answers 200 so a
+// deploy landing on a suspended Neon compute passes Railway's healthcheck while
+// the migrator waits for the compute to resume — the routes below are gated
+// separately, so nothing is served against an unverified schema in the meantime.
+// A migration that genuinely failed answers 503, which is what makes Railway
+// mark the deploy unhealthy and keep the previous container serving.
 app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok', service: 'company-service' });
+  const migrations = getMigrationStatus();
+
+  if (migrations === 'failed') {
+    return res.status(503).json({
+      status: 'error',
+      service: 'company-service',
+      migrations,
+      error: getMigrationFailure(),
+    });
+  }
+
+  res.status(200).json({ status: 'ok', service: 'company-service', migrations });
 });
 
 app.get('/openapi.json', (req: Request, res: Response) => {
@@ -65,6 +90,13 @@ app.get('/openapi.json', (req: Request, res: Response) => {
   const spec = JSON.parse(fs.readFileSync(specPath, 'utf-8'));
   res.json(spec);
 });
+
+// ── Migration gate ───────────────────────────────────────────────
+// Everything below this line touches the database. Until the migrator has
+// finished, these routes answer 503 rather than run against a schema that may
+// not match the code. `/`, `/health` and `/openapi.json` sit above the gate on
+// purpose: they need no database and Railway's healthcheck depends on them.
+app.use(requireMigrationsReady);
 
 // ── Public brand-info routes (no auth) ───────────────────────────
 
@@ -135,19 +167,46 @@ function startExpiredFieldsCleanup(): void {
   }, EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
 }
 
-// Only start server if not in test environment
-if (process.env.NODE_ENV !== "test") {
-  migrate(db, { migrationsFolder: "./drizzle" })
+// ── Boot ─────────────────────────────────────────────────────────
+// The port binds FIRST, then migrations run behind it.
+//
+// Awaiting migrate() before app.listen() means a deploy that lands while the
+// Neon compute is suspended spends its whole startup budget on the first
+// connection: the port never opens inside Railway's ~30s healthcheck window and
+// the deploy is marked FAILED, for reasons that have nothing to do with the code
+// being deployed. Reproduced on a cold compute 2026-07-30; keeping the compute
+// awake with a `SELECT 1` for the duration made the identical deploy pass.
+//
+// Binding first does not mean serving early: `requireMigrationsReady` above
+// answers 503 on every database-backed route until the migrator finishes, so
+// the service refuses rather than answering against an unverified schema. A
+// migration that genuinely fails is logged in full and flips /health to 503,
+// which marks the deploy unhealthy and leaves the previous container serving —
+// strictly louder than the old process.exit(1), which crash-looped against
+// Railway's ON_FAILURE restart policy and took the port down with it.
+if (process.env.NODE_ENV === "test") {
+  // The integration harness builds its own app (tests/helpers/test-app.ts) against
+  // a schema CI has already provisioned, so there is no migrator to wait for.
+  markMigrationsReady();
+} else {
+  const server = app.listen(Number(port), "::", () => {
+    console.log(`Service running on port ${port} (migrations pending)`);
+  });
+
+  server.on("error", (err) => {
+    console.error("Failed to bind port:", err);
+    process.exit(1);
+  });
+
+  runMigrationsWithConnectRetry(() => migrate(db, { migrationsFolder: "./drizzle" }))
     .then(() => {
+      markMigrationsReady();
       console.log("Migrations complete");
-      app.listen(Number(port), "::", () => {
-        console.log(`Service running on port ${port}`);
-        startExpiredFieldsCleanup();
-      });
+      startExpiredFieldsCleanup();
     })
     .catch((err) => {
+      markMigrationsFailed(err);
       console.error("Migration failed:", err);
-      process.exit(1);
     });
 }
 

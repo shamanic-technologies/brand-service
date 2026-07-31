@@ -2524,7 +2524,10 @@ registry.registerPath({
   method: 'get',
   path: '/health',
   summary: 'Health check',
-  responses: { 200: { description: 'Service healthy' } },
+  responses: {
+    200: { description: 'Service healthy (migrations pending or ready)' },
+    503: { description: 'Database migrations failed — the deploy is unhealthy' },
+  },
 });
 
 registry.registerPath({
