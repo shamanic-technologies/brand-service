@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { NextFunction, Request, Response } from 'express';
 import {
   CONNECT_RETRY_DELAYS_MS,
+  describeErrorChain,
   getMigrationFailure,
   getMigrationStatus,
   isTransientConnectError,
@@ -84,6 +85,39 @@ describe('boot-migrations', () => {
       b.cause = a;
 
       expect(isTransientConnectError(a)).toBe(false);
+    });
+  });
+
+  describe('describeErrorChain', () => {
+    it('names the cause the driver wrapped out of sight', () => {
+      // Exactly the shape drizzle produces: the interesting message is one cause down.
+      const err = new Error('Failed query: CREATE SCHEMA IF NOT EXISTS "drizzle"', {
+        cause: Object.assign(new Error('password authentication failed for user "neondb_owner"'), {
+          code: '28P01',
+        }),
+      });
+
+      const chain = describeErrorChain(err);
+
+      expect(chain).toContain('Failed query: CREATE SCHEMA');
+      expect(chain).toContain('password authentication failed');
+      expect(chain).toContain('28P01');
+    });
+
+    it('does not repeat an identical message twice', () => {
+      const sub = Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT' });
+      const chain = describeErrorChain(new AggregateError([sub, sub], 'connect failed'));
+
+      expect(chain.match(/connect ETIMEDOUT/g)).toHaveLength(1);
+    });
+
+    it('terminates on a cyclic cause chain', () => {
+      const a = new Error('a') as Error & { cause?: unknown };
+      const b = new Error('b') as Error & { cause?: unknown };
+      a.cause = b;
+      b.cause = a;
+
+      expect(describeErrorChain(a)).toContain('a');
     });
   });
 
