@@ -309,6 +309,20 @@
       "when": 1784867130540,
       "tag": "0043_brand_no_website",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1785482675552,
+      "tag": "0044_brand_sales_funnels",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1785486077244,
+      "tag": "0045_brand_share_tokens",
+      "breakpoints": true
     }
   ]
 }

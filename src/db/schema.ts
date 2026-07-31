@@ -248,6 +248,71 @@ export const brandShareTokens = pgTable("brand_share_tokens", {
 ]);
 
 /**
+ * Sales funnels a brand sells through. One row per (brand_id, funnel_key) — the
+ * row's PRESENCE is the declaration: a brand with no rows has declared nothing,
+ * and a funnel with no row is one this brand does not sell through. Nothing is
+ * ever inferred from the values, which is why every value column is NULLABLE
+ * with NO server default: `null` means "the brand never gave us this number",
+ * never "0" and never a plausible-looking stand-in. That is the whole point of
+ * this table — `brand_sales_economics` cannot express either absence (every rate
+ * there is NOT NULL with a default, so a brand that configured nothing still
+ * reads back real-looking numbers, and the funnels it actually runs cannot be
+ * derived from them).
+ *
+ * Each declared funnel owns its OWN economics: the conversion rate of every leg
+ * of its chain, the lifetime revenue of a client won through it, the page an
+ * outreach click lands on, and — when a meeting sits in the chain — a booking
+ * link. Two funnels of one brand are priced independently: a self-serve signup
+ * customer and an enterprise meeting customer are not worth the same and do not
+ * land on the same page.
+ *
+ * Which rate columns a funnel may fill is NOT free-form: `salesFunnelCatalogue`
+ * owns the chain of each funnel, and a write naming a rate outside that chain is
+ * rejected 400 rather than silently dropped.
+ *
+ * `meeting_booked_to_attended_pct` and `booking_url` exist ONLY here — they are
+ * the two values the funnel model needs that had no home anywhere in the fleet.
+ */
+export const brandSalesFunnels = pgTable("brand_sales_funnels", {
+	brandId: uuid("brand_id").notNull(),
+	funnelKey: text("funnel_key").notNull(),
+	// What a client won through THIS funnel is worth. Null = never declared.
+	lifetimeRevenueUsd: integer("lifetime_revenue_usd"),
+	// One column per leg the catalogue can reference. A funnel fills only the
+	// legs of its own chain; the rest stay null for that row.
+	replyToMeetingPct: numeric("reply_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }),
+	visitToMeetingPct: numeric("visit_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }),
+	// The meeting SHOW-UP rate — booked → actually attended. It sits in the
+	// middle of both meeting chains and is stored nowhere else in the fleet.
+	meetingBookedToAttendedPct: numeric("meeting_booked_to_attended_pct", { precision: 7, scale: 4, mode: "number" }),
+	meetingToClosePct: numeric("meeting_to_close_pct", { precision: 7, scale: 4, mode: "number" }),
+	visitToSignupPct: numeric("visit_to_signup_pct", { precision: 7, scale: 4, mode: "number" }),
+	signupToPaidClientPct: numeric("signup_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }),
+	visitToFormSubmissionPct: numeric("visit_to_form_submission_pct", { precision: 7, scale: 4, mode: "number" }),
+	formSubmissionToPaidClientPct: numeric("form_submission_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }),
+	// The page on the brand's own site this funnel's outreach click lands on.
+	// Null = never declared (the brand's own landing page is the fallback the
+	// CONSUMER applies, never a value written here).
+	destinationUrl: text("destination_url"),
+	// The scheduling page, for a funnel whose chain contains a meeting. Always
+	// optional — a brand that books over email still runs the funnel.
+	bookingUrl: text("booking_url"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.brandId, table.funnelKey] }),
+	check(
+		"brand_sales_funnels_funnel_key_check",
+		sql`${table.funnelKey} IN ('reply_meeting', 'visit_meeting', 'visit_signup', 'visit_form')`
+	),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_sales_funnels_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * Brand business context — the free-form text a user pastes when their brand
  * has NO website. It is the ALTERNATIVE field-extraction SOURCE to a scraped
  * site: when a brand has no `url`, `fieldExtractionService.extractFields` reads
