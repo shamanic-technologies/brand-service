@@ -7,6 +7,7 @@ import {
   updateCurrentGoalByBrandId,
 } from '../services/brandGoalService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
+import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -59,12 +60,17 @@ internalRouter.get('/brands/:brandId/runtime-context', async (req: Request, res:
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    const currentGoal = await getCurrentGoalByBrandId(brandId);
+    // The goal and the confirmed profile are per (org, brand), and this route
+    // carries no org. Resolve it the same way every other internal read does.
+    const scope = await resolveInternalOrgScope(req, brandId);
+    if (rejectInternalOrgScope(res, scope)) return;
+
+    const currentGoal = await getCurrentGoalByBrandId(scope.orgId, brandId);
     if (!currentGoal) {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    const profile = await brandProfileService.getByBrandId(brandId);
+    const profile = await brandProfileService.getByBrandId(scope.orgId, brandId);
 
     return res.status(200).json({
       brand,

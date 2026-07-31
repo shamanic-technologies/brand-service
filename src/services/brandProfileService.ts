@@ -63,13 +63,13 @@ export class BrandProfileService {
    * the fields derived from the ephemeral extract cache. `confirmedFields` is the
    * confirmed layer alone; `hasConfirmed` gates injecting it as authoritative.
    */
-  async getByBrandId(brandId: string): Promise<BrandProfileResponse> {
+  async getByBrandId(orgId: string, brandId: string): Promise<BrandProfileResponse> {
     const [extractedRows, confirmedMap] = await Promise.all([
       db
         .select({ fieldKey: brandExtractedFields.fieldKey, fieldValue: brandExtractedFields.fieldValue })
         .from(brandExtractedFields)
         .where(and(eq(brandExtractedFields.brandId, brandId), isNull(brandExtractedFields.campaignId))),
-      getConfirmedByBrandId(brandId),
+      getConfirmedByBrandId(orgId, brandId),
     ]);
 
     const derived = coerceProfileFields(extractedRows);

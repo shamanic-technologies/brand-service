@@ -23,7 +23,12 @@ export async function rewriteBrandReferences(
   sourceBrandId: string,
   targetBrandId: string,
 ): Promise<{ tableName: string; count: number }[]> {
-  // 1. Delete source rows that would violate unique constraints when rewritten
+  // 1. Delete source rows that would violate unique constraints when rewritten.
+  //
+  // Every config table below is keyed on (org_id, brand_id[, ...]), so a merge
+  // only ever moves rows WITHIN one org: the caller's. Another org's
+  // configuration of the same brand is never read, moved or dropped here, which
+  // is the whole point of the scoping.
   // brand_extracted_fields: unique(brand_id, field_key) per campaign presence
   await query(
     `DELETE FROM brand_extracted_fields WHERE brand_id = $1
@@ -51,29 +56,34 @@ export async function rewriteBrandReferences(
      AND individual_id IN (SELECT individual_id FROM brand_individuals WHERE brand_id = $2)`,
     [sourceBrandId, targetBrandId],
   );
-  // brand_user_fields: unique(brand_id, field_key) — user-confirmed offer fields.
+  // brand_user_fields: unique(org_id, brand_id, field_key) — the caller's own
+  // confirmed values collide per org, never across orgs.
   await query(
-    `DELETE FROM brand_user_fields WHERE brand_id = $1
-     AND field_key IN (SELECT field_key FROM brand_user_fields WHERE brand_id = $2)`,
+    `DELETE FROM brand_user_fields s WHERE s.brand_id = $1
+     AND EXISTS (
+       SELECT 1 FROM brand_user_fields t
+        WHERE t.brand_id = $2 AND t.org_id = s.org_id AND t.field_key = s.field_key
+     )`,
     [sourceBrandId, targetBrandId],
   );
-  // brand_sales_funnels: PK(brand_id, funnel_key) — the declared funnels and
-  // their economics. User-authored, so it merges like the rest: the target's own
-  // declaration of a funnel wins, and a funnel only the source declared moves
-  // across intact.
+  // brand_sales_funnels: PK(org_id, brand_id, funnel_key) — the declared funnels
+  // and their economics, including the ones switched off (their numbers are the
+  // memory a user gets back).
   await query(
-    `DELETE FROM brand_sales_funnels WHERE brand_id = $1
-     AND funnel_key IN (SELECT funnel_key FROM brand_sales_funnels WHERE brand_id = $2)`,
+    `DELETE FROM brand_sales_funnels s WHERE s.brand_id = $1
+     AND EXISTS (
+       SELECT 1 FROM brand_sales_funnels t
+        WHERE t.brand_id = $2 AND t.org_id = s.org_id AND t.funnel_key = s.funnel_key
+     )`,
     [sourceBrandId, targetBrandId],
   );
-  // One-row-per-brand tables (PK = brand_id): the target's own row always wins,
-  // so drop the source's row whenever the target already has one. These carry
-  // user-authored data (pasted business context, sales economics, click
-  // destination, WhatsApp link, and whether the brand stated its funnel set) —
-  // without them a merge silently strands that data on the abandoned row.
-  for (const table of ['brand_business_context', 'brand_sales_economics', 'brand_click_destinations', 'brand_whatsapp_links', 'brand_sales_funnel_declarations']) {
+  // One-row-per-(org, brand) tables: the target's own row always wins, so drop
+  // the source's row whenever the target already has one FOR THE SAME ORG.
+  // `brand_share_tokens` is absent on purpose — it is never rewritten (see below).
+  for (const table of ['brand_business_context', 'brand_sales_economics', 'brand_click_destinations', 'brand_whatsapp_links']) {
     await query(
-      `DELETE FROM ${table} WHERE brand_id = $1 AND EXISTS (SELECT 1 FROM ${table} WHERE brand_id = $2)`,
+      `DELETE FROM ${table} s WHERE s.brand_id = $1
+       AND EXISTS (SELECT 1 FROM ${table} t WHERE t.brand_id = $2 AND t.org_id = s.org_id)`,
       [sourceBrandId, targetBrandId],
     );
   }
@@ -97,7 +107,6 @@ export async function rewriteBrandReferences(
     'brand_business_context',
     'brand_sales_economics',
     'brand_sales_funnels',
-    'brand_sales_funnel_declarations',
     'brand_click_destinations',
     'brand_whatsapp_links',
   ];

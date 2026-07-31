@@ -293,7 +293,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
   const { brandId, existingIcps, caller } = opts;
 
   // 1. Seed context from existing brand data (no persistence happens here).
-  const profile = await brandProfileService.getByBrandId(brandId);
+  const profile = await brandProfileService.getByBrandId(caller.orgId, brandId);
   const profileFields = profile.current.fields;
   // Fail loud when there is nothing OFFER/TARGETING-relevant to seed from — an
   // empty profile OR one carrying only conversion-copy / brand-vanity fields
@@ -304,7 +304,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
     );
   }
   const audienceSignals = await getAudienceSignals(brandId);
-  const economics = await salesEconomicsService.getEffectiveByBrandId(brandId);
+  const economics = await salesEconomicsService.getEffectiveByBrandId(caller.orgId, brandId);
 
   // 2. Create a brand-service run as a child of the caller's run.
   const run = await createRun({

@@ -164,6 +164,7 @@ export async function upsertUserFields(
     await db
       .insert(brandUserFields)
       .values({
+        orgId,
         brandId,
         fieldKey,
         value: value as any,

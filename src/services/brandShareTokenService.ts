@@ -94,7 +94,7 @@ export async function createIfAbsent(
     return { row: inserted[0], created: true };
   }
 
-  const existing = await getByBrandId(brandId);
+  const existing = await getByBrandId(orgId, brandId);
   if (!existing) {
     // The insert conflicted, so a row exists; a read that finds none means it
     // was revoked between the two statements. Fail loud rather than returning a

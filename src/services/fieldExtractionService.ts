@@ -663,7 +663,12 @@ export async function extractFields(
   // call, so when a URL is added later the next post-cache-expiry extraction
   // naturally re-sources from the site — no new TTL/cron. Fail loud when a brand
   // has NEITHER source (no fabrication, no silent empty result).
-  const businessContext = brand.url ? null : await getBrandBusinessContext(brandId);
+  // Which org's configuration this extraction reads. Org mode uses the caller;
+  // platform mode uses the brand's own org, exactly as the run tracking below
+  // already does — the business context is that org's pasted text, not a
+  // property of the shared brand identity.
+  const configOrgId = caller.mode === 'org' ? caller.orgId : brand.orgId;
+  const businessContext = brand.url ? null : await getBrandBusinessContext(configOrgId, brandId);
   if (!brand.url && !businessContext) {
     throw new Error(
       `Brand ${brandId} has neither a website URL nor pasted business context to extract from`,
@@ -674,7 +679,7 @@ export async function extractFields(
   // scraping-service, trace events). For org mode this comes from the caller.
   // For platform mode the brand's own orgId is used so the run still appears
   // under the right org's audit trail, with no user attribution.
-  const trackingOrgId = caller.mode === 'org' ? caller.orgId : brand.orgId;
+  const trackingOrgId = configOrgId;
   const trackingUserId = caller.mode === 'org' ? caller.userId : undefined;
   const parentRunId = caller.mode === 'org' ? caller.runId : undefined;
   const campaignIdForRun = caller.mode === 'org' ? caller.campaignId : undefined;
@@ -747,7 +752,7 @@ export async function extractFields(
     // context when a human has SAVED a profile version — the derived virtual-v1
     // (no saved version) is just our own past extractions, so injecting it would
     // feed the LLM its prior output and freeze earlier errors.
-    const profileResponse = await brandProfileService.getByBrandId(brandId);
+    const profileResponse = await brandProfileService.getByBrandId(configOrgId, brandId);
     const profileContext = buildProfileContextBlock({
       hasConfirmed: profileResponse.hasConfirmed,
       fields: profileResponse.confirmedFields,

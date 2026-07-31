@@ -44,7 +44,7 @@ orgRouter.get('/brands/:brandId/share-token', async (req: Request, res: Response
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const row = await brandShareTokenService.getByBrandId(brandId);
+    const row = await brandShareTokenService.getByBrandId(req.orgId!, brandId);
     if (!row) {
       return res.status(200).json({ shareToken: null, createdAt: null, updatedAt: null });
     }
@@ -73,7 +73,7 @@ orgRouter.post('/brands/:brandId/share-token', async (req: Request, res: Respons
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const { row, created } = await brandShareTokenService.createIfAbsent(brandId);
+    const { row, created } = await brandShareTokenService.createIfAbsent(req.orgId!, brandId);
     return res.status(created ? 201 : 200).json({ ...row, created });
   } catch (error: any) {
     console.error('[brand-service] Create share token error:', error);
@@ -98,7 +98,7 @@ orgRouter.post('/brands/:brandId/share-token/rotate', async (req: Request, res: 
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const row = await brandShareTokenService.rotate(brandId);
+    const row = await brandShareTokenService.rotate(req.orgId!, brandId);
     return res.status(200).json(row);
   } catch (error: any) {
     console.error('[brand-service] Rotate share token error:', error);
@@ -124,7 +124,7 @@ orgRouter.delete('/brands/:brandId/share-token', async (req: Request, res: Respo
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const revoked = await brandShareTokenService.revoke(brandId);
+    const revoked = await brandShareTokenService.revoke(req.orgId!, brandId);
     return res.status(200).json({ revoked });
   } catch (error: any) {
     console.error('[brand-service] Revoke share token error:', error);
