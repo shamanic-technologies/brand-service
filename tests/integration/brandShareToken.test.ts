@@ -11,6 +11,9 @@ import { randomUUID } from 'crypto';
  *
  *  - a brand nobody shared is not shareable, and nothing resolves
  *  - a member of the owning org creates one, and it resolves to that brand
+ *  - the resolve also names the org that shared it, so the renderer can ask for
+ *    the brand's per-org figures — while the `brand` payload stays exactly the
+ *    public one, with no org id in it
  *  - rotating mints a different credential and the previous one stops resolving
  *  - revoking makes the brand unshareable again
  *  - a credential minted for brand A never resolves to brand B
@@ -25,9 +28,12 @@ describe('Brand share token', () => {
   const brandAId = randomUUID();
   const brandBId = randomUUID();
   const foreignBrandId = randomUUID();
+  // Claimed by BOTH orgs — a brand can be, and that is exactly why the sharing
+  // org has to be recorded on the credential instead of read off membership.
+  const contestedBrandId = randomUUID();
   const unknownBrandId = randomUUID();
 
-  const createdBrandIds = [brandAId, brandBId, foreignBrandId];
+  const createdBrandIds = [brandAId, brandBId, foreignBrandId, contestedBrandId];
 
   beforeAll(async () => {
     await db.insert(brands).values([
@@ -39,11 +45,19 @@ describe('Brand share token', () => {
         domain: 'share-foreign.com',
         name: 'Share Foreign',
       },
+      {
+        id: contestedBrandId,
+        url: 'https://share-contested.com',
+        domain: 'share-contested.com',
+        name: 'Share Contested',
+      },
     ]);
     await db.insert(orgBrands).values([
       { orgId: ownerOrgId, brandId: brandAId },
       { orgId: ownerOrgId, brandId: brandBId },
       { orgId: otherOrgId, brandId: foreignBrandId },
+      { orgId: ownerOrgId, brandId: contestedBrandId },
+      { orgId: otherOrgId, brandId: contestedBrandId },
     ]);
   });
 
@@ -97,13 +111,36 @@ describe('Brand share token', () => {
     expect(resolved.body.brand.id).toBe(brandAId);
     expect(resolved.body.brand.domain).toBe('share-a.com');
 
-    // Public-safe identity only: no org id, no money, no prospect PII.
+    // The org that shared it comes back too: every figure the shared page needs
+    // is served per-org, so the credential alone would leave the renderer unable
+    // to fetch a single one.
+    expect(resolved.body.orgId).toBe(ownerOrgId);
+
+    // ...and it sits at the TOP LEVEL, not inside `brand`. The brand payload is
+    // still the public one: no org id, no money, no prospect PII.
     const brandKeys = Object.keys(resolved.body.brand);
     expect(brandKeys).not.toContain('orgId');
     for (const forbidden of ['spend', 'dailyBudget', 'costPerOutcome', 'roi', 'credits', 'leads']) {
       expect(brandKeys).not.toContain(forbidden);
     }
-    expect(JSON.stringify(resolved.body)).not.toContain(ownerOrgId);
+    expect(JSON.stringify(resolved.body.brand)).not.toContain(ownerOrgId);
+  });
+
+  it('names the org that shared the brand, and the org-facing routes stay org-free', async () => {
+    // Nothing new leaks to the org that already knows its own id: the read,
+    // create and rotate responses carry the credential and its timestamps only.
+    const read = await request(app)
+      .get(`/orgs/brands/${brandAId}/share-token`)
+      .set(getAuthHeaders(ownerOrgId));
+
+    expect(read.status).toBe(200);
+    expect(Object.keys(read.body).sort()).toEqual(['createdAt', 'shareToken', 'updatedAt']);
+
+    // A brand this org does NOT claim cannot be shared at all, so a credential
+    // can only ever name an org that owns its brand.
+    const resolved = await resolveToken(read.body.shareToken);
+    expect(resolved.body.orgId).toBe(ownerOrgId);
+    expect(resolved.body.orgId).not.toBe(otherOrgId);
   });
 
   it('creating again is idempotent — an existing link is never invalidated', async () => {
@@ -141,6 +178,32 @@ describe('Brand share token', () => {
     const resolvedNew = await resolveToken(newToken);
     expect(resolvedNew.status).toBe(200);
     expect(resolvedNew.body.brandId).toBe(brandAId);
+    expect(resolvedNew.body.orgId).toBe(ownerOrgId);
+  });
+
+  it('when two orgs claim one brand, the credential names whoever minted it', async () => {
+    // Membership cannot answer "who shared this": both orgs claim the brand.
+    const mintedByOwner = await request(app)
+      .post(`/orgs/brands/${contestedBrandId}/share-token`)
+      .set(getAuthHeaders(ownerOrgId));
+    expect(mintedByOwner.status).toBe(201);
+    expect((await resolveToken(mintedByOwner.body.shareToken)).body.orgId).toBe(ownerOrgId);
+
+    // The other claimant rotates: that re-mints the credential, so the link that
+    // now resolves opens ITS view. A stale org on a credential nobody in that org
+    // can produce anymore would be the wrong answer.
+    const rotatedByOther = await request(app)
+      .post(`/orgs/brands/${contestedBrandId}/share-token/rotate`)
+      .set(getAuthHeaders(otherOrgId));
+    expect(rotatedByOther.status).toBe(200);
+
+    const resolved = await resolveToken(rotatedByOther.body.shareToken);
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.brandId).toBe(contestedBrandId);
+    expect(resolved.body.orgId).toBe(otherOrgId);
+
+    // The credential the first org minted stopped resolving, as any rotate does.
+    expect((await resolveToken(mintedByOwner.body.shareToken)).status).toBe(404);
   });
 
   it('a credential minted for brand A never resolves to brand B', async () => {
