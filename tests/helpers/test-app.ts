@@ -16,6 +16,7 @@ import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRou
 import { orgRouter as clickDestinationOrgRoutes } from '../../src/routes/click-destination.routes';
 import { orgRouter as whatsAppLinkOrgRoutes } from '../../src/routes/whatsapp-link.routes';
 import { orgRouter as businessContextOrgRoutes } from '../../src/routes/business-context.routes';
+import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from '../../src/routes/share-token.routes';
 
 // Import routes — single-tier files
 import organizationRoutes from '../../src/routes/organization.routes';
@@ -63,6 +64,7 @@ export function createTestApp() {
   app.use('/internal', apiKeyAuth, intakeFormRoutes);
   app.use('/internal', apiKeyAuth, salesEconomicsInternalRoutes);
   app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
+  app.use('/internal', apiKeyAuth, shareTokenInternalRoutes);
 
   // ── Org-scoped routes (API key + x-org-id) ──────────────────
   app.use('/orgs', apiKeyAuth, requireOrgId, brandsOrgRoutes);
@@ -77,6 +79,7 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, whatsAppLinkOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, businessContextOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, shareTokenOrgRoutes);
   app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;

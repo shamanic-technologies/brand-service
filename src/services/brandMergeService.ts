@@ -71,8 +71,11 @@ export async function rewriteBrandReferences(
 
   // 2. Rewrite brand_id on all dependent tables.
   // Deliberately NOT rewritten: `brand_transfers` (an append-only audit log —
-  // rewriting it would rewrite history) and `brand_relations` (PK(source,target),
-  // where a rewrite can collapse an edge onto itself).
+  // rewriting it would rewrite history), `brand_relations` (PK(source,target),
+  // where a rewrite can collapse an edge onto itself), and `brand_share_tokens`
+  // (a read-only share credential: moving one minted for the abandoned holder
+  // onto the target would silently widen what every existing link holder can
+  // see — a credential stays with the brand it was minted for).
   const tables = [
     'media_assets',
     'brand_extracted_fields',
