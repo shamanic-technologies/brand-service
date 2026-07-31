@@ -14,6 +14,7 @@ import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInt
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from './routes/public-information.routes';
 import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from './routes/transfer.routes';
 import { orgRouter as salesEconomicsOrgRoutes, internalRouter as salesEconomicsInternalRoutes } from './routes/sales-economics.routes';
+import { orgRouter as salesFunnelsOrgRoutes, internalRouter as salesFunnelsInternalRoutes } from './routes/sales-funnels.routes';
 import { orgRouter as icpOrgRoutes } from './routes/icp.routes';
 import { orgRouter as userFieldsOrgRoutes } from './routes/user-fields.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from './routes/brand-goal.routes';
@@ -85,6 +86,7 @@ app.use('/internal', apiKeyAuth, intakeFormRoutes);
 app.use('/internal', apiKeyAuth, thesisRoutes);
 app.use('/internal/users', apiKeyAuth, usersRoutes);
 app.use('/internal', apiKeyAuth, salesEconomicsInternalRoutes);
+app.use('/internal', apiKeyAuth, salesFunnelsInternalRoutes);
 app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
 
 // ── Org-scoped routes (API key + x-org-id required) ─────────────
@@ -95,6 +97,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, extractImagesOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, salesEconomicsOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, salesFunnelsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, icpOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, userFieldsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);

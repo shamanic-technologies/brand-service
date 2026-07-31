@@ -1607,6 +1607,7 @@
         "enum": [
           "signups",
           "booked_meetings",
+          "sales_meetings",
           "sales",
           "website_visits",
           "positive_replies",
@@ -1807,6 +1808,186 @@
           }
         }
       },
+      "GetSalesFunnelsResponse": {
+        "type": "object",
+        "properties": {
+          "funnels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeclaredSalesFunnel"
+            }
+          }
+        },
+        "required": [
+          "funnels"
+        ]
+      },
+      "DeclaredSalesFunnel": {
+        "type": "object",
+        "properties": {
+          "funnelKey": {
+            "$ref": "#/components/schemas/SalesFunnelKey"
+          },
+          "name": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "goal": {
+            "$ref": "#/components/schemas/OptimizationGoal"
+          },
+          "currentGoal": {
+            "$ref": "#/components/schemas/CurrentGoal"
+          },
+          "rates": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "nullable": true
+            }
+          },
+          "lifetimeRevenueUsd": {
+            "type": "integer",
+            "nullable": true
+          },
+          "destinationUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "bookingUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "funnelKey",
+          "name",
+          "steps",
+          "goal",
+          "currentGoal",
+          "rates",
+          "lifetimeRevenueUsd",
+          "destinationUrl",
+          "bookingUrl",
+          "updatedAt"
+        ]
+      },
+      "SalesFunnelKey": {
+        "type": "string",
+        "enum": [
+          "reply_meeting",
+          "visit_meeting",
+          "visit_signup",
+          "visit_form"
+        ]
+      },
+      "CurrentGoal": {
+        "type": "string",
+        "enum": [
+          "signup",
+          "meetingBooked",
+          "purchase",
+          "websiteVisit",
+          "positiveReply",
+          "whatsappConversation",
+          "combinedSales"
+        ]
+      },
+      "DeclareSalesFunnelResponse": {
+        "type": "object",
+        "properties": {
+          "funnel": {
+            "$ref": "#/components/schemas/DeclaredSalesFunnel"
+          }
+        },
+        "required": [
+          "funnel"
+        ]
+      },
+      "DeclareSalesFunnelRequest": {
+        "type": "object",
+        "properties": {
+          "rates": {
+            "$ref": "#/components/schemas/SalesFunnelRates"
+          },
+          "lifetimeRevenueUsd": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0,
+            "exclusiveMinimum": true
+          },
+          "destinationUrl": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1
+          },
+          "bookingUrl": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1
+          }
+        }
+      },
+      "SalesFunnelRates": {
+        "type": "object",
+        "properties": {
+          "replyToMeetingPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "visitToMeetingPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "meetingBookedToAttendedPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "meetingToClosePct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "visitToSignupPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "signupToPaidClientPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "visitToFormSubmissionPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "formSubmissionToPaidClientPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      },
       "UpsertClickDestinationResponse": {
         "type": "object",
         "properties": {
@@ -1868,18 +2049,6 @@
         },
         "required": [
           "currentGoal"
-        ]
-      },
-      "CurrentGoal": {
-        "type": "string",
-        "enum": [
-          "signup",
-          "meetingBooked",
-          "purchase",
-          "websiteVisit",
-          "positiveReply",
-          "whatsappConversation",
-          "combinedSales"
         ]
       },
       "UpdateCurrentGoalRequest": {
@@ -4347,6 +4516,187 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GetSalesEconomicsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/sales-funnels": {
+      "get": {
+        "summary": "Get the sales funnels a brand has declared it sells through",
+        "description": "The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime revenue, landing page and booking link. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. An EMPTY array means the brand has declared nothing yet — read it as unknown, NOT as \"this brand sells through nothing\"; the set can only be declared, never derived from the brand's stored economics (every rate there carries a server default, so absence signals nothing). The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The declared funnels (possibly empty)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/sales-funnels/{funnelKey}": {
+      "put": {
+        "summary": "Declare a sales funnel and write its economics",
+        "description": "Declare that the brand sells through this funnel, and write what you send of its economics. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Idempotent: the declaration IS the row, so declaring twice is declaring once, and a body with no fields declares the funnel without pricing it yet. PARTIAL: an omitted field is left exactly as stored, an explicit `null` CLEARS the value back to never-declared. `rates` may only carry the legs of THIS funnel's own chain — a foreign rate is rejected 400 rather than dropped. `destinationUrl` is accepted only for a funnel that lands a click on the site and must be on the brand's own domain (or a subdomain); `bookingUrl` only for a funnel whose chain contains a meeting, and it may point at any third-party scheduler. A funnel that starts with a website visit cannot be declared for a brand that has no website (400).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/SalesFunnelKey"
+            },
+            "required": true,
+            "name": "funnelKey",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareSalesFunnelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The declared funnel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclareSalesFunnelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or funnel key, a rate outside this funnel's chain, a destination the funnel has no use for, an off-domain page destination, or a website-led funnel on a brand with no website"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Undeclare a sales funnel",
+        "description": "The brand no longer sells through this funnel. Removing the declaration removes its economics with it — a funnel a brand stopped selling through must not leave numbers behind that a consumer could still rank on. Idempotent: undeclaring a funnel that was never declared is a 200 with the unchanged set. Returns the funnels still declared.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/SalesFunnelKey"
+            },
+            "required": true,
+            "name": "funnelKey",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The funnels still declared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format or unknown funnel key"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/sales-funnels": {
+      "get": {
+        "summary": "Internal read of the funnels a brand has declared",
+        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for (`goal` on the brand-service wire, `currentGoal` as the runtime token) and the economics it is ranked on. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. An EMPTY array means the brand has declared nothing — do NOT substitute a plausible set, and do NOT derive one from the brand's stored economics.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The declared funnels (possibly empty)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
                 }
               }
             }

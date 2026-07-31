@@ -57,6 +57,15 @@ export async function rewriteBrandReferences(
      AND field_key IN (SELECT field_key FROM brand_user_fields WHERE brand_id = $2)`,
     [sourceBrandId, targetBrandId],
   );
+  // brand_sales_funnels: PK(brand_id, funnel_key) — the declared funnels and
+  // their economics. User-authored, so it merges like the rest: the target's own
+  // declaration of a funnel wins, and a funnel only the source declared moves
+  // across intact.
+  await query(
+    `DELETE FROM brand_sales_funnels WHERE brand_id = $1
+     AND funnel_key IN (SELECT funnel_key FROM brand_sales_funnels WHERE brand_id = $2)`,
+    [sourceBrandId, targetBrandId],
+  );
   // One-row-per-brand tables (PK = brand_id): the target's own row always wins,
   // so drop the source's row whenever the target already has one. These carry
   // user-authored data (pasted business context, sales economics, click
@@ -84,6 +93,7 @@ export async function rewriteBrandReferences(
     'brand_user_fields',
     'brand_business_context',
     'brand_sales_economics',
+    'brand_sales_funnels',
     'brand_click_destinations',
     'brand_whatsapp_links',
   ];

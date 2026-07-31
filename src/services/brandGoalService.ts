@@ -33,6 +33,12 @@ export type CurrentGoal =
 export type LegacyOptimizationGoal =
   | 'signups'
   | 'booked_meetings'
+  // `sales_meetings` is the DASHBOARD's local spelling of the SAME booked-meeting
+  // goal. Accepted on WRITE so a caller sending it is understood instead of being
+  // normalized away in a tolerance layer downstream; it is NEVER emitted (every
+  // read answers `booked_meetings`) and NEVER recovered as a sub-type, so
+  // brand-service still speaks exactly one vocabulary on the wire.
+  | 'sales_meetings'
   // `sales` is the LEGACY wire spelling of the "website purchase" goal. Kept for
   // backward-compat: the old dashboard still sends it during the transition
   // window, and it is what the internal (campaign-service) read emits — so it
@@ -72,6 +78,10 @@ export function legacyOptimizationGoalToCurrentGoal(
     case 'signups':
       return 'signup';
     case 'booked_meetings':
+    case 'sales_meetings':
+      // Two spellings of one goal — the dashboard's local `sales_meetings` and
+      // brand-service's own `booked_meetings`. Same runtime goal, so accepting
+      // both on write costs nothing and removes the drift at its source.
       return 'meetingBooked';
     case 'sales':
       return 'purchase';
