@@ -258,6 +258,43 @@ export const brandUserFields = pgTable("brand_user_fields", {
 ]);
 
 /**
+ * Share credential letting someone OUTSIDE the org open a read-only view of one
+ * brand. Absent by default: a brand is not shareable until a member of the
+ * owning org asks for a link, so the row's presence IS the "shared" signal and
+ * deleting it revokes access.
+ *
+ * Keyed on (org_id, brand_id), NOT on brand_id alone like the sibling per-brand
+ * config tables (`brand_click_destinations`, `brand_whatsapp_links`). Deliberate:
+ * `org_brands` lets SEVERAL orgs claim the same brand row (cross-org sharing of
+ * one brand identity by domain is intentional), and what gets shared here is one
+ * ORG'S VIEW of that brand — its outreach, its audiences. A brand-only key would
+ * leave the resolver unable to say whose view the link opens, so the org travels
+ * with the credential.
+ *
+ * `token` carries the full credential in the clear rather than a hash. A hash
+ * would force a fresh token on every read, silently killing links the customer
+ * had already sent, and "show me the link I am sharing" is the whole feature. It
+ * is a read-only capability over data the org is deliberately publishing, which
+ * is the same trade press-kits-service already makes for its own share tokens.
+ */
+export const brandShareLinks = pgTable("brand_share_links", {
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	token: text().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.orgId, table.brandId] }),
+	uniqueIndex("brand_share_links_token_key").on(table.token),
+	index("brand_share_links_brand_id_idx").on(table.brandId),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_share_links_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * Bronze append-only raw scrape payload table. Future writes go here;
  * existing scrape caches live on `_old` tables until consumers migrate.
  */

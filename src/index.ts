@@ -29,6 +29,10 @@ import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRou
 import { orgRouter as whatsAppLinkOrgRoutes } from './routes/whatsapp-link.routes';
 import { orgRouter as clickDestinationOrgRoutes } from './routes/click-destination.routes';
 import { orgRouter as businessContextOrgRoutes } from './routes/business-context.routes';
+import {
+  orgRouter as brandShareLinkOrgRoutes,
+  internalRouter as brandShareLinkInternalRoutes,
+} from './routes/brand-share-link.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
 import organizationRoutes from './routes/organization.routes';
@@ -119,6 +123,7 @@ app.use('/internal', apiKeyAuth, thesisRoutes);
 app.use('/internal/users', apiKeyAuth, usersRoutes);
 app.use('/internal', apiKeyAuth, salesEconomicsInternalRoutes);
 app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
+app.use('/internal', apiKeyAuth, brandShareLinkInternalRoutes);
 
 // ── Org-scoped routes (API key + x-org-id required) ─────────────
 
@@ -134,6 +139,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, clickDestinationOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, whatsAppLinkOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, businessContextOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, brandShareLinkOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
 // ── Expired extracted-fields cleanup cron ────────────────────────

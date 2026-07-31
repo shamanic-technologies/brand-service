@@ -2137,6 +2137,63 @@
         "required": [
           "fields"
         ]
+      },
+      "BrandShareLinkResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "nullable": true,
+            "description": "The share credential, or null when the brand has never been shared. 43-char base64url of 256 bits of CSPRNG entropy — never derived from the org id, the brand id or the domain, so it cannot be computed from a URL the customer already exposes, and it reveals nothing about which tenant it opens.",
+            "example": "y0Rn7Qk2sVdU1pXhL9tGmB3fC6aZwE8oJrKvNxSyTqI"
+          },
+          "createdAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the link was first minted."
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the link was last rotated."
+          }
+        },
+        "required": [
+          "token",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "RevokeBrandShareLinkResponse": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "boolean",
+            "description": "True when a link existed and was removed; false when there was none."
+          }
+        },
+        "required": [
+          "revoked"
+        ]
+      },
+      "ResolveBrandShareLinkResponse": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The org whose view of the brand this link opens."
+          },
+          "brandId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The brand the link opens."
+          }
+        },
+        "required": [
+          "orgId",
+          "brandId"
+        ]
       }
     },
     "parameters": {
@@ -4730,6 +4787,200 @@
           },
           "404": {
             "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/share-link": {
+      "get": {
+        "summary": "Get a brand's public share credential",
+        "description": "The credential currently letting someone outside the org open a read-only view of this brand, or `{ token: null }` when the brand has never been shared. A READ: it does NOT mint one, so opening a share menu cannot accidentally start sharing a brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current share credential (token null when unshared)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandShareLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "summary": "Start sharing a brand, returning its credential",
+        "description": "Mints the credential that lets someone outside the org open a read-only view of this brand. Idempotent: a brand already shared gets its EXISTING token back rather than a fresh one, so pressing share twice cannot silently invalidate a link the customer already sent — replacing a link is `/rotate`. The brand must belong to the caller's org (x-org-id).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Share credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandShareLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Stop sharing a brand",
+        "description": "Revokes the credential, so the public link stops resolving. Idempotent — a brand that was not shared is already in the requested end state, so it answers 200 with `{ revoked: false }` rather than 404. The brand must belong to the caller's org (x-org-id).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether a link existed and was removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeBrandShareLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/share-link/rotate": {
+      "post": {
+        "summary": "Rotate a brand's public share credential",
+        "description": "Replaces the credential. The previous link stops working immediately, which is how a customer takes back a link already in someone else's hands. 404 when the brand was never shared: there is nothing to rotate, and minting one here would turn \"revoke my old link\" into \"start sharing\". The brand must belong to the caller's org (x-org-id).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New share credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandShareLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found, or brand is not shared"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brand-share-links/{token}": {
+      "get": {
+        "summary": "Resolve a brand share credential",
+        "description": "The org + brand a share credential opens. The one lookup a caller holding nothing but the token can make, for a trusted server-side renderer that has no org context yet. INTERNAL (API key) rather than public on purpose: the only caller already holds a platform key, so there is no reason to expose an unauthenticated token oracle to the internet. 404 covers unknown, revoked and rotated-away tokens alike — a caller learns \"this link opens nothing\", never why.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "token",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The org and brand the credential opens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveBrandShareLinkResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Share link not found"
           },
           "500": {
             "description": "Internal server error"

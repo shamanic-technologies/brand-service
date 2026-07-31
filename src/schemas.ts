@@ -2509,6 +2509,140 @@ registry.registerPath({
   },
 });
 
+// ── Brand share link (public read-only view credential) ─────────────────────
+// The credential someone OUTSIDE the org presents to open a read-only view of
+// one brand. Responses carry the raw token and NOT a URL: brand-service does not
+// know where the public page lives, and baking a consumer hostname into a
+// producer response makes one service own another's routing.
+export const BrandShareLinkResponseSchema = z
+  .object({
+    token: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          'The share credential, or null when the brand has never been shared. 43-char ' +
+          'base64url of 256 bits of CSPRNG entropy — never derived from the org id, the ' +
+          'brand id or the domain, so it cannot be computed from a URL the customer ' +
+          'already exposes, and it reveals nothing about which tenant it opens.',
+        example: 'y0Rn7Qk2sVdU1pXhL9tGmB3fC6aZwE8oJrKvNxSyTqI',
+      }),
+    createdAt: z.string().nullable().openapi({ description: 'When the link was first minted.' }),
+    updatedAt: z.string().nullable().openapi({ description: 'When the link was last rotated.' }),
+  })
+  .openapi('BrandShareLinkResponse');
+
+export const RevokeBrandShareLinkResponseSchema = z
+  .object({
+    revoked: z
+      .boolean()
+      .openapi({ description: 'True when a link existed and was removed; false when there was none.' }),
+  })
+  .openapi('RevokeBrandShareLinkResponse');
+
+export const ResolveBrandShareLinkResponseSchema = z
+  .object({
+    orgId: z.string().uuid().openapi({ description: "The org whose view of the brand this link opens." }),
+    brandId: z.string().uuid().openapi({ description: 'The brand the link opens.' }),
+  })
+  .openapi('ResolveBrandShareLinkResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/share-link',
+  summary: "Get a brand's public share credential",
+  description:
+    'The credential currently letting someone outside the org open a read-only view of this ' +
+    'brand, or `{ token: null }` when the brand has never been shared. A READ: it does NOT mint ' +
+    'one, so opening a share menu cannot accidentally start sharing a brand. The brand must ' +
+    "belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Current share credential (token null when unshared)', content: { 'application/json': { schema: BrandShareLinkResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/share-link',
+  summary: "Start sharing a brand, returning its credential",
+  description:
+    'Mints the credential that lets someone outside the org open a read-only view of this ' +
+    'brand. Idempotent: a brand already shared gets its EXISTING token back rather than a fresh ' +
+    'one, so pressing share twice cannot silently invalidate a link the customer already sent — ' +
+    'replacing a link is `/rotate`. The brand must belong to the ' +
+    "caller's org (x-org-id).",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Share credential', content: { 'application/json': { schema: BrandShareLinkResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/share-link/rotate',
+  summary: "Rotate a brand's public share credential",
+  description:
+    'Replaces the credential. The previous link stops working immediately, which is how a ' +
+    'customer takes back a link already in someone else\'s hands. 404 when the brand was never ' +
+    'shared: there is nothing to rotate, and minting one here would turn "revoke my old link" ' +
+    'into "start sharing". The brand must belong to the ' +
+    "caller's org (x-org-id).",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'New share credential', content: { 'application/json': { schema: BrandShareLinkResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found, or brand is not shared' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/share-link',
+  summary: "Stop sharing a brand",
+  description:
+    'Revokes the credential, so the public link stops resolving. Idempotent — a brand that was ' +
+    'not shared is already in the requested end state, so it answers 200 with `{ revoked: false }` ' +
+    "rather than 404. The brand must belong to the caller's org (x-org-id).",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Whether a link existed and was removed', content: { 'application/json': { schema: RevokeBrandShareLinkResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brand-share-links/{token}',
+  summary: 'Resolve a brand share credential',
+  description:
+    'The org + brand a share credential opens. The one lookup a caller holding nothing but the ' +
+    'token can make, for a trusted server-side renderer that has no org context yet. INTERNAL ' +
+    '(API key) rather than public on purpose: the only caller already holds a platform key, so ' +
+    'there is no reason to expose an unauthenticated token oracle to the internet. 404 covers ' +
+    'unknown, revoked and rotated-away tokens alike — a caller learns "this link opens nothing", ' +
+    'never why.',
+  request: { params: z.object({ token: z.string() }) },
+  responses: {
+    200: { description: 'The org and brand the credential opens', content: { 'application/json': { schema: ResolveBrandShareLinkResponseSchema } } },
+    404: { description: 'Share link not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 // ============================================================
 // Health / Root
 // ============================================================
