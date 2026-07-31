@@ -5102,7 +5102,10 @@
         "summary": "Health check",
         "responses": {
           "200": {
-            "description": "Service healthy"
+            "description": "Service healthy (migrations pending or ready)"
+          },
+          "503": {
+            "description": "Database migrations failed — the deploy is unhealthy"
           }
         }
       }

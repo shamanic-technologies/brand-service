@@ -77,7 +77,7 @@ This avoids leaking user identity into platform-initiated lazy fills (e.g. `GET 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Service info |
-| GET | `/health` | Health check |
+| GET | `/health` | Health check. `{ status, service, migrations }` where `migrations` is `pending` \| `ready` \| `failed`. 200 while pending or ready, 503 once migrations have failed |
 | GET | `/openapi.json` | OpenAPI 3.0 spec |
 | GET | `/public/brands/:id` | Get brand by ID — no auth. Identical shape to `GET /internal/brands/:id`. |
 | GET | `/public/brands?ids=` | Batch resolve brands by `?ids=uuid1,uuid2,...` (no auth). Max 100, omits missing, arbitrary order. Same minimal shape per brand. |
@@ -279,6 +279,28 @@ GitHub Actions runs on push to main and PRs:
 **Required secrets/variables:** `NEON_API_KEY` (secret), `NEON_PROJECT_ID` (variable)
 
 Deployed via Docker on Railway.
+
+### Boot order
+
+The port binds first; migrations run behind it. Neon computes suspend after
+inactivity and take seconds to resume, so awaiting `migrate()` before
+`app.listen()` lets a deploy landing on a cold compute burn its whole startup
+budget on the first connection — the port never opens inside Railway's ~30s
+healthcheck window and the deploy fails for reasons unrelated to the code.
+
+Binding first does not mean serving early. `/`, `/health` and `/openapi.json`
+need no database and answer immediately; everything else sits behind a gate that
+returns **503 `MIGRATIONS_PENDING`** (with `Retry-After: 5`) until the migrator
+finishes, so the service never runs a query against a schema it has not verified.
+
+Connect-phase failures (`ETIMEDOUT`, `ECONNREFUSED`, postgres.js's pool-acquire
+timeout, "the database system is starting up") are retried with backoff — the
+query never dispatched, so nothing can be half-applied. A real migration failure
+(bad SQL, failed constraint) is **not** retried: it is logged in full, every
+database route answers 503 `MIGRATIONS_FAILED` with the detail, and `/health`
+flips to 503 so Railway marks the deploy unhealthy and keeps the previous
+container serving. The process stays alive on purpose — exiting would crash-loop
+against the `ON_FAILURE` restart policy and take the port down with it.
 
 ## Project Structure
 
