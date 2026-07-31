@@ -30,7 +30,7 @@ orgRouter.put('/brands/:brandId/current-goal', async (req: Request, res: Respons
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const currentGoal = await updateCurrentGoalByBrandId(brandId, parsed.data.currentGoal);
+    const currentGoal = await updateCurrentGoalByBrandId(req.orgId!, brandId, parsed.data.currentGoal);
     if (!currentGoal) {
       return res.status(404).json({ error: 'Brand not found' });
     }

@@ -11,9 +11,11 @@ import {
   SalesFunnelDestinationNotUsedError,
   SalesFunnelRateNotInChainError,
   SalesFunnelRequiresWebsiteError,
+  LastActiveSalesFunnelError,
   salesFunnelsService,
 } from '../services/salesFunnelsService';
 import { ClickDestinationValidationError } from '../services/clickDestinationService';
+import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -52,6 +54,7 @@ function rejectDeclaration(res: Response, error: unknown): boolean {
     error instanceof SalesFunnelRateNotInChainError ||
     error instanceof SalesFunnelDestinationNotUsedError ||
     error instanceof SalesFunnelRequiresWebsiteError ||
+    error instanceof LastActiveSalesFunnelError ||
     error instanceof ClickDestinationValidationError
   ) {
     res.status(400).json({ error: (error as Error).message });
@@ -76,7 +79,7 @@ orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Respon
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const set = await salesFunnelsService.readByBrandId(brandId);
+    const set = await salesFunnelsService.readByBrandId(req.orgId!, brandId);
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Get sales funnels error:', error);
@@ -117,6 +120,7 @@ orgRouter.put('/brands/:brandId/sales-funnels', async (req: Request, res: Respon
     let set;
     try {
       set = await salesFunnelsService.statesetByBrandId(
+        req.orgId!,
         brandId,
         parsed.data.funnelKeys,
         brand.domain ?? null
@@ -166,6 +170,7 @@ orgRouter.put('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, 
     let funnel;
     try {
       funnel = await salesFunnelsService.declareByBrandId(
+        req.orgId!,
         brandId,
         funnelKey,
         parsed.data,
@@ -185,8 +190,9 @@ orgRouter.put('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, 
 
 /**
  * DELETE /orgs/brands/:brandId/sales-funnels/:funnelKey
- * The brand no longer sells through this funnel. Returns the remaining set so
- * the caller renders the truth it just created rather than re-reading for it.
+ * Switch the funnel OFF. The row and its numbers SURVIVE, so switching it back
+ * on returns what the user already entered. Refused when it is the last active
+ * one. Returns the whole set so the caller renders what it just created.
  */
 orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, res: Response) => {
   try {
@@ -201,8 +207,13 @@ orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Reques
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    await salesFunnelsService.undeclareByBrandId(brandId, funnelKey);
-    const set = await salesFunnelsService.readByBrandId(brandId);
+    try {
+      await salesFunnelsService.deactivateByBrandId(req.orgId!, brandId, funnelKey);
+    } catch (error) {
+      if (rejectDeclaration(res, error)) return;
+      throw error;
+    }
+    const set = await salesFunnelsService.readByBrandId(req.orgId!, brandId);
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Undeclare sales funnel error:', error);
@@ -233,7 +244,12 @@ internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: R
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    const set = await salesFunnelsService.readByBrandId(brandId);
+    const scope = await resolveInternalOrgScope(req, brandId);
+    if (rejectInternalOrgScope(res, scope)) return;
+
+    // ACTIVE only: a scheduler asking what this org sells through must never
+    // rank a funnel the org switched off.
+    const set = await salesFunnelsService.readActiveByBrandId(scope.orgId, brandId);
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Internal get sales funnels error:', error);

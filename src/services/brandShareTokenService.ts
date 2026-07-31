@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db, brandShareTokens } from '../db';
 
 /**
@@ -53,7 +53,7 @@ export interface ShareTokenRow {
 }
 
 /** The brand's current credential, or null when the brand is not shareable. */
-export async function getByBrandId(brandId: string): Promise<ShareTokenRow | null> {
+export async function getByBrandId(orgId: string, brandId: string): Promise<ShareTokenRow | null> {
   const [row] = await db
     .select({
       shareToken: brandShareTokens.token,
@@ -61,7 +61,7 @@ export async function getByBrandId(brandId: string): Promise<ShareTokenRow | nul
       updatedAt: brandShareTokens.updatedAt,
     })
     .from(brandShareTokens)
-    .where(eq(brandShareTokens.brandId, brandId))
+    .where(and(eq(brandShareTokens.orgId, orgId), eq(brandShareTokens.brandId, brandId)))
     .limit(1);
 
   return row ?? null;
@@ -77,12 +77,13 @@ export async function getByBrandId(brandId: string): Promise<ShareTokenRow | nul
  * the same credential rather than racing one over the other.
  */
 export async function createIfAbsent(
+  orgId: string,
   brandId: string
 ): Promise<{ row: ShareTokenRow; created: boolean }> {
   const inserted = await db
     .insert(brandShareTokens)
-    .values({ brandId, token: generateShareToken() })
-    .onConflictDoNothing({ target: brandShareTokens.brandId })
+    .values({ orgId, brandId, token: generateShareToken() })
+    .onConflictDoNothing({ target: [brandShareTokens.orgId, brandShareTokens.brandId] })
     .returning({
       shareToken: brandShareTokens.token,
       createdAt: brandShareTokens.createdAt,
@@ -108,13 +109,13 @@ export async function createIfAbsent(
  * resolving the moment this commits. Mints one if the brand had none, so
  * rotating is safe to call without checking first.
  */
-export async function rotate(brandId: string): Promise<ShareTokenRow> {
+export async function rotate(orgId: string, brandId: string): Promise<ShareTokenRow> {
   const token = generateShareToken();
   const [row] = await db
     .insert(brandShareTokens)
-    .values({ brandId, token })
+    .values({ orgId, brandId, token })
     .onConflictDoUpdate({
-      target: brandShareTokens.brandId,
+      target: [brandShareTokens.orgId, brandShareTokens.brandId],
       set: { token, updatedAt: new Date().toISOString() },
     })
     .returning({
@@ -131,10 +132,10 @@ export async function rotate(brandId: string): Promise<ShareTokenRow> {
  * removed, so a revoke on an already-unshared brand is a truthful no-op rather
  * than an error.
  */
-export async function revoke(brandId: string): Promise<boolean> {
+export async function revoke(orgId: string, brandId: string): Promise<boolean> {
   const deleted = await db
     .delete(brandShareTokens)
-    .where(eq(brandShareTokens.brandId, brandId))
+    .where(and(eq(brandShareTokens.orgId, orgId), eq(brandShareTokens.brandId, brandId)))
     .returning({ brandId: brandShareTokens.brandId });
 
   return deleted.length > 0;
@@ -144,9 +145,9 @@ export async function revoke(brandId: string): Promise<boolean> {
  * Which brand does this credential refer to? Exact match on the stored value —
  * a revoked or rotated-away credential matches no row and resolves to null.
  */
-export async function resolve(shareToken: string): Promise<{ brandId: string } | null> {
+export async function resolve(shareToken: string): Promise<{ orgId: string; brandId: string } | null> {
   const [row] = await db
-    .select({ brandId: brandShareTokens.brandId })
+    .select({ orgId: brandShareTokens.orgId, brandId: brandShareTokens.brandId })
     .from(brandShareTokens)
     .where(eq(brandShareTokens.token, shareToken))
     .limit(1);

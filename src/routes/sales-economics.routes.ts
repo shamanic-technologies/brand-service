@@ -6,6 +6,7 @@ import {
   IncompleteSalesEconomicsError,
   salesEconomicsService,
 } from '../services/salesEconomicsService';
+import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -80,7 +81,7 @@ orgRouter.get('/brands/:brandId/sales-economics-effective', async (req: Request,
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const { economics, source } = await salesEconomicsService.getEffectiveByBrandId(brandId);
+    const { economics, source } = await salesEconomicsService.getEffectiveByBrandId(req.orgId!, brandId);
     return res.status(200).json({ economics, source });
   } catch (error: any) {
     console.error('[brand-service] Get effective sales economics error:', error);
@@ -104,7 +105,7 @@ orgRouter.get('/brands/:brandId/sales-economics', async (req: Request, res: Resp
 
     // ORG (dashboard) read — return the wire optimizationGoal so a form_submissions
     // save round-trips (the internal/campaign read below collapses it to signups).
-    const salesEconomics = await salesEconomicsService.getByBrandId(brandId, {
+    const salesEconomics = await salesEconomicsService.getByBrandId(req.orgId!, brandId, {
       wireOptimizationGoal: true,
     });
     return res.status(200).json({ salesEconomics });
@@ -142,7 +143,7 @@ orgRouter.put('/brands/:brandId/sales-economics', async (req: Request, res: Resp
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
 
-    const salesEconomics = await salesEconomicsService.upsertByBrandId(brandId, parsed.data);
+    const salesEconomics = await salesEconomicsService.upsertByBrandId(req.orgId!, brandId, parsed.data);
     return res.status(200).json({ salesEconomics });
   } catch (error: any) {
     // Partial payload on a brand that has nothing stored: the caller must send
@@ -174,7 +175,10 @@ internalRouter.get('/brands/:brandId/sales-economics', async (req: Request, res:
       return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
     }
 
-    const salesEconomics = await salesEconomicsService.getByBrandId(brandId);
+    const scope = await resolveInternalOrgScope(req, brandId);
+    if (rejectInternalOrgScope(res, scope)) return;
+
+    const salesEconomics = await salesEconomicsService.getByBrandId(scope.orgId, brandId);
     return res.status(200).json({ salesEconomics });
   } catch (error: any) {
     console.error('[brand-service] Internal get sales economics error:', error);
