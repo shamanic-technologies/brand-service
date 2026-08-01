@@ -76,7 +76,7 @@ describe('Brand runtime context and current goal', () => {
       .set(getInternalAuthHeaders());
 
     expect(res.status).toBe(200);
-    expect(res.body.currentGoal).toBe('purchase');
+    expect(res.body.currentGoal).toBe('websitePurchase');
     expect(res.body.brand).toMatchObject({
       id: defaultGoalBrandId,
       domain: `runtime-${defaultGoalBrandId.slice(0, 8)}.com`,
@@ -119,7 +119,7 @@ describe('Brand runtime context and current goal', () => {
       .set(getAuthHeaders(ownerOrgId));
 
     expect(legacyRead.status).toBe(200);
-    expect(legacyRead.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
+    expect(legacyRead.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
   });
 
   it('maps legacy sales-economics optimizationGoal writes into the canonical current goal', async () => {
@@ -129,7 +129,7 @@ describe('Brand runtime context and current goal', () => {
       .send({ ...metrics, optimizationGoal: 'signups' });
 
     expect(update.status).toBe(200);
-    expect(update.body.salesEconomics.optimizationGoal).toBe('signups');
+    expect(update.body.salesEconomics.optimizationGoal).toBe('signup');
 
     const runtime = await request(app)
       .get(runtimePath(runtimeBrandId))
@@ -146,7 +146,7 @@ describe('Brand runtime context and current goal', () => {
       .send({ ...metrics, optimizationGoal: 'website_visits' });
 
     expect(update.status).toBe(200);
-    expect(update.body.salesEconomics.optimizationGoal).toBe('website_visits');
+    expect(update.body.salesEconomics.optimizationGoal).toBe('websiteVisit');
 
     const runtime = await request(app)
       .get(runtimePath(runtimeBrandId))
@@ -156,7 +156,7 @@ describe('Brand runtime context and current goal', () => {
     expect(runtime.body.currentGoal).toBe('websiteVisit');
   });
 
-  it('accepts currentGoal "positiveReply" and reflects it as optimizationGoal "positive_replies"', async () => {
+  it('accepts currentGoal "positiveReply" and reflects it on the economics read', async () => {
     const update = await request(app)
       .put(currentGoalPath(runtimeBrandId))
       .set(getAuthHeaders(ownerOrgId))
@@ -168,7 +168,37 @@ describe('Brand runtime context and current goal', () => {
       .get(salesEconomicsPath(runtimeBrandId))
       .set(getAuthHeaders(ownerOrgId));
     expect(legacyRead.status).toBe(200);
-    expect(legacyRead.body.salesEconomics.optimizationGoal).toBe('positive_replies');
+    expect(legacyRead.body.salesEconomics.optimizationGoal).toBe('positiveReply');
+  });
+
+  // A caller sending yesterday's word must keep working forever — including the
+  // pre-rename `purchase`, which this very route used to be the only acceptor of.
+  it.each([
+    ['purchase', 'websitePurchase'],
+    ['sales', 'websitePurchase'],
+    ['website_purchase', 'websitePurchase'],
+    ['booked_meetings', 'meetingBooked'],
+    ['sales_meetings', 'meetingBooked'],
+    ['form_submissions', 'formSubmission'],
+    ['combined_sales', 'combinedSales'],
+  ])('accepts the legacy currentGoal "%s" and answers "%s"', async (sent, canonical) => {
+    const update = await request(app)
+      .put(currentGoalPath(runtimeBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ currentGoal: sent });
+    expect(update.status).toBe(200);
+    expect(update.body.currentGoal).toBe(canonical);
+
+    const runtime = await request(app)
+      .get(runtimePath(runtimeBrandId))
+      .set(getInternalAuthHeaders());
+    expect(runtime.body.currentGoal).toBe(canonical);
+
+    // The mirror column moves with it, so the column and the wire agree.
+    const economics = await request(app)
+      .get(salesEconomicsPath(runtimeBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(economics.body.salesEconomics.optimizationGoal).toBe(canonical);
   });
 
   it('enforces org ownership and request validation on current-goal updates', async () => {

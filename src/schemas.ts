@@ -4,6 +4,7 @@ import {
   extendZodWithOpenApi,
 } from '@asteasolutions/zod-to-openapi';
 import { BrandUrlSchema, OptionalBrandUrlSchema } from './lib/url-utils';
+import { ACCEPTED_OPTIMIZATION_GOALS, CANONICAL_GOALS } from './lib/goal-vocabulary';
 
 extendZodWithOpenApi(z);
 
@@ -1964,65 +1965,27 @@ export const FunnelStageSchema = z
   .enum(['website_purchase', 'sales_meeting'])
   .openapi('FunnelStage');
 
-// Single brand-level optimization goal. Server default "sales" when never set.
-// `website_visits` / `positive_replies` are single-step goals (visit→paid /
-// reply→paid) — see visitToPaidClientPct / replyToPaidClientPct.
-// `form_submissions` is a mid-funnel micro-conversion (visit→form submission→paid),
-// structurally identical to `signups` — see visitToFormSubmissionPct /
-// formSubmissionToPaidClientPct. At runtime it collapses to the `signup`
-// current-goal (same outreach behavior), so features-service / campaign-service
-// never see a new runtime value; the wire value round-trips on the org read.
-export const OptimizationGoalSchema = z
-  .enum([
-    'signups',
-    'booked_meetings',
-    // The dashboard's local spelling of `booked_meetings`. ACCEPTED ON WRITE so
-    // a caller sending it is understood at the source instead of being patched
-    // up in a downstream tolerance layer; brand-service NEVER emits it — every
-    // read of a booked-meeting brand answers `booked_meetings`.
-    'sales_meetings',
-    'sales',
-    'website_visits',
-    'positive_replies',
-    'form_submissions',
-    // "Maximize WhatsApp conversations": recipients click a WhatsApp link to
-    // start a conversation instead of replying by email. A dedicated runtime
-    // goal (1:1 with the `whatsappConversation` current-goal), NOT a wire-only
-    // sub-type — its cost-per-outcome math is a separate features-service task.
-    'whatsapp_conversations',
-    // `website_purchase` is the NEW preferred spelling of the "website purchase"
-    // goal — a wire-only sub-type of the `purchase` current-goal (like
-    // `form_submissions` is of `signup`). The legacy `sales` spelling stays
-    // accepted for backward-compat; both mean website-purchase and can NEVER be
-    // reinterpreted as the new combined goal.
-    'website_purchase',
-    // `combined_sales` is the NEW combined "Sales" goal: paying clients won via
-    // EITHER the positive-reply path OR the website-visit path, valued at CLTV. A
-    // dedicated runtime goal (1:1 with the `combinedSales` current-goal) reusing
-    // the existing replyToPaidClientPct + visitToPaidClientPct rates.
-    'combined_sales',
-  ])
-  .openapi('OptimizationGoal');
-
-// Canonical brand-owned runtime goal. This is the vocabulary features-service
-// accepts as runtime candidate-selection input.
+// THE canonical goal vocabulary — the ONLY tokens brand-service emits, on every
+// read. A fleet decision shared byte-equal with features-service (`src/lib/goals.ts`)
+// and the dashboard (`apps/dashboard/src/lib/api.ts` CANONICAL_GOALS); pinned by
+// `tests/unit/goalVocabulary.test.ts` so it cannot move in a single-repo PR.
 export const CurrentGoalSchema = z
-  .enum([
-    'signup',
-    'meetingBooked',
-    // "website purchase" goal (display renamed; canonical token unchanged).
-    'purchase',
-    'websiteVisit',
-    'positiveReply',
-    'whatsappConversation',
-    // NEW combined "Sales" goal — paying clients via reply OR visit, at CLTV.
-    'combinedSales',
-  ])
+  .enum(CANONICAL_GOALS)
   .openapi('CurrentGoal');
 
+// Every goal spelling accepted on WRITE: the canonical eight plus every legacy
+// spelling the fleet has ever sent, kept working FOREVER so no caller has to
+// change in lockstep with the emission switch. A legacy spelling is resolved to
+// its canonical token before anything is stored, and is never emitted back.
+export const OptimizationGoalSchema = z
+  .enum(ACCEPTED_OPTIMIZATION_GOALS)
+  .openapi('OptimizationGoal');
+
+// Accepts every spelling (incl. the pre-rename `purchase` this route used to
+// require); the response answers canonical.
 export const UpdateCurrentGoalRequestSchema = z
   .object({
-    currentGoal: CurrentGoalSchema,
+    currentGoal: OptimizationGoalSchema,
   })
   .openapi('UpdateCurrentGoalRequest');
 
@@ -2084,8 +2047,9 @@ export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
   businessModel: BusinessModelSchema.nullable(),
   // Always an array on read; `[]` = never set (never null).
   funnelStages: z.array(FunnelStageSchema),
-  // Always present on read; `"sales"` = never set (never null).
-  optimizationGoal: OptimizationGoalSchema,
+  // Always present on read, and always a CANONICAL token — never a legacy
+  // spelling. `"websitePurchase"` = never set (never null).
+  optimizationGoal: CurrentGoalSchema,
   updatedAt: z.string(),
 });
 
@@ -2146,7 +2110,8 @@ registry.registerPath({
     'visitToSignupPct * signupToPaidClientPct / 100, + `businessModel` + ' +
     '`funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved ' +
     'yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array ' +
-    '(`[]` when never set), `optimizationGoal` always a value (`"sales"` when never set). Unset is NOT ' +
+    '(`[]` when never set), `optimizationGoal` always a CANONICAL goal token (`"websitePurchase"` when ' +
+    'never set). Unset is NOT ' +
     'a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller\'s org ' +
     '(x-org-id); a brand outside the org is rejected with 403.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
@@ -2169,7 +2134,7 @@ registry.registerPath({
   description:
     'Internal api-key read of a brand SAVED economics — keyed by brandId, NO org context. ' +
     'Built for campaign-service (a scheduler running as a service): it reads `optimizationGoal` ' +
-    '(the brand current optimization goal) once per per-lead loop to drive workflow ' +
+    '(the brand current optimization goal, a canonical token) once per per-lead loop to drive workflow ' +
     'selection. Returns the brand OWN saved set (NOT the cross-brand-average effective one — a ' +
     'brand goal must be the brand own, never an average), or `{ salesEconomics: null }` when the ' +
     'brand has never saved economics. Unset is NOT a 404.',
@@ -2201,8 +2166,12 @@ registry.registerPath({
     'is ignored. Optional `businessModel` ' +
     '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array ' +
     'of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, ' +
-    'sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | ' +
-    '`booked_meetings` | `sales` | `website_visits` | `positive_replies` | `form_submissions`): ' +
+    'sending the array (including `[]`) sets it. Optional `optimizationGoal` — any canonical token ' +
+    '(`signup` | `meetingBooked` | `websitePurchase` | `combinedSales` | `websiteVisit` | ' +
+    '`positiveReply` | `formSubmission` | `whatsappConversation`) OR any legacy spelling ' +
+    '(`signups`, `booked_meetings`, `sales_meetings`, `sales`, `website_purchase`, `combined_sales`, ' +
+    '`website_visits`, `positive_replies`, `form_submissions`, `whatsapp_conversations`, `purchase`), ' +
+    'which is resolved to its canonical token and echoed back canonical: ' +
     'omitting leaves it unchanged, sending sets it. Optional `visitToFormSubmissionPct` + ' +
     '`formSubmissionToPaidClientPct` (form_submissions two-step rates): omitting leaves them unchanged. ' +
     'Invalid enum values ' +
@@ -2280,9 +2249,10 @@ export const DeclaredSalesFunnelSchema = z
     funnelKey: SalesFunnelKeySchema,
     name: z.string(),
     steps: z.array(z.string()),
-    // brand-service wire goal. Always brand-service's own spelling.
-    goal: OptimizationGoalSchema,
-    // Canonical runtime goal — what features-service selects candidates on.
+    // Canonical goal. `goal` and `currentGoal` carry the SAME token now that
+    // there is one vocabulary; `goal` is kept as a byte-stable alias for the
+    // deployed consumer that reads it first.
+    goal: CurrentGoalSchema,
     currentGoal: CurrentGoalSchema,
     rates: z.record(z.string(), z.number().nullable()),
     lifetimeRevenueUsd: z.number().int().nullable(),
@@ -2460,8 +2430,9 @@ registry.registerPath({
   description:
     'Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. ' +
     'Built for the schedulers (campaign-service arbitration, features-service pricing): these are ' +
-    'the funnels a brand AUTHORIZES, each carrying the goal it optimizes for (`goal` on the ' +
-    "brand-service wire, `currentGoal` as the runtime token) and the economics it is ranked on. " +
+    'the funnels a brand AUTHORIZES, each carrying the goal it optimizes for and the economics it ' +
+    'is ranked on. `goal` and `currentGoal` carry the SAME canonical token — one vocabulary; `goal` ' +
+    'is kept as a byte-stable alias. ' +
     SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
     'Read `declared` BEFORE `funnels`: `declared: true` with an empty list is the brand stating it ' +
     'sells through NONE (report it unrankable), `declared: false` is a producer gap (surface it). ' +

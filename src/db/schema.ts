@@ -33,12 +33,14 @@ export const brands = pgTable("brands", {
 	url: text(),
 	name: text(),
 	logoUrl: text("logo_url"),
-	currentGoal: text("current_goal").default('purchase').notNull(),
+	currentGoal: text("current_goal").default('websitePurchase').notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	uniqueIndex("brands_domain_key").on(table.domain),
-	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply', 'whatsappConversation', 'combinedSales')`),
+	// The fleet's canonical goal vocabulary — the only tokens this column may
+	// hold, and the only ones brand-service emits. See src/lib/goal-vocabulary.ts.
+	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'websitePurchase', 'combinedSales', 'websiteVisit', 'positiveReply', 'formSubmission', 'whatsappConversation')`),
 ]);
 
 /**
@@ -141,10 +143,11 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	// Sales-funnel stages the brand has (subset of website_purchase | sales_meeting).
 	// NOT NULL default [] — a never-set brand reads []; see upsert.
 	funnelStages: jsonb("funnel_stages").$type<string[]>().default([]).notNull(),
-	// Single optimization goal (signups | booked_meetings | sales |
-	// website_visits | positive_replies). NOT NULL default 'sales' — a never-set
-	// brand reads "sales"; see upsert. Legacy alias of brands.current_goal.
-	optimizationGoal: text("optimization_goal").default('sales').notNull(),
+	// A MIRROR of brands.current_goal, in the same canonical vocabulary. Nothing
+	// reads it: it existed to record the raw wire spelling back when two wire
+	// values (form_submissions, website_purchase) shared one runtime goal, and
+	// both are first-class goals now. NOT NULL default 'websitePurchase'.
+	optimizationGoal: text("optimization_goal").default('websitePurchase').notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [

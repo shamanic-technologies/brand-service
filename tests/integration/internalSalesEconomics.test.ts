@@ -69,7 +69,7 @@ describe('Internal sales-economics read', () => {
     const res = await request(app).get(internalPath(savedBrandId)).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
     expect(res.body.salesEconomics).not.toBeNull();
-    expect(res.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
+    expect(res.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
     expect(res.body.salesEconomics.lifetimeRevenueUsd).toBe(5000);
   });
 
@@ -83,7 +83,7 @@ describe('Internal sales-economics read', () => {
     // Same call works even though no x-org-id is sent and the caller is a bare service.
     const res = await request(app).get(internalPath(savedBrandId)).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
-    expect(res.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
+    expect(res.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
   });
 
   it('rejects a bad uuid with 400', async () => {
@@ -102,26 +102,26 @@ describe('Internal sales-economics read', () => {
     expect(res.body.salesEconomics).toBeNull();
   });
 
-  // form_submissions is a wire-only sub-type: the INTERNAL (campaign-service) read
-  // must collapse it to the runtime-safe `signups` so no downstream runtime
-  // consumer sees a new value — while the ORG read round-trips `form_submissions`.
-  it('INTERNAL read collapses form_submissions → signups (runtime never sees a new value)', async () => {
+  // Form submission is a goal of its own now, so both reads answer the same
+  // token. It used to collapse to `signups` on the INTERNAL read, which is what
+  // threw the distinction away at the boundary for a consumer that ranks on it.
+  it('INTERNAL read answers formSubmission, the same token the org read gives', async () => {
     const res = await request(app).get(internalPath(formSubBrandId)).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
-    expect(res.body.salesEconomics.optimizationGoal).toBe('signups');
+    expect(res.body.salesEconomics.optimizationGoal).toBe('formSubmission');
     // The form-submission rates still surface on the internal read.
     expect(res.body.salesEconomics.visitToFormSubmissionPct).toBe(12);
     expect(res.body.salesEconomics.formSubmissionToPaidClientPct).toBe(40);
   });
 
-  it('ORG read of the same brand round-trips the wire form_submissions goal', async () => {
+  it('ORG read of the same brand answers the same canonical token', async () => {
     const res = await request(app).get(orgPath(formSubBrandId)).set(getAuthHeaders(orgId));
     expect(res.status).toBe(200);
-    expect(res.body.salesEconomics.optimizationGoal).toBe('form_submissions');
+    expect(res.body.salesEconomics.optimizationGoal).toBe('formSubmission');
   });
 
-  it('runtime candidate-selection read resolves to the existing signup goal', async () => {
+  it('runtime candidate-selection read resolves to the form-submission goal', async () => {
     const currentGoal = await getCurrentGoalByBrandId(formSubBrandId);
-    expect(currentGoal).toBe('signup');
+    expect(currentGoal).toBe('formSubmission');
   });
 });

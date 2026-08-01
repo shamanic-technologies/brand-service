@@ -1,6 +1,6 @@
 import { and, eq, inArray, notInArray } from 'drizzle-orm';
 import { db, brandSalesFunnels, brandSalesFunnelDeclarations } from '../db';
-import type { CurrentGoal, LegacyOptimizationGoal } from './brandGoalService';
+import type { CurrentGoal } from './brandGoalService';
 import {
   SALES_FUNNELS,
   SalesFunnelDef,
@@ -60,8 +60,12 @@ export interface DeclaredSalesFunnel {
   name: string;
   /** The chain the rates below price. */
   steps: string[];
-  /** brand-service wire goal a campaign on this funnel optimizes for. */
-  goal: LegacyOptimizationGoal;
+  /**
+   * The canonical goal a campaign on this funnel optimizes for. Same token as
+   * `currentGoal` — one vocabulary — kept as a byte-stable alias for the
+   * deployed consumer that reads it first.
+   */
+  goal: CurrentGoal;
   /** Canonical runtime goal — what features-service selects candidates on. */
   currentGoal: CurrentGoal;
   /** Exactly the rates THIS funnel's chain prices, in chain order. */

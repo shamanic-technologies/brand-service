@@ -4,6 +4,7 @@ import { getBrandDetail } from '../services/brandService';
 import { brandProfileService } from '../services/brandProfileService';
 import {
   getCurrentGoalByBrandId,
+  toCurrentGoal,
   updateCurrentGoalByBrandId,
 } from '../services/brandGoalService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
@@ -14,6 +15,10 @@ export const internalRouter = Router();
 /**
  * PUT /orgs/brands/:brandId/current-goal
  * Updates the brand-owned runtime goal without touching campaign rows.
+ *
+ * Accepts any spelling the fleet has ever used for a goal — including the
+ * pre-rename `purchase` this route itself used to require — and stores the
+ * canonical token. The response answers canonical, always.
  */
 orgRouter.put('/brands/:brandId/current-goal', async (req: Request, res: Response) => {
   try {
@@ -30,7 +35,10 @@ orgRouter.put('/brands/:brandId/current-goal', async (req: Request, res: Respons
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const currentGoal = await updateCurrentGoalByBrandId(brandId, parsed.data.currentGoal);
+    const currentGoal = await updateCurrentGoalByBrandId(
+      brandId,
+      toCurrentGoal(parsed.data.currentGoal)
+    );
     if (!currentGoal) {
       return res.status(404).json({ error: 'Brand not found' });
     }
