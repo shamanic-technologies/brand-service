@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getBrand } from '../services/fieldExtractionService';
-import { multiBrandExtractFields } from '../services/multiBrandFieldExtractionService';
+import {
+  multiBrandExtractFields,
+  UnrequestedRegenerateFieldKeyError,
+} from '../services/multiBrandFieldExtractionService';
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractFieldsRequestSchema } from '../schemas';
 import { db, brandExtractedFields } from '../db';
@@ -74,11 +77,15 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
       resetCache: parsed.data.resetCache,
       urlStrategy: parsed.data.urlStrategy,
       mode: parsed.data.mode,
+      regenerateFieldKeys: parsed.data.regenerateFieldKeys,
     });
 
     return res.json(result);
   } catch (error: any) {
     console.error('[brand-service] Extract fields (multi-brand) error:', error);
+    if (error instanceof UnrequestedRegenerateFieldKeyError) {
+      return res.status(400).json({ error: error.message });
+    }
     if (error instanceof SiteMapError) {
       return res.status(422).json({ error: error.message });
     }
@@ -134,11 +141,15 @@ internalRouter.post('/brands/extract-fields', async (req: Request, res: Response
       resetCache: parsed.data.resetCache,
       urlStrategy: parsed.data.urlStrategy,
       mode: parsed.data.mode,
+      regenerateFieldKeys: parsed.data.regenerateFieldKeys,
     });
 
     return res.json(result);
   } catch (error: any) {
     console.error('[brand-service] Extract fields (internal multi-brand) error:', error);
+    if (error instanceof UnrequestedRegenerateFieldKeyError) {
+      return res.status(400).json({ error: error.message });
+    }
     if (error instanceof SiteMapError) {
       return res.status(422).json({ error: error.message });
     }
