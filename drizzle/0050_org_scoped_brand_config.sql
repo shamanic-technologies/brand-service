@@ -223,3 +223,43 @@ DROP TABLE IF EXISTS "brand_sales_funnel_declarations" CASCADE;--> statement-bre
 -- 6. The goal is gone from the shared identity row (copied in step 1). -------
 ALTER TABLE "brands" DROP CONSTRAINT IF EXISTS "brands_current_goal_check";--> statement-breakpoint
 ALTER TABLE "brands" DROP COLUMN IF EXISTS "current_goal";
+--> statement-breakpoint
+
+-- 7. The no-website shells nobody claims. -----------------------------------
+-- A no-website brand has no domain, so nothing can ever resolve it again: the
+-- only two ways in are an org's own brand list (it has no org) and a lookup by
+-- domain (it has none). Once unclaimed it is permanently unreachable, so it is
+-- deleted rather than left to accumulate.
+--
+-- Only WITHOUT a domain. An unclaimed brand that HAS one is still the global
+-- identity row for that domain and the next org to enter it gets this exact
+-- row back — deleting those would just have them recreated, and there are 16
+-- in production.
+--
+-- Guarded on every table that can point at a brand, so a shell carrying
+-- anything at all is kept rather than cascaded away. The archive keeps the row
+-- verbatim first, under the same review as the config above.
+INSERT INTO "orphaned_brand_config_archive" ("source_table", "brand_id", "row")
+SELECT 'brands', b."id", to_jsonb(b) FROM "brands" b
+ WHERE b."domain" IS NULL
+   AND NOT EXISTS (SELECT 1 FROM "org_brands" o WHERE o."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_extracted_fields" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_extracted_images" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_individuals" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_linkedin_posts" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_thesis" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "intake_forms" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "media_assets" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_relations" x WHERE x."source_brand_id" = b."id" OR x."target_brand_id" = b."id");--> statement-breakpoint
+
+DELETE FROM "brands" b
+ WHERE b."domain" IS NULL
+   AND NOT EXISTS (SELECT 1 FROM "org_brands" o WHERE o."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_extracted_fields" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_extracted_images" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_individuals" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_linkedin_posts" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_thesis" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "intake_forms" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "media_assets" x WHERE x."brand_id" = b."id")
+   AND NOT EXISTS (SELECT 1 FROM "brand_relations" x WHERE x."source_brand_id" = b."id" OR x."target_brand_id" = b."id");
