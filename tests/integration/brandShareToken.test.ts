@@ -181,29 +181,41 @@ describe('Brand share token', () => {
     expect(resolvedNew.body.orgId).toBe(ownerOrgId);
   });
 
-  it('when two orgs claim one brand, the credential names whoever minted it', async () => {
-    // Membership cannot answer "who shared this": both orgs claim the brand.
+  it('two orgs claiming one brand each get their OWN credential, and neither can touch the other\'s', async () => {
+    // Membership cannot answer "who shared this": both orgs claim the brand. The
+    // credential is keyed on (org, brand), so each org shares ITS OWN view.
     const mintedByOwner = await request(app)
       .post(`/orgs/brands/${contestedBrandId}/share-token`)
       .set(getAuthHeaders(ownerOrgId));
     expect(mintedByOwner.status).toBe(201);
     expect((await resolveToken(mintedByOwner.body.shareToken)).body.orgId).toBe(ownerOrgId);
 
-    // The other claimant rotates: that re-mints the credential, so the link that
-    // now resolves opens ITS view. A stale org on a credential nobody in that org
-    // can produce anymore would be the wrong answer.
+    // The other claimant mints its own. Keyed on the brand alone, this would have
+    // been a ROTATE of the first org's row — one org silently invalidating
+    // another org's live share link, on a brand it merely also claims.
+    const mintedByOther = await request(app)
+      .post(`/orgs/brands/${contestedBrandId}/share-token`)
+      .set(getAuthHeaders(otherOrgId));
+    expect(mintedByOther.status).toBe(201);
+    expect(mintedByOther.body.shareToken).not.toBe(mintedByOwner.body.shareToken);
+
+    const resolvedOther = await resolveToken(mintedByOther.body.shareToken);
+    expect(resolvedOther.status).toBe(200);
+    expect(resolvedOther.body.brandId).toBe(contestedBrandId);
+    expect(resolvedOther.body.orgId).toBe(otherOrgId);
+
+    // The first org's link is untouched — that is the whole point.
+    const stillOwner = await resolveToken(mintedByOwner.body.shareToken);
+    expect(stillOwner.status).toBe(200);
+    expect(stillOwner.body.orgId).toBe(ownerOrgId);
+
+    // Rotating only ever rotates the caller's OWN credential.
     const rotatedByOther = await request(app)
       .post(`/orgs/brands/${contestedBrandId}/share-token/rotate`)
       .set(getAuthHeaders(otherOrgId));
     expect(rotatedByOther.status).toBe(200);
-
-    const resolved = await resolveToken(rotatedByOther.body.shareToken);
-    expect(resolved.status).toBe(200);
-    expect(resolved.body.brandId).toBe(contestedBrandId);
-    expect(resolved.body.orgId).toBe(otherOrgId);
-
-    // The credential the first org minted stopped resolving, as any rotate does.
-    expect((await resolveToken(mintedByOwner.body.shareToken)).status).toBe(404);
+    expect((await resolveToken(mintedByOther.body.shareToken)).status).toBe(404);
+    expect((await resolveToken(mintedByOwner.body.shareToken)).status).toBe(200);
   });
 
   it('a credential minted for brand A never resolves to brand B', async () => {
