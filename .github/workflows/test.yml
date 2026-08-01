@@ -17,6 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The migration-stamp guard compares this branch's new migrations against
+      # the ones main already carries, and checkout is shallow + single-branch by
+      # default, so main is not present without this.
+      - name: Fetch main for the migration-stamp guard
+        run: git fetch origin main --depth=1 || true
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
