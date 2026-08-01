@@ -794,6 +794,22 @@
             ],
             "description": "Extraction behavior. `extract` (default, or when omitted): site-grounded — returns the string \"Unknown\" (or [\"Unknown\"] for arrays) when the info is absent. `suggest`: a generative Alex-Hormozi + top-3-industry-expert persona that writes the most logical best-effort answer for every field, inferring from the business where the source is silent, and NEVER returns \"Unknown\"/empty (no fabricated absurd/unverifiable claims). The two modes use disjoint cache slots.",
             "example": "suggest"
+          },
+          "regenerateFieldKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Field keys to REGENERATE from scratch, ignoring whatever the user has already confirmed for them. For each listed key: the previously confirmed value is NOT shown to the model as authoritative context, the extraction cache is bypassed, and the response returns the newly generated value (provenance `suggested`) instead of the confirmed one. Confirmed values for user-facing keys NOT listed here still reach the model as authoritative context — so regenerating the offer levers still sees the brand's confirmed services. Nothing is persisted: confirmed values stay in place until the caller saves the reviewed draft via PUT /orgs/brands/{brandId}/user-fields. Every key MUST also appear in `fields` (400 otherwise). Omit for the default behaviour.",
+            "example": [
+              "dreamOutcome",
+              "perceivedLikelihood",
+              "socialProof",
+              "riskReversal",
+              "urgency",
+              "scarcity"
+            ]
           }
         },
         "required": [
