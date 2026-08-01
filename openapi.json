@@ -2481,6 +2481,10 @@
             "type": "string",
             "description": "The brand the credential refers to."
           },
+          "orgId": {
+            "type": "string",
+            "description": "The org that shared this brand — recorded when the credential was minted (or last rotated), never derived from brand membership, which cannot answer it for a brand several orgs claim. Present so the server-side renderer can ask for the figures a shared brand page shows: they are all served per-org, so the credential alone leaves it unable to fetch any of them. It sits here rather than inside `brand`, which stays exactly the public payload it always was."
+          },
           "brand": {
             "allOf": [
               {
@@ -2494,6 +2498,7 @@
         },
         "required": [
           "brandId",
+          "orgId",
           "brand"
         ]
       },
@@ -5547,8 +5552,8 @@
     },
     "/internal/share-tokens/resolve": {
       "post": {
-        "summary": "Resolve a share credential to its brand",
-        "description": "Present the credential alone and learn which brand it refers to, plus that brand's public-safe identity. Service auth only (x-api-key) — NO org context is required or accepted, because the caller (distribute's own server-side dashboard renderer) has not identified an org yet. Deliberately not reachable unauthenticated from the internet. The credential travels in the BODY rather than the path so it does not land in access logs and proxy traces. The `brand` payload is the same shape GET /public/brands/{id} already serves: no org id, no money, no prospect PII. A revoked or rotated-away credential matches no row and is indistinguishable from an unknown one (both 404).",
+        "summary": "Resolve a share credential to its brand and org",
+        "description": "Present the credential alone and learn which brand it refers to, WHICH ORG shared it, and that brand's public-safe identity. Service auth only (x-api-key) — NO org context is required or accepted on the way in, because the caller (distribute's own server-side dashboard renderer) has not identified an org yet, and learning the org is what it comes here for: everything a shared brand page shows (outreach, audiences, leads, strategy) is served per-org, so the credential alone leaves it unable to ask for any of it. `orgId` sits at the top level beside `brandId`, NOT inside `brand` — the brand payload is unchanged, so the public brand read exposes exactly what it did before. Deliberately not reachable unauthenticated from the internet. The credential travels in the BODY rather than the path so it does not land in access logs and proxy traces. The `brand` payload is the same shape GET /public/brands/{id} already serves: no org id, no money, no prospect PII. A revoked or rotated-away credential matches no row and is indistinguishable from an unknown one (both 404).",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5560,7 +5565,7 @@
         },
         "responses": {
           "200": {
-            "description": "The brand the credential refers to",
+            "description": "The brand the credential refers to, and the org that shared it",
             "content": {
               "application/json": {
                 "schema": {

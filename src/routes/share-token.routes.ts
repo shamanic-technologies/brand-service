@@ -135,19 +135,23 @@ orgRouter.delete('/brands/:brandId/share-token', async (req: Request, res: Respo
 /**
  * POST /internal/share-tokens/resolve
  *
- * Present the credential alone, learn which brand it refers to plus that
- * brand's public-safe identity. No org context required or accepted — the
- * caller is a trusted server-side renderer holding a platform key that has not
- * identified an org yet.
+ * Present the credential alone, learn WHICH BRAND it refers to, WHICH ORG shared
+ * it, and that brand's public-safe identity. No org context required or accepted
+ * on the way IN — the caller is a trusted server-side renderer holding a platform
+ * key that has not identified an org yet, and learning the org is precisely what
+ * it comes here for: every figure a shared brand page shows (outreach, audiences,
+ * leads, strategy) is served per-org, so the credential alone leaves the renderer
+ * unable to ask for a single one of them.
+ *
+ * `orgId` sits at the TOP LEVEL, beside `brandId` — not inside `brand`. The brand
+ * payload stays byte-identical to what `GET /public/brands/:id` serves (no org id,
+ * no money, no prospect PII), so the public brand read is untouched and nothing a
+ * broader audience can reach gained a field. The org is an answer this route gives
+ * its service-auth caller, not a widening of the brand.
  *
  * The credential travels in the BODY, not the path: a share credential in a URL
  * lands in access logs and proxy traces, and this one is exactly the secret that
  * must not leak.
- *
- * The brand payload is `getBrandDetail` in platform mode — byte-identical to
- * what `GET /public/brands/:id` already serves, so nothing new is exposed here.
- * It carries no money (spend, budget, cost per outcome, ROI, credits), no
- * prospect PII and no org id.
  *
  * A revoked or rotated-away credential matches no row → 404. So does an unknown
  * one: the two are indistinguishable to the caller, which is the point.
@@ -172,7 +176,7 @@ internalRouter.post('/share-tokens/resolve', async (req: Request, res: Response)
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    return res.status(200).json({ brandId: match.brandId, brand });
+    return res.status(200).json({ brandId: match.brandId, orgId: match.orgId, brand });
   } catch (error: any) {
     console.error('[brand-service] Resolve share token error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });

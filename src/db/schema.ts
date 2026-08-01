@@ -233,9 +233,16 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
  *
  * `token` is a 32-byte CSPRNG value (see `brandShareTokenService`), NOT derived
  * from the brand id, the org id, or anything else the customer already exposes
- * in their address bar, and it carries no org identity of its own — resolving it
- * yields the brand and nothing about who owns it. UNIQUE so a resolve is an
- * exact single-row lookup and two brands can never collide onto one credential.
+ * in their address bar. UNIQUE so a resolve is an exact single-row lookup and
+ * two brands can never collide onto one credential.
+ *
+ * `org_id` is WHICH ORG SHARED THE BRAND — recorded when the credential is
+ * minted (or re-minted by a rotate), never derived on read. The minting route is
+ * org-scoped and brand-ownership-checked, so the writer already holds this and
+ * the only place it can be stored truthfully is here: `org_brands` cannot answer
+ * it, because a brand may be claimed by several orgs (21 in production) or by
+ * none (18). It is stored, not encoded in the token — the credential stays an
+ * opaque CSPRNG value that reveals nothing on its own.
  *
  * Deliberately NOT a conversion-tracking token: that one (lead-service) is a
  * WRITE credential for conversion ingest, and a share link holder must never be
