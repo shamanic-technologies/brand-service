@@ -25,7 +25,7 @@ orgRouter.get('/brands/:brandId/user-fields', async (req: Request, res: Response
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const fields = await getUserFieldsView(brandId);
+    const fields = await getUserFieldsView(req.orgId!, brandId);
     return res.status(200).json({ fields });
   } catch (error: any) {
     console.error('[brand-service] Get user fields error:', error);
@@ -55,7 +55,7 @@ orgRouter.put('/brands/:brandId/user-fields', async (req: Request, res: Response
     if (rejectOwnership(res, ownership)) return;
 
     try {
-      await upsertUserFields(brandId, parsed.data.fields);
+      await upsertUserFields(req.orgId!, brandId, parsed.data.fields);
     } catch (err) {
       if (err instanceof UnknownUserFieldKeyError) {
         return res.status(400).json({ error: err.message });
@@ -63,7 +63,7 @@ orgRouter.put('/brands/:brandId/user-fields', async (req: Request, res: Response
       throw err;
     }
 
-    const fields = await getUserFieldsView(brandId);
+    const fields = await getUserFieldsView(req.orgId!, brandId);
     return res.status(200).json({ fields });
   } catch (error: any) {
     console.error('[brand-service] Put user fields error:', error);

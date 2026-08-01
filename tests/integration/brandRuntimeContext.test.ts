@@ -50,12 +50,13 @@ describe('Brand runtime context and current goal', () => {
     await db.insert(orgBrands).values({ orgId: otherOrgId, brandId: foreignBrandId });
 
     await db.insert(brandUserFields).values({
+      orgId: ownerOrgId,
       brandId: runtimeBrandId,
       fieldKey: 'dreamOutcome',
       value: 'Books qualified meetings',
     });
 
-    await salesEconomicsService.upsertByBrandId(runtimeBrandId, {
+    await salesEconomicsService.upsertByBrandId(ownerOrgId, runtimeBrandId, {
       ...metrics,
       optimizationGoal: 'sales',
     });

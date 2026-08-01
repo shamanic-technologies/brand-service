@@ -54,7 +54,7 @@ orgRouter.put('/brands/:brandId/whatsapp-link', async (req: Request, res: Respon
       throw err;
     }
 
-    const saved = await whatsAppLinkService.upsertByBrandId(brandId, whatsAppLink);
+    const saved = await whatsAppLinkService.upsertByBrandId(req.orgId!, brandId, whatsAppLink);
     return res.status(200).json({ whatsAppLink: saved });
   } catch (error: any) {
     console.error('[brand-service] Upsert WhatsApp link error:', error);

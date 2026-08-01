@@ -80,7 +80,7 @@ orgRouter.put('/brands/:brandId/click-destination', async (req: Request, res: Re
       throw err;
     }
 
-    const saved = await clickDestinationService.upsertByBrandId(brandId, clickDestinationUrl);
+    const saved = await clickDestinationService.upsertByBrandId(req.orgId!, brandId, clickDestinationUrl);
     return res.status(200).json({ clickDestinationUrl: saved });
   } catch (error: any) {
     console.error('[brand-service] Upsert click destination error:', error);

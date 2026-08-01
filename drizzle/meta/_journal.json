@@ -346,6 +346,13 @@
       "breakpoints": true
     },
     {
+      "idx": 50,
+      "version": "7",
+      "when": 1785560000000,
+      "tag": "0050_org_scoped_brand_config",
+      "breakpoints": true
+    },
+    {
       "idx": 51,
       "version": "7",
       "when": 1785577346629,

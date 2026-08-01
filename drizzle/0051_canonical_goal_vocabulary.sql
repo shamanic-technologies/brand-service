@@ -3,33 +3,39 @@
 -- Two tokens are renamed and one is promoted:
 --   purchase        -> websitePurchase   (the display name already renamed; `purchase` was the ambiguous one)
 --   signup + form   -> formSubmission    (form submission stops collapsing onto the signup runtime goal)
--- and `brand_sales_economics.optimization_goal` — a pure mirror of
--- `brands.current_goal` now that no wire value is a sub-type of another — is
--- respelled into the same vocabulary so the column and the wire agree.
+-- and `brand_sales_economics.optimization_goal` — a pure mirror of the goal now
+-- that no wire value is a sub-type of another — is respelled into the same
+-- vocabulary so the column and the wire agree.
+--
+-- The goal lives on `org_brands.current_goal` (per (org, brand), migration 0050),
+-- and the economics row is keyed the same way — so the form-submission promotion
+-- matches on the ORG's own economics row, never another org's.
 --
 -- Idempotent: re-running finds no legacy spelling left and changes nothing.
 --
--- DELIBERATELY NOT REPAIRED: 14 brands carry `current_goal = purchase` while
--- their economics row says `booked_meetings`. Which column is right is a
+-- DELIBERATELY NOT REPAIRED: a set of brands carry `current_goal = purchase`
+-- while their economics row says `booked_meetings`. Which column is right is a
 -- data question, not a naming one. They are respelled like everyone else
 -- (-> websitePurchase / meetingBooked) and stay divergent.
 
-ALTER TABLE "brands" DROP CONSTRAINT IF EXISTS "brands_current_goal_check";
+ALTER TABLE "org_brands" DROP CONSTRAINT IF EXISTS "org_brands_current_goal_check";
 
 -- Order matters: this reads the pre-migration `form_submissions` spelling.
-UPDATE "brands" b
+UPDATE "org_brands" o
 SET "current_goal" = 'formSubmission'
-WHERE b."current_goal" = 'signup'
+WHERE o."current_goal" = 'signup'
   AND EXISTS (
     SELECT 1 FROM "brand_sales_economics" e
-    WHERE e."brand_id" = b."id" AND e."optimization_goal" = 'form_submissions'
+    WHERE e."org_id" = o."org_id"
+      AND e."brand_id" = o."brand_id"
+      AND e."optimization_goal" = 'form_submissions'
   );
 
-UPDATE "brands" SET "current_goal" = 'websitePurchase' WHERE "current_goal" = 'purchase';
+UPDATE "org_brands" SET "current_goal" = 'websitePurchase' WHERE "current_goal" = 'purchase';
 
-ALTER TABLE "brands" ALTER COLUMN "current_goal" SET DEFAULT 'websitePurchase';
+ALTER TABLE "org_brands" ALTER COLUMN "current_goal" SET DEFAULT 'websitePurchase';
 
-ALTER TABLE "brands" ADD CONSTRAINT "brands_current_goal_check"
+ALTER TABLE "org_brands" ADD CONSTRAINT "org_brands_current_goal_check"
   CHECK ("current_goal" IN ('signup', 'meetingBooked', 'websitePurchase', 'combinedSales', 'websiteVisit', 'positiveReply', 'formSubmission', 'whatsappConversation'));
 
 UPDATE "brand_sales_economics" SET "optimization_goal" = CASE "optimization_goal"

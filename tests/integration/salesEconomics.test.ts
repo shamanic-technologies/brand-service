@@ -534,6 +534,7 @@ describe('Sales Economics Endpoints', () => {
     // the DB column defaults apply. visit_to_close_pct is required (no default);
     // set it to a stale value to prove the response derives, not reads it.
     await db.insert(brandSalesEconomics).values({
+      orgId: ownerOrgId,
       brandId: defaultsBrandId,
       lifetimeRevenueUsd: 1000,
       replyToMeetingPct: 10,

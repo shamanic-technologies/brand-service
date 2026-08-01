@@ -1,5 +1,5 @@
-import { eq, sql } from 'drizzle-orm';
-import { db, brands, brandSalesEconomics } from '../db';
+import { and, eq, sql } from 'drizzle-orm';
+import { db, orgBrands, brandSalesEconomics } from '../db';
 import type { CurrentGoal } from '../lib/goal-vocabulary';
 
 // The vocabulary itself lives in `src/lib/goal-vocabulary.ts` — a pure module
@@ -8,31 +8,44 @@ import type { CurrentGoal } from '../lib/goal-vocabulary';
 // this service is where the rest of the codebase looks for a brand's goal.
 export * from '../lib/goal-vocabulary';
 
+/**
+ * What THIS org optimizes for on THIS brand.
+ *
+ * The goal lives on the (org, brand) membership, not on the shared `brands`
+ * identity row: several orgs legitimately claim the same domain, so a goal
+ * stored on the brand let any of them overwrite what the others optimize for.
+ * `null` means this org does not claim this brand — never a default goal.
+ */
 export async function getCurrentGoalByBrandId(
+  orgId: string,
   brandId: string
 ): Promise<CurrentGoal | null> {
   const [row] = await db
-    .select({ currentGoal: brands.currentGoal })
-    .from(brands)
-    .where(eq(brands.id, brandId))
+    .select({ currentGoal: orgBrands.currentGoal })
+    .from(orgBrands)
+    .where(and(eq(orgBrands.orgId, orgId), eq(orgBrands.brandId, brandId)))
     .limit(1);
 
   return (row?.currentGoal as CurrentGoal | undefined) ?? null;
 }
 
 /**
- * Update the canonical current goal, and mirror it onto the sales-economics row
- * when one exists so the column and the wire keep saying the same word.
+ * Set what this org optimizes for on this brand. Returns null when the org does
+ * not claim the brand — one org can never move another's goal.
+ *
+ * The economics row's `optimization_goal` is mirrored so the column and the wire
+ * keep saying the same word.
  */
 export async function updateCurrentGoalByBrandId(
+  orgId: string,
   brandId: string,
   currentGoal: CurrentGoal
 ): Promise<CurrentGoal | null> {
   const [updated] = await db
-    .update(brands)
+    .update(orgBrands)
     .set({ currentGoal, updatedAt: sql`NOW()` })
-    .where(eq(brands.id, brandId))
-    .returning({ currentGoal: brands.currentGoal });
+    .where(and(eq(orgBrands.orgId, orgId), eq(orgBrands.brandId, brandId)))
+    .returning({ currentGoal: orgBrands.currentGoal });
 
   if (!updated) return null;
 
@@ -42,7 +55,12 @@ export async function updateCurrentGoalByBrandId(
       optimizationGoal: currentGoal,
       updatedAt: sql`NOW()`,
     })
-    .where(eq(brandSalesEconomics.brandId, brandId));
+    .where(
+      and(
+        eq(brandSalesEconomics.orgId, orgId),
+        eq(brandSalesEconomics.brandId, brandId)
+      )
+    );
 
   return updated.currentGoal as CurrentGoal;
 }

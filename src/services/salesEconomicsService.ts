@@ -1,5 +1,5 @@
-import { eq, sql } from 'drizzle-orm';
-import { db, brands, brandSalesEconomics } from '../db';
+import { and, eq, sql } from 'drizzle-orm';
+import { db, orgBrands, brandSalesEconomics } from '../db';
 import {
   AcceptedOptimizationGoal,
   CurrentGoal,
@@ -303,15 +303,29 @@ export class SalesEconomicsService {
    * Read the saved metric set for a brand, or null when nothing is saved.
    * Unset is a clean null — the caller falls back to its own defaults.
    */
-  async getByBrandId(brandId: string): Promise<SavedSalesEconomics | null> {
+  async getByBrandId(
+    orgId: string,
+    brandId: string
+  ): Promise<SavedSalesEconomics | null> {
     const result = await db
       .select({
         salesEconomics: brandSalesEconomics,
-        currentGoal: brands.currentGoal,
+        currentGoal: orgBrands.currentGoal,
       })
       .from(brandSalesEconomics)
-      .innerJoin(brands, eq(brands.id, brandSalesEconomics.brandId))
-      .where(eq(brandSalesEconomics.brandId, brandId))
+      .innerJoin(
+        orgBrands,
+        and(
+          eq(orgBrands.orgId, brandSalesEconomics.orgId),
+          eq(orgBrands.brandId, brandSalesEconomics.brandId)
+        )
+      )
+      .where(
+        and(
+          eq(brandSalesEconomics.orgId, orgId),
+          eq(brandSalesEconomics.brandId, brandId)
+        )
+      )
       .limit(1);
 
     if (result.length === 0) return null;
@@ -358,8 +372,11 @@ export class SalesEconomicsService {
    * average, source "cross-brand-average". Nothing saved anywhere → both null.
    * Centralizes the null→average defaulting so consumers don't reimplement it.
    */
-  async getEffectiveByBrandId(brandId: string): Promise<EffectiveSalesEconomics> {
-    const saved = await this.getByBrandId(brandId);
+  async getEffectiveByBrandId(
+    orgId: string,
+    brandId: string
+  ): Promise<EffectiveSalesEconomics> {
+    const saved = await this.getByBrandId(orgId, brandId);
     if (saved) {
       return {
         economics: {
@@ -403,6 +420,7 @@ export class SalesEconomicsService {
    * (route → 400).
    */
   async upsertByBrandId(
+    orgId: string,
     brandId: string,
     metrics: SalesEconomicsPatch
   ): Promise<SavedSalesEconomics> {
@@ -412,7 +430,12 @@ export class SalesEconomicsService {
     const [storedRow] = await db
       .select()
       .from(brandSalesEconomics)
-      .where(eq(brandSalesEconomics.brandId, brandId))
+      .where(
+        and(
+          eq(brandSalesEconomics.orgId, orgId),
+          eq(brandSalesEconomics.brandId, brandId)
+        )
+      )
       .limit(1);
 
     const storedCore: CoreSalesEconomics | null = storedRow
@@ -438,12 +461,15 @@ export class SalesEconomicsService {
     // wire saying the same word.
     const currentGoal = metrics.optimizationGoal !== undefined
       ? await updateCurrentGoalByBrandId(
+        orgId,
         brandId,
         toCurrentGoal(metrics.optimizationGoal)
       )
-      : await getCurrentGoalByBrandId(brandId);
+      : await getCurrentGoalByBrandId(orgId, brandId);
 
-    if (!currentGoal) throw new Error(`Brand not found: ${brandId}`);
+    // No membership => this org does not claim this brand, so there is no goal
+    // of its own to write economics against.
+    if (!currentGoal) throw new Error(`Brand not claimed by org: ${brandId}`);
 
     // visit_to_close_pct is a STORED-but-DERIVED column: recompute on every
     // write from the two sub-rates so the column never drifts from them. Derived
@@ -457,6 +483,7 @@ export class SalesEconomicsService {
     const result = await db
       .insert(brandSalesEconomics)
       .values({
+        orgId,
         brandId,
         lifetimeRevenueUsd: core.lifetimeRevenueUsd,
         replyToMeetingPct: core.replyToMeetingPct,
@@ -487,7 +514,7 @@ export class SalesEconomicsService {
         optimizationGoal: currentGoal,
       })
       .onConflictDoUpdate({
-        target: brandSalesEconomics.brandId,
+        target: [brandSalesEconomics.orgId, brandSalesEconomics.brandId],
         set: {
           // Only touch a core metric when the caller supplied it. Omitted =
           // preserve the stored value (the UPDATE never names the column), so a

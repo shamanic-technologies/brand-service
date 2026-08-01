@@ -43,6 +43,7 @@ export interface ConfirmedUserField {
  * field key. Only the 7 user-facing keys can ever be present (DB CHECK).
  */
 export async function getConfirmedByBrandId(
+  orgId: string,
   brandId: string,
 ): Promise<Map<string, ConfirmedUserField>> {
   const rows = await db
@@ -52,7 +53,7 @@ export async function getConfirmedByBrandId(
       confirmedAt: brandUserFields.confirmedAt,
     })
     .from(brandUserFields)
-    .where(eq(brandUserFields.brandId, brandId));
+    .where(and(eq(brandUserFields.orgId, orgId), eq(brandUserFields.brandId, brandId)));
 
   const map = new Map<string, ConfirmedUserField>();
   for (const row of rows) {
@@ -95,7 +96,7 @@ export function buildUserFieldsView(
  * hash is ignored (any description matches). A row with a NULL `expires_at` never
  * expires. Returns a Map<key, value> — keys with no usable row are absent.
  */
-export async function getSuggestedByBrandId(brandId: string): Promise<Map<string, unknown>> {
+export async function getSuggestedByBrandId(orgId: string, brandId: string): Promise<Map<string, unknown>> {
   const rows = await db
     .select({
       fieldKey: brandExtractedFields.fieldKey,
@@ -126,10 +127,10 @@ export async function getSuggestedByBrandId(brandId: string): Promise<Map<string
  * (user-validated value) or `suggested` (auto-extract prefill or null). Does NOT
  * trigger extraction.
  */
-export async function getUserFieldsView(brandId: string): Promise<Record<string, UserFieldView>> {
+export async function getUserFieldsView(orgId: string, brandId: string): Promise<Record<string, UserFieldView>> {
   const [confirmed, suggested] = await Promise.all([
-    getConfirmedByBrandId(brandId),
-    getSuggestedByBrandId(brandId),
+    getConfirmedByBrandId(orgId, brandId),
+    getSuggestedByBrandId(orgId, brandId),
   ]);
   return buildUserFieldsView(confirmed, suggested);
 }
@@ -142,6 +143,7 @@ export async function getUserFieldsView(brandId: string): Promise<Record<string,
  * updated_at bumped to NOW().
  */
 export async function upsertUserFields(
+  orgId: string,
   brandId: string,
   fields: Record<string, unknown>,
 ): Promise<void> {
@@ -162,6 +164,7 @@ export async function upsertUserFields(
     await db
       .insert(brandUserFields)
       .values({
+        orgId,
         brandId,
         fieldKey,
         value: value as any,
@@ -169,7 +172,7 @@ export async function upsertUserFields(
         updatedAt: nowIso,
       })
       .onConflictDoUpdate({
-        target: [brandUserFields.brandId, brandUserFields.fieldKey],
+        target: [brandUserFields.orgId, brandUserFields.brandId, brandUserFields.fieldKey],
         set: {
           value: value as any,
           confirmedAt: nowIso,

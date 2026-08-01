@@ -1,6 +1,6 @@
 {
-  "id": "472b4052-2833-479a-ad58-900b19dd0ac3",
-  "prevId": "1958ab79-a30f-4fdd-9a8d-f6a52963943a",
+  "id": "1958ab79-a30f-4fdd-9a8d-f6a52963943a",
+  "prevId": "5f557ebb-0932-4958-a6d2-a8d90a56b7d6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1531,7 +1531,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'websitePurchase'"
+          "default": "'sales'"
         },
         "created_at": {
           "name": "created_at",
@@ -4279,7 +4279,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'websitePurchase'"
+          "default": "'purchase'"
         },
         "claimed_at": {
           "name": "claimed_at",
@@ -4357,7 +4357,7 @@
       "checkConstraints": {
         "org_brands_current_goal_check": {
           "name": "org_brands_current_goal_check",
-          "value": "\"org_brands\".\"current_goal\" IN ('signup', 'meetingBooked', 'websitePurchase', 'combinedSales', 'websiteVisit', 'positiveReply', 'formSubmission', 'whatsappConversation')"
+          "value": "\"org_brands\".\"current_goal\" IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply', 'whatsappConversation', 'combinedSales')"
         }
       },
       "isRLSEnabled": false

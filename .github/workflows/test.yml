@@ -41,6 +41,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The migration-stamp guard reads main's journal to prove this branch's new
+      # migrations are not stranded. checkout is shallow AND single-branch, so
+      # main is absent; the explicit refspec is required because a bare
+      # `git fetch origin main` only moves FETCH_HEAD and never creates
+      # refs/remotes/origin/main. No `|| true` — a fetch that fails has to
+      # surface as the guard's own loud failure, not as a branch nobody checked.
+      - name: Fetch main for the migration-stamp guard
+        run: git fetch origin main:refs/remotes/origin/main --depth=1
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -82,6 +91,19 @@ jobs:
       - name: Set database URL
         run: echo "DB_URL=${{ steps.neon.outputs.db_url_pooled }}" >> "$GITHUB_ENV"
 
+      # The branch starts on PRODUCTION's schema, so apply the migrations to it the
+      # way a deploy does BEFORE reconciling against schema.ts. Pushing straight
+      # onto the old schema makes drizzle-kit diff, and a diff that adds a column
+      # and rekeys the table on it emits those two statements in the wrong order.
+      # This is also the only place the migration SQL is exercised at all — the
+      # suite itself builds its schema from schema.ts (see #386).
+      - name: Apply migrations
+        run: pnpm exec tsx scripts/ci-migrate.ts
+        env:
+          BRAND_SERVICE_DATABASE_URL: ${{ env.DB_URL }}
+
+      # Still the authority on schema.ts drift; after the migrations it has
+      # nothing structural left to reconcile.
       - name: Push schema to database
         run: pnpm exec drizzle-kit push --force
         env:

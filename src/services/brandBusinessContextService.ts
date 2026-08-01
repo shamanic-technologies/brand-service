@@ -9,17 +9,19 @@
  * per brand.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, brandBusinessContext } from '../db';
 
 /**
  * Return the pasted business context for a brand, or `null` when none is stored.
  */
-export async function getBrandBusinessContext(brandId: string): Promise<string | null> {
+export async function getBrandBusinessContext(
+  orgId: string,
+  brandId: string): Promise<string | null> {
   const [row] = await db
     .select({ content: brandBusinessContext.content })
     .from(brandBusinessContext)
-    .where(eq(brandBusinessContext.brandId, brandId))
+    .where(and(eq(brandBusinessContext.orgId, orgId), eq(brandBusinessContext.brandId, brandId)))
     .limit(1);
   return row?.content ?? null;
 }
@@ -28,14 +30,15 @@ export async function getBrandBusinessContext(brandId: string): Promise<string |
  * Insert or replace a brand's pasted business context. Idempotent on brand_id.
  */
 export async function upsertBrandBusinessContext(
+  orgId: string,
   brandId: string,
   content: string,
 ): Promise<void> {
   await db
     .insert(brandBusinessContext)
-    .values({ brandId, content })
+    .values({ orgId, brandId, content })
     .onConflictDoUpdate({
-      target: brandBusinessContext.brandId,
+      target: [brandBusinessContext.orgId, brandBusinessContext.brandId],
       set: { content, updatedAt: sql`NOW()` },
     });
 }

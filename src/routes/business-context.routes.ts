@@ -23,7 +23,7 @@ orgRouter.get('/brands/:brandId/business-context', async (req: Request, res: Res
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const content = await getBrandBusinessContext(brandId);
+    const content = await getBrandBusinessContext(req.orgId!, brandId);
     return res.status(200).json({ content });
   } catch (error: any) {
     console.error('[brand-service] Get business context error:', error);
@@ -52,7 +52,7 @@ orgRouter.put('/brands/:brandId/business-context', async (req: Request, res: Res
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    await upsertBrandBusinessContext(brandId, parsed.data.content);
+    await upsertBrandBusinessContext(req.orgId!, brandId, parsed.data.content);
 
     return res.status(200).json({ content: parsed.data.content });
   } catch (error: any) {

@@ -13,6 +13,8 @@ vi.mock('../../src/db', () => ({
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: 'eq', args })),
+  // The read is scoped to (org, brand), so the service composes with `and`.
+  and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
   sql: vi.fn(),
 }));
 
@@ -49,7 +51,7 @@ describe('brandBusinessContextService', () => {
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([{ content: 'pasted text' }]),
     });
-    await expect(getBrandBusinessContext('brand-1')).resolves.toBe('pasted text');
+    await expect(getBrandBusinessContext('org-1', 'brand-1')).resolves.toBe('pasted text');
   });
 
   it('getBrandBusinessContext returns null when no row exists', async () => {
@@ -58,17 +60,19 @@ describe('brandBusinessContextService', () => {
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([]),
     });
-    await expect(getBrandBusinessContext('brand-1')).resolves.toBeNull();
+    await expect(getBrandBusinessContext('org-1', 'brand-1')).resolves.toBeNull();
   });
 
-  it('upsertBrandBusinessContext upserts on brand_id', async () => {
+  it('upsertBrandBusinessContext upserts on (org, brand)', async () => {
     const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
     const values = vi.fn().mockReturnValue({ onConflictDoUpdate });
     mockInsert.mockReturnValue({ values });
 
-    await upsertBrandBusinessContext('brand-1', 'new content');
+    await upsertBrandBusinessContext('org-1', 'brand-1', 'new content');
 
-    expect(values).toHaveBeenCalledWith({ brandId: 'brand-1', content: 'new content' });
+    // The pasted text belongs to the org that pasted it, not to the shared
+    // brand identity, so the row is keyed on both.
+    expect(values).toHaveBeenCalledWith({ orgId: 'org-1', brandId: 'brand-1', content: 'new content' });
     expect(onConflictDoUpdate).toHaveBeenCalledTimes(1);
   });
 });

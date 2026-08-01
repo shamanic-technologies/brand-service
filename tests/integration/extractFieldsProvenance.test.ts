@@ -31,7 +31,7 @@ describe('POST /orgs/brands/extract-fields — provenance', () => {
     await db.insert(brands).values({ id: brandId, url: 'https://prov.com', domain: 'prov.com', name: 'Prov' });
     await db.insert(orgBrands).values({ orgId, brandId });
     // Confirm `services` (a user-facing key) → must be overlaid + tagged confirmed.
-    await db.insert(brandUserFields).values({ brandId, fieldKey: 'services', value: ['Consulting', 'Audit'] });
+    await db.insert(brandUserFields).values({ orgId, brandId, fieldKey: 'services', value: ['Consulting', 'Audit'] });
   });
 
   afterAll(async () => {

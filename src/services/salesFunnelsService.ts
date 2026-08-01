@@ -1,5 +1,5 @@
 import { and, eq, inArray, notInArray } from 'drizzle-orm';
-import { db, brandSalesFunnels, brandSalesFunnelDeclarations } from '../db';
+import { db, brandSalesFunnels } from '../db';
 import type { CurrentGoal } from './brandGoalService';
 import {
   SALES_FUNNELS,
@@ -34,19 +34,20 @@ import {
  */
 
 /**
- * The answer to "which funnels does this brand sell through?".
+ * The answer to "which funnels does this org sell this brand through?".
  *
- * `declared` is what separates the two ways `funnels` can be empty, and they are
- * NOT the same answer:
- *   - `declared: true,  funnels: []` — the brand STATED it sells through none.
- *     A real answer: the brand is unrankable, and a consumer should say so.
- *   - `declared: false, funnels: []` — the brand has never told us anything.
- *     A gap: a consumer must surface it as one, and must NOT render it as
- *     "sells through nothing" or substitute a plausible set.
- * Collapsing the two is the exact failure this layer exists to prevent.
+ * An EMPTY list means the org has NEVER answered — a gap a consumer must
+ * surface, never "sells through nothing". It cannot mean the latter, because an
+ * org that has answered always keeps at least one ACTIVE funnel (switching off
+ * the last one is refused), so "answered, but none" is not a reachable state.
+ *
+ * The ORG read returns every funnel the org has ever configured, active or not,
+ * because the inactive ones carry the numbers a user already entered and the
+ * screen has to show them. The INTERNAL read returns only the ACTIVE ones —
+ * a scheduler asking "what does this org sell through?" must never rank a
+ * funnel the org switched off.
  */
 export interface DeclaredSalesFunnelSet {
-  declared: boolean;
   funnels: DeclaredSalesFunnel[];
 }
 
@@ -56,6 +57,8 @@ export type FunnelRates = Partial<Record<SalesFunnelRateKey, number | null>>;
 /** One declared funnel, as read. Absent values are `null`, never invented. */
 export interface DeclaredSalesFunnel {
   funnelKey: SalesFunnelKey;
+  /** Whether the org currently sells through this chain. */
+  active: boolean;
   /** Human name of the chain, from the catalogue. */
   name: string;
   /** The chain the rates below price. */
@@ -84,6 +87,8 @@ export interface DeclaredSalesFunnel {
  * rather than being forced to invent a replacement.
  */
 export interface SalesFunnelPatch {
+  /** Switch the funnel on or off. Omitted = leave as stored (true on create). */
+  active?: boolean;
   rates?: FunnelRates;
   lifetimeRevenueUsd?: number | null;
   destinationUrl?: string | null;
@@ -187,6 +192,7 @@ export function formatDeclaredFunnel(row: FunnelRow): DeclaredSalesFunnel {
   }
   return {
     funnelKey: def.key,
+    active: row.active,
     name: def.name,
     steps: def.steps,
     goal: def.goal,
@@ -212,8 +218,9 @@ function byCatalogueOrder(a: DeclaredSalesFunnel, b: DeclaredSalesFunnel): numbe
  */
 export function buildFunnelWrite(
   patch: SalesFunnelPatch
-): Partial<Record<string, number | string | null>> {
-  const write: Partial<Record<string, number | string | null>> = {};
+): Partial<Record<string, number | string | boolean | null>> {
+  const write: Partial<Record<string, number | string | boolean | null>> = {};
+  if (patch.active !== undefined) write.active = patch.active;
   for (const [key, value] of Object.entries(patch.rates ?? {})) {
     write[key] = value ?? null;
   }
@@ -225,135 +232,99 @@ export function buildFunnelWrite(
   return write;
 }
 
+/** Thrown when a write would leave the org selling through nothing (→ 400). */
+export class LastActiveSalesFunnelError extends Error {
+  constructor(funnelKey?: SalesFunnelKey) {
+    super(
+      funnelKey
+        ? `Funnel "${funnelKey}" is the last one still active: an org that sells this brand must keep at least one funnel on.`
+        : 'An org that sells this brand must keep at least one funnel on.'
+    );
+    this.name = 'LastActiveSalesFunnelError';
+  }
+}
+
 export class SalesFunnelsService {
   /**
-   * What this brand has said about the funnels it sells through: whether it has
-   * stated a set at all, and the funnels in it (catalogue order). Read
-   * `declared` before reading `funnels` — an empty list means opposite things
-   * either side of it.
+   * Every funnel THIS org has configured on THIS brand, in catalogue order —
+   * active and inactive alike, because an inactive one still carries the numbers
+   * the user entered and the screen has to show them. `[]` = never answered.
    */
-  async readByBrandId(brandId: string): Promise<DeclaredSalesFunnelSet> {
-    const [rows, marker] = await Promise.all([
-      db.select().from(brandSalesFunnels).where(eq(brandSalesFunnels.brandId, brandId)),
-      db
-        .select({ brandId: brandSalesFunnelDeclarations.brandId })
-        .from(brandSalesFunnelDeclarations)
-        .where(eq(brandSalesFunnelDeclarations.brandId, brandId))
-        .limit(1),
-    ]);
-
-    return {
-      declared: marker.length > 0,
-      funnels: rows.map(formatDeclaredFunnel).sort(byCatalogueOrder),
-    };
-  }
-
-  /**
-   * Record that the brand has answered the question. Idempotent; only bumps the
-   * timestamp on a re-statement. Never removed by undeclaring a funnel — a brand
-   * that drops its last funnel has still answered.
-   */
-  private async markDeclared(brandId: string): Promise<void> {
-    await db
-      .insert(brandSalesFunnelDeclarations)
-      .values({ brandId })
-      .onConflictDoUpdate({
-        target: brandSalesFunnelDeclarations.brandId,
-        set: { updatedAt: new Date().toISOString() },
-      });
-  }
-
-  /**
-   * State the WHOLE set at once: exactly these funnels, no others. Funnels not
-   * in the list are undeclared (with their economics, per `undeclareByBrandId`);
-   * funnels already declared keep everything they were priced with, so restating
-   * a set that still contains them costs nothing.
-   *
-   * `[]` is legal and is how a brand states it sells through NOTHING — which is
-   * why this exists at all: it is the only way to say that, as opposed to never
-   * having said anything.
-   */
-  async statesetByBrandId(
-    brandId: string,
-    funnelKeys: SalesFunnelKey[],
-    brandDomain: string | null
-  ): Promise<DeclaredSalesFunnelSet> {
-    // Validate the whole set BEFORE touching anything: a set that names a funnel
-    // this brand cannot sell through is rejected whole, never half-applied.
-    const keys = [...new Set(funnelKeys)];
-    for (const key of keys) {
-      const def = salesFunnelByKey(key);
-      if (def.requiresWebsite && !brandDomain) {
-        throw new SalesFunnelRequiresWebsiteError(key);
-      }
-    }
-
-    await db
-      .delete(brandSalesFunnels)
+  async readByBrandId(orgId: string, brandId: string): Promise<DeclaredSalesFunnelSet> {
+    const rows = await db
+      .select()
+      .from(brandSalesFunnels)
       .where(
-        keys.length === 0
-          ? eq(brandSalesFunnels.brandId, brandId)
-          : and(
-            eq(brandSalesFunnels.brandId, brandId),
-            notInArray(brandSalesFunnels.funnelKey, keys)
-          )
+        and(eq(brandSalesFunnels.orgId, orgId), eq(brandSalesFunnels.brandId, brandId))
       );
 
-    if (keys.length > 0) {
-      // Declares the funnels that are new to the set and leaves the ones already
-      // in it exactly as priced — restating a set must not wipe its economics.
-      await db
-        .insert(brandSalesFunnels)
-        .values(keys.map((funnelKey) => ({ brandId, funnelKey })))
-        .onConflictDoNothing({
-          target: [brandSalesFunnels.brandId, brandSalesFunnels.funnelKey],
-        });
-    }
-
-    await this.markDeclared(brandId);
-    return this.readByBrandId(brandId);
+    return { funnels: rows.map(formatDeclaredFunnel).sort(byCatalogueOrder) };
   }
 
-  /** One declared funnel, or null when the brand has not declared it. */
-  async getByBrandIdAndKey(
-    brandId: string,
-    funnelKey: SalesFunnelKey
-  ): Promise<DeclaredSalesFunnel | null> {
-    const [row] = await db
+  /**
+   * Only the funnels the org currently sells through. This is what a scheduler
+   * asks for: a funnel switched off must never be ranked. `[]` = never answered,
+   * which is a gap to surface — it can never mean "sells through nothing",
+   * because the last active funnel cannot be switched off.
+   */
+  async readActiveByBrandId(orgId: string, brandId: string): Promise<DeclaredSalesFunnelSet> {
+    const rows = await db
       .select()
       .from(brandSalesFunnels)
       .where(
         and(
+          eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
-          eq(brandSalesFunnels.funnelKey, funnelKey)
+          eq(brandSalesFunnels.active, true)
         )
-      )
-      .limit(1);
+      );
 
-    return row ? formatDeclaredFunnel(row) : null;
+    return { funnels: rows.map(formatDeclaredFunnel).sort(byCatalogueOrder) };
+  }
+
+  /** The funnel keys this org currently sells this brand through. */
+  private async activeKeys(orgId: string, brandId: string): Promise<SalesFunnelKey[]> {
+    const rows = await db
+      .select({ funnelKey: brandSalesFunnels.funnelKey })
+      .from(brandSalesFunnels)
+      .where(
+        and(
+          eq(brandSalesFunnels.orgId, orgId),
+          eq(brandSalesFunnels.brandId, brandId),
+          eq(brandSalesFunnels.active, true)
+        )
+      );
+    return rows.map((r) => r.funnelKey as SalesFunnelKey);
   }
 
   /**
-   * Declare a funnel and write what the caller sent. Idempotent: the row's
-   * presence is the declaration, so declaring twice is declaring once.
+   * Configure one funnel and write what the caller sent. Idempotent.
    *
-   * Validation is the caller's guarantee, not a cleanup: a rate outside the
-   * chain, a destination the funnel has no use for, or a website-led funnel on a
-   * brand with no site all throw. `brandDomain` is the brand's own domain — the
-   * page destination must be on it (a no-website brand cannot reach here for a
-   * page-destination funnel, since those all require a website).
+   * `active` defaults to true on a first write (configuring a funnel is saying
+   * you sell through it) and is left as stored otherwise. Switching one OFF
+   * keeps the row and every number on it, so switching it back on returns what
+   * the user already entered — but the LAST active funnel cannot be switched
+   * off, because an org that has answered always sells through something.
    */
   async declareByBrandId(
+    orgId: string,
     brandId: string,
     funnelKey: SalesFunnelKey,
     patch: SalesFunnelPatch,
     brandDomain: string | null
   ): Promise<DeclaredSalesFunnel> {
     const def = salesFunnelByKey(funnelKey);
-    if (def.requiresWebsite && !brandDomain) {
+    if (patch.active !== false && def.requiresWebsite && !brandDomain) {
       throw new SalesFunnelRequiresWebsiteError(funnelKey);
     }
     assertPatchFitsFunnel(def, patch);
+
+    if (patch.active === false) {
+      const active = await this.activeKeys(orgId, brandId);
+      if (active.length === 1 && active[0] === funnelKey) {
+        throw new LastActiveSalesFunnelError(funnelKey);
+      }
+    }
 
     const normalized: SalesFunnelPatch = { ...patch };
     if (typeof patch.destinationUrl === 'string') {
@@ -369,42 +340,103 @@ export class SalesFunnelsService {
 
     const [row] = await db
       .insert(brandSalesFunnels)
-      .values({ brandId, funnelKey, ...write })
+      .values({ orgId, brandId, funnelKey, ...write })
       .onConflictDoUpdate({
-        target: [brandSalesFunnels.brandId, brandSalesFunnels.funnelKey],
+        target: [
+          brandSalesFunnels.orgId,
+          brandSalesFunnels.brandId,
+          brandSalesFunnels.funnelKey,
+        ],
         // Only the columns the patch carries are named, so an omitted field is
         // left exactly as stored and an explicit null clears it.
         set: { ...write, updatedAt: new Date().toISOString() },
       })
       .returning();
 
-    // Declaring a funnel IS stating that the brand's set includes it.
-    await this.markDeclared(brandId);
-
     return formatDeclaredFunnel(row);
   }
 
   /**
-   * Undeclare a funnel: the brand no longer sells through it. Removing the row
-   * removes the declaration AND its economics together — a funnel a brand
-   * stopped selling through must not leave numbers behind that a consumer could
-   * still rank on. Returns true when a declaration was removed.
+   * State the WHOLE set: exactly these funnels are active, every other one the
+   * org has configured is switched off but KEPT with its numbers intact.
    *
-   * Does NOT clear the set-level marker: a brand that removes its last funnel
-   * has stated it sells through none, which is an answer, not a blank.
+   * The list may not be empty — an org that has answered sells through at least
+   * one funnel. The set is validated whole before anything is written, so a
+   * member that cannot apply rejects the call with nothing half-applied.
    */
-  async undeclareByBrandId(brandId: string, funnelKey: SalesFunnelKey): Promise<boolean> {
-    const deleted = await db
-      .delete(brandSalesFunnels)
+  async statesetByBrandId(
+    orgId: string,
+    brandId: string,
+    funnelKeys: SalesFunnelKey[],
+    brandDomain: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
+    const keys = [...new Set(funnelKeys)];
+    if (keys.length === 0) throw new LastActiveSalesFunnelError();
+
+    for (const key of keys) {
+      const def = salesFunnelByKey(key);
+      if (def.requiresWebsite && !brandDomain) {
+        throw new SalesFunnelRequiresWebsiteError(key);
+      }
+    }
+
+    // Everything outside the set is switched OFF, never deleted: its numbers are
+    // the memory a user gets back if they switch it on again.
+    await db
+      .update(brandSalesFunnels)
+      .set({ active: false, updatedAt: new Date().toISOString() })
       .where(
         and(
+          eq(brandSalesFunnels.orgId, orgId),
+          eq(brandSalesFunnels.brandId, brandId),
+          notInArray(brandSalesFunnels.funnelKey, keys)
+        )
+      );
+
+    // Members already configured keep everything they were priced with.
+    await db
+      .insert(brandSalesFunnels)
+      .values(keys.map((funnelKey) => ({ orgId, brandId, funnelKey, active: true })))
+      .onConflictDoUpdate({
+        target: [
+          brandSalesFunnels.orgId,
+          brandSalesFunnels.brandId,
+          brandSalesFunnels.funnelKey,
+        ],
+        set: { active: true, updatedAt: new Date().toISOString() },
+      });
+
+    return this.readByBrandId(orgId, brandId);
+  }
+
+  /**
+   * Switch a funnel off. The row and every number on it SURVIVE — that is the
+   * point: a user who switches it back on finds what they already entered.
+   * Refused when it is the last active one. Returns true when something changed.
+   */
+  async deactivateByBrandId(
+    orgId: string,
+    brandId: string,
+    funnelKey: SalesFunnelKey
+  ): Promise<boolean> {
+    const active = await this.activeKeys(orgId, brandId);
+    if (active.length === 1 && active[0] === funnelKey) {
+      throw new LastActiveSalesFunnelError(funnelKey);
+    }
+
+    const updated = await db
+      .update(brandSalesFunnels)
+      .set({ active: false, updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
           eq(brandSalesFunnels.funnelKey, funnelKey)
         )
       )
       .returning({ funnelKey: brandSalesFunnels.funnelKey });
 
-    return deleted.length > 0;
+    return updated.length > 0;
   }
 }
 
