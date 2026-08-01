@@ -433,6 +433,8 @@ describe('Sales Funnels Endpoints', () => {
     expect(keys).toEqual(['reply_meeting', 'visit_signup']);
     expect(res.body.funnels.every((f: any) => f.active)).toBe(true);
     expect(res.body.funnels[0].currentGoal).toBe('meetingBooked');
+    // Deprecated compat flag: features-service throws on a payload without it.
+    expect(res.body.declared).toBe(true);
   });
 
   it('refuses to guess when the brand is claimed by several orgs and no org is given', async () => {
@@ -459,6 +461,24 @@ describe('Sales Funnels Endpoints', () => {
       .set(getInternalAuthHeaders());
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ funnels: [] });
+    expect(res.body).toEqual({ funnels: [], declared: false });
+  });
+
+  // features-service refuses a payload whose `declared` is not a boolean, and
+  // reads `declared: false` as "this org has never answered". Both of its cases
+  // have to keep working byte-for-byte until it reads the list alone.
+  it('still answers the deprecated `declared` flag both ways, for features-service', async () => {
+    const answered = await request(app)
+      .get(`/internal/brands/${noWebsiteBrandId}/sales-funnels`)
+      .set(getInternalAuthHeaders());
+    expect(typeof answered.body.declared).toBe('boolean');
+    expect(answered.body.declared).toBe(true);
+    expect(answered.body.funnels.length).toBeGreaterThan(0);
+
+    const neverAnswered = await request(app)
+      .get(`/internal/brands/${unknownBrandId}/sales-funnels`)
+      .set(getInternalAuthHeaders());
+    expect(neverAnswered.body.declared).toBe(false);
+    expect(neverAnswered.body.funnels).toEqual([]);
   });
 });

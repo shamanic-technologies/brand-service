@@ -250,7 +250,14 @@ internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: R
     const set = scope.orgId
       ? await salesFunnelsService.readActiveByBrandId(scope.orgId, brandId)
       : { funnels: [] };
-    return res.status(200).json(set);
+
+    // DEPRECATED, and transitional. features-service throws unless this flag is
+    // a boolean, so removing it here breaks every funnels read it makes the
+    // moment this ships, whatever the merge order. It is not a second source of
+    // truth: an org that has answered always keeps at least one funnel ACTIVE,
+    // so a non-empty list and "has answered" are the same fact, and this is the
+    // older spelling of it. Drop it once features-service reads the list alone.
+    return res.status(200).json({ ...set, declared: set.funnels.length > 0 });
   } catch (error: any) {
     console.error('[brand-service] Internal get sales funnels error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
