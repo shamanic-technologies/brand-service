@@ -69,9 +69,9 @@ export async function rewriteBrandReferences(
   // One-row-per-brand tables (PK = brand_id): the target's own row always wins,
   // so drop the source's row whenever the target already has one. These carry
   // user-authored data (pasted business context, sales economics, click
-  // destination, WhatsApp link) — without them a merge silently strands that
-  // data on the abandoned row.
-  for (const table of ['brand_business_context', 'brand_sales_economics', 'brand_click_destinations', 'brand_whatsapp_links']) {
+  // destination, WhatsApp link, and whether the brand stated its funnel set) —
+  // without them a merge silently strands that data on the abandoned row.
+  for (const table of ['brand_business_context', 'brand_sales_economics', 'brand_click_destinations', 'brand_whatsapp_links', 'brand_sales_funnel_declarations']) {
     await query(
       `DELETE FROM ${table} WHERE brand_id = $1 AND EXISTS (SELECT 1 FROM ${table} WHERE brand_id = $2)`,
       [sourceBrandId, targetBrandId],
@@ -97,6 +97,7 @@ export async function rewriteBrandReferences(
     'brand_business_context',
     'brand_sales_economics',
     'brand_sales_funnels',
+    'brand_sales_funnel_declarations',
     'brand_click_destinations',
     'brand_whatsapp_links',
   ];

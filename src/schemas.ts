@@ -232,6 +232,71 @@ export const ResolveByDomainResponseSchema = z
   })
   .openapi('ResolveByDomainResponse');
 
+export const OrgBrandIdentityRequestSchema = z
+  .object({
+    orgIds: z.array(z.string()).min(1).openapi({
+      description:
+        'Organization UUIDs to resolve to a brand identity. Max 100 per request. ' +
+        'Duplicates collapse. An org with no brand is omitted from the response.',
+    }),
+  })
+  .openapi('OrgBrandIdentityRequest', {
+    description:
+      'Batch org → brand identity lookup. Read-only: creates nothing, claims nothing, scrapes nothing.',
+    example: { orgIds: ['8a1c1f5e-3b7a-4a2e-9f11-6d2b0c9e4a70', 'b2d4e6f8-1a3c-4b5d-8e9f-0a1b2c3d4e5f'] },
+  });
+
+export const OrgBrandIdentitySchema = z
+  .object({
+    orgId: z.string().openapi({ description: 'Organization UUID this identity belongs to.' }),
+    brandId: z.string().openapi({ description: 'Brand UUID that was picked for the org.' }),
+    name: z.string().openapi({
+      description:
+        'Brand display name. Never null: falls back to the titlecased domain when the stored ' +
+        'name is missing (deterministic, no scrape). A brand that would identify nothing is ' +
+        'skipped instead of being named.',
+    }),
+    domain: z.string().nullable().openapi({
+      description:
+        'Normalized domain (www stripped) — what the dashboard turns into a logo. Null for a ' +
+        'no-website brand, whose logo slot stays empty.',
+    }),
+  })
+  .openapi('OrgBrandIdentity');
+
+export const OrgBrandIdentityResponseSchema = z
+  .object({
+    identities: z.array(OrgBrandIdentitySchema).openapi({
+      description:
+        'At most one entry per requested org, in arbitrary order — map by `orgId`. An org with ' +
+        'no brand has NO entry (never present-and-empty, never a placeholder).',
+    }),
+  })
+  .openapi('OrgBrandIdentityResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/brands/identity-by-org',
+  summary: 'Batch-resolve org ids to the minimum brand identity that names them to a human',
+  description:
+    'For each org id, returns the display `name` and the `domain` a logo is rendered from — the ' +
+    'minimum that identifies that org to a person, and nothing else (no spend, campaigns, ' +
+    'performance or configuration). Internal service-to-service only (shared API key); NOT exposed ' +
+    'through the public gateway and NOT org-scopable by a customer, because the caller legitimately ' +
+    'holds org ids that are not its own (e.g. billing-service naming the org whose conversion earned ' +
+    'a pending referral reward). An org with no brand is ABSENT from the response rather than ' +
+    'present-and-empty. An org claiming several brands resolves DETERMINISTICALLY to the one it ' +
+    'claimed FIRST (org_brands.claimed_at ascending, ties broken by brand id) — the brand it ' +
+    'onboarded with, and an answer later claims never change. Answered by one indexed query bounded ' +
+    'by the ids asked for, not by the size of the platform. Capped at 100 org ids per request.',
+  request: { body: { content: { 'application/json': { schema: OrgBrandIdentityRequestSchema } } } },
+  responses: {
+    200: { description: 'Brand identities for the orgs that have one', content: { 'application/json': { schema: OrgBrandIdentityResponseSchema } } },
+    400: { description: 'Invalid request body, a non-UUID org id, or more than 100 org ids' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 export const PlatformBrandSchema = z
   .object({
     id: z.string().openapi({ description: 'Brand UUID' }),
@@ -2219,11 +2284,26 @@ export const DeclaredSalesFunnelSchema = z
   })
   .openapi('DeclaredSalesFunnel');
 
-// READ response — the declared SET. An EMPTY array means the brand has declared
-// nothing; it is never filled in with a plausible set, and it must not be read
-// as "this brand sells through nothing".
+// WRITE request for the WHOLE set: exactly these funnels, no others. `[]` is
+// legal and is the ONLY way a brand can state it sells through nothing.
+export const StateSalesFunnelSetRequestSchema = z
+  .object({
+    funnelKeys: z.array(SalesFunnelKeySchema),
+  })
+  .openapi('StateSalesFunnelSetRequest');
+
+// READ response — what the brand has SAID about the funnels it sells through.
+// `declared` is what separates the two ways `funnels` can be empty, and they are
+// NOT the same answer:
+//   declared: true,  funnels: []  → the brand STATED it sells through none. A
+//     real answer: the brand is unrankable and a consumer should say so.
+//   declared: false, funnels: []  → the brand has never told us anything. A gap:
+//     surface it as one; do NOT render it as "sells through nothing" and do NOT
+//     substitute a plausible set.
+// Read `declared` BEFORE `funnels`.
 export const GetSalesFunnelsResponseSchema = z
   .object({
+    declared: z.boolean(),
     funnels: z.array(DeclaredSalesFunnelSchema),
   })
   .openapi('GetSalesFunnelsResponse');
@@ -2253,9 +2333,11 @@ registry.registerPath({
   description:
     'The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime ' +
     'revenue, landing page and booking link. ' + SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
-    'An EMPTY array means the brand has declared nothing yet — read it as unknown, NOT as "this ' +
-    'brand sells through nothing"; the set can only be declared, never derived from the brand\'s ' +
-    'stored economics (every rate there carries a server default, so absence signals nothing). ' +
+    'Read `declared` BEFORE `funnels`: `declared: true` with an empty list means the brand STATED ' +
+    'it sells through none (a real answer — it is unrankable, say so), while `declared: false` ' +
+    'means it has never told us anything (a gap — surface it, do NOT render it as "sells through ' +
+    "nothing\"). The set can only be stated, never derived from the brand's stored economics (every " +
+    'rate there carries a server default, so absence signals nothing). ' +
     "The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
@@ -2264,6 +2346,38 @@ registry.registerPath({
       content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
     },
     400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/sales-funnels',
+  summary: 'State the whole set of funnels a brand sells through',
+  description:
+    'State the WHOLE set at once: exactly these funnels, no others. ' + SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
+    'Funnels already in the set keep the economics they were priced with (restating a set never ' +
+    'wipes them); funnels dropped from it lose their declaration and their economics together. ' +
+    '`{ "funnelKeys": [] }` is legal and is the ONLY way a brand can state it sells through ' +
+    'NOTHING — a different answer from never having said anything, which is why this route exists ' +
+    'alongside the per-funnel one. The set is validated whole before anything is written, so a set ' +
+    'naming a website-led funnel on a brand with no website is rejected 400 and nothing is ' +
+    'half-applied. Returns the stated set.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: StateSalesFunnelSetRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The stated set',
+      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
+    },
+    400: {
+      description:
+        'Invalid brand ID, an unknown funnel key, or a website-led funnel on a brand with no website',
+    },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
@@ -2314,7 +2428,8 @@ registry.registerPath({
     'The brand no longer sells through this funnel. Removing the declaration removes its economics ' +
     'with it — a funnel a brand stopped selling through must not leave numbers behind that a ' +
     'consumer could still rank on. Idempotent: undeclaring a funnel that was never declared is a ' +
-    '200 with the unchanged set. Returns the funnels still declared.',
+    '200 with the unchanged set. Does NOT un-state the set: a brand that removes its LAST funnel ' +
+    'keeps `declared: true`, because it has stated it sells through none. Returns the set that is left.',
   request: {
     params: z.object({ brandId: z.string().uuid(), funnelKey: SalesFunnelKeySchema }),
   },
@@ -2340,8 +2455,11 @@ registry.registerPath({
     'the funnels a brand AUTHORIZES, each carrying the goal it optimizes for (`goal` on the ' +
     "brand-service wire, `currentGoal` as the runtime token) and the economics it is ranked on. " +
     SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
-    'An EMPTY array means the brand has declared nothing — do NOT substitute a plausible set, and ' +
-    'do NOT derive one from the brand\'s stored economics.',
+    'Read `declared` BEFORE `funnels`: `declared: true` with an empty list is the brand stating it ' +
+    'sells through NONE (report it unrankable), `declared: false` is a producer gap (surface it). ' +
+    'Do NOT substitute a plausible set, and do NOT derive one from the stored economics. ' +
+    'A brand id we hold nothing for is a THIRD answer and is rejected 404, never served as ' +
+    '`declared: false` — that would report a bad id as a gap waiting to be filled.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
     200: {
@@ -2349,6 +2467,7 @@ registry.registerPath({
       content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
     },
     400: { description: 'Invalid brand ID format' },
+    404: { description: 'No such brand' },
     500: { description: 'Internal server error' },
   },
 });

@@ -1,6 +1,6 @@
 {
-  "id": "28918b9d-68c5-4185-893f-3505fe70bf66",
-  "prevId": "84129cb8-dcba-49ff-8668-de436f43835e",
+  "id": "84129cb8-dcba-49ff-8668-de436f43835e",
+  "prevId": "73619d16-188f-4c8f-82be-cb1384bdccfb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1723,12 +1723,6 @@
           "name": "brand_id",
           "type": "uuid",
           "primaryKey": true,
-          "notNull": true
-        },
-        "org_id": {
-          "name": "org_id",
-          "type": "uuid",
-          "primaryKey": false,
           "notNull": true
         },
         "token": {

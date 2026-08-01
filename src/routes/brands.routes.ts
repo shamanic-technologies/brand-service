@@ -5,9 +5,10 @@ import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandWebsite, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
 import { rewriteBrandReferences } from '../services/brandMergeService';
+import { getBrandIdentitiesByOrgIds } from '../services/orgBrandIdentityService';
 import { CheckoutStatusUnavailableError } from '../lib/client-client';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
-import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, SetBrandWebsiteRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema } from '../schemas';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, SetBrandWebsiteRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema } from '../schemas';
 import { resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 
 /** Max brand ids accepted per batch request. ~3.7KB query string at 36-char UUIDs. */
@@ -15,6 +16,9 @@ const MAX_BATCH_IDS = 100;
 
 /** Max domains accepted per resolve-by-domain batch request. */
 const MAX_BATCH_DOMAINS = 100;
+
+/** Max org ids accepted per identity-by-org batch request. */
+const MAX_BATCH_ORG_IDS = 100;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -270,6 +274,51 @@ internalRouter.post('/brands/resolve-by-domain', async (req: Request, res: Respo
   } catch (error: unknown) {
     console.error('[brand-service] resolve-by-domain error:', error);
     const message = error instanceof Error ? error.message : 'Failed to resolve brands by domain';
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /internal/brands/identity-by-org
+ *
+ * Batch org id → the minimum that identifies that org's brand to a human:
+ * a display `name` and the `domain` the dashboard renders a logo from.
+ *
+ * Internal only (shared API key, service-to-service). Deliberately NOT on the
+ * public router and NOT org-scopable by a customer — the caller holds org ids
+ * that are not its own (billing-service naming the org whose conversion earned
+ * a pending referral reward), so there is no requesting org to scope to.
+ *
+ * An org with no brand is ABSENT from the response — never present-and-empty,
+ * never a placeholder. An org with several brands resolves to the one it
+ * claimed first (see getBrandIdentitiesByOrgIds for why). Nothing about spend,
+ * campaigns, performance or configuration is returned.
+ *
+ * Body-carried rather than a query string so a batch of org ids does not land
+ * in access logs and proxy traces, and so the batch is not bounded by URL
+ * length. Returns { identities: [{ orgId, brandId, name, domain|null }] }
+ */
+internalRouter.post('/brands/identity-by-org', async (req: Request, res: Response) => {
+  try {
+    const parsed = OrgBrandIdentityRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+    const { orgIds } = parsed.data;
+    if (orgIds.length > MAX_BATCH_ORG_IDS) {
+      return res.status(400).json({ error: `Too many orgIds (max ${MAX_BATCH_ORG_IDS})` });
+    }
+    for (const orgId of orgIds) {
+      if (!UUID_REGEX.test(orgId)) {
+        return res.status(400).json({ error: `Invalid org ID format in orgIds: ${orgId}` });
+      }
+    }
+
+    const identities = await getBrandIdentitiesByOrgIds(orgIds);
+    res.json({ identities });
+  } catch (error: unknown) {
+    console.error('[brand-service] identity-by-org error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to resolve brand identities by org';
     res.status(500).json({ error: message });
   }
 });

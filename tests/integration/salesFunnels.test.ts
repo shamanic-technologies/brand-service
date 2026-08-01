@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
-import { db, brands, orgBrands, brandSalesFunnels } from '../../src/db';
+import { db, brands, orgBrands, brandSalesFunnels, brandSalesFunnelDeclarations } from '../../src/db';
 import { inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -49,6 +49,9 @@ describe('Sales Funnels Endpoints', () => {
     // One statement per table whatever the brand count — a per-brand loop is
     // three round-trips per brand and blows the hook budget on a cold branch.
     await db.delete(brandSalesFunnels).where(inArray(brandSalesFunnels.brandId, allBrandIds));
+    await db
+      .delete(brandSalesFunnelDeclarations)
+      .where(inArray(brandSalesFunnelDeclarations.brandId, allBrandIds));
     await db.delete(orgBrands).where(inArray(orgBrands.brandId, allBrandIds));
     await db.delete(brands).where(inArray(brands.id, allBrandIds));
   });
@@ -56,12 +59,13 @@ describe('Sales Funnels Endpoints', () => {
   const list = (id: string) => `/orgs/brands/${id}/sales-funnels`;
   const one = (id: string, key: string) => `/orgs/brands/${id}/sales-funnels/${key}`;
 
-  // AC1 — a brand can declare the set it sells through and read it back unchanged
-  it('starts with an empty set — nothing is declared until the brand says so', async () => {
+  // AC1 + AC4 — a brand can declare the set it sells through and read it back
+  // unchanged, and "never said anything" is distinguishable from "said none".
+  it('starts undeclared — an empty list that means unknown, not "sells through nothing"', async () => {
     const res = await request(app).get(list(brandId)).set(getAuthHeaders(ownerOrgId));
 
     expect(res.status).toBe(200);
-    expect(res.body.funnels).toEqual([]);
+    expect(res.body).toEqual({ declared: false, funnels: [] });
   });
 
   it('declares a funnel and reads the set back', async () => {
@@ -83,6 +87,8 @@ describe('Sales Funnels Endpoints', () => {
     const res = await request(app).get(list(brandId)).set(getAuthHeaders(ownerOrgId));
     expect(res.status).toBe(200);
     expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual(['visit_signup']);
+    // Declaring a funnel IS stating that the set includes it.
+    expect(res.body.declared).toBe(true);
   });
 
   // AC3 — every arrow the dashboard renders has somewhere to be stored, incl.
@@ -327,6 +333,97 @@ describe('Sales Funnels Endpoints', () => {
     expect(foreignWrite.status).toBe(403);
   });
 
+  // Stating the WHOLE set — and the answer that has no other way to be given
+  it('states the whole set at once', async () => {
+    const res = await request(app)
+      .put(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: ['reply_meeting'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.declared).toBe(true);
+    expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual(['reply_meeting']);
+  });
+
+  it('restating a set keeps the economics of the funnels still in it', async () => {
+    const res = await request(app)
+      .put(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: ['reply_meeting'] });
+
+    expect(res.status).toBe(200);
+    // Priced by an earlier test; restating the set must not wipe it.
+    expect(res.body.funnels[0].rates.replyToMeetingPct).toBe(35);
+  });
+
+  it('a funnel dropped from the set loses its declaration and its economics', async () => {
+    await request(app)
+      .put(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: [] });
+
+    const back = await request(app)
+      .put(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: ['reply_meeting'] });
+
+    expect(back.status).toBe(200);
+    expect(back.body.funnels[0].rates.replyToMeetingPct).toBeNull();
+  });
+
+  it('a brand can state it sells through NOTHING, and that is not the same as silence', async () => {
+    const res = await request(app)
+      .put(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: [] });
+
+    expect(res.status).toBe(200);
+    // The whole point: an empty list the brand STATED, versus the empty list of
+    // a brand that has never said anything. Same funnels, opposite answers.
+    expect(res.body).toEqual({ declared: true, funnels: [] });
+  });
+
+  it('removing the last funnel leaves the set STATED, not blank', async () => {
+    await request(app)
+      .put(one(noWebsiteBrandId, 'reply_meeting'))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({});
+    const res = await request(app)
+      .delete(one(noWebsiteBrandId, 'reply_meeting'))
+      .set(getAuthHeaders(ownerOrgId));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ declared: true, funnels: [] });
+  });
+
+  it('rejects the whole set when one member cannot apply, writing nothing', async () => {
+    const before = await request(app)
+      .get(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+
+    const res = await request(app)
+      .put(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: ['reply_meeting', 'visit_signup'] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no website/);
+
+    const after = await request(app)
+      .get(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(after.body).toEqual(before.body);
+  });
+
+  it('rejects an unknown key in the set', async () => {
+    const res = await request(app)
+      .put(list(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: ['visit_whatsapp'] });
+
+    expect(res.status).toBe(400);
+  });
+
   // Internal read — what campaign-service arbitration ranks over
   it('serves the declared set to a service caller with no org context', async () => {
     const res = await request(app)
@@ -339,15 +436,29 @@ describe('Sales Funnels Endpoints', () => {
       'visit_signup',
       'visit_form',
     ]);
+    expect(res.body.declared).toBe(true);
     expect(res.body.funnels[0].currentGoal).toBe('meetingBooked');
   });
 
-  it('tells a service caller the truth about a brand that declared nothing', async () => {
+  it('tells a service caller a brand has said nothing, rather than that it sells nothing', async () => {
+    // A real brand — it exists, it has simply never answered the question.
+    const res = await request(app)
+      .get(`/internal/brands/${foreignBrandId}/sales-funnels`)
+      .set(getInternalAuthHeaders());
+
+    expect(res.status).toBe(200);
+    // A gap the caller must surface, NOT an empty set it should rank on.
+    expect(res.body).toEqual({ declared: false, funnels: [] });
+  });
+
+  it('404s a brand it holds nothing for, rather than calling a bad id a gap', async () => {
     const res = await request(app)
       .get(`/internal/brands/${unknownBrandId}/sales-funnels`)
       .set(getInternalAuthHeaders());
 
-    expect(res.status).toBe(200);
-    expect(res.body.funnels).toEqual([]);
+    // The third answer. Served as `declared: false` it would read as a producer
+    // gap the caller should surface and wait on — but no statement is coming for
+    // a brand that does not exist.
+    expect(res.status).toBe(404);
   });
 });
