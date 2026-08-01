@@ -33,12 +33,10 @@ export const brands = pgTable("brands", {
 	url: text(),
 	name: text(),
 	logoUrl: text("logo_url"),
-	currentGoal: text("current_goal").default('purchase').notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	uniqueIndex("brands_domain_key").on(table.domain),
-	check("brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply', 'whatsappConversation', 'combinedSales')`),
 ]);
 
 /**
@@ -80,14 +78,24 @@ export const brandsOld = pgTable("brands_old", {
 /**
  * Gold membership table: which org claims which brand. N:N — multiple orgs
  * may track the same brand and each org tracks many brands.
+ *
+ * It also carries the per-org configuration of that relationship, starting with
+ * `current_goal`. A goal is NOT a property of the brand: `brands` is the global
+ * silver identity (domain, name, logo) that several orgs legitimately share, so
+ * a goal stored there let any org overwrite what another org optimizes for on
+ * the same domain. It belongs to the (org, brand) pair, which is exactly this
+ * row.
  */
 export const orgBrands = pgTable("org_brands", {
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
+	// What THIS org optimizes for on THIS brand. Moved off `brands` — see above.
+	currentGoal: text("current_goal").default('purchase').notNull(),
 	claimedAt: timestamp("claimed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	primaryKey({ columns: [table.orgId, table.brandId] }),
+	check("org_brands_current_goal_check", sql`${table.currentGoal} IN ('signup', 'meetingBooked', 'purchase', 'websiteVisit', 'positiveReply', 'whatsappConversation', 'combinedSales')`),
 	index("org_brands_brand_id_idx").on(table.brandId),
 	index("org_brands_org_id_idx").on(table.orgId),
 	foreignKey({
@@ -107,7 +115,8 @@ export const orgBrands = pgTable("org_brands", {
  * pipeline reads. New facts are added as typed nullable columns (one per fact).
  */
 export const brandSalesEconomics = pgTable("brand_sales_economics", {
-	brandId: uuid("brand_id").primaryKey(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
 	lifetimeRevenueUsd: integer("lifetime_revenue_usd").notNull(),
 	replyToMeetingPct: numeric("reply_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
 	visitToMeetingPct: numeric("visit_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
@@ -148,6 +157,7 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	primaryKey({ columns: [table.orgId, table.brandId] }),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
@@ -168,11 +178,13 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
  * brand's own landing `url` so the response value is never null.
  */
 export const brandClickDestinations = pgTable("brand_click_destinations", {
-	brandId: uuid("brand_id").primaryKey(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
 	clickDestinationUrl: text("click_destination_url").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	primaryKey({ columns: [table.orgId, table.brandId] }),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
@@ -193,11 +205,13 @@ export const brandClickDestinations = pgTable("brand_click_destinations", {
  * wa.me / api.whatsapp.com URL is stored as-is.
  */
 export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
-	brandId: uuid("brand_id").primaryKey(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
 	whatsappLink: text("whatsapp_link").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	primaryKey({ columns: [table.orgId, table.brandId] }),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
@@ -241,12 +255,13 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
  * minted for.
  */
 export const brandShareTokens = pgTable("brand_share_tokens", {
-	brandId: uuid("brand_id").primaryKey(),
 	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
 	token: text().notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	primaryKey({ columns: [table.orgId, table.brandId] }),
 	uniqueIndex("brand_share_tokens_token_key").on(table.token),
 	foreignKey({
 		columns: [table.brandId],
@@ -256,23 +271,28 @@ export const brandShareTokens = pgTable("brand_share_tokens", {
 ]);
 
 /**
- * Sales funnels a brand sells through. One row per (brand_id, funnel_key) — the
- * row's PRESENCE is the declaration: a brand with no rows has declared nothing,
- * and a funnel with no row is one this brand does not sell through. Nothing is
- * ever inferred from the values, which is why every value column is NULLABLE
- * with NO server default: `null` means "the brand never gave us this number",
- * never "0" and never a plausible-looking stand-in. That is the whole point of
- * this table — `brand_sales_economics` cannot express either absence (every rate
- * there is NOT NULL with a default, so a brand that configured nothing still
- * reads back real-looking numbers, and the funnels it actually runs cannot be
- * derived from them).
+ * The sales funnels an org sells a brand through, and what each one is worth.
  *
- * Each declared funnel owns its OWN economics: the conversion rate of every leg
- * of its chain, the lifetime revenue of a client won through it, the page an
- * outreach click lands on, and — when a meeting sits in the chain — a booking
- * link. Two funnels of one brand are priced independently: a self-serve signup
- * customer and an enterprise meeting customer are not worth the same and do not
- * land on the same page.
+ * One row per (org, brand, funnel). `active` says whether the org currently
+ * sells through that chain; the ROW itself is the MEMORY and is not deleted
+ * when a funnel is switched off, so the rates, lifetime revenue and
+ * destinations a user entered are still there when they switch it back on.
+ *
+ * ORG-SCOPED for the same reason as every other config table here: `brands` is
+ * the global silver identity that several orgs legitimately share, so what an
+ * org sells through — and what it earns — is the data of an (org, brand) pair,
+ * never a property of the brand.
+ *
+ * Nothing is inferred from the values: every value column is NULLABLE with NO
+ * server default, so `null` means "the org never gave us this number" and never
+ * "0". `brand_sales_economics` cannot express that (every rate there is NOT
+ * NULL with a default, so absence signals nothing) — which is exactly why the
+ * set of funnels can only be declared, never derived from it.
+ *
+ * INVARIANT: an org that has answered always has at least ONE active funnel.
+ * "All inactive" is only the initial state, and the initial state is NO ROWS at
+ * all — so zero rows means "never answered" and is the only way to say it.
+ * Switching off the last active funnel is refused.
  *
  * Which rate columns a funnel may fill is NOT free-form: `salesFunnelCatalogue`
  * owns the chain of each funnel, and a write naming a rate outside that chain is
@@ -282,8 +302,15 @@ export const brandShareTokens = pgTable("brand_share_tokens", {
  * the two values the funnel model needs that had no home anywhere in the fleet.
  */
 export const brandSalesFunnels = pgTable("brand_sales_funnels", {
+	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
 	funnelKey: text("funnel_key").notNull(),
+	// Whether the brand currently sells through this funnel. The ROW is the
+	// memory and is never deleted on the normal path: switching a funnel off
+	// keeps its rates, its lifetime revenue and its destinations exactly where
+	// they were, so switching it back on returns what the user already entered
+	// instead of an empty form.
+	active: boolean("active").default(true).notNull(),
 	// What a client won through THIS funnel is worth. Null = never declared.
 	lifetimeRevenueUsd: integer("lifetime_revenue_usd"),
 	// One column per leg the catalogue can reference. A funnel fills only the
@@ -308,7 +335,7 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	primaryKey({ columns: [table.brandId, table.funnelKey] }),
+	primaryKey({ columns: [table.orgId, table.brandId, table.funnelKey] }),
 	check(
 		"brand_sales_funnels_funnel_key_check",
 		sql`${table.funnelKey} IN ('reply_meeting', 'visit_meeting', 'visit_signup', 'visit_form')`
@@ -317,34 +344,6 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
 		name: "brand_sales_funnels_brand_id_fkey",
-	}).onDelete("cascade"),
-]);
-
-/**
- * Whether a brand has STATED which funnels it sells through — one row per brand
- * (PK = brand_id), the row's presence being the statement.
- *
- * This exists because "the brand told us it sells through nothing" and "the
- * brand has never told us anything" are different answers that
- * `brand_sales_funnels` alone cannot tell apart: both are zero rows. They lead
- * to opposite consumer behaviour — an empty STATED set means the brand is
- * genuinely unrankable and should be reported as such, while no statement at
- * all is a gap that must surface as one and never be quietly rendered as "sells
- * through nothing".
- *
- * Declaring any funnel states the set (declaring a funnel IS saying your set
- * includes it). Undeclaring one does NOT un-state it — a brand that removes its
- * last funnel has still answered the question.
- */
-export const brandSalesFunnelDeclarations = pgTable("brand_sales_funnel_declarations", {
-	brandId: uuid("brand_id").primaryKey(),
-	declaredAt: timestamp("declared_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	foreignKey({
-		columns: [table.brandId],
-		foreignColumns: [brands.id],
-		name: "brand_sales_funnel_declarations_brand_id_fkey",
 	}).onDelete("cascade"),
 ]);
 
@@ -360,11 +359,13 @@ export const brandSalesFunnelDeclarations = pgTable("brand_sales_funnel_declarat
  * click-destination / whatsapp-link scoping — never on the brand identity row.
  */
 export const brandBusinessContext = pgTable("brand_business_context", {
-	brandId: uuid("brand_id").primaryKey(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
 	content: text().notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
+	primaryKey({ columns: [table.orgId, table.brandId] }),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
@@ -384,6 +385,7 @@ export const brandBusinessContext = pgTable("brand_business_context", {
  */
 export const brandUserFields = pgTable("brand_user_fields", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
 	fieldKey: text("field_key").notNull(),
 	value: jsonb(),
@@ -391,7 +393,7 @@ export const brandUserFields = pgTable("brand_user_fields", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	uniqueIndex("brand_user_fields_brand_id_field_key_key").on(table.brandId, table.fieldKey),
+	uniqueIndex("brand_user_fields_org_id_brand_id_field_key_key").on(table.orgId, table.brandId, table.fieldKey),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],

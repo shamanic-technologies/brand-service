@@ -121,7 +121,7 @@ describe('PATCH /orgs/brands/:brandId — domain ownership by checkout', () => {
 
     const holderId = await seedBrand({ orgId, domain, name: 'Abandoned Onboarding Brand' });
     const targetId = await seedBrand({ orgId, domain: null, name: 'Live Brand' });
-    await db.insert(brandBusinessContext).values({ brandId: holderId, content: 'holder context' });
+    await db.insert(brandBusinessContext).values({ orgId, brandId: holderId, content: 'holder context' });
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       checkoutReply([]),

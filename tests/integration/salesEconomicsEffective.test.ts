@@ -147,9 +147,10 @@ describe('Effective Sales Economics Endpoint', () => {
     const close = (r: Row) => round4((r.visitToSignupPct * r.signupToPaidClientPct) / 100);
     await db
       .insert(brandSalesEconomics)
-      .values({ brandId: savedBrandId, ...savedMetrics, visitToClosePct: close(savedMetrics) });
+      .values({ orgId: ownerOrgId, brandId: savedBrandId, ...savedMetrics, visitToClosePct: close(savedMetrics) });
     for (let i = 0; i < contributors.length; i++) {
       await db.insert(brandSalesEconomics).values({
+        orgId: ownerOrgId,
         brandId: contributorIds[i],
         ...contributors[i],
         visitToClosePct: close(contributors[i]),

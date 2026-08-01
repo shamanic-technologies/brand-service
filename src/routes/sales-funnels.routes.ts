@@ -11,9 +11,11 @@ import {
   SalesFunnelDestinationNotUsedError,
   SalesFunnelRateNotInChainError,
   SalesFunnelRequiresWebsiteError,
+  LastActiveSalesFunnelError,
   salesFunnelsService,
 } from '../services/salesFunnelsService';
 import { ClickDestinationValidationError } from '../services/clickDestinationService';
+import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -52,6 +54,7 @@ function rejectDeclaration(res: Response, error: unknown): boolean {
     error instanceof SalesFunnelRateNotInChainError ||
     error instanceof SalesFunnelDestinationNotUsedError ||
     error instanceof SalesFunnelRequiresWebsiteError ||
+    error instanceof LastActiveSalesFunnelError ||
     error instanceof ClickDestinationValidationError
   ) {
     res.status(400).json({ error: (error as Error).message });
@@ -76,7 +79,7 @@ orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Respon
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const set = await salesFunnelsService.readByBrandId(brandId);
+    const set = await salesFunnelsService.readByBrandId(req.orgId!, brandId);
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Get sales funnels error:', error);
@@ -117,6 +120,7 @@ orgRouter.put('/brands/:brandId/sales-funnels', async (req: Request, res: Respon
     let set;
     try {
       set = await salesFunnelsService.statesetByBrandId(
+        req.orgId!,
         brandId,
         parsed.data.funnelKeys,
         brand.domain ?? null
@@ -166,6 +170,7 @@ orgRouter.put('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, 
     let funnel;
     try {
       funnel = await salesFunnelsService.declareByBrandId(
+        req.orgId!,
         brandId,
         funnelKey,
         parsed.data,
@@ -185,8 +190,9 @@ orgRouter.put('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, 
 
 /**
  * DELETE /orgs/brands/:brandId/sales-funnels/:funnelKey
- * The brand no longer sells through this funnel. Returns the remaining set so
- * the caller renders the truth it just created rather than re-reading for it.
+ * Switch the funnel OFF. The row and its numbers SURVIVE, so switching it back
+ * on returns what the user already entered. Refused when it is the last active
+ * one. Returns the whole set so the caller renders what it just created.
  */
 orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, res: Response) => {
   try {
@@ -201,8 +207,13 @@ orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Reques
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    await salesFunnelsService.undeclareByBrandId(brandId, funnelKey);
-    const set = await salesFunnelsService.readByBrandId(brandId);
+    try {
+      await salesFunnelsService.deactivateByBrandId(req.orgId!, brandId, funnelKey);
+    } catch (error) {
+      if (rejectDeclaration(res, error)) return;
+      throw error;
+    }
+    const set = await salesFunnelsService.readByBrandId(req.orgId!, brandId);
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Undeclare sales funnel error:', error);
@@ -228,13 +239,25 @@ internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: R
       return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
     }
 
-    const brand = await getBrand(brandId);
-    if (!brand) {
-      return res.status(404).json({ error: 'Brand not found' });
-    }
+    // An unknown or unclaimed brand simply has nothing configured. Unset is a
+    // 200 with an empty set here, never a 404 — the same contract the internal
+    // sales-economics read has always had.
+    const scope = await resolveInternalOrgScope(req, brandId);
+    if (rejectInternalOrgScope(res, scope)) return;
 
-    const set = await salesFunnelsService.readByBrandId(brandId);
-    return res.status(200).json(set);
+    // ACTIVE only: a scheduler asking what this org sells through must never
+    // rank a funnel the org switched off.
+    const set = scope.orgId
+      ? await salesFunnelsService.readActiveByBrandId(scope.orgId, brandId)
+      : { funnels: [] };
+
+    // DEPRECATED, and transitional. features-service throws unless this flag is
+    // a boolean, so removing it here breaks every funnels read it makes the
+    // moment this ships, whatever the merge order. It is not a second source of
+    // truth: an org that has answered always keeps at least one funnel ACTIVE,
+    // so a non-empty list and "has answered" are the same fact, and this is the
+    // older spelling of it. Drop it once features-service reads the list alone.
+    return res.status(200).json({ ...set, declared: set.funnels.length > 0 });
   } catch (error: any) {
     console.error('[brand-service] Internal get sales funnels error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });

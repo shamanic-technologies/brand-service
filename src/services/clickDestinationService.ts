@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db, brandClickDestinations } from '../db';
 
 /**
@@ -75,11 +75,11 @@ export function assertClickDestinationOnBrandDomain(url: string, brandDomain: st
 
 export class ClickDestinationService {
   /** The saved click destination for a brand, or null when unset (no row). */
-  async getByBrandId(brandId: string): Promise<string | null> {
+  async getByBrandId(orgId: string, brandId: string): Promise<string | null> {
     const [row] = await db
       .select({ clickDestinationUrl: brandClickDestinations.clickDestinationUrl })
       .from(brandClickDestinations)
-      .where(eq(brandClickDestinations.brandId, brandId))
+      .where(and(eq(brandClickDestinations.orgId, orgId), eq(brandClickDestinations.brandId, brandId)))
       .limit(1);
 
     return row?.clickDestinationUrl ?? null;
@@ -89,7 +89,7 @@ export class ClickDestinationService {
    * Batch read for many brands at once. Returns a Map keyed by brandId; brands
    * with no row are absent from the map (caller treats absent as null).
    */
-  async getMapByBrandIds(brandIds: string[]): Promise<Map<string, string>> {
+  async getMapByBrandIds(orgId: string, brandIds: string[]): Promise<Map<string, string>> {
     if (brandIds.length === 0) return new Map();
     const rows = await db
       .select({
@@ -97,7 +97,7 @@ export class ClickDestinationService {
         clickDestinationUrl: brandClickDestinations.clickDestinationUrl,
       })
       .from(brandClickDestinations)
-      .where(inArray(brandClickDestinations.brandId, brandIds));
+      .where(and(eq(brandClickDestinations.orgId, orgId), inArray(brandClickDestinations.brandId, brandIds)));
 
     return new Map(rows.map((r) => [r.brandId, r.clickDestinationUrl]));
   }
@@ -107,12 +107,12 @@ export class ClickDestinationService {
    * (PK = brand_id); repeating the same write yields the same end state. The
    * URL is validated (http/https) before this is called. Returns the saved URL.
    */
-  async upsertByBrandId(brandId: string, clickDestinationUrl: string): Promise<string> {
+  async upsertByBrandId(orgId: string, brandId: string, clickDestinationUrl: string): Promise<string> {
     const [row] = await db
       .insert(brandClickDestinations)
-      .values({ brandId, clickDestinationUrl })
+      .values({ orgId, brandId, clickDestinationUrl })
       .onConflictDoUpdate({
-        target: brandClickDestinations.brandId,
+        target: [brandClickDestinations.orgId, brandClickDestinations.brandId],
         set: { clickDestinationUrl, updatedAt: sql`NOW()` },
       })
       .returning({ clickDestinationUrl: brandClickDestinations.clickDestinationUrl });

@@ -84,18 +84,18 @@ describe('upsertUserFields', () => {
 
   it('throws UnknownUserFieldKeyError and writes NOTHING on an unknown key', async () => {
     await expect(
-      upsertUserFields('brand-1', { services: 'ok', industry: 'nope' }),
+      upsertUserFields('org-1', 'brand-1', { services: 'ok', industry: 'nope' }),
     ).rejects.toBeInstanceOf(UnknownUserFieldKeyError);
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
   it('upserts one insert per valid key', async () => {
-    await upsertUserFields('brand-1', { services: ['x'], urgency: 'soon' });
+    await upsertUserFields('org-1', 'brand-1', { services: ['x'], urgency: 'soon' });
     expect(mockInsert).toHaveBeenCalledTimes(2);
   });
 
   it('no-ops on an empty map', async () => {
-    await upsertUserFields('brand-1', {});
+    await upsertUserFields('org-1', 'brand-1', {});
     expect(mockInsert).not.toHaveBeenCalled();
   });
 });

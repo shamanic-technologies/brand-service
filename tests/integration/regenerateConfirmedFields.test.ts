@@ -56,9 +56,9 @@ describe('POST /orgs/brands/extract-fields — regenerateFieldKeys', () => {
     await db.insert(brands).values({ id: brandId, url: 'https://regen.com', domain: 'regen.com', name: 'Regen' });
     await db.insert(orgBrands).values({ orgId, brandId });
     await db.insert(brandUserFields).values([
-      { brandId, fieldKey: 'services', value: ['Confirmed consulting'] },
-      { brandId, fieldKey: 'dreamOutcome', value: 'Confirmed dream outcome' },
-      { brandId, fieldKey: 'urgency', value: 'Confirmed urgency' },
+      { orgId, brandId, fieldKey: 'services', value: ['Confirmed consulting'] },
+      { orgId, brandId, fieldKey: 'dreamOutcome', value: 'Confirmed dream outcome' },
+      { orgId, brandId, fieldKey: 'urgency', value: 'Confirmed urgency' },
     ]);
     mockExtractFields.mockResolvedValue(FRESH);
   });

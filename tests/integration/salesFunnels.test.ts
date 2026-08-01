@@ -1,27 +1,31 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
-import { db, brands, orgBrands, brandSalesFunnels, brandSalesFunnelDeclarations } from '../../src/db';
+import { db, brands, orgBrands, brandSalesFunnels } from '../../src/db';
 import { inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 /**
- * The funnels a brand declares it sells through, and each one's own economics.
+ * The sales funnels an ORG sells a brand through, and what each one is worth.
  *
- * The end-to-end proof is the merged dashboard Sales Funnels card: it renders
- * four funnels with per-funnel rates, per-funnel lifetime revenue, a per-funnel
- * landing page and a booking link, and had nowhere to save any of it. Everything
- * that card shows must round-trip here — including the meeting show-up rate,
- * which is stored nowhere else in the fleet.
+ * Two properties carry the whole design and are what these tests pin:
+ *   - a funnel switched OFF keeps its numbers, so switching it back on returns
+ *     what the user entered rather than an empty form;
+ *   - an org that has answered always keeps at least one funnel ON, which makes
+ *     "answered, but sells through nothing" unreachable and leaves zero rows as
+ *     the only way to say "never answered".
+ *
+ * Everything is per (org, brand): two orgs claiming the same domain configure it
+ * independently and never read each other.
  */
 describe('Sales Funnels Endpoints', () => {
   const app = createTestApp();
 
   const ownerOrgId = randomUUID();
   const otherOrgId = randomUUID();
-  const brandId = randomUUID(); // owned by ownerOrgId, has a website
-  const noWebsiteBrandId = randomUUID(); // owned by ownerOrgId, no url/domain
-  const foreignBrandId = randomUUID(); // owned by otherOrgId
+  const brandId = randomUUID(); // claimed by BOTH orgs, has a website
+  const noWebsiteBrandId = randomUUID(); // owner only, no url/domain
+  const foreignBrandId = randomUUID(); // other org only
   const unknownBrandId = randomUUID(); // not in brands at all
 
   const dom = (id: string) => `funnels-${id.slice(0, 8)}.com`;
@@ -40,6 +44,8 @@ describe('Sales Funnels Endpoints', () => {
     ]);
     await db.insert(orgBrands).values([
       { orgId: ownerOrgId, brandId },
+      // The SAME brand, claimed by a second org: the case the scoping exists for.
+      { orgId: otherOrgId, brandId },
       { orgId: ownerOrgId, brandId: noWebsiteBrandId },
       { orgId: otherOrgId, brandId: foreignBrandId },
     ]);
@@ -49,9 +55,6 @@ describe('Sales Funnels Endpoints', () => {
     // One statement per table whatever the brand count — a per-brand loop is
     // three round-trips per brand and blows the hook budget on a cold branch.
     await db.delete(brandSalesFunnels).where(inArray(brandSalesFunnels.brandId, allBrandIds));
-    await db
-      .delete(brandSalesFunnelDeclarations)
-      .where(inArray(brandSalesFunnelDeclarations.brandId, allBrandIds));
     await db.delete(orgBrands).where(inArray(orgBrands.brandId, allBrandIds));
     await db.delete(brands).where(inArray(brands.id, allBrandIds));
   });
@@ -59,16 +62,14 @@ describe('Sales Funnels Endpoints', () => {
   const list = (id: string) => `/orgs/brands/${id}/sales-funnels`;
   const one = (id: string, key: string) => `/orgs/brands/${id}/sales-funnels/${key}`;
 
-  // AC1 + AC4 — a brand can declare the set it sells through and read it back
-  // unchanged, and "never said anything" is distinguishable from "said none".
-  it('starts undeclared — an empty list that means unknown, not "sells through nothing"', async () => {
+  it('starts with nothing — an empty list that means "never answered"', async () => {
     const res = await request(app).get(list(brandId)).set(getAuthHeaders(ownerOrgId));
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ declared: false, funnels: [] });
+    expect(res.body).toEqual({ funnels: [] });
   });
 
-  it('declares a funnel and reads the set back', async () => {
+  it('configures a funnel and reads it back, active by default', async () => {
     const put = await request(app)
       .put(one(brandId, 'visit_signup'))
       .set(getAuthHeaders(ownerOrgId))
@@ -80,19 +81,14 @@ describe('Sales Funnels Endpoints', () => {
 
     expect(put.status).toBe(200);
     expect(put.body.funnel.funnelKey).toBe('visit_signup');
+    // Configuring a funnel IS saying you sell through it.
+    expect(put.body.funnel.active).toBe(true);
     expect(put.body.funnel.rates).toEqual({ visitToSignupPct: 30, signupToPaidClientPct: 12.5 });
     expect(put.body.funnel.lifetimeRevenueUsd).toBe(4200);
     expect(put.body.funnel.destinationUrl).toBe(`https://${dom(brandId)}/pricing`);
-
-    const res = await request(app).get(list(brandId)).set(getAuthHeaders(ownerOrgId));
-    expect(res.status).toBe(200);
-    expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual(['visit_signup']);
-    // Declaring a funnel IS stating that the set includes it.
-    expect(res.body.declared).toBe(true);
   });
 
-  // AC3 — every arrow the dashboard renders has somewhere to be stored, incl.
-  // the meeting show-up rate, which exists on no other table in the fleet.
+  // The meeting show-up rate and the booking link exist on no other table.
   it('stores the meeting show-up rate and the booking link', async () => {
     const res = await request(app)
       .put(one(brandId, 'reply_meeting'))
@@ -112,16 +108,12 @@ describe('Sales Funnels Endpoints', () => {
     expect(res.body.funnel.bookingUrl).toBe('https://cal.com/funnel-team/30min');
   });
 
-  // AC2 — each funnel's economics are readable and writable independently
   it('keeps two funnels of one brand priced independently', async () => {
     const res = await request(app).get(list(brandId)).set(getAuthHeaders(ownerOrgId));
 
     expect(res.status).toBe(200);
     // Catalogue order, not insertion order.
-    expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual([
-      'reply_meeting',
-      'visit_signup',
-    ]);
+    expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual(['reply_meeting', 'visit_signup']);
     const [meeting, signup] = res.body.funnels;
     expect(meeting.lifetimeRevenueUsd).toBe(18000);
     expect(signup.lifetimeRevenueUsd).toBe(4200);
@@ -143,8 +135,31 @@ describe('Sales Funnels Endpoints', () => {
     expect(byKey.reply_meeting.lifetimeRevenueUsd).toBe(18000);
   });
 
-  // AC4 — declared and never-set are different answers
-  it('reports a rate the brand never gave us as null', async () => {
+  // ── Two orgs, one domain ───────────────────────────────────────────────────
+  it("another org claiming the same brand sees none of the first org's funnels", async () => {
+    const res = await request(app).get(list(brandId)).set(getAuthHeaders(otherOrgId));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ funnels: [] });
+  });
+
+  it('the two orgs configure the same brand without ever colliding', async () => {
+    const put = await request(app)
+      .put(one(brandId, 'visit_signup'))
+      .set(getAuthHeaders(otherOrgId))
+      .send({ lifetimeRevenueUsd: 99, rates: { visitToSignupPct: 1 } });
+    expect(put.status).toBe(200);
+    expect(put.body.funnel.lifetimeRevenueUsd).toBe(99);
+
+    const mine = await request(app).get(list(brandId)).set(getAuthHeaders(ownerOrgId));
+    const byKey = Object.fromEntries(mine.body.funnels.map((f: any) => [f.funnelKey, f]));
+    // Untouched by the other org's write.
+    expect(byKey.visit_signup.lifetimeRevenueUsd).toBe(5000);
+    expect(byKey.visit_signup.rates.visitToSignupPct).toBe(30);
+  });
+
+  // ── Absence is absence ─────────────────────────────────────────────────────
+  it('reports a rate the org never gave us as null, not zero', async () => {
     const res = await request(app)
       .put(one(brandId, 'visit_form'))
       .set(getAuthHeaders(ownerOrgId))
@@ -169,14 +184,13 @@ describe('Sales Funnels Endpoints', () => {
     expect(res.body.funnel.rates.visitToFormSubmissionPct).toBeNull();
   });
 
-  it('declares a funnel with nothing priced yet', async () => {
+  it('configures a funnel with nothing priced yet', async () => {
     const res = await request(app)
       .put(one(brandId, 'visit_meeting'))
       .set(getAuthHeaders(ownerOrgId))
       .send({});
 
     expect(res.status).toBe(200);
-    expect(res.body.funnel.funnelKey).toBe('visit_meeting');
     expect(Object.values(res.body.funnel.rates).every((v) => v === null)).toBe(true);
   });
 
@@ -189,48 +203,130 @@ describe('Sales Funnels Endpoints', () => {
     expect(byKey.visit_form.currentGoal).toBe('signup');
   });
 
-  // Undeclaring
-  it('undeclares a funnel and returns the set that is left', async () => {
-    const res = await request(app)
+  // ── Switching off keeps the numbers ────────────────────────────────────────
+  it('switching a funnel off keeps its numbers, and switching it back on returns them', async () => {
+    const off = await request(app)
       .delete(one(brandId, 'visit_meeting'))
       .set(getAuthHeaders(ownerOrgId));
+    expect(off.status).toBe(200);
 
-    expect(res.status).toBe(200);
-    expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual([
-      'reply_meeting',
-      'visit_signup',
-      'visit_form',
-    ]);
-  });
+    const byKeyOff = Object.fromEntries(off.body.funnels.map((f: any) => [f.funnelKey, f]));
+    // Still listed, just off — the org read shows what it configured, active or not.
+    expect(byKeyOff.visit_meeting.active).toBe(false);
 
-  it('undeclaring a funnel that was never declared is a no-op, not an error', async () => {
-    const res = await request(app)
-      .delete(one(brandId, 'visit_meeting'))
-      .set(getAuthHeaders(ownerOrgId));
-
-    expect(res.status).toBe(200);
-    expect(res.body.funnels.map((f: any) => f.funnelKey)).not.toContain('visit_meeting');
-  });
-
-  it('re-declaring after undeclaring starts from nothing, not from the old numbers', async () => {
     await request(app)
       .put(one(brandId, 'visit_meeting'))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ rates: { meetingToClosePct: 33 } });
+      .send({ rates: { meetingToClosePct: 33 }, lifetimeRevenueUsd: 7000 });
     await request(app).delete(one(brandId, 'visit_meeting')).set(getAuthHeaders(ownerOrgId));
 
-    const res = await request(app)
+    const back = await request(app)
       .put(one(brandId, 'visit_meeting'))
       .set(getAuthHeaders(ownerOrgId))
-      .send({});
+      .send({ active: true });
 
-    expect(res.status).toBe(200);
-    expect(res.body.funnel.rates.meetingToClosePct).toBeNull();
+    expect(back.status).toBe(200);
+    expect(back.body.funnel.active).toBe(true);
+    // The whole point: what the user typed is still there.
+    expect(back.body.funnel.rates.meetingToClosePct).toBe(33);
+    expect(back.body.funnel.lifetimeRevenueUsd).toBe(7000);
 
     await request(app).delete(one(brandId, 'visit_meeting')).set(getAuthHeaders(ownerOrgId));
   });
 
-  // Validation — a funnel that does not exist as described is rejected, not cleaned up
+  it('switching off a funnel that is already off is a no-op, not an error', async () => {
+    const res = await request(app)
+      .delete(one(brandId, 'visit_meeting'))
+      .set(getAuthHeaders(ownerOrgId));
+
+    expect(res.status).toBe(200);
+    const byKey = Object.fromEntries(res.body.funnels.map((f: any) => [f.funnelKey, f]));
+    expect(byKey.visit_meeting.active).toBe(false);
+  });
+
+  // ── The invariant ──────────────────────────────────────────────────────────
+  it('refuses to switch off the LAST active funnel', async () => {
+    const solo = randomUUID();
+    await db.insert(brands).values({ id: solo, name: 'Solo Funnel Brand' });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: solo });
+    allBrandIds.push(solo);
+
+    await request(app)
+      .put(one(solo, 'reply_meeting'))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ rates: { replyToMeetingPct: 20 } });
+
+    const res = await request(app)
+      .delete(one(solo, 'reply_meeting'))
+      .set(getAuthHeaders(ownerOrgId));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at least one funnel on/);
+
+    // And the numbers are still there, untouched by the refusal.
+    const after = await request(app).get(list(solo)).set(getAuthHeaders(ownerOrgId));
+    expect(after.body.funnels[0].active).toBe(true);
+    expect(after.body.funnels[0].rates.replyToMeetingPct).toBe(20);
+  });
+
+  it('refuses an empty set — an org that answered sells through something', async () => {
+    const res = await request(app)
+      .put(list(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: [] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at least one funnel on/);
+  });
+
+  // ── Stating the whole set ──────────────────────────────────────────────────
+  it('states the whole set: the named funnels on, the others off but kept', async () => {
+    const res = await request(app)
+      .put(list(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: ['reply_meeting'] });
+
+    expect(res.status).toBe(200);
+    const byKey = Object.fromEntries(res.body.funnels.map((f: any) => [f.funnelKey, f]));
+    expect(byKey.reply_meeting.active).toBe(true);
+    expect(byKey.visit_signup.active).toBe(false);
+    // Off, but its numbers survived.
+    expect(byKey.visit_signup.lifetimeRevenueUsd).toBe(5000);
+  });
+
+  it('restating a set keeps the economics of the funnels still in it', async () => {
+    const res = await request(app)
+      .put(list(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: ['reply_meeting', 'visit_signup'] });
+
+    expect(res.status).toBe(200);
+    const byKey = Object.fromEntries(res.body.funnels.map((f: any) => [f.funnelKey, f]));
+    expect(byKey.visit_signup.active).toBe(true);
+    expect(byKey.visit_signup.lifetimeRevenueUsd).toBe(5000);
+    expect(byKey.reply_meeting.lifetimeRevenueUsd).toBe(18000);
+  });
+
+  it('rejects the whole set when one member cannot apply, writing nothing', async () => {
+    const before = await request(app)
+      .get(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+
+    const res = await request(app)
+      .put(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ funnelKeys: ['reply_meeting', 'visit_signup'] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no website/);
+
+    const after = await request(app)
+      .get(list(noWebsiteBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+    expect(after.body).toEqual(before.body);
+  });
+
+  // ── Validation ─────────────────────────────────────────────────────────────
   it('rejects a rate that is not a leg of this chain', async () => {
     const res = await request(app)
       .put(one(brandId, 'visit_signup'))
@@ -270,23 +366,19 @@ describe('Sales Funnels Endpoints', () => {
     expect(res.status).toBe(400);
   });
 
-  it('rejects an out-of-range rate', async () => {
-    const res = await request(app)
+  it('rejects an out-of-range rate and an unknown funnel key', async () => {
+    const bad = await request(app)
       .put(one(brandId, 'visit_signup'))
       .set(getAuthHeaders(ownerOrgId))
       .send({ rates: { visitToSignupPct: 140 } });
+    expect(bad.status).toBe(400);
 
-    expect(res.status).toBe(400);
-  });
-
-  it('rejects an unknown funnel key', async () => {
-    const res = await request(app)
+    const unknown = await request(app)
       .put(one(brandId, 'visit_whatsapp'))
       .set(getAuthHeaders(ownerOrgId))
       .send({});
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/Unknown sales funnel/);
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.error).toMatch(/Unknown sales funnel/);
   });
 
   it('refuses a website-led funnel for a brand with no website', async () => {
@@ -299,7 +391,7 @@ describe('Sales Funnels Endpoints', () => {
     expect(res.body.error).toMatch(/no website/);
   });
 
-  it('lets a brand with no website declare the reply-led funnel', async () => {
+  it('lets a brand with no website use the reply-led funnel', async () => {
     const res = await request(app)
       .put(one(noWebsiteBrandId, 'reply_meeting'))
       .set(getAuthHeaders(ownerOrgId))
@@ -309,21 +401,17 @@ describe('Sales Funnels Endpoints', () => {
     expect(res.body.funnel.rates.replyToMeetingPct).toBe(35);
   });
 
-  // Auth
+  // ── Auth ───────────────────────────────────────────────────────────────────
   it('rejects a malformed brand id', async () => {
     const res = await request(app).get(list('not-a-uuid')).set(getAuthHeaders(ownerOrgId));
     expect(res.status).toBe(400);
   });
 
-  it("404s an unknown brand and 403s another org's brand", async () => {
-    const unknown = await request(app)
-      .get(list(unknownBrandId))
-      .set(getAuthHeaders(ownerOrgId));
+  it("404s an unknown brand and 403s a brand the org does not claim", async () => {
+    const unknown = await request(app).get(list(unknownBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(unknown.status).toBe(404);
 
-    const foreign = await request(app)
-      .get(list(foreignBrandId))
-      .set(getAuthHeaders(ownerOrgId));
+    const foreign = await request(app).get(list(foreignBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(foreign.status).toBe(403);
 
     const foreignWrite = await request(app)
@@ -333,132 +421,64 @@ describe('Sales Funnels Endpoints', () => {
     expect(foreignWrite.status).toBe(403);
   });
 
-  // Stating the WHOLE set — and the answer that has no other way to be given
-  it('states the whole set at once', async () => {
+  // ── The internal read ──────────────────────────────────────────────────────
+  it('serves only the ACTIVE funnels to a service caller, scoped by x-org-id', async () => {
     const res = await request(app)
-      .put(list(noWebsiteBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ funnelKeys: ['reply_meeting'] });
+      .get(`/internal/brands/${brandId}/sales-funnels`)
+      .set({ ...getInternalAuthHeaders(), 'x-org-id': ownerOrgId });
 
     expect(res.status).toBe(200);
+    const keys = res.body.funnels.map((f: any) => f.funnelKey);
+    // visit_form and visit_meeting were switched off by the set statement above.
+    expect(keys).toEqual(['reply_meeting', 'visit_signup']);
+    expect(res.body.funnels.every((f: any) => f.active)).toBe(true);
+    expect(res.body.funnels[0].currentGoal).toBe('meetingBooked');
+    // Deprecated compat flag: features-service throws on a payload without it.
     expect(res.body.declared).toBe(true);
-    expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual(['reply_meeting']);
   });
 
-  it('restating a set keeps the economics of the funnels still in it', async () => {
-    const res = await request(app)
-      .put(list(noWebsiteBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ funnelKeys: ['reply_meeting'] });
-
-    expect(res.status).toBe(200);
-    // Priced by an earlier test; restating the set must not wipe it.
-    expect(res.body.funnels[0].rates.replyToMeetingPct).toBe(35);
-  });
-
-  it('a funnel dropped from the set loses its declaration and its economics', async () => {
-    await request(app)
-      .put(list(noWebsiteBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ funnelKeys: [] });
-
-    const back = await request(app)
-      .put(list(noWebsiteBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ funnelKeys: ['reply_meeting'] });
-
-    expect(back.status).toBe(200);
-    expect(back.body.funnels[0].rates.replyToMeetingPct).toBeNull();
-  });
-
-  it('a brand can state it sells through NOTHING, and that is not the same as silence', async () => {
-    const res = await request(app)
-      .put(list(noWebsiteBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ funnelKeys: [] });
-
-    expect(res.status).toBe(200);
-    // The whole point: an empty list the brand STATED, versus the empty list of
-    // a brand that has never said anything. Same funnels, opposite answers.
-    expect(res.body).toEqual({ declared: true, funnels: [] });
-  });
-
-  it('removing the last funnel leaves the set STATED, not blank', async () => {
-    await request(app)
-      .put(one(noWebsiteBrandId, 'reply_meeting'))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({});
-    const res = await request(app)
-      .delete(one(noWebsiteBrandId, 'reply_meeting'))
-      .set(getAuthHeaders(ownerOrgId));
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ declared: true, funnels: [] });
-  });
-
-  it('rejects the whole set when one member cannot apply, writing nothing', async () => {
-    const before = await request(app)
-      .get(list(noWebsiteBrandId))
-      .set(getAuthHeaders(ownerOrgId));
-
-    const res = await request(app)
-      .put(list(noWebsiteBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ funnelKeys: ['reply_meeting', 'visit_signup'] });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/no website/);
-
-    const after = await request(app)
-      .get(list(noWebsiteBrandId))
-      .set(getAuthHeaders(ownerOrgId));
-    expect(after.body).toEqual(before.body);
-  });
-
-  it('rejects an unknown key in the set', async () => {
-    const res = await request(app)
-      .put(list(brandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ funnelKeys: ['visit_whatsapp'] });
-
-    expect(res.status).toBe(400);
-  });
-
-  // Internal read — what campaign-service arbitration ranks over
-  it('serves the declared set to a service caller with no org context', async () => {
+  it('refuses to guess when the brand is claimed by several orgs and no org is given', async () => {
     const res = await request(app)
       .get(`/internal/brands/${brandId}/sales-funnels`)
       .set(getInternalAuthHeaders());
 
-    expect(res.status).toBe(200);
-    expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual([
-      'reply_meeting',
-      'visit_signup',
-      'visit_form',
-    ]);
-    expect(res.body.declared).toBe(true);
-    expect(res.body.funnels[0].currentGoal).toBe('meetingBooked');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('ORG_REQUIRED');
   });
 
-  it('tells a service caller a brand has said nothing, rather than that it sells nothing', async () => {
-    // A real brand — it exists, it has simply never answered the question.
+  it('resolves the org itself when only one claims the brand', async () => {
     const res = await request(app)
-      .get(`/internal/brands/${foreignBrandId}/sales-funnels`)
+      .get(`/internal/brands/${noWebsiteBrandId}/sales-funnels`)
       .set(getInternalAuthHeaders());
 
     expect(res.status).toBe(200);
-    // A gap the caller must surface, NOT an empty set it should rank on.
-    expect(res.body).toEqual({ declared: false, funnels: [] });
+    expect(res.body.funnels.map((f: any) => f.funnelKey)).toEqual(['reply_meeting']);
   });
 
-  it('404s a brand it holds nothing for, rather than calling a bad id a gap', async () => {
+  it('answers a brand nobody claims with an empty set, not an error', async () => {
     const res = await request(app)
       .get(`/internal/brands/${unknownBrandId}/sales-funnels`)
       .set(getInternalAuthHeaders());
 
-    // The third answer. Served as `declared: false` it would read as a producer
-    // gap the caller should surface and wait on — but no statement is coming for
-    // a brand that does not exist.
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ funnels: [], declared: false });
+  });
+
+  // features-service refuses a payload whose `declared` is not a boolean, and
+  // reads `declared: false` as "this org has never answered". Both of its cases
+  // have to keep working byte-for-byte until it reads the list alone.
+  it('still answers the deprecated `declared` flag both ways, for features-service', async () => {
+    const answered = await request(app)
+      .get(`/internal/brands/${noWebsiteBrandId}/sales-funnels`)
+      .set(getInternalAuthHeaders());
+    expect(typeof answered.body.declared).toBe('boolean');
+    expect(answered.body.declared).toBe(true);
+    expect(answered.body.funnels.length).toBeGreaterThan(0);
+
+    const neverAnswered = await request(app)
+      .get(`/internal/brands/${unknownBrandId}/sales-funnels`)
+      .set(getInternalAuthHeaders());
+    expect(neverAnswered.body.declared).toBe(false);
+    expect(neverAnswered.body.funnels).toEqual([]);
   });
 });

@@ -344,6 +344,13 @@
       "when": 1785547437825,
       "tag": "0049_funnel_declarations_after_share_token_org",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785560000000,
+      "tag": "0050_org_scoped_brand_config",
+      "breakpoints": true
     }
   ]
 }
