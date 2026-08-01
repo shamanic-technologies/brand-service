@@ -40,6 +40,43 @@ export interface MultiBrandExtractFieldsOptions {
    * modes use disjoint cache slots.
    */
   mode?: ExtractionMode;
+  /**
+   * Field keys to REGENERATE from scratch, ignoring what the user already
+   * confirmed for them. Every listed key MUST also appear in `fields` — see
+   * `assertRegenerateKeysAreRequested`. For each listed key the confirmed value
+   * is withheld from the extraction prompt (in `extractFields`) AND from the
+   * response overlay below, so the caller receives the newly generated draft
+   * tagged `suggested`. Confirmed values for user-facing keys NOT listed here
+   * still apply, on both sides. Nothing is persisted or cleared.
+   */
+  regenerateFieldKeys?: string[];
+}
+
+/** Thrown when a regenerate key was not also requested in `fields` → 400 upstream. */
+export class UnrequestedRegenerateFieldKeyError extends Error {
+  constructor(public readonly key: string) {
+    super(
+      `regenerateFieldKeys contains "${key}", which is not among the requested fields. ` +
+        `A field can only be regenerated when it is also being extracted.`,
+    );
+    this.name = 'UnrequestedRegenerateFieldKeyError';
+  }
+}
+
+/**
+ * Every regenerate key must also be a requested field key. A key that is not
+ * requested has nothing to regenerate, so honouring it silently would let the
+ * caller believe a field was refreshed when it was never touched. Pure.
+ */
+export function assertRegenerateKeysAreRequested(
+  fieldKeys: string[],
+  regenerateFieldKeys: string[] | undefined,
+): void {
+  if (!regenerateFieldKeys || regenerateFieldKeys.length === 0) return;
+  const requested = new Set(fieldKeys);
+  for (const key of regenerateFieldKeys) {
+    if (!requested.has(key)) throw new UnrequestedRegenerateFieldKeyError(key);
+  }
 }
 
 export interface BrandMeta {
@@ -222,6 +259,9 @@ export async function multiBrandExtractFields(
   const { brandIds, fields, caller, scrapeCacheTtlDays, resetCache, urlStrategy } = options;
   const mode: ExtractionMode = options.mode ?? 'extract';
 
+  assertRegenerateKeysAreRequested(fields.map((f) => f.key), options.regenerateFieldKeys);
+  const regenerateKeys = new Set(options.regenerateFieldKeys ?? []);
+
   // Look up all brands first to validate and get domains
   const brandLookups = await Promise.all(brandIds.map((id) => getBrand(id)));
   const brandsMap = new Map<string, Brand>();
@@ -261,6 +301,7 @@ export async function multiBrandExtractFields(
         resetCache,
         urlStrategy,
         mode,
+        regenerateFieldKeys: options.regenerateFieldKeys,
       }),
     ),
   );
@@ -339,6 +380,13 @@ export async function multiBrandExtractFields(
   // missing a confirmed value on any brand → `suggested` (value stays the
   // auto-extract prefill). Any non-user-facing key → `extracted`. The `fields`
   // values shape is unchanged — this is purely additive.
+  //
+  // A key the caller asked to REGENERATE is deliberately NOT overlaid: the whole
+  // point of the call is to receive the newly generated draft rather than the
+  // stored confirmation. It is tagged `suggested` because that is exactly what
+  // the returned value is — an unsaved auto-extract prefill for the caller to
+  // review. The confirmed row itself is untouched and still wins on every other
+  // read until the user saves over it.
   const confirmedByBrandId = new Map<string, Map<string, ConfirmedUserField>>();
   await Promise.all(
     brandIds.map(async (id) => {
@@ -350,6 +398,11 @@ export async function multiBrandExtractFields(
   for (const key of fieldKeys) {
     if (!isUserFacingFieldKey(key)) {
       provenance[key] = 'extracted';
+      continue;
+    }
+
+    if (regenerateKeys.has(key)) {
+      provenance[key] = 'suggested';
       continue;
     }
 

@@ -601,6 +601,21 @@ export interface ExtractFieldsOptions {
    * persona that never returns "Unknown". Modes use disjoint cache slots.
    */
   mode?: ExtractionMode;
+  /**
+   * Field keys to REGENERATE from scratch, ignoring what the user already
+   * confirmed for them. For each listed key: the confirmed value is withheld
+   * from the client-validated profile block injected into the prompt, and the
+   * extraction cache is bypassed (the previously cached value was itself
+   * produced from a prompt carrying that confirmed value, so serving it back
+   * would return the user their own input again).
+   *
+   * Scoped ON PURPOSE: confirmed values for keys NOT listed here are still
+   * injected as authoritative, so regenerating the offer levers still sees the
+   * brand's confirmed `services`. Nothing is persisted or cleared here — the
+   * `brand_user_fields` rows are untouched; only the ephemeral extract cache
+   * slot for a regenerated key is refreshed with the new draft.
+   */
+  regenerateFieldKeys?: string[];
 }
 
 export async function extractFields(
@@ -609,6 +624,7 @@ export async function extractFields(
   const { brandId, fields, caller, resetCache } = options;
   const urlStrategy = options.urlStrategy ?? 'url_map';
   const mode: ExtractionMode = options.mode ?? 'extract';
+  const regenerateKeys = new Set(options.regenerateFieldKeys ?? []);
   const scrapeTtlDays = options.scrapeCacheTtlDays ?? DEFAULT_SCRAPE_CACHE_TTL_DAYS;
 
   const campaignId = caller.mode === 'org' ? caller.campaignId : undefined;
@@ -627,7 +643,10 @@ export async function extractFields(
 
     missingFields = [];
     for (const field of fields) {
-      const hit = cached.get(field.key);
+      // A regenerated key never serves from cache: the cached value was extracted
+      // under a prompt that carried the user's confirmed value as authoritative,
+      // so returning it would hand the user back their own previous input.
+      const hit = regenerateKeys.has(field.key) ? undefined : cached.get(field.key);
       if (hit) {
         cachedResults.push({
           key: field.key,
@@ -747,13 +766,28 @@ export async function extractFields(
     // context when a human has SAVED a profile version — the derived virtual-v1
     // (no saved version) is just our own past extractions, so injecting it would
     // feed the LLM its prior output and freeze earlier errors.
+    //
+    // A key the caller asked to REGENERATE is withheld from that block: the
+    // caller means "write this again from the website", so showing the model
+    // the confirmed value — under an instruction to prefer it — makes a new
+    // draft impossible. Only the listed keys are withheld, so the rest of the
+    // confirmed profile still grounds the regeneration (the offer levers are
+    // written FROM the brand's confirmed services).
     const profileResponse = await brandProfileService.getByBrandId(brandId);
+    const confirmedForPrompt = regenerateKeys.size === 0
+      ? profileResponse.confirmedFields
+      : Object.fromEntries(
+          Object.entries(profileResponse.confirmedFields).filter(([key]) => !regenerateKeys.has(key)),
+        );
     const profileContext = buildProfileContextBlock({
       hasConfirmed: profileResponse.hasConfirmed,
-      fields: profileResponse.confirmedFields,
+      fields: confirmedForPrompt,
     });
     if (profileContext) {
-      console.log(`[brand-service] [${brandId}] Injecting client-validated brand profile (${Object.keys(profileResponse.confirmedFields).length} confirmed field(s))`);
+      console.log(`[brand-service] [${brandId}] Injecting client-validated brand profile (${Object.keys(confirmedForPrompt).length} confirmed field(s))`);
+    }
+    if (regenerateKeys.size > 0) {
+      console.log(`[brand-service] [${brandId}] Regenerating ${regenerateKeys.size} field(s) — confirmed values withheld from the prompt and cache bypassed: ${[...regenerateKeys].join(', ')}`);
     }
 
     const fieldsDescription = missingFields
