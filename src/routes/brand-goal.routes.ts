@@ -65,8 +65,12 @@ internalRouter.get('/brands/:brandId/runtime-context', async (req: Request, res:
     const scope = await resolveInternalOrgScope(req, brandId);
     if (rejectInternalOrgScope(res, scope)) return;
 
-    const currentGoal = await getCurrentGoalByBrandId(scope.orgId, brandId);
-    if (!currentGoal) {
+    // A brand no org claims has no runtime context to serve — the 404 this
+    // route already returned for an unresolvable goal.
+    const currentGoal = scope.orgId
+      ? await getCurrentGoalByBrandId(scope.orgId, brandId)
+      : null;
+    if (!currentGoal || !scope.orgId) {
       return res.status(404).json({ error: 'Brand not found' });
     }
 

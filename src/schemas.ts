@@ -2257,6 +2257,9 @@ export const SalesFunnelRatesSchema = z
 // declaration is the row, and its numbers can arrive later.
 export const DeclareSalesFunnelRequestSchema = z
   .object({
+    // Switch the funnel on or off. Omitted = leave as stored (true on a first
+    // write, since configuring a funnel is saying you sell through it).
+    active: z.boolean().optional(),
     rates: SalesFunnelRatesSchema.optional(),
     lifetimeRevenueUsd: z.number().int().positive().nullable().optional(),
     destinationUrl: z.string().min(1).nullable().optional(),
@@ -2270,6 +2273,10 @@ export const DeclareSalesFunnelRequestSchema = z
 export const DeclaredSalesFunnelSchema = z
   .object({
     funnelKey: SalesFunnelKeySchema,
+    // Whether the org currently sells through this chain. An INACTIVE funnel
+    // keeps every number on it, so switching it back on returns what the user
+    // entered — which is why it is still listed on the org read.
+    active: z.boolean(),
     name: z.string(),
     steps: z.array(z.string()),
     // brand-service wire goal. Always brand-service's own spelling.
@@ -2288,22 +2295,22 @@ export const DeclaredSalesFunnelSchema = z
 // legal and is the ONLY way a brand can state it sells through nothing.
 export const StateSalesFunnelSetRequestSchema = z
   .object({
+    // Exactly these funnels are ACTIVE; every other one the org configured is
+    // switched off but KEPT with its numbers. May not be empty — an org that
+    // has answered sells through at least one funnel.
     funnelKeys: z.array(SalesFunnelKeySchema),
   })
   .openapi('StateSalesFunnelSetRequest');
 
-// READ response — what the brand has SAID about the funnels it sells through.
-// `declared` is what separates the two ways `funnels` can be empty, and they are
-// NOT the same answer:
-//   declared: true,  funnels: []  → the brand STATED it sells through none. A
-//     real answer: the brand is unrankable and a consumer should say so.
-//   declared: false, funnels: []  → the brand has never told us anything. A gap:
-//     surface it as one; do NOT render it as "sells through nothing" and do NOT
-//     substitute a plausible set.
-// Read `declared` BEFORE `funnels`.
+// READ response — the funnels this ORG sells this brand through.
+// An EMPTY list means the org has NEVER answered: a gap a consumer must surface,
+// never "sells through nothing". It cannot mean the latter, because an org that
+// has answered always keeps at least one ACTIVE funnel (switching off the last
+// one is refused), so "answered but none" is unreachable.
+// The ORG read lists active AND inactive funnels (the inactive ones carry the
+// numbers the screen has to show); the INTERNAL read lists only the active ones.
 export const GetSalesFunnelsResponseSchema = z
   .object({
-    declared: z.boolean(),
     funnels: z.array(DeclaredSalesFunnelSchema),
   })
   .openapi('GetSalesFunnelsResponse');
@@ -2333,11 +2340,10 @@ registry.registerPath({
   description:
     'The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime ' +
     'revenue, landing page and booking link. ' + SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
-    'Read `declared` BEFORE `funnels`: `declared: true` with an empty list means the brand STATED ' +
-    'it sells through none (a real answer — it is unrankable, say so), while `declared: false` ' +
-    'means it has never told us anything (a gap — surface it, do NOT render it as "sells through ' +
-    "nothing\"). The set can only be stated, never derived from the brand's stored economics (every " +
-    'rate there carries a server default, so absence signals nothing). ' +
+    'Lists ACTIVE and INACTIVE funnels alike: an inactive one keeps every number on it, so the ' +
+    'screen can show what the user entered and switching it back on returns it. An EMPTY list means ' +
+    'the org has NEVER answered — a gap, never "sells through nothing", which is unreachable because ' +
+    'an org that answered always keeps at least one funnel on. ' +
     "The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
@@ -2423,13 +2429,13 @@ registry.registerPath({
 registry.registerPath({
   method: 'delete',
   path: '/orgs/brands/{brandId}/sales-funnels/{funnelKey}',
-  summary: 'Undeclare a sales funnel',
+  summary: 'Switch a sales funnel off',
   description:
-    'The brand no longer sells through this funnel. Removing the declaration removes its economics ' +
-    'with it — a funnel a brand stopped selling through must not leave numbers behind that a ' +
-    'consumer could still rank on. Idempotent: undeclaring a funnel that was never declared is a ' +
-    '200 with the unchanged set. Does NOT un-state the set: a brand that removes its LAST funnel ' +
-    'keeps `declared: true`, because it has stated it sells through none. Returns the set that is left.',
+    'The org no longer sells through this funnel. The row and every number on it SURVIVE — that is ' +
+    'the point: switching it back on returns what the user already entered instead of an empty form. ' +
+    'Idempotent: switching off a funnel that is already off is a 200 with the unchanged set. ' +
+    'REFUSED (400) when it is the LAST active funnel — an org that has answered sells through at ' +
+    'least one. Returns the whole set, active and inactive.',
   request: {
     params: z.object({ brandId: z.string().uuid(), funnelKey: SalesFunnelKeySchema }),
   },
@@ -2455,11 +2461,12 @@ registry.registerPath({
     'the funnels a brand AUTHORIZES, each carrying the goal it optimizes for (`goal` on the ' +
     "brand-service wire, `currentGoal` as the runtime token) and the economics it is ranked on. " +
     SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
-    'Read `declared` BEFORE `funnels`: `declared: true` with an empty list is the brand stating it ' +
-    'sells through NONE (report it unrankable), `declared: false` is a producer gap (surface it). ' +
-    'Do NOT substitute a plausible set, and do NOT derive one from the stored economics. ' +
-    'A brand id we hold nothing for is a THIRD answer and is rejected 404, never served as ' +
-    '`declared: false` — that would report a bad id as a gap waiting to be filled.',
+    'Returns ONLY the funnels the org currently sells through — a funnel switched off must never be ' +
+    'ranked. An EMPTY list means the org has never answered: surface it as a gap, do NOT substitute a ' +
+    'plausible set and do NOT derive one from the stored economics. ' +
+    'The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the ' +
+    'brand, and the read is rejected 400 `ORG_REQUIRED` when several do — each org configures the ' +
+    'brand independently, so there is no shared answer to guess at.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
     200: {

@@ -24,8 +24,14 @@ import { db, orgBrands } from '../db';
  */
 
 export type InternalOrgScope =
+  // Resolved to exactly one org.
   | { ok: true; orgId: string }
-  | { ok: false; status: 400 | 404; error: string; code: string };
+  // No org claims this brand, so there is no configuration to read — which is
+  // "unset", NOT an error. The internal reads answer unset with their own empty
+  // shape (`null`, `[]`), and that contract predates this scoping: an unknown or
+  // unclaimed brand has never been a 404 there.
+  | { ok: true; orgId: null }
+  | { ok: false; status: 400; error: string; code: string };
 
 export async function resolveInternalOrgScope(
   req: Request,
@@ -43,14 +49,7 @@ export async function resolveInternalOrgScope(
     .where(eq(orgBrands.brandId, brandId))
     .limit(2);
 
-  if (claims.length === 0) {
-    return {
-      ok: false,
-      status: 404,
-      code: 'BRAND_NOT_CLAIMED',
-      error: `No org claims brand ${brandId}, so it has no configuration to read.`,
-    };
-  }
+  if (claims.length === 0) return { ok: true, orgId: null };
 
   if (claims.length > 1) {
     return {
@@ -67,7 +66,10 @@ export async function resolveInternalOrgScope(
 }
 
 /** Writes the failure response and returns true; false when the scope resolved. */
-export function rejectInternalOrgScope(res: Response, scope: InternalOrgScope): scope is Extract<InternalOrgScope, { ok: false }> {
+export function rejectInternalOrgScope(
+  res: Response,
+  scope: InternalOrgScope
+): scope is Extract<InternalOrgScope, { ok: false }> {
   if (scope.ok) return false;
   res.status(scope.status).json({ error: scope.error, code: scope.code });
   return true;

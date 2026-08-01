@@ -239,17 +239,17 @@ internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: R
       return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
     }
 
-    const brand = await getBrand(brandId);
-    if (!brand) {
-      return res.status(404).json({ error: 'Brand not found' });
-    }
-
+    // An unknown or unclaimed brand simply has nothing configured. Unset is a
+    // 200 with an empty set here, never a 404 — the same contract the internal
+    // sales-economics read has always had.
     const scope = await resolveInternalOrgScope(req, brandId);
     if (rejectInternalOrgScope(res, scope)) return;
 
     // ACTIVE only: a scheduler asking what this org sells through must never
     // rank a funnel the org switched off.
-    const set = await salesFunnelsService.readActiveByBrandId(scope.orgId, brandId);
+    const set = scope.orgId
+      ? await salesFunnelsService.readActiveByBrandId(scope.orgId, brandId)
+      : { funnels: [] };
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Internal get sales funnels error:', error);

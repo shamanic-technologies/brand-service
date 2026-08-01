@@ -34,7 +34,7 @@ describe('Internal sales-economics read', () => {
       await db.insert(orgBrands).values({ orgId, brandId: id });
     }
     // Seed saved economics with an explicit optimizationGoal via the service.
-    await salesEconomicsService.upsertByBrandId(savedBrandId, {
+    await salesEconomicsService.upsertByBrandId(orgId, savedBrandId, {
       lifetimeRevenueUsd: 5000,
       replyToMeetingPct: 10,
       visitToMeetingPct: 5,
@@ -44,7 +44,7 @@ describe('Internal sales-economics read', () => {
       optimizationGoal: 'booked_meetings',
     });
     // Seed a brand set to the form_submissions goal via the service.
-    await salesEconomicsService.upsertByBrandId(formSubBrandId, {
+    await salesEconomicsService.upsertByBrandId(orgId, formSubBrandId, {
       lifetimeRevenueUsd: 3000,
       replyToMeetingPct: 10,
       visitToMeetingPct: 5,
@@ -121,7 +121,7 @@ describe('Internal sales-economics read', () => {
   });
 
   it('runtime candidate-selection read resolves to the existing signup goal', async () => {
-    const currentGoal = await getCurrentGoalByBrandId(formSubBrandId);
+    const currentGoal = await getCurrentGoalByBrandId(orgId, formSubBrandId);
     expect(currentGoal).toBe('signup');
   });
 });

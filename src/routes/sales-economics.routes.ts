@@ -178,7 +178,11 @@ internalRouter.get('/brands/:brandId/sales-economics', async (req: Request, res:
     const scope = await resolveInternalOrgScope(req, brandId);
     if (rejectInternalOrgScope(res, scope)) return;
 
-    const salesEconomics = await salesEconomicsService.getByBrandId(scope.orgId, brandId);
+    // No org claims the brand => nothing configured. Unset is a 200 with null
+    // here (it always has been), never a 404.
+    const salesEconomics = scope.orgId
+      ? await salesEconomicsService.getByBrandId(scope.orgId, brandId)
+      : null;
     return res.status(200).json({ salesEconomics });
   } catch (error: any) {
     console.error('[brand-service] Internal get sales economics error:', error);
