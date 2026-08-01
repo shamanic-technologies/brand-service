@@ -26,11 +26,7 @@ import {
   formatDeclaredFunnel,
   normalizeBookingUrl,
 } from '../../src/services/salesFunnelsService';
-import {
-  currentGoalToLegacyOptimizationGoal,
-  legacyOptimizationGoalToCurrentGoal,
-  resolveWireOptimizationGoal,
-} from '../../src/services/brandGoalService';
+import { CANONICAL_GOALS, toCurrentGoal } from '../../src/services/brandGoalService';
 import { ClickDestinationValidationError } from '../../src/services/clickDestinationService';
 
 /**
@@ -77,20 +73,23 @@ describe('sales funnel catalogue', () => {
     }
   });
 
-  it("emits brand-service's own goal spelling, never the dashboard's local one", () => {
+  it('names each funnel\'s goal in the canonical vocabulary, and nothing else', () => {
     const goals = SALES_FUNNELS.map((f) => f.goal);
-    expect(goals).toEqual(['booked_meetings', 'booked_meetings', 'signups', 'form_submissions']);
-    expect(goals).not.toContain('sales_meetings');
+    expect(goals).toEqual([
+      'meetingBooked',
+      'meetingBooked',
+      'signup',
+      // Form submission is its own goal — it no longer collapses onto signup.
+      'formSubmission',
+    ]);
+    for (const goal of goals) expect(CANONICAL_GOALS).toContain(goal);
   });
 
   it('resolves each funnel to the runtime goal features-service selects on', () => {
-    expect(SALES_FUNNELS.map((f) => currentGoalForFunnel(f))).toEqual([
-      'meetingBooked',
-      'meetingBooked',
-      'signup',
-      // form_submissions collapses to the signup runtime goal, unchanged.
-      'signup',
-    ]);
+    // One vocabulary, so the runtime goal IS the funnel's goal.
+    expect(SALES_FUNNELS.map((f) => currentGoalForFunnel(f))).toEqual(
+      SALES_FUNNELS.map((f) => f.goal)
+    );
   });
 
   it('rejects an unknown funnel key rather than guessing one', () => {
@@ -200,9 +199,9 @@ describe('a declared funnel reads back only its own chain', () => {
     expect(funnel.rates.signupToPaidClientPct).toBeNull();
   });
 
-  it('carries the goal in both vocabularies so no consumer maps it itself', () => {
+  it('carries the canonical goal on both fields so no consumer maps it itself', () => {
     const funnel = formatDeclaredFunnel(row);
-    expect(funnel.goal).toBe('signups');
+    expect(funnel.goal).toBe('signup');
     expect(funnel.currentGoal).toBe('signup');
   });
 
@@ -230,28 +229,28 @@ describe('booking link', () => {
 });
 
 /**
- * One goal, one authority. `brands.current_goal` answers what a brand optimizes
- * for; the stored economics spelling only tells two wire values that share a
- * runtime goal apart. Accepting the dashboard's spelling on write removes the
- * drift without adding a second thing brand-service can say.
+ * One goal, one authority, one vocabulary. `brands.current_goal` answers what a
+ * brand optimizes for, in a canonical token, and that token is what every read
+ * emits. Accepting the dashboard's own spelling on write removes the drift at
+ * its source without giving brand-service a second thing to say.
  */
 describe('goal vocabulary', () => {
   it("understands the dashboard's sales_meetings as the booked-meeting goal", () => {
-    expect(legacyOptimizationGoalToCurrentGoal('sales_meetings')).toBe('meetingBooked');
-    expect(legacyOptimizationGoalToCurrentGoal('booked_meetings')).toBe('meetingBooked');
+    expect(toCurrentGoal('sales_meetings')).toBe('meetingBooked');
+    expect(toCurrentGoal('booked_meetings')).toBe('meetingBooked');
   });
 
-  it('never emits sales_meetings — every read answers booked_meetings', () => {
-    expect(currentGoalToLegacyOptimizationGoal('meetingBooked')).toBe('booked_meetings');
-    expect(resolveWireOptimizationGoal('meetingBooked', 'sales_meetings')).toBe('booked_meetings');
-    expect(resolveWireOptimizationGoal('meetingBooked', 'booked_meetings')).toBe('booked_meetings');
+  it('never emits sales_meetings — every read answers meetingBooked', () => {
+    expect(CANONICAL_GOALS).not.toContain('sales_meetings');
+    expect(CANONICAL_GOALS).not.toContain('booked_meetings');
+    expect(CANONICAL_GOALS).toContain('meetingBooked');
   });
 
-  it('still recovers the two real sub-type spellings from the stored column', () => {
-    expect(resolveWireOptimizationGoal('signup', 'form_submissions')).toBe('form_submissions');
-    expect(resolveWireOptimizationGoal('purchase', 'website_purchase')).toBe('website_purchase');
-    // …and collapses to the base spelling when the stored one is not a sub-type.
-    expect(resolveWireOptimizationGoal('signup', 'signups')).toBe('signups');
-    expect(resolveWireOptimizationGoal('purchase', 'sales')).toBe('sales');
+  it('has no sub-type left to recover — the two former ones are goals of their own', () => {
+    expect(toCurrentGoal('form_submissions')).toBe('formSubmission');
+    expect(toCurrentGoal('website_purchase')).toBe('websitePurchase');
+    // …and their base spellings resolve to the same canonical tokens.
+    expect(toCurrentGoal('signups')).toBe('signup');
+    expect(toCurrentGoal('sales')).toBe('websitePurchase');
   });
 });

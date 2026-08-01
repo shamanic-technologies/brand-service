@@ -1652,7 +1652,7 @@
                     }
                   },
                   "optimizationGoal": {
-                    "$ref": "#/components/schemas/OptimizationGoal"
+                    "$ref": "#/components/schemas/CurrentGoal"
                   },
                   "updatedAt": {
                     "type": "string"
@@ -1684,19 +1684,17 @@
           "sales_meeting"
         ]
       },
-      "OptimizationGoal": {
+      "CurrentGoal": {
         "type": "string",
         "enum": [
-          "signups",
-          "booked_meetings",
-          "sales_meetings",
-          "sales",
-          "website_visits",
-          "positive_replies",
-          "form_submissions",
-          "whatsapp_conversations",
-          "website_purchase",
-          "combined_sales"
+          "signup",
+          "meetingBooked",
+          "websitePurchase",
+          "combinedSales",
+          "websiteVisit",
+          "positiveReply",
+          "formSubmission",
+          "whatsappConversation"
         ]
       },
       "SalesEconomicsMetrics": {
@@ -1793,7 +1791,7 @@
                     }
                   },
                   "optimizationGoal": {
-                    "$ref": "#/components/schemas/OptimizationGoal"
+                    "$ref": "#/components/schemas/CurrentGoal"
                   },
                   "updatedAt": {
                     "type": "string"
@@ -1890,6 +1888,30 @@
           }
         }
       },
+      "OptimizationGoal": {
+        "type": "string",
+        "enum": [
+          "signup",
+          "meetingBooked",
+          "websitePurchase",
+          "combinedSales",
+          "websiteVisit",
+          "positiveReply",
+          "formSubmission",
+          "whatsappConversation",
+          "signups",
+          "booked_meetings",
+          "sales_meetings",
+          "sales",
+          "website_purchase",
+          "combined_sales",
+          "website_visits",
+          "positive_replies",
+          "form_submissions",
+          "whatsapp_conversations",
+          "purchase"
+        ]
+      },
       "GetSalesFunnelsResponse": {
         "type": "object",
         "properties": {
@@ -1923,7 +1945,7 @@
             }
           },
           "goal": {
-            "$ref": "#/components/schemas/OptimizationGoal"
+            "$ref": "#/components/schemas/CurrentGoal"
           },
           "currentGoal": {
             "$ref": "#/components/schemas/CurrentGoal"
@@ -1972,18 +1994,6 @@
           "visit_meeting",
           "visit_signup",
           "visit_form"
-        ]
-      },
-      "CurrentGoal": {
-        "type": "string",
-        "enum": [
-          "signup",
-          "meetingBooked",
-          "purchase",
-          "websiteVisit",
-          "positiveReply",
-          "whatsappConversation",
-          "combinedSales"
         ]
       },
       "StateSalesFunnelSetRequest": {
@@ -2176,7 +2186,7 @@
         "type": "object",
         "properties": {
           "currentGoal": {
-            "$ref": "#/components/schemas/CurrentGoal"
+            "$ref": "#/components/schemas/OptimizationGoal"
           }
         },
         "required": [
@@ -4687,7 +4697,7 @@
     "/orgs/brands/{brandId}/sales-economics": {
       "get": {
         "summary": "Get a brand's saved sales conversion economics",
-        "description": "Returns the saved economics for the brand (conversion metrics incl. the two self-serve sub-rates `visitToSignupPct` + `signupToPaidClientPct`, plus the DERIVED `visitToClosePct` = visitToSignupPct * signupToPaidClientPct / 100, + `businessModel` + `funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array (`[]` when never set), `optimizationGoal` always a value (`\"sales\"` when never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Returns the saved economics for the brand (conversion metrics incl. the two self-serve sub-rates `visitToSignupPct` + `signupToPaidClientPct`, plus the DERIVED `visitToClosePct` = visitToSignupPct * signupToPaidClientPct / 100, + `businessModel` + `funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array (`[]` when never set), `optimizationGoal` always a CANONICAL goal token (`\"websitePurchase\"` when never set). Unset is NOT a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {
@@ -4726,7 +4736,7 @@
       },
       "put": {
         "summary": "Upsert a brand's sales conversion economics",
-        "description": "Idempotent PARTIAL write. EVERY field is optional: what you send is written, what you OMIT is left unchanged — so a screen editing one value (e.g. only `lifetimeRevenueUsd`) sends only that value and cannot overwrite the rest with a stale copy of them. Sending the full set behaves as before. EXCEPTION — a brand with NO stored economics has nothing to leave unchanged, so the six core metrics (`lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct`) are ALL required on that first write; a partial payload there is rejected 400 with a `missing` array (never defaulted, never averaged). Percents are 0..100, decimals allowed. `visitToClosePct` is NOT accepted on the request — it is DERIVED on the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent is ignored. Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` (`signups` | `booked_meetings` | `sales` | `website_visits` | `positive_replies` | `form_submissions`): omitting leaves it unchanged, sending sets it. Optional `visitToFormSubmissionPct` + `formSubmissionToPaidClientPct` (form_submissions two-step rates): omitting leaves them unchanged. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "description": "Idempotent PARTIAL write. EVERY field is optional: what you send is written, what you OMIT is left unchanged — so a screen editing one value (e.g. only `lifetimeRevenueUsd`) sends only that value and cannot overwrite the rest with a stale copy of them. Sending the full set behaves as before. EXCEPTION — a brand with NO stored economics has nothing to leave unchanged, so the six core metrics (`lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, `visitToSignupPct`, `signupToPaidClientPct`) are ALL required on that first write; a partial payload there is rejected 400 with a `missing` array (never defaulted, never averaged). Percents are 0..100, decimals allowed. `visitToClosePct` is NOT accepted on the request — it is DERIVED on the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent is ignored. Optional `businessModel` (`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, sending the array (including `[]`) sets it. Optional `optimizationGoal` — any canonical token (`signup` | `meetingBooked` | `websitePurchase` | `combinedSales` | `websiteVisit` | `positiveReply` | `formSubmission` | `whatsappConversation`) OR any legacy spelling (`signups`, `booked_meetings`, `sales_meetings`, `sales`, `website_purchase`, `combined_sales`, `website_visits`, `positive_replies`, `form_submissions`, `whatsapp_conversations`, `purchase`), which is resolved to its canonical token and echoed back canonical: omitting leaves it unchanged, sending sets it. Optional `visitToFormSubmissionPct` + `formSubmissionToPaidClientPct` (form_submissions two-step rates): omitting leaves them unchanged. Invalid enum values are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
         "parameters": [
           {
             "schema": {
@@ -4776,7 +4786,7 @@
     "/internal/brands/{brandId}/sales-economics": {
       "get": {
         "summary": "Internal read of a brand's saved sales economics (incl. optimizationGoal)",
-        "description": "Internal api-key read of a brand SAVED economics — keyed by brandId, NO org context. Built for campaign-service (a scheduler running as a service): it reads `optimizationGoal` (the brand current optimization goal) once per per-lead loop to drive workflow selection. Returns the brand OWN saved set (NOT the cross-brand-average effective one — a brand goal must be the brand own, never an average), or `{ salesEconomics: null }` when the brand has never saved economics. Unset is NOT a 404.",
+        "description": "Internal api-key read of a brand SAVED economics — keyed by brandId, NO org context. Built for campaign-service (a scheduler running as a service): it reads `optimizationGoal` (the brand current optimization goal, a canonical token) once per per-lead loop to drive workflow selection. Returns the brand OWN saved set (NOT the cross-brand-average effective one — a brand goal must be the brand own, never an average), or `{ salesEconomics: null }` when the brand has never saved economics. Unset is NOT a 404.",
         "parameters": [
           {
             "schema": {
@@ -5005,7 +5015,7 @@
     "/internal/brands/{brandId}/sales-funnels": {
       "get": {
         "summary": "Internal read of the funnels a brand has declared",
-        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for (`goal` on the brand-service wire, `currentGoal` as the runtime token) and the economics it is ranked on. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Returns ONLY the funnels the org currently sells through — a funnel switched off must never be ranked. An EMPTY list means the org has never answered: surface it as a gap, do NOT substitute a plausible set and do NOT derive one from the stored economics. The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the brand, and the read is rejected 400 `ORG_REQUIRED` when several do — each org configures the brand independently, so there is no shared answer to guess at.",
+        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for and the economics it is ranked on. `goal` and `currentGoal` carry the SAME canonical token — one vocabulary; `goal` is kept as a byte-stable alias. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Returns ONLY the funnels the org currently sells through — a funnel switched off must never be ranked. An EMPTY list means the org has never answered: surface it as a gap, do NOT substitute a plausible set and do NOT derive one from the stored economics. The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the brand, and the read is rejected 400 `ORG_REQUIRED` when several do — each org configures the brand independently, so there is no shared answer to guess at.",
         "parameters": [
           {
             "schema": {

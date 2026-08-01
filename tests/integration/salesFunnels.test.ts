@@ -194,13 +194,13 @@ describe('Sales Funnels Endpoints', () => {
     expect(Object.values(res.body.funnel.rates).every((v) => v === null)).toBe(true);
   });
 
-  it('carries the goal in both vocabularies', async () => {
+  it('carries the canonical goal on both fields', async () => {
     const res = await request(app).get(list(brandId)).set(getAuthHeaders(ownerOrgId));
     const byKey = Object.fromEntries(res.body.funnels.map((f: any) => [f.funnelKey, f]));
-    expect(byKey.reply_meeting.goal).toBe('booked_meetings');
+    expect(byKey.reply_meeting.goal).toBe('meetingBooked');
     expect(byKey.reply_meeting.currentGoal).toBe('meetingBooked');
-    expect(byKey.visit_form.goal).toBe('form_submissions');
-    expect(byKey.visit_form.currentGoal).toBe('signup');
+    expect(byKey.visit_form.goal).toBe('formSubmission');
+    expect(byKey.visit_form.currentGoal).toBe('formSubmission');
   });
 
   // ── Switching off keeps the numbers ────────────────────────────────────────

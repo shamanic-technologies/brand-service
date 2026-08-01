@@ -1,104 +1,49 @@
-import { describe, it, expect, vi } from 'vitest';
-
-// brandGoalService transitively imports ../db (throws at import without a DB url).
-// The functions under test are pure — stub the db module (CI test:unit has no DB).
-vi.mock('../../src/db', () => ({
-  db: {},
-  brands: {},
-  brandSalesEconomics: {},
-}));
+import { describe, it, expect } from 'vitest';
 
 import {
-  legacyOptimizationGoalToCurrentGoal,
-  currentGoalToLegacyOptimizationGoal,
-  resolveWireOptimizationGoal,
-  CURRENT_GOALS,
-} from '../../src/services/brandGoalService';
+  CANONICAL_GOALS,
+  toCurrentGoal,
+} from '../../src/lib/goal-vocabulary';
 
 /**
- * Two distinct changes, verified together to prove they NEVER collide:
+ * The `sales` collision, pinned from both sides.
  *
- *  1. NEW combined "Sales" goal (`combined_sales` / `combinedSales`) — Pattern A,
- *     a dedicated runtime goal (paying clients via reply OR visit, at CLTV),
- *     1:1 in both directions, reusing the existing reply→paid + visit→paid rates.
+ * brand-service has stored `sales` as WEBSITE PURCHASE since the goal existed,
+ * while the dashboard and features-service spell their COMBINED goal `sales`.
+ * Reading one as the other bucketed every website-purchase brand under combined
+ * sales in the cross-org fleet benchmark (distribute.you#3214).
  *
- *  2. "website purchase" rename — `website_purchase` is the NEW preferred wire
- *     spelling of the SAME website-purchase goal, a wire-only sub-type of the
- *     `purchase` current-goal. The LEGACY `sales` spelling stays accepted
- *     (backward-compat) and is what the internal read collapses to.
+ * The canonical vocabulary removes the collision by never using the word at all:
+ * website purchase is `websitePurchase`, the combined goal is `combinedSales`,
+ * and the bare `sales` survives only as a legacy INPUT spelling that resolves —
+ * unchangeably — to website purchase.
  */
-describe('combined "Sales" goal (combined_sales / combinedSales)', () => {
-  it('legacy → current: combined_sales → combinedSales', () => {
-    expect(legacyOptimizationGoalToCurrentGoal('combined_sales')).toBe('combinedSales');
-  });
-
-  it('current → legacy: combinedSales → combined_sales', () => {
-    expect(currentGoalToLegacyOptimizationGoal('combinedSales')).toBe('combined_sales');
-  });
-
-  it('round-trips 1:1 (dedicated runtime goal, not a sub-type)', () => {
-    const legacy = currentGoalToLegacyOptimizationGoal('combinedSales');
-    expect(legacyOptimizationGoalToCurrentGoal(legacy)).toBe('combinedSales');
-  });
-
-  it('wire read is a straight 1:1 mapping — stored column is not consulted', () => {
-    expect(resolveWireOptimizationGoal('combinedSales', null)).toBe('combined_sales');
-    expect(resolveWireOptimizationGoal('combinedSales', 'combined_sales')).toBe('combined_sales');
-    // A stale website_purchase/sales column under this goal is ignored.
-    expect(resolveWireOptimizationGoal('combinedSales', 'website_purchase')).toBe('combined_sales');
-    expect(resolveWireOptimizationGoal('combinedSales', 'sales')).toBe('combined_sales');
-  });
-
-  it('combinedSales is a first-class member of CURRENT_GOALS', () => {
-    expect(CURRENT_GOALS).toContain('combinedSales');
-  });
-});
-
-describe('"website purchase" rename (website_purchase / sales → purchase)', () => {
-  it('new spelling: website_purchase → purchase (same runtime goal as legacy sales)', () => {
-    expect(legacyOptimizationGoalToCurrentGoal('website_purchase')).toBe('purchase');
-  });
-
-  it('legacy spelling still accepted: sales → purchase (backward-compat)', () => {
-    expect(legacyOptimizationGoalToCurrentGoal('sales')).toBe('purchase');
-  });
-
-  it('internal read collapses purchase to the runtime-safe legacy spelling `sales`', () => {
-    // currentGoalToLegacyOptimizationGoal is the INTERNAL (campaign-service) read —
-    // must stay `sales` so campaign-service never sees a new value.
-    expect(currentGoalToLegacyOptimizationGoal('purchase')).toBe('sales');
-  });
-
-  it('org read recovers website_purchase from the stored column (sub-type of purchase)', () => {
-    // Base value: no/`sales` stored column → `sales`.
-    expect(resolveWireOptimizationGoal('purchase', null)).toBe('sales');
-    expect(resolveWireOptimizationGoal('purchase', 'sales')).toBe('sales');
-    // Sub-type: stored `website_purchase` round-trips on the org read.
-    expect(resolveWireOptimizationGoal('purchase', 'website_purchase')).toBe('website_purchase');
-  });
-});
-
-describe('collision safety — website-purchase can NEVER become the combined goal', () => {
-  it('every website-purchase wire spelling maps to purchase, never combinedSales', () => {
-    for (const wire of ['sales', 'website_purchase'] as const) {
-      const current = legacyOptimizationGoalToCurrentGoal(wire);
-      expect(current).toBe('purchase');
-      expect(current).not.toBe('combinedSales');
+describe('the combined goal and website purchase never collide', () => {
+  it('resolves every website-purchase spelling to websitePurchase, never combinedSales', () => {
+    for (const wire of ['sales', 'website_purchase', 'purchase', 'websitePurchase'] as const) {
+      expect(toCurrentGoal(wire)).toBe('websitePurchase');
+      expect(toCurrentGoal(wire)).not.toBe('combinedSales');
     }
   });
 
-  it('the combined goal uses a distinct token never emitted for a purchase brand', () => {
-    // A purchase brand reads back only `sales`/`website_purchase`, never `combined_sales`.
-    expect(resolveWireOptimizationGoal('purchase', null)).not.toBe('combined_sales');
-    expect(resolveWireOptimizationGoal('purchase', 'website_purchase')).not.toBe('combined_sales');
-    // combined_sales resolves to a DIFFERENT current-goal than purchase.
-    expect(legacyOptimizationGoalToCurrentGoal('combined_sales')).not.toBe('purchase');
+  it('resolves every combined spelling to combinedSales, never websitePurchase', () => {
+    for (const wire of ['combined_sales', 'combinedSales'] as const) {
+      expect(toCurrentGoal(wire)).toBe('combinedSales');
+      expect(toCurrentGoal(wire)).not.toBe('websitePurchase');
+    }
   });
 
-  it('does not disturb the existing goals', () => {
-    expect(legacyOptimizationGoalToCurrentGoal('signups')).toBe('signup');
-    expect(legacyOptimizationGoalToCurrentGoal('form_submissions')).toBe('signup');
-    expect(legacyOptimizationGoalToCurrentGoal('whatsapp_conversations')).toBe('whatsappConversation');
-    expect(resolveWireOptimizationGoal('signup', 'form_submissions')).toBe('form_submissions');
+  it('emits neither goal as a bare `sales`, so the word cannot be misread again', () => {
+    expect(CANONICAL_GOALS).not.toContain('sales');
+    expect(CANONICAL_GOALS).toContain('websitePurchase');
+    expect(CANONICAL_GOALS).toContain('combinedSales');
+  });
+
+  it('leaves the other goals alone', () => {
+    expect(toCurrentGoal('signups')).toBe('signup');
+    expect(toCurrentGoal('booked_meetings')).toBe('meetingBooked');
+    expect(toCurrentGoal('whatsapp_conversations')).toBe('whatsappConversation');
+    // Form submission no longer collapses onto signup — it is its own goal.
+    expect(toCurrentGoal('form_submissions')).toBe('formSubmission');
   });
 });
