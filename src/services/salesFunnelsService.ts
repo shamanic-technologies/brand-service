@@ -1,16 +1,19 @@
-import { and, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, eq, notInArray } from 'drizzle-orm';
 import { db, brandSalesFunnels } from '../db';
-import type { CurrentGoal } from './brandGoalService';
 import {
   SALES_FUNNELS,
   SalesFunnelDef,
   SalesFunnelKey,
   SalesFunnelRateKey,
-  currentGoalForFunnel,
   funnelPricesRate,
   funnelRateKeys,
   salesFunnelByKey,
 } from './salesFunnelCatalogue';
+import {
+  funnelKeysForRetiredGoal,
+  type RetiredGoal,
+  type RetiredGoalContext,
+} from '../lib/goal-vocabulary';
 import {
   ClickDestinationValidationError,
   assertClickDestinationOnBrandDomain,
@@ -29,8 +32,10 @@ import {
  * chooses one itself, knowing it is choosing.
  *
  * This is the layer campaign-service arbitration reads: the funnels a brand
- * authorizes, each carrying the goal it optimizes for and the economics it is
- * ranked on.
+ * authorizes and the economics each is ranked on. A funnel carries NO goal —
+ * that vocabulary is retired, and the funnel key is the whole answer to "what
+ * does this brand sell through?". See `src/lib/goal-vocabulary.ts` for what
+ * survives of the goal, which is write tolerance and nothing else.
  */
 
 /**
@@ -64,13 +69,10 @@ export interface DeclaredSalesFunnel {
   /** The chain the rates below price. */
   steps: string[];
   /**
-   * The canonical goal a campaign on this funnel optimizes for. Same token as
-   * `currentGoal` — one vocabulary — kept as a byte-stable alias for the
-   * deployed consumer that reads it first.
+   * NO GOAL. A funnel used to carry one beside its key, and it is retired: it
+   * was the poorer word (both meeting funnels mapped onto one `meetingBooked`,
+   * so no consumer could price them apart). The KEY is the whole answer.
    */
-  goal: CurrentGoal;
-  /** Canonical runtime goal — what features-service selects candidates on. */
-  currentGoal: CurrentGoal;
   /** Exactly the rates THIS funnel's chain prices, in chain order. */
   rates: Record<string, number | null>;
   lifetimeRevenueUsd: number | null;
@@ -195,8 +197,6 @@ export function formatDeclaredFunnel(row: FunnelRow): DeclaredSalesFunnel {
     active: row.active,
     name: def.name,
     steps: def.steps,
-    goal: def.goal,
-    currentGoal: currentGoalForFunnel(def),
     rates,
     lifetimeRevenueUsd: row.lifetimeRevenueUsd ?? null,
     destinationUrl: row.destinationUrl ?? null,
@@ -242,6 +242,53 @@ export class LastActiveSalesFunnelError extends Error {
     );
     this.name = 'LastActiveSalesFunnelError';
   }
+}
+
+/**
+ * Thrown when a caller sends a retired goal that names no funnel at all (→ 400).
+ *
+ * Only `whatsappConversation` reaches this: the catalogue has no whatsapp chain,
+ * so there is nothing the goal could declare. Fail loud rather than accept a
+ * write that would silently declare nothing — a 200 there would tell the caller
+ * the brand now sells through something it does not.
+ */
+export class RetiredGoalNamesNoFunnelError extends Error {
+  constructor(public readonly goal: RetiredGoal) {
+    super(
+      `The goal "${goal}" names no sales funnel: the catalogue has no chain for it, so there is ` +
+      'nothing it can declare. State the funnels this brand sells through instead.'
+    );
+    this.name = 'RetiredGoalNamesNoFunnelError';
+  }
+}
+
+/**
+ * Resolve a retired goal to the funnel(s) it named, or throw.
+ *
+ * Separate from the write so a caller can settle "can this goal be honoured?"
+ * BEFORE it starts writing anything of its own. The sales-economics PUT needs
+ * that: it stores metrics and declares a funnel in one call, and a goal that
+ * cannot be declared has to reject the whole thing rather than leave the metrics
+ * saved under a word that says nothing.
+ *
+ * Returns the keys so the caller does not resolve the mapping twice.
+ */
+export function assertRetiredGoalDeclarable(
+  goal: RetiredGoal,
+  context: RetiredGoalContext,
+  brandDomain: string | null
+): SalesFunnelKey[] {
+  const keys = funnelKeysForRetiredGoal(goal, context);
+  if (keys.length === 0) throw new RetiredGoalNamesNoFunnelError(goal);
+
+  for (const key of keys) {
+    const def = salesFunnelByKey(key);
+    if (def.requiresWebsite && !brandDomain) {
+      throw new SalesFunnelRequiresWebsiteError(key);
+    }
+  }
+
+  return keys;
 }
 
 export class SalesFunnelsService {
@@ -403,6 +450,48 @@ export class SalesFunnelsService {
           brandSalesFunnels.brandId,
           brandSalesFunnels.funnelKey,
         ],
+        set: { active: true, updatedAt: new Date().toISOString() },
+      });
+
+    return this.readByBrandId(orgId, brandId);
+  }
+
+  /**
+   * WRITE TOLERANCE for the retired goal vocabulary: declare the funnel(s) a
+   * goal a caller sent MEANT, and answer with the funnel set.
+   *
+   * A caller still sending yesterday's word keeps working, and what it gets back
+   * is a funnel — the only vocabulary this service emits. The mapping is
+   * `funnelKeysForRetiredGoal`, the same one the one-time backfill inverted, so
+   * a brand lands on the same declaration whichever way its goal arrived.
+   *
+   * ADDITIVE, never destructive. It switches the named funnels ON and leaves
+   * every other declaration exactly as stored, numbers included. A goal was one
+   * word and the model is multi-funnel, so treating a goal write as "these and
+   * only these" would silently switch off a funnel the org stated deliberately
+   * through the funnel routes. Stating the whole set is what `statesetByBrandId`
+   * is for, and it is the only thing that switches a funnel off.
+   */
+  async declareFromRetiredGoal(
+    orgId: string,
+    brandId: string,
+    goal: RetiredGoal,
+    context: RetiredGoalContext,
+    brandDomain: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
+    const keys = assertRetiredGoalDeclarable(goal, context, brandDomain);
+
+    await db
+      .insert(brandSalesFunnels)
+      .values(keys.map((funnelKey) => ({ orgId, brandId, funnelKey, active: true })))
+      .onConflictDoUpdate({
+        target: [
+          brandSalesFunnels.orgId,
+          brandSalesFunnels.brandId,
+          brandSalesFunnels.funnelKey,
+        ],
+        // Only `active` is named: a funnel the org already priced keeps every
+        // number on it.
         set: { active: true, updatedAt: new Date().toISOString() },
       });
 

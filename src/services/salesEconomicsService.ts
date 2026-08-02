@@ -2,11 +2,13 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db, orgBrands, brandSalesEconomics } from '../db';
 import {
   AcceptedOptimizationGoal,
-  CurrentGoal,
   getCurrentGoalByBrandId,
-  toCurrentGoal,
+  hasClickDestination,
+  toRetiredGoal,
   updateCurrentGoalByBrandId,
 } from './brandGoalService';
+import { getBrand } from './brandService';
+import { assertRetiredGoalDeclarable, salesFunnelsService } from './salesFunnelsService';
 
 /** Brand-level B2C vs B2B classification. */
 export type BusinessModel = 'b2c' | 'b2b';
@@ -15,9 +17,10 @@ export type BusinessModel = 'b2c' | 'b2b';
 export type FunnelStage = 'website_purchase' | 'sales_meeting';
 
 /**
- * A brand's single optimization goal AS ACCEPTED ON WRITE: the canonical eight
- * plus every legacy spelling, kept working forever. Reads never use this type —
- * they emit a `CurrentGoal`, and only a `CurrentGoal`.
+ * A goal AS ACCEPTED ON WRITE: the retired eight plus every legacy spelling,
+ * kept working forever. NO READ USES THIS TYPE — the goal vocabulary is retired,
+ * and what a brand sells through is answered by its declared sales funnels.
+ * Sending one here declares the funnel(s) that goal meant.
  */
 export type OptimizationGoal = AcceptedOptimizationGoal;
 
@@ -176,27 +179,21 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   businessModel: BusinessModel | null;
   // Always an array on read; `[]` = never set.
   funnelStages: FunnelStage[];
-  // Always present on read; a canonical token, never a legacy spelling.
-  // `'websitePurchase'` = never set (the column default).
-  optimizationGoal: CurrentGoal;
+  // NO `optimizationGoal`. It answered "what does this brand sell through?" a
+  // second time, in the retired goal vocabulary — the poorer word, which could
+  // not tell the two meeting funnels apart. The declared funnel set is the
+  // answer. A goal is still accepted on WRITE and declares the funnels it meant.
   updatedAt: string;
 }
 
 /**
- * `brands.current_goal` is the ONLY authority on what a brand optimizes for, and
- * it now holds a canonical token — so `optimizationGoal` on the wire IS that
- * token, on the org read and the internal read alike. There is one vocabulary,
- * so there is nothing left to resolve, recover or collapse per entry point.
- *
- * `brand_sales_economics.optimization_goal` is NOT a second goal field. It used
- * to be a discriminator recording the raw wire spelling, because two wire values
- * (`form_submissions`, `website_purchase`) shared one runtime goal; both are
- * first-class goals now, so nothing reads the column and it survives only as a
- * mirror of `brands.current_goal`.
+ * The saved economics as read. NO GOAL: this row carries a brand's numbers, not
+ * what it sells through — that is the declared funnel set, and it is the only
+ * vocabulary any read emits. `brand_sales_economics.optimization_goal` is still
+ * WRITTEN as a mirror of what a legacy caller sent, and is read by nothing.
  */
 function formatSalesEconomics(
-  row: typeof brandSalesEconomics.$inferSelect,
-  currentGoal: CurrentGoal
+  row: typeof brandSalesEconomics.$inferSelect
 ): SavedSalesEconomics {
   return {
     lifetimeRevenueUsd: row.lifetimeRevenueUsd,
@@ -217,7 +214,6 @@ function formatSalesEconomics(
     formSubmissionToPaidClientPct: row.formSubmissionToPaidClientPct,
     businessModel: row.businessModel as BusinessModel | null,
     funnelStages: (row.funnelStages ?? []) as FunnelStage[],
-    optimizationGoal: currentGoal,
     updatedAt: row.updatedAt,
   };
 }
@@ -310,8 +306,10 @@ export class SalesEconomicsService {
     const result = await db
       .select({
         salesEconomics: brandSalesEconomics,
-        currentGoal: orgBrands.currentGoal,
       })
+      // The join no longer reads anything — it is the CLAIM CHECK it always
+      // doubled as: economics belong to an (org, brand) pair, and a row whose
+      // membership is gone must keep reading as unset rather than reappearing.
       .from(brandSalesEconomics)
       .innerJoin(
         orgBrands,
@@ -329,10 +327,7 @@ export class SalesEconomicsService {
       .limit(1);
 
     if (result.length === 0) return null;
-    return formatSalesEconomics(
-      result[0].salesEconomics,
-      result[0].currentGoal as CurrentGoal
-    );
+    return formatSalesEconomics(result[0].salesEconomics);
   }
 
   /**
@@ -456,19 +451,32 @@ export class SalesEconomicsService {
 
     const core = mergeCoreMetrics(storedCore, metrics);
 
-    // Whatever spelling the caller sent, the goal is resolved to its canonical
-    // token before anything is written — that is what keeps the column and the
-    // wire saying the same word.
-    const currentGoal = metrics.optimizationGoal !== undefined
-      ? await updateCurrentGoalByBrandId(
-        orgId,
-        brandId,
-        toCurrentGoal(metrics.optimizationGoal)
-      )
+    // RETIRED-GOAL WRITE TOLERANCE. A caller may still send a goal here, in any
+    // spelling the fleet has ever used. It no longer means anything on its own:
+    // it is resolved to the funnel(s) it named and DECLARED below, and mirrored
+    // into the retired columns so a caller reading them back is not lied to.
+    const retiredGoal = metrics.optimizationGoal !== undefined
+      ? toRetiredGoal(metrics.optimizationGoal)
+      : null;
+
+    // Resolved and validated BEFORE anything is written. A goal we cannot turn
+    // into a declaration rejects the whole call, so the metrics are not stored
+    // under a word that says nothing — half-applying the write and then failing
+    // is worse than either outcome on its own.
+    const goalContext = retiredGoal
+      ? { hasClickDestination: await hasClickDestination(orgId, brandId) }
+      : null;
+    if (retiredGoal && goalContext) {
+      const brand = await getBrand(brandId);
+      assertRetiredGoalDeclarable(retiredGoal, goalContext, brand?.domain ?? null);
+    }
+
+    const currentGoal = retiredGoal
+      ? await updateCurrentGoalByBrandId(orgId, brandId, retiredGoal)
       : await getCurrentGoalByBrandId(orgId, brandId);
 
-    // No membership => this org does not claim this brand, so there is no goal
-    // of its own to write economics against.
+    // No membership => this org does not claim this brand, so it has no
+    // configuration of its own to write economics against.
     if (!currentGoal) throw new Error(`Brand not claimed by org: ${brandId}`);
 
     // visit_to_close_pct is a STORED-but-DERIVED column: recompute on every
@@ -578,7 +586,22 @@ export class SalesEconomicsService {
       })
       .returning();
 
-    return formatSalesEconomics(result[0], currentGoal);
+    // A goal the caller sent DECLARES the funnel(s) it named — the same mapping
+    // the dedicated acceptor and the one-time backfill apply, so a brand reaches
+    // the same declaration whichever way its goal arrived. Additive: it never
+    // switches off a funnel the org stated through the funnel routes.
+    if (retiredGoal && goalContext) {
+      const brand = await getBrand(brandId);
+      await salesFunnelsService.declareFromRetiredGoal(
+        orgId,
+        brandId,
+        retiredGoal,
+        goalContext,
+        brand?.domain ?? null
+      );
+    }
+
+    return formatSalesEconomics(result[0]);
   }
 }
 

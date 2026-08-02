@@ -9,7 +9,8 @@ import { randomUUID } from 'crypto';
 
 /**
  * GET /internal/brands/:brandId/sales-economics — internal api-key read of a
- * brand's saved economics (incl. optimizationGoal) for campaign-service. Keyed
+ * brand's saved economics for campaign-service. No goal: that vocabulary is
+ * retired, and the declared funnel set is what says how a brand sells. Keyed
  * by brandId, NO org context.
  */
 describe('Internal sales-economics read', () => {
@@ -65,11 +66,11 @@ describe('Internal sales-economics read', () => {
     }
   });
 
-  it('returns the saved economics incl. optimizationGoal, with api-key only (no org header)', async () => {
+  it('returns the saved economics — and no goal, which is retired — with api-key only', async () => {
     const res = await request(app).get(internalPath(savedBrandId)).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
     expect(res.body.salesEconomics).not.toBeNull();
-    expect(res.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
+    expect(res.body.salesEconomics.optimizationGoal).toBeUndefined();
     expect(res.body.salesEconomics.lifetimeRevenueUsd).toBe(5000);
   });
 
@@ -83,7 +84,7 @@ describe('Internal sales-economics read', () => {
     // Same call works even though no x-org-id is sent and the caller is a bare service.
     const res = await request(app).get(internalPath(savedBrandId)).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
-    expect(res.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
+    expect(res.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   it('rejects a bad uuid with 400', async () => {
@@ -108,7 +109,7 @@ describe('Internal sales-economics read', () => {
   it('INTERNAL read answers formSubmission, the same token the org read gives', async () => {
     const res = await request(app).get(internalPath(formSubBrandId)).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
-    expect(res.body.salesEconomics.optimizationGoal).toBe('formSubmission');
+    expect(res.body.salesEconomics.optimizationGoal).toBeUndefined();
     // The form-submission rates still surface on the internal read.
     expect(res.body.salesEconomics.visitToFormSubmissionPct).toBe(12);
     expect(res.body.salesEconomics.formSubmissionToPaidClientPct).toBe(40);
@@ -117,7 +118,7 @@ describe('Internal sales-economics read', () => {
   it('ORG read of the same brand answers the same canonical token', async () => {
     const res = await request(app).get(orgPath(formSubBrandId)).set(getAuthHeaders(orgId));
     expect(res.status).toBe(200);
-    expect(res.body.salesEconomics.optimizationGoal).toBe('formSubmission');
+    expect(res.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   it('runtime candidate-selection read resolves to the form-submission goal', async () => {

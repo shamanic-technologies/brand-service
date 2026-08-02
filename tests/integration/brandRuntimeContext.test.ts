@@ -93,14 +93,19 @@ describe('Brand runtime context and current goal', () => {
     expect(typeof res.body.brandProfile.createdAt).toBe('string');
   });
 
-  it('updates the current goal independently and changes subsequent runtime reads', async () => {
+  it('a goal sent to the retired route declares the funnel it meant, and answers with it', async () => {
     const update = await request(app)
       .put(currentGoalPath(runtimeBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ currentGoal: 'meetingBooked' });
 
     expect(update.status).toBe(200);
-    expect(update.body.currentGoal).toBe('meetingBooked');
+    // The answer is a FUNNEL. No brand with a click destination here, so the
+    // meetings come from the conversation — the distinction the goal could not make.
+    expect(update.body.funnels.map((f: any) => f.funnelKey)).toContain(
+      'sales_meetings_from_conversation'
+    );
+    expect(update.body.currentGoal).toBeUndefined();
 
     const runtime = await request(app)
       .get(runtimePath(runtimeBrandId))
@@ -120,17 +125,19 @@ describe('Brand runtime context and current goal', () => {
       .set(getAuthHeaders(ownerOrgId));
 
     expect(legacyRead.status).toBe(200);
-    expect(legacyRead.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
+    // The economics read carries no goal: it is retired everywhere but the
+    // runtime-context read, which campaign-service's scheduler still boots on.
+    expect(legacyRead.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
-  it('maps legacy sales-economics optimizationGoal writes into the canonical current goal', async () => {
+  it('a goal sent to the economics route also declares the funnel it meant', async () => {
     const update = await request(app)
       .put(salesEconomicsPath(runtimeBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...metrics, optimizationGoal: 'signups' });
 
     expect(update.status).toBe(200);
-    expect(update.body.salesEconomics.optimizationGoal).toBe('signup');
+    expect(update.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const runtime = await request(app)
       .get(runtimePath(runtimeBrandId))
@@ -138,6 +145,11 @@ describe('Brand runtime context and current goal', () => {
 
     expect(runtime.status).toBe(200);
     expect(runtime.body.currentGoal).toBe('signup');
+
+    const funnels = await request(app)
+      .get(`/orgs/brands/${runtimeBrandId}/sales-funnels`)
+      .set(getAuthHeaders(ownerOrgId));
+    expect(funnels.body.funnels.map((f: any) => f.funnelKey)).toContain('website_purchases');
   });
 
   it('maps the single-step optimizationGoal "website_visits" into currentGoal "websiteVisit"', async () => {
@@ -147,7 +159,7 @@ describe('Brand runtime context and current goal', () => {
       .send({ ...metrics, optimizationGoal: 'website_visits' });
 
     expect(update.status).toBe(200);
-    expect(update.body.salesEconomics.optimizationGoal).toBe('websiteVisit');
+    expect(update.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const runtime = await request(app)
       .get(runtimePath(runtimeBrandId))
@@ -157,49 +169,67 @@ describe('Brand runtime context and current goal', () => {
     expect(runtime.body.currentGoal).toBe('websiteVisit');
   });
 
-  it('accepts currentGoal "positiveReply" and reflects it on the economics read', async () => {
+  it('accepts currentGoal "positiveReply" and declares the conversation funnel', async () => {
     const update = await request(app)
       .put(currentGoalPath(runtimeBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ currentGoal: 'positiveReply' });
     expect(update.status).toBe(200);
-    expect(update.body.currentGoal).toBe('positiveReply');
+    expect(update.body.funnels.map((f: any) => f.funnelKey)).toContain(
+      'sales_meetings_from_conversation'
+    );
 
     const legacyRead = await request(app)
       .get(salesEconomicsPath(runtimeBrandId))
       .set(getAuthHeaders(ownerOrgId));
     expect(legacyRead.status).toBe(200);
-    expect(legacyRead.body.salesEconomics.optimizationGoal).toBe('positiveReply');
+    expect(legacyRead.body.salesEconomics.optimizationGoal).toBeUndefined();
+  });
+
+  it('rejects a goal that names no funnel rather than declaring nothing', async () => {
+    // `whatsappConversation` is the one retired goal the catalogue has no chain
+    // for. A 200 would tell the caller the brand now sells through something.
+    const update = await request(app)
+      .put(currentGoalPath(runtimeBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ currentGoal: 'whatsapp_conversations' });
+    expect(update.status).toBe(400);
+    expect(update.body.error).toMatch(/names no sales funnel/);
   });
 
   // A caller sending yesterday's word must keep working forever — including the
   // pre-rename `purchase`, which this very route used to be the only acceptor of.
   it.each([
-    ['purchase', 'websitePurchase'],
-    ['sales', 'websitePurchase'],
-    ['website_purchase', 'websitePurchase'],
-    ['booked_meetings', 'meetingBooked'],
-    ['sales_meetings', 'meetingBooked'],
-    ['form_submissions', 'formSubmission'],
-    ['combined_sales', 'combinedSales'],
-  ])('accepts the legacy currentGoal "%s" and answers "%s"', async (sent, canonical) => {
+    ['purchase', 'website_purchases'],
+    ['sales', 'website_purchases'],
+    ['website_purchase', 'website_purchases'],
+    ['booked_meetings', 'sales_meetings_from_conversation'],
+    ['sales_meetings', 'sales_meetings_from_conversation'],
+    ['form_submissions', 'form_magnet'],
+    ['combined_sales', 'website_purchases'],
+  ])('accepts the legacy goal "%s" and declares "%s"', async (sent, expectedFunnel) => {
     const update = await request(app)
       .put(currentGoalPath(runtimeBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ currentGoal: sent });
     expect(update.status).toBe(200);
-    expect(update.body.currentGoal).toBe(canonical);
+    expect(update.body.funnels.map((f: any) => f.funnelKey)).toContain(expectedFunnel);
+    // The answer is a funnel set, never a goal.
+    expect(update.body.currentGoal).toBeUndefined();
+  });
 
-    const runtime = await request(app)
-      .get(runtimePath(runtimeBrandId))
-      .set(getInternalAuthHeaders());
-    expect(runtime.body.currentGoal).toBe(canonical);
+  it('declares BOTH funnels for the combined goal, rather than picking one', async () => {
+    const update = await request(app)
+      .put(currentGoalPath(runtimeBrandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ currentGoal: 'combined_sales' });
 
-    // The mirror column moves with it, so the column and the wire agree.
-    const economics = await request(app)
-      .get(salesEconomicsPath(runtimeBrandId))
-      .set(getAuthHeaders(ownerOrgId));
-    expect(economics.body.salesEconomics.optimizationGoal).toBe(canonical);
+    expect(update.status).toBe(200);
+    const keys = update.body.funnels
+      .filter((f: any) => f.active)
+      .map((f: any) => f.funnelKey);
+    expect(keys).toContain('sales_meetings_from_conversation');
+    expect(keys).toContain('website_purchases');
   });
 
   it('enforces org ownership and request validation on current-goal updates', async () => {

@@ -6,6 +6,10 @@ import {
   IncompleteSalesEconomicsError,
   salesEconomicsService,
 } from '../services/salesEconomicsService';
+import {
+  RetiredGoalNamesNoFunnelError,
+  SalesFunnelRequiresWebsiteError,
+} from '../services/salesFunnelsService';
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 
 export const orgRouter = Router();
@@ -148,6 +152,17 @@ orgRouter.put('/brands/:brandId/sales-economics', async (req: Request, res: Resp
       console.error('[brand-service] Upsert sales economics incomplete create:', error.message);
       return res.status(400).json({ error: error.message, missing: error.missing });
     }
+    // A goal the caller sent that names no funnel, or a website-led funnel on a
+    // brand with no website. The goal is retired, so what it MEANS is a funnel
+    // declaration — one we cannot make is the caller describing something that
+    // does not exist, not a server fault. Refuse rather than store economics
+    // under a word that now says nothing.
+    if (
+      error instanceof RetiredGoalNamesNoFunnelError ||
+      error instanceof SalesFunnelRequiresWebsiteError
+    ) {
+      return res.status(400).json({ error: error.message });
+    }
     console.error('[brand-service] Upsert sales economics error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
@@ -155,10 +170,12 @@ orgRouter.put('/brands/:brandId/sales-economics', async (req: Request, res: Resp
 
 /**
  * GET /internal/brands/:brandId/sales-economics
- * Internal api-key read of a brand's SAVED economics — incl. `optimizationGoal`,
- * the brand's current optimization goal. Keyed by brandId, NO org context:
- * campaign-service (a scheduler running as a service) calls this once per loop
- * to read the goal that drives per-lead workflow selection.
+ * Internal api-key read of a brand's SAVED economics. Keyed by brandId, NO org
+ * context.
+ *
+ * NO GOAL on the response. What a brand sells through is its declared sales
+ * funnels (GET /internal/brands/:brandId/sales-funnels); the goal vocabulary is
+ * retired because it could not tell the two meeting funnels apart.
  *
  * Returns the brand's OWN saved set (not the cross-brand-average effective one —
  * a brand's goal must be the brand's, never an average). `{ salesEconomics: null }`

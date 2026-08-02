@@ -6,12 +6,13 @@ import {
   rejectOwnership,
 } from '../lib/brand-ownership';
 import { getBrand } from '../services/brandService';
-import { isSalesFunnelKey, SalesFunnelKey } from '../services/salesFunnelCatalogue';
+import { SALES_FUNNEL_KEYS, toSalesFunnelKey, SalesFunnelKey } from '../services/salesFunnelCatalogue';
 import {
   SalesFunnelDestinationNotUsedError,
   SalesFunnelRateNotInChainError,
   SalesFunnelRequiresWebsiteError,
   LastActiveSalesFunnelError,
+  RetiredGoalNamesNoFunnelError,
   salesFunnelsService,
 } from '../services/salesFunnelsService';
 import { ClickDestinationValidationError } from '../services/clickDestinationService';
@@ -30,18 +31,25 @@ export const internalRouter = Router();
  * plausible-looking numbers there and no absence signals anything.
  */
 
-/** Resolve a funnel key from the path, or write the 400 and return null. */
+/**
+ * Resolve a funnel key from the path, or write the 400 and return null.
+ *
+ * Accepts the pre-retirement spellings (`reply_meeting`, `visit_meeting`,
+ * `visit_signup`, `visit_form`) forever and resolves them to the canonical key —
+ * a caller still sending yesterday's word keeps working, and reads back the
+ * canonical one.
+ */
 function parseFunnelKey(req: Request, res: Response): SalesFunnelKey | null {
-  const { funnelKey } = req.params;
-  if (!isSalesFunnelKey(funnelKey)) {
+  const resolved = toSalesFunnelKey(req.params.funnelKey);
+  if (!resolved) {
     res.status(400).json({
       error:
-        `Unknown sales funnel "${funnelKey}": expected one of reply_meeting, visit_meeting, ` +
-        'visit_signup, visit_form',
+        `Unknown sales funnel "${req.params.funnelKey}": expected one of ` +
+        SALES_FUNNEL_KEYS.join(', '),
     });
     return null;
   }
-  return funnelKey;
+  return resolved;
 }
 
 /**
@@ -74,6 +82,7 @@ function rejectDeclaration(res: Response, error: unknown): boolean {
     error instanceof SalesFunnelDestinationNotUsedError ||
     error instanceof SalesFunnelRequiresWebsiteError ||
     error instanceof LastActiveSalesFunnelError ||
+    error instanceof RetiredGoalNamesNoFunnelError ||
     error instanceof ClickDestinationValidationError
   ) {
     res.status(400).json({ error: (error as Error).message });
@@ -137,12 +146,18 @@ orgRouter.put('/brands/:brandId/sales-funnels', async (req: Request, res: Respon
       return res.status(404).json({ error: 'Brand not found' });
     }
 
+    // A pre-retirement spelling is resolved here; the schema already refused
+    // anything that names no funnel, so every entry maps.
+    const funnelKeys = parsed.data.funnelKeys.map(
+      (key) => toSalesFunnelKey(key) as SalesFunnelKey
+    );
+
     let set;
     try {
       set = await salesFunnelsService.statesetByBrandId(
         req.orgId!,
         brandId,
-        parsed.data.funnelKeys,
+        funnelKeys,
         brand.domain ?? null
       );
     } catch (error) {
