@@ -1,6 +1,6 @@
 {
-  "id": "0c2f9a41-7b52-4f8e-9d31-2a6c5e18b7d4",
-  "prevId": "472b4052-2833-479a-ad58-900b19dd0ac3",
+  "id": "79fb6a30-b5a9-44e0-8d6e-1f44adc45382",
+  "prevId": "0c2f9a41-7b52-4f8e-9d31-2a6c5e18b7d4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1673,6 +1673,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "backfilled_from_goal": {
+          "name": "backfilled_from_goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1719,7 +1725,7 @@
       "checkConstraints": {
         "brand_sales_funnels_funnel_key_check": {
           "name": "brand_sales_funnels_funnel_key_check",
-          "value": "\"brand_sales_funnels\".\"funnel_key\" IN ('reply_meeting', 'visit_meeting', 'visit_signup', 'visit_form')"
+          "value": "\"brand_sales_funnels\".\"funnel_key\" IN ('sales_meetings_from_conversation', 'sales_meetings_from_website', 'website_purchases', 'form_magnet')"
         }
       },
       "isRLSEnabled": false

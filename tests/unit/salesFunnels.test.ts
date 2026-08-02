@@ -10,13 +10,15 @@ vi.mock('../../src/db', () => ({
 }));
 
 import {
+  ACCEPTED_SALES_FUNNEL_KEYS,
+  LEGACY_SALES_FUNNEL_KEYS,
   SALES_FUNNELS,
   SALES_FUNNEL_KEYS,
-  currentGoalForFunnel,
   funnelPricesRate,
   funnelRateKeys,
   isSalesFunnelKey,
   salesFunnelByKey,
+  toSalesFunnelKey,
 } from '../../src/services/salesFunnelCatalogue';
 import {
   SalesFunnelDestinationNotUsedError,
@@ -26,7 +28,7 @@ import {
   formatDeclaredFunnel,
   normalizeBookingUrl,
 } from '../../src/services/salesFunnelsService';
-import { CANONICAL_GOALS, toCurrentGoal } from '../../src/services/brandGoalService';
+import { funnelKeysForRetiredGoal, toRetiredGoal } from '../../src/services/brandGoalService';
 import { ClickDestinationValidationError } from '../../src/services/clickDestinationService';
 
 /**
@@ -37,10 +39,10 @@ import { ClickDestinationValidationError } from '../../src/services/clickDestina
 describe('sales funnel catalogue', () => {
   it('carries the four funnels the dashboard renders, in its order', () => {
     expect(SALES_FUNNELS.map((f) => f.key)).toEqual([
-      'reply_meeting',
-      'visit_meeting',
-      'visit_signup',
-      'visit_form',
+      'sales_meetings_from_conversation',
+      'sales_meetings_from_website',
+      'website_purchases',
+      'form_magnet',
     ]);
     expect(SALES_FUNNEL_KEYS).toEqual(SALES_FUNNELS.map((f) => f.key));
   });
@@ -55,7 +57,10 @@ describe('sales funnel catalogue', () => {
     const withShowUp = SALES_FUNNELS.filter((f) =>
       f.legs.includes('meetingBookedToAttendedPct')
     ).map((f) => f.key);
-    expect(withShowUp).toEqual(['reply_meeting', 'visit_meeting']);
+    expect(withShowUp).toEqual([
+      'sales_meetings_from_conversation',
+      'sales_meetings_from_website',
+    ]);
   });
 
   it('collects a booking link exactly for the chains that contain a meeting', () => {
@@ -73,33 +78,26 @@ describe('sales funnel catalogue', () => {
     }
   });
 
-  it('names each funnel\'s goal in the canonical vocabulary, and nothing else', () => {
-    const goals = SALES_FUNNELS.map((f) => f.goal);
-    expect(goals).toEqual([
-      'meetingBooked',
-      'meetingBooked',
-      'signup',
-      // Form submission is its own goal — it no longer collapses onto signup.
-      'formSubmission',
-    ]);
-    for (const goal of goals) expect(CANONICAL_GOALS).toContain(goal);
-  });
-
-  it('resolves each funnel to the runtime goal features-service selects on', () => {
-    // One vocabulary, so the runtime goal IS the funnel's goal.
-    expect(SALES_FUNNELS.map((f) => currentGoalForFunnel(f))).toEqual(
-      SALES_FUNNELS.map((f) => f.goal)
-    );
+  it('carries NO goal — the key is the whole vocabulary', () => {
+    // The goal is retired precisely because it could not do this: BOTH meeting
+    // funnels named `meetingBooked`, so a consumer reading the goal could not
+    // price a meeting won from a reply apart from one won on the website.
+    for (const def of SALES_FUNNELS) {
+      expect('goal' in def).toBe(false);
+    }
+    const meetingChains = SALES_FUNNELS.filter((f) => f.steps.includes('Meeting booked'));
+    expect(meetingChains).toHaveLength(2);
+    expect(new Set(meetingChains.map((f) => f.key)).size).toBe(2);
   });
 
   it('rejects an unknown funnel key rather than guessing one', () => {
-    expect(isSalesFunnelKey('reply_meeting')).toBe(true);
+    expect(isSalesFunnelKey('sales_meetings_from_conversation')).toBe(true);
     expect(isSalesFunnelKey('visit_whatsapp')).toBe(false);
     expect(() => salesFunnelByKey('visit_whatsapp' as never)).toThrow(/Unknown sales funnel/);
   });
 
   it('reports which rates a funnel prices', () => {
-    const def = salesFunnelByKey('visit_signup');
+    const def = salesFunnelByKey('website_purchases');
     expect(funnelRateKeys(def)).toEqual(['visitToSignupPct', 'signupToPaidClientPct']);
     expect(funnelPricesRate(def, 'visitToSignupPct')).toBe(true);
     expect(funnelPricesRate(def, 'replyToMeetingPct')).toBe(false);
@@ -109,7 +107,7 @@ describe('sales funnel catalogue', () => {
 describe('a patch must describe the funnel it targets', () => {
   it('rejects a rate outside the chain instead of storing it where nothing reads it', () => {
     expect(() =>
-      assertPatchFitsFunnel(salesFunnelByKey('visit_signup'), {
+      assertPatchFitsFunnel(salesFunnelByKey('website_purchases'), {
         rates: { visitToSignupPct: 30, replyToMeetingPct: 10 },
       })
     ).toThrow(SalesFunnelRateNotInChainError);
@@ -117,7 +115,7 @@ describe('a patch must describe the funnel it targets', () => {
 
   it('accepts a subset of the chain — a funnel can be priced one leg at a time', () => {
     expect(() =>
-      assertPatchFitsFunnel(salesFunnelByKey('reply_meeting'), {
+      assertPatchFitsFunnel(salesFunnelByKey('sales_meetings_from_conversation'), {
         rates: { meetingBookedToAttendedPct: 70 },
       })
     ).not.toThrow();
@@ -125,7 +123,7 @@ describe('a patch must describe the funnel it targets', () => {
 
   it('rejects a page destination on a funnel that never lands a click on the site', () => {
     expect(() =>
-      assertPatchFitsFunnel(salesFunnelByKey('reply_meeting'), {
+      assertPatchFitsFunnel(salesFunnelByKey('sales_meetings_from_conversation'), {
         destinationUrl: 'https://example.com/x',
       })
     ).toThrow(SalesFunnelDestinationNotUsedError);
@@ -133,7 +131,7 @@ describe('a patch must describe the funnel it targets', () => {
 
   it('rejects a booking link on a funnel whose chain contains no meeting', () => {
     expect(() =>
-      assertPatchFitsFunnel(salesFunnelByKey('visit_form'), {
+      assertPatchFitsFunnel(salesFunnelByKey('form_magnet'), {
         bookingUrl: 'https://cal.com/team/30min',
       })
     ).toThrow(SalesFunnelDestinationNotUsedError);
@@ -172,7 +170,7 @@ describe('omitted leaves unchanged, null clears', () => {
 describe('a declared funnel reads back only its own chain', () => {
   const row = {
     brandId: 'b',
-    funnelKey: 'visit_signup',
+    funnelKey: 'website_purchases',
     lifetimeRevenueUsd: 4200,
     replyToMeetingPct: 11,
     visitToMeetingPct: 12,
@@ -199,10 +197,11 @@ describe('a declared funnel reads back only its own chain', () => {
     expect(funnel.rates.signupToPaidClientPct).toBeNull();
   });
 
-  it('carries the canonical goal on both fields so no consumer maps it itself', () => {
+  it('carries no goal at all — the retired vocabulary is off the wire', () => {
     const funnel = formatDeclaredFunnel(row);
-    expect(funnel.goal).toBe('signup');
-    expect(funnel.currentGoal).toBe('signup');
+    expect('goal' in funnel).toBe(false);
+    expect('currentGoal' in funnel).toBe(false);
+    expect(funnel.funnelKey).toBe('website_purchases');
   });
 
   it('carries its own lifetime revenue and destinations', () => {
@@ -229,28 +228,42 @@ describe('booking link', () => {
 });
 
 /**
- * One goal, one authority, one vocabulary. `brands.current_goal` answers what a
- * brand optimizes for, in a canonical token, and that token is what every read
- * emits. Accepting the dashboard's own spelling on write removes the drift at
- * its source without giving brand-service a second thing to say.
+ * Yesterday's words keep writing. That is the whole reason the emission switch
+ * could be made in one repo: nothing had to change in lockstep, because every
+ * spelling a caller has ever sent still resolves — the old FUNNEL keys to the
+ * new ones, and the retired GOALS to the funnels they named.
  */
-describe('goal vocabulary', () => {
-  it("understands the dashboard's sales_meetings as the booked-meeting goal", () => {
-    expect(toCurrentGoal('sales_meetings')).toBe('meetingBooked');
-    expect(toCurrentGoal('booked_meetings')).toBe('meetingBooked');
+describe('write tolerance for yesterday\'s words', () => {
+  it('resolves every pre-retirement funnel key to its canonical one', () => {
+    expect(toSalesFunnelKey('reply_meeting')).toBe('sales_meetings_from_conversation');
+    expect(toSalesFunnelKey('visit_meeting')).toBe('sales_meetings_from_website');
+    expect(toSalesFunnelKey('visit_signup')).toBe('website_purchases');
+    expect(toSalesFunnelKey('visit_form')).toBe('form_magnet');
   });
 
-  it('never emits sales_meetings — every read answers meetingBooked', () => {
-    expect(CANONICAL_GOALS).not.toContain('sales_meetings');
-    expect(CANONICAL_GOALS).not.toContain('booked_meetings');
-    expect(CANONICAL_GOALS).toContain('meetingBooked');
+  it('leaves a canonical key untouched, and refuses a word that names nothing', () => {
+    for (const key of SALES_FUNNEL_KEYS) {
+      expect(toSalesFunnelKey(key)).toBe(key);
+    }
+    expect(toSalesFunnelKey('visit_whatsapp')).toBeNull();
   });
 
-  it('has no sub-type left to recover — the two former ones are goals of their own', () => {
-    expect(toCurrentGoal('form_submissions')).toBe('formSubmission');
-    expect(toCurrentGoal('website_purchase')).toBe('websitePurchase');
-    // …and their base spellings resolve to the same canonical tokens.
-    expect(toCurrentGoal('signups')).toBe('signup');
-    expect(toCurrentGoal('sales')).toBe('websitePurchase');
+  it('accepts exactly the canonical four plus the legacy four, and nothing else', () => {
+    expect([...ACCEPTED_SALES_FUNNEL_KEYS].sort()).toEqual(
+      [...SALES_FUNNEL_KEYS, ...Object.keys(LEGACY_SALES_FUNNEL_KEYS)].sort()
+    );
+  });
+
+  it('never lets a legacy key BE a canonical one — they are disjoint spellings', () => {
+    for (const legacy of Object.keys(LEGACY_SALES_FUNNEL_KEYS)) {
+      expect(SALES_FUNNEL_KEYS).not.toContain(legacy);
+    }
+  });
+
+  it("understands the dashboard's sales_meetings as the meeting chain", () => {
+    expect(toRetiredGoal('sales_meetings')).toBe('meetingBooked');
+    expect(
+      funnelKeysForRetiredGoal(toRetiredGoal('booked_meetings'), { hasClickDestination: false })
+    ).toEqual(['sales_meetings_from_conversation']);
   });
 });

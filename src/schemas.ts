@@ -4,7 +4,11 @@ import {
   extendZodWithOpenApi,
 } from '@asteasolutions/zod-to-openapi';
 import { BrandUrlSchema, OptionalBrandUrlSchema } from './lib/url-utils';
-import { ACCEPTED_OPTIMIZATION_GOALS, CANONICAL_GOALS } from './lib/goal-vocabulary';
+import { ACCEPTED_OPTIMIZATION_GOALS, RETIRED_GOALS } from './lib/goal-vocabulary';
+import {
+  ACCEPTED_SALES_FUNNEL_KEYS,
+  SALES_FUNNEL_KEYS,
+} from './services/salesFunnelCatalogue';
 
 extendZodWithOpenApi(z);
 
@@ -1965,35 +1969,25 @@ export const FunnelStageSchema = z
   .enum(['website_purchase', 'sales_meeting'])
   .openapi('FunnelStage');
 
-// THE canonical goal vocabulary — the ONLY tokens brand-service emits, on every
-// read. A fleet decision shared byte-equal with features-service (`src/lib/goals.ts`)
-// and the dashboard (`apps/dashboard/src/lib/api.ts` CANONICAL_GOALS); pinned by
-// `tests/unit/goalVocabulary.test.ts` so it cannot move in a single-repo PR.
-export const CurrentGoalSchema = z
-  .enum(CANONICAL_GOALS)
-  .openapi('CurrentGoal');
-
-// Every goal spelling accepted on WRITE: the canonical eight plus every legacy
-// spelling the fleet has ever sent, kept working FOREVER so no caller has to
-// change in lockstep with the emission switch. A legacy spelling is resolved to
-// its canonical token before anything is stored, and is never emitted back.
+// THE RETIRED GOAL VOCABULARY — accepted on WRITE, never emitted.
+//
+// brand-service answers "what does this brand sell through?" with a SALES FUNNEL
+// and nothing else. The goal was the poorer of the two words it used to answer
+// with (both meeting funnels collapsed onto one `meetingBooked`, so no consumer
+// could price them apart), so it is retired. Every spelling the fleet has ever
+// sent still WRITES — forever, so no caller had to change in lockstep with the
+// switch — and each one resolves to the funnel(s) it meant.
 export const OptimizationGoalSchema = z
   .enum(ACCEPTED_OPTIMIZATION_GOALS)
   .openapi('OptimizationGoal');
 
 // Accepts every spelling (incl. the pre-rename `purchase` this route used to
-// require); the response answers canonical.
+// require). The response is the FUNNEL SET the goal declared.
 export const UpdateCurrentGoalRequestSchema = z
   .object({
     currentGoal: OptimizationGoalSchema,
   })
   .openapi('UpdateCurrentGoalRequest');
-
-export const UpdateCurrentGoalResponseSchema = z
-  .object({
-    currentGoal: CurrentGoalSchema,
-  })
-  .openapi('UpdateCurrentGoalResponse');
 
 // UPSERT request body — a PARTIAL patch: EVERY field is optional and an omitted
 // field is left unchanged. That is the same leave-unchanged contract the optional
@@ -2047,9 +2041,10 @@ export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
   businessModel: BusinessModelSchema.nullable(),
   // Always an array on read; `[]` = never set (never null).
   funnelStages: z.array(FunnelStageSchema),
-  // Always present on read, and always a CANONICAL token — never a legacy
-  // spelling. `"websitePurchase"` = never set (never null).
-  optimizationGoal: CurrentGoalSchema,
+  // NO `optimizationGoal`. It was the retired goal vocabulary answering "what
+  // does this brand sell through?" a second time, in the poorer word. The answer
+  // is the declared funnel set (`GET /orgs|internal/brands/{brandId}/sales-funnels`).
+  // The goal is still ACCEPTED on write here and declares the funnels it meant.
   updatedAt: z.string(),
 });
 
@@ -2205,9 +2200,22 @@ registry.registerPath({
 // Nothing here has a server default: an absent value reads back `null`, which
 // means the brand never declared it and never means zero.
 
+// THE funnel vocabulary — the only tokens brand-service emits for what a brand
+// sells through. It replaced a second, poorer vocabulary (the goal set), which
+// could not tell the two meeting funnels apart; see src/lib/goal-vocabulary.ts
+// for what survives of that, which is write tolerance and nothing else.
 export const SalesFunnelKeySchema = z
-  .enum(['reply_meeting', 'visit_meeting', 'visit_signup', 'visit_form'])
+  .enum(SALES_FUNNEL_KEYS)
   .openapi('SalesFunnelKey');
+
+// Every funnel spelling accepted on WRITE: the canonical four plus the
+// pre-retirement ones (`reply_meeting`, `visit_meeting`, `visit_signup`,
+// `visit_form`), kept working FOREVER so no caller had to change in lockstep
+// with the rename. A legacy spelling is resolved before anything is stored and
+// is never emitted back.
+export const AcceptedSalesFunnelKeySchema = z
+  .enum(ACCEPTED_SALES_FUNNEL_KEYS)
+  .openapi('AcceptedSalesFunnelKey');
 
 // Every rate a funnel can price. A write may only carry the rates of the
 // funnel's OWN chain — the route rejects a foreign rate 400 rather than
@@ -2256,11 +2264,11 @@ export const DeclaredSalesFunnelSchema = z
     active: z.boolean(),
     name: z.string(),
     steps: z.array(z.string()),
-    // Canonical goal. `goal` and `currentGoal` carry the SAME token now that
-    // there is one vocabulary; `goal` is kept as a byte-stable alias for the
-    // deployed consumer that reads it first.
-    goal: CurrentGoalSchema,
-    currentGoal: CurrentGoalSchema,
+    // NO `goal` / `currentGoal`. A funnel used to carry the goal it optimized
+    // for, and that vocabulary is retired: `sales_meetings_from_conversation`
+    // and `sales_meetings_from_website` both mapped onto one `meetingBooked`,
+    // so a consumer could not price a meeting won from a reply apart from one
+    // won on the website. `funnelKey` is the whole answer.
     rates: z.record(z.string(), z.number().nullable()),
     lifetimeRevenueUsd: z.number().int().nullable(),
     destinationUrl: z.string().nullable(),
@@ -2276,8 +2284,9 @@ export const StateSalesFunnelSetRequestSchema = z
   .object({
     // Exactly these funnels are ACTIVE; every other one the org configured is
     // switched off but KEPT with its numbers. May not be empty — an org that
-    // has answered sells through at least one funnel.
-    funnelKeys: z.array(SalesFunnelKeySchema),
+    // has answered sells through at least one funnel. A pre-retirement spelling
+    // is accepted and resolved; the response lists canonical keys.
+    funnelKeys: z.array(AcceptedSalesFunnelKeySchema),
   })
   .openapi('StateSalesFunnelSetRequest');
 
@@ -2306,11 +2315,17 @@ const SALES_FUNNELS_MODEL_DESCRIPTION =
   'the site) down to a paid client, and it owns everything that chain needs priced: the conversion ' +
   'rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach ' +
   'click lands on and, when a meeting sits in the chain, a booking link. The catalogue is ' +
-  '`reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), ' +
-  '`visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), ' +
-  '`visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> ' +
-  'Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads ' +
-  '`null`, which never means zero.';
+  '`sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> ' +
+  'Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting ' +
+  'attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and ' +
+  '`form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the ' +
+  'brand never declared reads `null`, which never means zero. ' +
+  'THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set ' +
+  'is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not ' +
+  'price a meeting won from a reply apart from one won on the website. Every goal spelling, and ' +
+  'every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, ' +
+  '`visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none ' +
+  'is ever emitted.';
 
 registry.registerPath({
   method: 'get',
@@ -2385,7 +2400,7 @@ registry.registerPath({
     'meeting, and it may point at any third-party scheduler. A funnel that starts with a website ' +
     'visit cannot be declared for a brand that has no website (400).',
   request: {
-    params: z.object({ brandId: z.string().uuid(), funnelKey: SalesFunnelKeySchema }),
+    params: z.object({ brandId: z.string().uuid(), funnelKey: AcceptedSalesFunnelKeySchema }),
     body: { content: { 'application/json': { schema: DeclareSalesFunnelRequestSchema } } },
   },
   responses: {
@@ -2421,7 +2436,7 @@ registry.registerPath({
     'it would leave the org holding funnels with none of them active; erasing the LAST remaining ' +
     'funnel is allowed and returns the brand to "never answered".',
   request: {
-    params: z.object({ brandId: z.string().uuid(), funnelKey: SalesFunnelKeySchema }),
+    params: z.object({ brandId: z.string().uuid(), funnelKey: AcceptedSalesFunnelKeySchema }),
     query: z.object({
       erase: z
         .enum(['true', 'false'])
@@ -2592,23 +2607,35 @@ registry.registerPath({
 registry.registerPath({
   method: 'put',
   path: '/orgs/brands/{brandId}/current-goal',
-  summary: "Update a brand's current runtime goal",
+  summary: 'Declare what a brand sells through, by the retired goal name for it',
   description:
-    'Updates the single brand-owned runtime goal used by campaign-service per-lead loops and ' +
-    'features-service runtime candidate selection. This does not edit campaigns. The goal uses ' +
-    'the candidate-selection vocabulary (`signup` | `meetingBooked` | `purchase`), not a stats-key ' +
-    'or legacy sales-economics enum. The brand must belong to the caller\'s org (x-org-id); a brand ' +
-    'outside the org is rejected with 403.',
+    'RETIRED-GOAL WRITE TOLERANCE. The goal vocabulary no longer answers anything: what a brand ' +
+    'sells through is its declared SALES FUNNELS, and that is the only vocabulary any read emits. ' +
+    'This route survives so a caller still sending yesterday\'s word keeps working — it accepts ' +
+    'every goal spelling the fleet has ever used (including the pre-rename `purchase`), declares ' +
+    'the funnel(s) that goal MEANT, and answers with the funnel set. ' +
+    '`meetingBooked` names BOTH meeting funnels, so it resolves to `sales_meetings_from_website` ' +
+    'for a brand that has set a click destination and `sales_meetings_from_conversation` otherwise; ' +
+    '`combinedSales` declares TWO funnels rather than making a lossy pick; `whatsappConversation` ' +
+    'names no funnel at all and is rejected 400. ' +
+    'ADDITIVE: it switches the named funnels on and leaves every other declaration, and every ' +
+    'number on it, exactly as stored. Stating the whole set (PUT .../sales-funnels) is the only ' +
+    'thing that switches a funnel off. ' +
+    "The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: UpdateCurrentGoalRequestSchema } } },
   },
   responses: {
     200: {
-      description: 'Updated current goal',
-      content: { 'application/json': { schema: UpdateCurrentGoalResponseSchema } },
+      description: 'The funnels this brand now sells through',
+      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
     },
-    400: { description: 'Invalid brand ID format or invalid currentGoal' },
+    400: {
+      description:
+        'Invalid brand ID format, an unrecognised goal, a goal that names no funnel ' +
+        '(`whatsappConversation`), or a website-led funnel on a brand with no website',
+    },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
@@ -2708,7 +2735,13 @@ export const BrandProfileFieldsSchema = z.record(
 export const BrandRuntimeContextResponseSchema = z
   .object({
     brand: BrandDetailSchema,
-    currentGoal: CurrentGoalSchema,
+    // THE LAST GOAL-SHAPED READ IN THE SERVICE, and it is on its way out. The
+    // goal vocabulary is retired everywhere else — what a brand sells through is
+    // its declared sales funnels. This one field survives because
+    // campaign-service's scheduler boots on it for every brand that carries no
+    // per-funnel budget, and removing it would stop those brands running. Do not
+    // add another; read the funnel set instead.
+    currentGoal: z.enum(RETIRED_GOALS).openapi('RetiredGoal'),
     // Backward-compatible with the pre-2-layer shape campaign-service consumes.
     // `id`/`version` are null (no version rows anymore); `fields` is the
     // confirmed-overlaid-on-derived profile. Kept `.nullable()` to mirror the
@@ -2730,12 +2763,16 @@ registry.registerPath({
   path: '/internal/brands/{brandId}/runtime-context',
   summary: "Get a brand's runtime context for one campaign loop",
   description:
-    'Service-authenticated snapshot for campaign-service per-lead loops. Returns the canonical ' +
-    'brand-owned `currentGoal` together with the minimal brand identity and the brand-profile ' +
-    'fields (the confirmed user-validated fields overlaid on the derived extract fields). ' +
+    'Service-authenticated snapshot for campaign-service per-lead loops. Returns the brand-owned ' +
+    '`currentGoal` together with the minimal brand identity and the brand-profile fields (the ' +
+    'confirmed user-validated fields overlaid on the derived extract fields). ' +
     'Brand-service does not perform candidate selection or bandit logic; campaign-service passes ' +
     '`currentGoal` onward to features-service runtime candidate selection and snapshots the ' +
-    'returned brand context for the loop.',
+    'returned brand context for the loop. ' +
+    'NOTE: `currentGoal` belongs to the RETIRED goal vocabulary and is the last goal-shaped read ' +
+    'brand-service serves. What a brand sells through is its declared sales funnels ' +
+    '(GET /internal/brands/{brandId}/sales-funnels), which tell the two meeting funnels apart where ' +
+    'the goal cannot. This field survives only until campaign-service boots on the funnel set.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
     200: {

@@ -1,26 +1,32 @@
 import { describe, it, expect } from 'vitest';
 import {
   ACCEPTED_OPTIMIZATION_GOALS,
-  CANONICAL_GOALS,
+  RETIRED_GOALS,
   LEGACY_OPTIMIZATION_GOALS,
-  isCurrentGoal,
-  toCurrentGoal,
+  funnelKeysForRetiredGoal,
+  isRetiredGoal,
+  toRetiredGoal,
   type AcceptedOptimizationGoal,
-  type CurrentGoal,
+  type RetiredGoal,
 } from '../../src/lib/goal-vocabulary';
-import { SALES_FUNNELS, currentGoalForFunnel } from '../../src/services/salesFunnelCatalogue';
-import { CurrentGoalSchema, OptimizationGoalSchema } from '../../src/schemas';
+import { SALES_FUNNEL_KEYS } from '../../src/services/salesFunnelCatalogue';
+import { OptimizationGoalSchema } from '../../src/schemas';
 
 /**
- * brand-service emits ONE goal vocabulary and it is the fleet's. These tests are
- * the drift alarm: the list below is shared byte-equal with features-service
- * (`src/lib/goals.ts`) and the dashboard (`apps/dashboard/src/lib/api.ts`), so
- * adding a ninth token — or re-spelling one — is a fleet decision that cannot be
- * made in a single-repo PR without this file going red.
+ * THE GOAL VOCABULARY IS RETIRED. It used to be the fleet's second answer to
+ * "what does this brand sell through?", pinned byte-equal across three repos;
+ * this file used to be the alarm that stopped it moving in a single-repo PR.
+ *
+ * It moved. The funnel is strictly the richer word — both meeting funnels
+ * collapsed onto one `meetingBooked`, so no consumer could price a meeting won
+ * from a reply apart from one won on the website — so the goal is no longer
+ * emitted anywhere. What these tests now pin is the ONE thing that survives:
+ * every spelling still WRITES, forever, and each one resolves to the funnel(s)
+ * it meant.
  */
-describe('the canonical goal vocabulary', () => {
-  it('is exactly these eight tokens, in this order', () => {
-    expect([...CANONICAL_GOALS]).toEqual([
+describe('the retired goal vocabulary is input-only', () => {
+  it('still names the eight tokens, so an old caller is still understood', () => {
+    expect([...RETIRED_GOALS]).toEqual([
       'signup',
       'meetingBooked',
       'websitePurchase',
@@ -33,39 +39,21 @@ describe('the canonical goal vocabulary', () => {
   });
 
   it('has no duplicate token', () => {
-    expect(new Set(CANONICAL_GOALS).size).toBe(CANONICAL_GOALS.length);
+    expect(new Set(RETIRED_GOALS).size).toBe(RETIRED_GOALS.length);
   });
 
-  it('spells the website-purchase goal `websitePurchase`, never `purchase`', () => {
-    // `purchase` is the ambiguous one, and the display name already renamed.
-    expect(CANONICAL_GOALS).toContain('websitePurchase');
-    expect(CANONICAL_GOALS).not.toContain('purchase');
-  });
-
-  it('spells the combined goal `combinedSales`, never a bare `sales`', () => {
-    // A bare `sales` means WEBSITE PURCHASE in every stored row and on the
-    // legacy wire. Reusing it for the combined goal is the collision that
-    // bucketed every website-purchase brand as combined sales in the fleet
-    // benchmark (distribute.you#3214) — it must never come back.
-    expect(CANONICAL_GOALS).toContain('combinedSales');
-    expect(CANONICAL_GOALS).not.toContain('sales');
-    expect(toCurrentGoal('sales')).toBe('websitePurchase');
-  });
-
-  it('carries formSubmission as a first-class goal, not a sub-type of signup', () => {
-    expect(CANONICAL_GOALS).toContain('formSubmission');
-    expect(toCurrentGoal('form_submissions')).toBe('formSubmission');
-    expect(toCurrentGoal('form_submissions')).not.toBe('signup');
-  });
-
-  it('is what the CurrentGoal schema accepts, and nothing else', () => {
-    expect(CurrentGoalSchema.options).toEqual([...CANONICAL_GOALS]);
+  it('is not exported as anything a response can be built from', async () => {
+    // The alarm, inverted: there is no goal schema on any read any more. A
+    // `CurrentGoal` schema coming back is a goal re-entering the wire.
+    const schemas = await import('../../src/schemas');
+    expect('CurrentGoalSchema' in schemas).toBe(false);
+    expect('UpdateCurrentGoalResponseSchema' in schemas).toBe(false);
   });
 });
 
 describe('every legacy spelling still writes, and lands on the right goal', () => {
   // Each of these is a spelling some caller has sent. None may ever stop working.
-  const legacy: Array<[AcceptedOptimizationGoal, CurrentGoal]> = [
+  const legacy: Array<[AcceptedOptimizationGoal, RetiredGoal]> = [
     ['signups', 'signup'],
     ['booked_meetings', 'meetingBooked'],
     ['sales_meetings', 'meetingBooked'],
@@ -81,19 +69,19 @@ describe('every legacy spelling still writes, and lands on the right goal', () =
     ['whatsapp_conversations', 'whatsappConversation'],
   ];
 
-  it.each(legacy)('accepts %s and resolves it to %s', (wire, canonical) => {
+  it.each(legacy)('accepts %s and resolves it to %s', (wire, retired) => {
     expect(OptimizationGoalSchema.safeParse(wire).success).toBe(true);
-    expect(toCurrentGoal(wire)).toBe(canonical);
+    expect(toRetiredGoal(wire)).toBe(retired);
   });
 
   it('covers every legacy spelling the vocabulary declares', () => {
     expect(legacy.map(([wire]) => wire).sort()).toEqual([...LEGACY_OPTIMIZATION_GOALS].sort());
   });
 
-  it('accepts every canonical token on write too, so a read round-trips', () => {
-    for (const goal of CANONICAL_GOALS) {
+  it('accepts every retired token on write too', () => {
+    for (const goal of RETIRED_GOALS) {
       expect(OptimizationGoalSchema.safeParse(goal).success).toBe(true);
-      expect(toCurrentGoal(goal)).toBe(goal);
+      expect(toRetiredGoal(goal)).toBe(goal);
     }
   });
 
@@ -104,28 +92,77 @@ describe('every legacy spelling still writes, and lands on the right goal', () =
     expect(OptimizationGoalSchema.safeParse('telepathy').success).toBe(false);
     // No default branch, no default goal: an unmappable value is never quietly
     // turned into a different one.
-    expect(toCurrentGoal('telepathy' as AcceptedOptimizationGoal)).toBeUndefined();
+    expect(toRetiredGoal('telepathy' as AcceptedOptimizationGoal)).toBeUndefined();
   });
 
-  it('recognises a canonical token and rejects a legacy one', () => {
-    expect(isCurrentGoal('websitePurchase')).toBe(true);
-    expect(isCurrentGoal('sales')).toBe(false);
+  it('recognises a retired token and rejects a legacy spelling of one', () => {
+    expect(isRetiredGoal('websitePurchase')).toBe(true);
+    expect(isRetiredGoal('sales')).toBe(false);
   });
 });
 
-describe('the catalogue prices funnels on canonical goals', () => {
-  it('names only canonical tokens', () => {
-    for (const funnel of SALES_FUNNELS) {
-      expect(CANONICAL_GOALS).toContain(funnel.goal);
-      // `goal` and `currentGoal` are the same token — there is one vocabulary.
-      expect(currentGoalForFunnel(funnel)).toBe(funnel.goal);
+describe('what a retired goal MEANT, as funnels', () => {
+  const withoutClickDestination = { hasClickDestination: false };
+  const withClickDestination = { hasClickDestination: true };
+
+  it('names only funnels that exist in the catalogue', () => {
+    for (const goal of RETIRED_GOALS) {
+      for (const context of [withClickDestination, withoutClickDestination]) {
+        for (const key of funnelKeysForRetiredGoal(goal, context)) {
+          expect(SALES_FUNNEL_KEYS).toContain(key);
+        }
+      }
     }
   });
 
-  it('keeps the Form Magnet on its own goal instead of collapsing it onto signup', () => {
-    const form = SALES_FUNNELS.find((f) => f.key === 'visit_form')!;
-    const signup = SALES_FUNNELS.find((f) => f.key === 'visit_signup')!;
-    expect(form.goal).toBe('formSubmission');
-    expect(signup.goal).toBe('signup');
+  it('tells the two meeting funnels apart, which the goal alone could not', () => {
+    // The whole reason the goal is retired: one word, two chains. A brand that
+    // set a click destination is sending outreach onto its own site, so its
+    // meetings come from the website.
+    expect(funnelKeysForRetiredGoal('meetingBooked', withClickDestination)).toEqual([
+      'sales_meetings_from_website',
+    ]);
+    expect(funnelKeysForRetiredGoal('meetingBooked', withoutClickDestination)).toEqual([
+      'sales_meetings_from_conversation',
+    ]);
+  });
+
+  it('turns the combined goal into TWO declarations rather than a lossy pick', () => {
+    expect(funnelKeysForRetiredGoal('combinedSales', withoutClickDestination)).toEqual([
+      'sales_meetings_from_conversation',
+      'website_purchases',
+    ]);
+  });
+
+  it('maps every remaining goal to the funnel the owner named', () => {
+    expect(funnelKeysForRetiredGoal('websitePurchase', withoutClickDestination)).toEqual([
+      'website_purchases',
+    ]);
+    expect(funnelKeysForRetiredGoal('signup', withoutClickDestination)).toEqual([
+      'website_purchases',
+    ]);
+    expect(funnelKeysForRetiredGoal('websiteVisit', withoutClickDestination)).toEqual([
+      'website_purchases',
+    ]);
+    expect(funnelKeysForRetiredGoal('positiveReply', withoutClickDestination)).toEqual([
+      'sales_meetings_from_conversation',
+    ]);
+    expect(funnelKeysForRetiredGoal('formSubmission', withoutClickDestination)).toEqual([
+      'form_magnet',
+    ]);
+  });
+
+  it('answers NOTHING for whatsappConversation, which names no chain', () => {
+    // Not a substitute funnel and not the click funnel: the catalogue has no
+    // whatsapp chain, so the empty list is the honest answer and the caller
+    // fails loud on it.
+    expect(funnelKeysForRetiredGoal('whatsappConversation', withClickDestination)).toEqual([]);
+    expect(funnelKeysForRetiredGoal('whatsappConversation', withoutClickDestination)).toEqual([]);
+  });
+
+  it('is total — every retired goal is answered without a default branch', () => {
+    for (const goal of RETIRED_GOALS) {
+      expect(Array.isArray(funnelKeysForRetiredGoal(goal, withoutClickDestination))).toBe(true);
+    }
   });
 });

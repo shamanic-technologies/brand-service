@@ -335,13 +335,24 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	// The scheduling page, for a funnel whose chain contains a meeting. Always
 	// optional — a brand that books over email still runs the funnel.
 	bookingUrl: text("booking_url"),
+	// PROVENANCE, for the one-time backfill that gave every brand carrying a
+	// retired goal the declaration that goal meant. Holds the goal token the row
+	// was derived from; NULL for every row a user or a caller declared directly.
+	// It is what makes the backfill reversible by an exact predicate rather than
+	// by a timestamp window, and what lets its result be counted from an
+	// independent query instead of the script's own log. Read by nothing.
+	backfilledFromGoal: text("backfilled_from_goal"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	primaryKey({ columns: [table.orgId, table.brandId, table.funnelKey] }),
+	// THE funnel vocabulary — the only tokens brand-service stores or emits for
+	// what a brand sells through. The pre-retirement spellings (reply_meeting,
+	// visit_meeting, visit_signup, visit_form) are accepted on the WIRE forever
+	// and resolved before they reach this column; they are never stored again.
 	check(
 		"brand_sales_funnels_funnel_key_check",
-		sql`${table.funnelKey} IN ('reply_meeting', 'visit_meeting', 'visit_signup', 'visit_form')`
+		sql`${table.funnelKey} IN ('sales_meetings_from_conversation', 'sales_meetings_from_website', 'website_purchases', 'form_magnet')`
 	),
 	foreignKey({
 		columns: [table.brandId],

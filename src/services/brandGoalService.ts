@@ -1,46 +1,55 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { db, orgBrands, brandSalesEconomics } from '../db';
-import type { CurrentGoal } from '../lib/goal-vocabulary';
+import { db, orgBrands, brandSalesEconomics, brandClickDestinations } from '../db';
+import type { RetiredGoal } from '../lib/goal-vocabulary';
 
-// The vocabulary itself lives in `src/lib/goal-vocabulary.ts` — a pure module
-// with no database import, so `src/schemas.ts` (and every unit test) can read the
-// canonical list without pulling in a DB connection. Re-exported here because
-// this service is where the rest of the codebase looks for a brand's goal.
+// The retired goal vocabulary lives in `src/lib/goal-vocabulary.ts` — a pure
+// module with no database import, so `src/schemas.ts` (and every unit test) can
+// read the accepted spellings without pulling in a DB connection. Re-exported
+// here because this service is where the rest of the codebase looks for what a
+// goal a caller sent MEANT.
 export * from '../lib/goal-vocabulary';
 
 /**
- * What THIS org optimizes for on THIS brand.
+ * `org_brands.current_goal` — the retired goal store.
  *
- * The goal lives on the (org, brand) membership, not on the shared `brands`
- * identity row: several orgs legitimately claim the same domain, so a goal
- * stored on the brand let any of them overwrite what the others optimize for.
- * `null` means this org does not claim this brand — never a default goal.
+ * NOTHING derives an answer from it any more. What an org sells a brand through
+ * is the set of sales funnels it declared (`brand_sales_funnels`), and that is
+ * the only vocabulary any read emits. The column survives for two reasons and no
+ * others: the legacy write acceptors still mirror into it, so a caller that
+ * PUTs a goal and reads the column back is not lied to, and it is what the
+ * one-time backfill inverted to give every brand the declaration its goal meant.
+ *
+ * The one read left is `GET /internal/brands/:brandId/runtime-context`, which
+ * still serves `currentGoal` because campaign-service's scheduler boots on it
+ * for every brand that has no per-funnel budget. That is the last goal-shaped
+ * read in the service and it is tracked for removal; do not add another.
  */
 export async function getCurrentGoalByBrandId(
   orgId: string,
   brandId: string
-): Promise<CurrentGoal | null> {
+): Promise<RetiredGoal | null> {
   const [row] = await db
     .select({ currentGoal: orgBrands.currentGoal })
     .from(orgBrands)
     .where(and(eq(orgBrands.orgId, orgId), eq(orgBrands.brandId, brandId)))
     .limit(1);
 
-  return (row?.currentGoal as CurrentGoal | undefined) ?? null;
+  return (row?.currentGoal as RetiredGoal | undefined) ?? null;
 }
 
 /**
- * Set what this org optimizes for on this brand. Returns null when the org does
- * not claim the brand — one org can never move another's goal.
+ * Mirror a goal a caller sent into the retired store. Returns null when the org
+ * does not claim the brand — one org can never move another's configuration.
  *
- * The economics row's `optimization_goal` is mirrored so the column and the wire
- * keep saying the same word.
+ * This is a WRITE-COMPATIBILITY path. The declaration a caller's goal produces
+ * is the funnel set; this only keeps the retired columns saying the same word
+ * the caller sent, so nothing that reads them back disagrees with the request.
  */
 export async function updateCurrentGoalByBrandId(
   orgId: string,
   brandId: string,
-  currentGoal: CurrentGoal
-): Promise<CurrentGoal | null> {
+  currentGoal: RetiredGoal
+): Promise<RetiredGoal | null> {
   const [updated] = await db
     .update(orgBrands)
     .set({ currentGoal, updatedAt: sql`NOW()` })
@@ -62,5 +71,31 @@ export async function updateCurrentGoalByBrandId(
       )
     );
 
-  return updated.currentGoal as CurrentGoal;
+  return updated.currentGoal as RetiredGoal;
+}
+
+/**
+ * Whether this org has set a click destination for this brand.
+ *
+ * The one signal that tells the two meeting funnels apart for a goal that only
+ * ever said `meetingBooked`: a brand landing outreach clicks on a page of its
+ * own site books its meetings FROM THE WEBSITE. Read at the moment a goal is
+ * resolved, never stored — the goal is retired and gains no new state here.
+ */
+export async function hasClickDestination(
+  orgId: string,
+  brandId: string
+): Promise<boolean> {
+  const [row] = await db
+    .select({ brandId: brandClickDestinations.brandId })
+    .from(brandClickDestinations)
+    .where(
+      and(
+        eq(brandClickDestinations.orgId, orgId),
+        eq(brandClickDestinations.brandId, brandId)
+      )
+    )
+    .limit(1);
+
+  return row !== undefined;
 }
