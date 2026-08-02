@@ -41,6 +41,7 @@ import clientInfoRoutes from './routes/client-info.routes';
 import intakeFormRoutes from './routes/intake-form.routes';
 import thesisRoutes from './routes/thesis.routes';
 import usersRoutes from './routes/users.routes';
+import { assertEveryMigrationRan } from './db/verify-migrations';
 
 const app = express();
 const port = process.env.PORT || 3005;
@@ -206,7 +207,14 @@ if (process.env.NODE_ENV === "test") {
   });
 
   runMigrationsWithConnectRetry(() => migrate(db, { migrationsFolder: "./drizzle" }))
-    .then(() => {
+    .then(async () => {
+      // "Migrations complete" is exactly what drizzle reports after SKIPPING a
+      // file: it resumes by row count against journal position, so a numbering
+      // gap makes it slice past one and finish clean. Prove the ledger is not
+      // short before this service reports ready — a schema that is not the one
+      // this build expects should fail the healthcheck, not serve 500s for
+      // nineteen hours. See src/db/verify-migrations.ts (#416, #417).
+      await assertEveryMigrationRan("./drizzle");
       markMigrationsReady();
       console.log("Migrations complete");
       startExpiredFieldsCleanup();
