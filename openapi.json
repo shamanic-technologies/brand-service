@@ -1651,9 +1651,6 @@
                       "$ref": "#/components/schemas/FunnelStage"
                     }
                   },
-                  "optimizationGoal": {
-                    "$ref": "#/components/schemas/CurrentGoal"
-                  },
                   "updatedAt": {
                     "type": "string"
                   }
@@ -1666,7 +1663,6 @@
                   "formSubmissionToPaidClientPct",
                   "businessModel",
                   "funnelStages",
-                  "optimizationGoal",
                   "updatedAt"
                 ]
               }
@@ -1682,19 +1678,6 @@
         "enum": [
           "website_purchase",
           "sales_meeting"
-        ]
-      },
-      "CurrentGoal": {
-        "type": "string",
-        "enum": [
-          "signup",
-          "meetingBooked",
-          "websitePurchase",
-          "combinedSales",
-          "websiteVisit",
-          "positiveReply",
-          "formSubmission",
-          "whatsappConversation"
         ]
       },
       "SalesEconomicsMetrics": {
@@ -1790,9 +1773,6 @@
                       "$ref": "#/components/schemas/FunnelStage"
                     }
                   },
-                  "optimizationGoal": {
-                    "$ref": "#/components/schemas/CurrentGoal"
-                  },
                   "updatedAt": {
                     "type": "string"
                   }
@@ -1805,7 +1785,6 @@
                   "formSubmissionToPaidClientPct",
                   "businessModel",
                   "funnelStages",
-                  "optimizationGoal",
                   "updatedAt"
                 ]
               }
@@ -1944,12 +1923,6 @@
               "type": "string"
             }
           },
-          "goal": {
-            "$ref": "#/components/schemas/CurrentGoal"
-          },
-          "currentGoal": {
-            "$ref": "#/components/schemas/CurrentGoal"
-          },
           "rates": {
             "type": "object",
             "additionalProperties": {
@@ -1978,8 +1951,6 @@
           "active",
           "name",
           "steps",
-          "goal",
-          "currentGoal",
           "rates",
           "lifetimeRevenueUsd",
           "destinationUrl",
@@ -1990,10 +1961,10 @@
       "SalesFunnelKey": {
         "type": "string",
         "enum": [
-          "reply_meeting",
-          "visit_meeting",
-          "visit_signup",
-          "visit_form"
+          "sales_meetings_from_conversation",
+          "sales_meetings_from_website",
+          "website_purchases",
+          "form_magnet"
         ]
       },
       "StateSalesFunnelSetRequest": {
@@ -2002,12 +1973,25 @@
           "funnelKeys": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/SalesFunnelKey"
+              "$ref": "#/components/schemas/AcceptedSalesFunnelKey"
             }
           }
         },
         "required": [
           "funnelKeys"
+        ]
+      },
+      "AcceptedSalesFunnelKey": {
+        "type": "string",
+        "enum": [
+          "sales_meetings_from_conversation",
+          "sales_meetings_from_website",
+          "website_purchases",
+          "form_magnet",
+          "reply_meeting",
+          "visit_meeting",
+          "visit_signup",
+          "visit_form"
         ]
       },
       "DeclareSalesFunnelResponse": {
@@ -2153,17 +2137,6 @@
           "whatsAppLink"
         ]
       },
-      "UpdateCurrentGoalResponse": {
-        "type": "object",
-        "properties": {
-          "currentGoal": {
-            "$ref": "#/components/schemas/CurrentGoal"
-          }
-        },
-        "required": [
-          "currentGoal"
-        ]
-      },
       "UpdateCurrentGoalRequest": {
         "type": "object",
         "properties": {
@@ -2296,7 +2269,7 @@
             "$ref": "#/components/schemas/BrandDetail"
           },
           "currentGoal": {
-            "$ref": "#/components/schemas/CurrentGoal"
+            "$ref": "#/components/schemas/RetiredGoal"
           },
           "brandProfile": {
             "type": "object",
@@ -2346,6 +2319,19 @@
           "brand",
           "currentGoal",
           "brandProfile"
+        ]
+      },
+      "RetiredGoal": {
+        "type": "string",
+        "enum": [
+          "signup",
+          "meetingBooked",
+          "websitePurchase",
+          "combinedSales",
+          "websiteVisit",
+          "positiveReply",
+          "formSubmission",
+          "whatsappConversation"
         ]
       },
       "UserFieldsResponse": {
@@ -4803,7 +4789,7 @@
     "/orgs/brands/{brandId}/sales-funnels": {
       "get": {
         "summary": "Get the sales funnels a brand has declared it sells through",
-        "description": "The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime revenue, landing page and booking link. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Lists ACTIVE and INACTIVE funnels alike: an inactive one keeps every number on it, so the screen can show what the user entered and switching it back on returns it. An EMPTY list means the org has NEVER answered — a gap, never \"sells through nothing\", which is unreachable because an org that answered always keeps at least one funnel on. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+        "description": "The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime revenue, landing page and booking link. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and `form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Lists ACTIVE and INACTIVE funnels alike: an inactive one keeps every number on it, so the screen can show what the user entered and switching it back on returns it. An EMPTY list means the org has NEVER answered — a gap, never \"sells through nothing\", which is unreachable because an org that answered always keeps at least one funnel on. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
         "parameters": [
           {
             "schema": {
@@ -4842,7 +4828,7 @@
       },
       "put": {
         "summary": "State the whole set of funnels a brand sells through",
-        "description": "State the WHOLE set at once: exactly these funnels, no others. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Funnels already in the set keep the economics they were priced with (restating a set never wipes them); funnels dropped from it lose their declaration and their economics together. `{ \"funnelKeys\": [] }` is legal and is the ONLY way a brand can state it sells through NOTHING — a different answer from never having said anything, which is why this route exists alongside the per-funnel one. The set is validated whole before anything is written, so a set naming a website-led funnel on a brand with no website is rejected 400 and nothing is half-applied. Returns the stated set.",
+        "description": "State the WHOLE set at once: exactly these funnels, no others. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and `form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Funnels already in the set keep the economics they were priced with (restating a set never wipes them); funnels dropped from it are switched OFF and KEPT with every number on them, so putting one back in the set returns what the user entered rather than an empty form. The set may not be empty — an org that has answered sells through at least one funnel. The set is validated whole before anything is written, so a set naming a website-led funnel on a brand with no website is rejected 400 and nothing is half-applied. Returns the stated set.",
         "parameters": [
           {
             "schema": {
@@ -4892,7 +4878,7 @@
     "/orgs/brands/{brandId}/sales-funnels/{funnelKey}": {
       "put": {
         "summary": "Declare a sales funnel and write its economics",
-        "description": "Declare that the brand sells through this funnel, and write what you send of its economics. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Idempotent: the declaration IS the row, so declaring twice is declaring once, and a body with no fields declares the funnel without pricing it yet. PARTIAL: an omitted field is left exactly as stored, an explicit `null` CLEARS the value back to never-declared. `rates` may only carry the legs of THIS funnel's own chain — a foreign rate is rejected 400 rather than dropped. `destinationUrl` is accepted only for a funnel that lands a click on the site and must be on the brand's own domain (or a subdomain); `bookingUrl` only for a funnel whose chain contains a meeting, and it may point at any third-party scheduler. A funnel that starts with a website visit cannot be declared for a brand that has no website (400).",
+        "description": "Declare that the brand sells through this funnel, and write what you send of its economics. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and `form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Idempotent: the declaration IS the row, so declaring twice is declaring once, and a body with no fields declares the funnel without pricing it yet. PARTIAL: an omitted field is left exactly as stored, an explicit `null` CLEARS the value back to never-declared. `rates` may only carry the legs of THIS funnel's own chain — a foreign rate is rejected 400 rather than dropped. `destinationUrl` is accepted only for a funnel that lands a click on the site and must be on the brand's own domain (or a subdomain); `bookingUrl` only for a funnel whose chain contains a meeting, and it may point at any third-party scheduler. A funnel that starts with a website visit cannot be declared for a brand that has no website (400).",
         "parameters": [
           {
             "schema": {
@@ -4905,7 +4891,7 @@
           },
           {
             "schema": {
-              "$ref": "#/components/schemas/SalesFunnelKey"
+              "$ref": "#/components/schemas/AcceptedSalesFunnelKey"
             },
             "required": true,
             "name": "funnelKey",
@@ -4947,8 +4933,8 @@
         }
       },
       "delete": {
-        "summary": "Switch a sales funnel off",
-        "description": "The org no longer sells through this funnel. The row and every number on it SURVIVE — that is the point: switching it back on returns what the user already entered instead of an empty form. Idempotent: switching off a funnel that is already off is a 200 with the unchanged set. REFUSED (400) when it is the LAST active funnel — an org that has answered sells through at least one. Returns the whole set, active and inactive.",
+        "summary": "Switch a sales funnel off, or erase it outright",
+        "description": "The org no longer sells through this funnel. The row and every number on it SURVIVE — that is the point: switching it back on returns what the user already entered instead of an empty form. Idempotent: switching off a funnel that is already off is a 200 with the unchanged set. REFUSED (400) when it is the LAST active funnel — an org that has answered sells through at least one. Returns the whole set, active and inactive. `?erase=true` instead FORGETS the funnel: the row and every number on it are deleted, and declaring it again starts from an empty form. It is opt-in because it is the destructive one — an ordinary deselect must never take a user's numbers with it. Erasing is refused (400) when it would leave the org holding funnels with none of them active; erasing the LAST remaining funnel is allowed and returns the brand to \"never answered\".",
         "parameters": [
           {
             "schema": {
@@ -4961,11 +4947,25 @@
           },
           {
             "schema": {
-              "$ref": "#/components/schemas/SalesFunnelKey"
+              "$ref": "#/components/schemas/AcceptedSalesFunnelKey"
             },
             "required": true,
             "name": "funnelKey",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the funnel and its economics for good."
+            },
+            "required": false,
+            "description": "Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the funnel and its economics for good.",
+            "name": "erase",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4997,7 +4997,7 @@
     "/internal/brands/{brandId}/sales-funnels": {
       "get": {
         "summary": "Internal read of the funnels a brand has declared",
-        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for and the economics it is ranked on. `goal` and `currentGoal` carry the SAME canonical token — one vocabulary; `goal` is kept as a byte-stable alias. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Returns ONLY the funnels the org currently sells through — a funnel switched off must never be ranked. An EMPTY list means the org has never answered: surface it as a gap, do NOT substitute a plausible set and do NOT derive one from the stored economics. The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the brand, and the read is rejected 400 `ORG_REQUIRED` when several do — each org configures the brand independently, so there is no shared answer to guess at.",
+        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for and the economics it is ranked on. `goal` and `currentGoal` carry the SAME canonical token — one vocabulary; `goal` is kept as a byte-stable alias. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and `form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Returns ONLY the funnels the org currently sells through — a funnel switched off must never be ranked. An EMPTY list means the org has never answered: surface it as a gap, do NOT substitute a plausible set and do NOT derive one from the stored economics. The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the brand, and the read is rejected 400 `ORG_REQUIRED` when several do — each org configures the brand independently, so there is no shared answer to guess at.",
         "parameters": [
           {
             "schema": {
@@ -5134,8 +5134,8 @@
     },
     "/orgs/brands/{brandId}/current-goal": {
       "put": {
-        "summary": "Update a brand's current runtime goal",
-        "description": "Updates the single brand-owned runtime goal used by campaign-service per-lead loops and features-service runtime candidate selection. This does not edit campaigns. The goal uses the candidate-selection vocabulary (`signup` | `meetingBooked` | `purchase`), not a stats-key or legacy sales-economics enum. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected with 403.",
+        "summary": "Declare what a brand sells through, by the retired goal name for it",
+        "description": "RETIRED-GOAL WRITE TOLERANCE. The goal vocabulary no longer answers anything: what a brand sells through is its declared SALES FUNNELS, and that is the only vocabulary any read emits. This route survives so a caller still sending yesterday's word keeps working — it accepts every goal spelling the fleet has ever used (including the pre-rename `purchase`), declares the funnel(s) that goal MEANT, and answers with the funnel set. `meetingBooked` names BOTH meeting funnels, so it resolves to `sales_meetings_from_website` for a brand that has set a click destination and `sales_meetings_from_conversation` otherwise; `combinedSales` declares TWO funnels rather than making a lossy pick; `whatsappConversation` names no funnel at all and is rejected 400. ADDITIVE: it switches the named funnels on and leaves every other declaration, and every number on it, exactly as stored. Stating the whole set (PUT .../sales-funnels) is the only thing that switches a funnel off. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
         "parameters": [
           {
             "schema": {
@@ -5158,17 +5158,17 @@
         },
         "responses": {
           "200": {
-            "description": "Updated current goal",
+            "description": "The funnels this brand now sells through",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpdateCurrentGoalResponse"
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Invalid brand ID format or invalid currentGoal"
+            "description": "Invalid brand ID format, an unrecognised goal, a goal that names no funnel (`whatsappConversation`), or a website-led funnel on a brand with no website"
           },
           "403": {
             "description": "Brand does not belong to the caller's org"
@@ -5285,7 +5285,7 @@
     "/internal/brands/{brandId}/runtime-context": {
       "get": {
         "summary": "Get a brand's runtime context for one campaign loop",
-        "description": "Service-authenticated snapshot for campaign-service per-lead loops. Returns the canonical brand-owned `currentGoal` together with the minimal brand identity and the brand-profile fields (the confirmed user-validated fields overlaid on the derived extract fields). Brand-service does not perform candidate selection or bandit logic; campaign-service passes `currentGoal` onward to features-service runtime candidate selection and snapshots the returned brand context for the loop.",
+        "description": "Service-authenticated snapshot for campaign-service per-lead loops. Returns the brand-owned `currentGoal` together with the minimal brand identity and the brand-profile fields (the confirmed user-validated fields overlaid on the derived extract fields). Brand-service does not perform candidate selection or bandit logic; campaign-service passes `currentGoal` onward to features-service runtime candidate selection and snapshots the returned brand context for the loop. NOTE: `currentGoal` belongs to the RETIRED goal vocabulary and is the last goal-shaped read brand-service serves. What a brand sells through is its declared sales funnels (GET /internal/brands/{brandId}/sales-funnels), which tell the two meeting funnels apart where the goal cannot. This field survives only until campaign-service boots on the funnel set.",
         "parameters": [
           {
             "schema": {

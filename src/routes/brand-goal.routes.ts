@@ -4,9 +4,16 @@ import { getBrandDetail } from '../services/brandService';
 import { brandProfileService } from '../services/brandProfileService';
 import {
   getCurrentGoalByBrandId,
-  toCurrentGoal,
+  hasClickDestination,
+  toRetiredGoal,
   updateCurrentGoalByBrandId,
 } from '../services/brandGoalService';
+import {
+  RetiredGoalNamesNoFunnelError,
+  SalesFunnelRequiresWebsiteError,
+  salesFunnelsService,
+} from '../services/salesFunnelsService';
+import { getBrand } from '../services/brandService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 
@@ -15,11 +22,16 @@ export const internalRouter = Router();
 
 /**
  * PUT /orgs/brands/:brandId/current-goal
- * Updates the brand-owned runtime goal without touching campaign rows.
  *
- * Accepts any spelling the fleet has ever used for a goal — including the
- * pre-rename `purchase` this route itself used to require — and stores the
- * canonical token. The response answers canonical, always.
+ * RETIRED-GOAL WRITE TOLERANCE, and nothing more. The goal vocabulary no longer
+ * answers anything: what a brand sells through is its declared sales funnels.
+ * This route exists so a caller still sending yesterday's word keeps working —
+ * it accepts every spelling the fleet has ever used (including the pre-rename
+ * `purchase` it once required), declares the funnel(s) that goal MEANT, and
+ * answers with the funnel set.
+ *
+ * The retired columns are still mirrored, so a caller that writes a goal and
+ * reads it back is not lied to; nothing derives an answer from them.
  */
 orgRouter.put('/brands/:brandId/current-goal', async (req: Request, res: Response) => {
   try {
@@ -36,18 +48,41 @@ orgRouter.put('/brands/:brandId/current-goal', async (req: Request, res: Respons
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const currentGoal = await updateCurrentGoalByBrandId(
-      req.orgId!,
-      brandId,
-      toCurrentGoal(parsed.data.currentGoal)
-    );
-    if (!currentGoal) {
+    const goal = toRetiredGoal(parsed.data.currentGoal);
+
+    // Mirror first: a membership that does not exist is the 404 this route has
+    // always answered, and nothing should be declared for an org that does not
+    // claim the brand.
+    const mirrored = await updateCurrentGoalByBrandId(req.orgId!, brandId, goal);
+    if (!mirrored) {
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    return res.status(200).json({ currentGoal });
+    const brand = await getBrand(brandId);
+    if (!brand) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    try {
+      const set = await salesFunnelsService.declareFromRetiredGoal(
+        req.orgId!,
+        brandId,
+        goal,
+        { hasClickDestination: await hasClickDestination(req.orgId!, brandId) },
+        brand.domain ?? null
+      );
+      return res.status(200).json(set);
+    } catch (error) {
+      if (
+        error instanceof RetiredGoalNamesNoFunnelError ||
+        error instanceof SalesFunnelRequiresWebsiteError
+      ) {
+        return res.status(400).json({ error: error.message });
+      }
+      throw error;
+    }
   } catch (error: any) {
-    console.error('[brand-service] Update current goal error:', error);
+    console.error('[brand-service] Declare from retired goal error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });

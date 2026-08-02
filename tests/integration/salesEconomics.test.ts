@@ -331,11 +331,17 @@ describe('Sales Economics Endpoints', () => {
     expect(res.status).toBe(400);
   });
 
-  // ── funnelStages + optimizationGoal (sales-funnel config) ─────────
+  // ── funnelStages + the retired optimizationGoal ───────────────────
+  //
+  // A goal is still ACCEPTED on write, in every spelling, and it declares the
+  // funnel(s) it meant. It is never READ BACK: what a brand sells through is
+  // its declared funnel set, and that is the only vocabulary any read emits.
+  // These assertions therefore say `toBeUndefined()` where they used to name a
+  // token — that absence IS the retirement.
   // Lifecycle runs IN ORDER on funnelBrandId: set → preserve → clear-to-[].
 
   // AC2 — a brand that never set these reads [] + "sales" (server defaults)
-  it('GET a brand that never set funnel fields → funnelStages [] + optimizationGoal "sales"', async () => {
+  it('GET a brand that never set funnel fields → funnelStages [] and no goal on the wire', async () => {
     const putRes = await request(app)
       .put(path(funnelUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId))
@@ -343,13 +349,13 @@ describe('Sales Economics Endpoints', () => {
 
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics.funnelStages).toEqual([]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const getRes = await request(app)
       .get(path(funnelUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId));
     expect(getRes.body.salesEconomics.funnelStages).toEqual([]);
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   // AC1 — PUT both fields then GET round-trips exactly
@@ -368,7 +374,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const getRes = await request(app)
       .get(path(funnelBrandId))
@@ -377,7 +383,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   // AC3 — omitting both keys leaves prior values unchanged (idempotent)
@@ -392,7 +398,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   // Sending [] explicitly clears funnelStages (distinct from omitting)
@@ -405,7 +411,7 @@ describe('Sales Economics Endpoints', () => {
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics.funnelStages).toEqual([]);
     // optimizationGoal omitted → preserved
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   // AC4 — invalid funnelStages value fails loud, no write
@@ -449,12 +455,12 @@ describe('Sales Economics Endpoints', () => {
       .send({ ...validMetrics, optimizationGoal: 'combined_sales' });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('combinedSales');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const getRes = await request(app)
       .get(path(combinedGoalBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('combinedSales');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   it('PUT website_purchase → both reads answer websitePurchase', async () => {
@@ -464,19 +470,19 @@ describe('Sales Economics Endpoints', () => {
       .send({ ...validMetrics, optimizationGoal: 'website_purchase' });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const orgGet = await request(app)
       .get(path(combinedGoalBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(orgGet.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
+    expect(orgGet.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     // The internal (campaign-service) read answers the SAME token — one
     // vocabulary, so there is no per-entry-point collapse left.
     const internalGet = await request(app)
       .get(internalPath(combinedGoalBrandId))
       .set(getInternalAuthHeaders());
-    expect(internalGet.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
+    expect(internalGet.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   it('PUT legacy sales spelling still accepted → website-purchase, never combined (backward-compat + no collision)', async () => {
@@ -487,8 +493,8 @@ describe('Sales Economics Endpoints', () => {
 
     expect(putRes.status).toBe(200);
     // Stays website purchase, is NEVER reinterpreted as the combined goal.
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
-    expect(putRes.body.salesEconomics.optimizationGoal).not.toBe('combinedSales');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
   // ── split self-serve close (visit→signup, signup→paid) ───────────
@@ -586,14 +592,14 @@ describe('Sales Economics Endpoints', () => {
       });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('websiteVisit');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
     expect(putRes.body.salesEconomics.visitToPaidClientPct).toBe(7.5);
     expect(putRes.body.salesEconomics.replyToPaidClientPct).toBe(40);
 
     const getRes = await request(app)
       .get(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('websiteVisit');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
     expect(getRes.body.salesEconomics.visitToPaidClientPct).toBe(7.5);
     expect(getRes.body.salesEconomics.replyToPaidClientPct).toBe(40);
   });
@@ -606,28 +612,38 @@ describe('Sales Economics Endpoints', () => {
       .send({ ...validMetrics, optimizationGoal: 'positive_replies' });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('positiveReply');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const getRes = await request(app)
       .get(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('positiveReply');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
-  // AC2 — whatsapp_conversations (dedicated Pattern-A goal) round-trips on write + read.
-  it('PUT optimizationGoal "whatsapp_conversations" → GET returns it', async () => {
+  // `whatsappConversation` is the one retired goal that names no funnel — the
+  // catalogue has no whatsapp chain. It is refused rather than accepted into
+  // silence, and the refusal must leave the metrics EXACTLY as they were: a
+  // write that half-applies and then fails is worse than either outcome alone.
+  it('PUT optimizationGoal "whatsapp_conversations" → 400, and nothing is written', async () => {
+    const before = await request(app)
+      .get(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+
     const putRes = await request(app)
       .put(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, optimizationGoal: 'whatsapp_conversations' });
+      .send({ ...validMetrics, lifetimeRevenueUsd: 987654, optimizationGoal: 'whatsapp_conversations' });
 
-    expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('whatsappConversation');
+    expect(putRes.status).toBe(400);
+    expect(putRes.body.error).toMatch(/names no sales funnel/);
 
-    const getRes = await request(app)
+    const after = await request(app)
       .get(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('whatsappConversation');
+    expect(after.body.salesEconomics.lifetimeRevenueUsd).toBe(
+      before.body.salesEconomics.lifetimeRevenueUsd
+    );
+    expect(after.body.salesEconomics.lifetimeRevenueUsd).not.toBe(987654);
   });
 
   // Omitting the single-step rates leaves prior values unchanged (partial update).
@@ -690,14 +706,14 @@ describe('Sales Economics Endpoints', () => {
       });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('formSubmission');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
     expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
     expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
 
     const getRes = await request(app)
       .get(path(formSubBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('formSubmission');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
     expect(getRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
     expect(getRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
   });
@@ -711,7 +727,7 @@ describe('Sales Economics Endpoints', () => {
       .send(validMetrics);
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('formSubmission');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
     expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
     expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
   });
