@@ -358,6 +358,13 @@
       "when": 1785577346629,
       "tag": "0051_canonical_goal_vocabulary",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1785577347629,
+      "tag": "0052_goal_never_chosen",
+      "breakpoints": true
     }
   ]
 }

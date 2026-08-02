@@ -90,7 +90,17 @@ export const orgBrands = pgTable("org_brands", {
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
 	// What THIS org optimizes for on THIS brand. Moved off `brands` — see above.
-	currentGoal: text("current_goal").default('websitePurchase').notNull(),
+	// NULL means this org has not said what it optimizes for on this brand, and
+	// that is a real answer — distinct from having chosen website purchase.
+	//
+	// There was a DEFAULT here, of a real goal. It made "never told us" and "chose
+	// website purchase" the same row, so every read answered a plausible goal for
+	// a brand that had never picked one: 14 brands that chose sales meetings were
+	// served website purchase for six weeks and their campaigns optimized for it
+	// (repaired 2026-08-01, migration 0052 removed the default). Do NOT re-add one
+	// — the runtime-context read already 404s on a null goal, so a consumer that
+	// needs one fails loud instead of running on a fabricated value.
+	currentGoal: text("current_goal"),
 	claimedAt: timestamp("claimed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
