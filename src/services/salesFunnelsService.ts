@@ -438,6 +438,53 @@ export class SalesFunnelsService {
 
     return updated.length > 0;
   }
+
+  /**
+   * FORGET the funnel: delete the row and every number on it. This is the only
+   * path that destroys what a user entered, and it exists so that a deliberate
+   * "forget what I told you about this" stays possible now that an ordinary
+   * deselect only switches the funnel off.
+   *
+   * It is refused (400) when it would leave the org holding funnel rows with
+   * NONE of them active — the same invariant `deactivate` protects, since a
+   * state of "answered, but sells through nothing" is not reachable and must
+   * not become reachable through erasure. Erasing the LAST remaining row is
+   * therefore allowed and is the one way back to "never answered": nothing is
+   * left to be inconsistent with.
+   *
+   * Returns true when a row was actually erased (erasing what is not there is a
+   * no-op, not an error).
+   */
+  async eraseByBrandId(
+    orgId: string,
+    brandId: string,
+    funnelKey: SalesFunnelKey
+  ): Promise<boolean> {
+    const rows = await db
+      .select({ funnelKey: brandSalesFunnels.funnelKey, active: brandSalesFunnels.active })
+      .from(brandSalesFunnels)
+      .where(
+        and(eq(brandSalesFunnels.orgId, orgId), eq(brandSalesFunnels.brandId, brandId))
+      );
+
+    const survivors = rows.filter((r) => r.funnelKey !== funnelKey);
+    if (survivors.length > 0 && !survivors.some((r) => r.active)) {
+      throw new LastActiveSalesFunnelError(funnelKey);
+    }
+
+    const deleted = await db
+      .delete(brandSalesFunnels)
+      .where(
+        and(
+          eq(brandSalesFunnels.orgId, orgId),
+          eq(brandSalesFunnels.brandId, brandId),
+          eq(brandSalesFunnels.funnelKey, funnelKey)
+        )
+      )
+      .returning({ funnelKey: brandSalesFunnels.funnelKey });
+
+    return deleted.length > 0;
+  }
 }
 
 export const salesFunnelsService = new SalesFunnelsService();

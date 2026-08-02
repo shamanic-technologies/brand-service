@@ -45,6 +45,25 @@ function parseFunnelKey(req: Request, res: Response): SalesFunnelKey | null {
 }
 
 /**
+ * Read the `erase` flag off a DELETE, or write the 400 and return null.
+ *
+ * Absent is the ordinary deselect (false). Only the exact string `true` asks for
+ * the destructive path — anything else is rejected rather than read as "no",
+ * because a caller that mistyped the one flag that destroys data deserves to
+ * hear about it instead of quietly getting the other behaviour.
+ */
+export function parseEraseFlag(req: Request, res: Response): boolean | null {
+  const raw = req.query.erase;
+  if (raw === undefined) return false;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  res.status(400).json({
+    error: 'Invalid "erase": expected true or false. Omit it to switch the funnel off and keep its economics.',
+  });
+  return null;
+}
+
+/**
  * Map a declaration failure to its 400. Every one of these is the caller
  * describing a funnel that does not exist as described — never something to
  * clean up and store anyway.
@@ -65,9 +84,10 @@ function rejectDeclaration(res: Response, error: unknown): boolean {
 
 /**
  * GET /orgs/brands/:brandId/sales-funnels
- * `{ declared, funnels }` — whether the brand has stated a set at all, and the
- * funnels in it. Read `declared` first: an empty list means opposite things
- * either side of it.
+ * `{ funnels }` — every funnel this org has configured on this brand, ACTIVE and
+ * retired alike, each carrying `active`. A retired one still holds the numbers
+ * the user entered, which is what the screen has to show. An empty list means
+ * the org has never answered.
  */
 orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
   try {
@@ -89,13 +109,13 @@ orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Respon
 
 /**
  * PUT /orgs/brands/:brandId/sales-funnels
- * State the WHOLE set: exactly these funnels, no others. Funnels already in the
- * set keep their economics; funnels dropped from it lose theirs with the
- * declaration.
+ * State the WHOLE set: exactly these funnels are active, no others. Funnels
+ * already in the set keep their economics; funnels dropped from it are switched
+ * OFF and keep theirs too, so putting one back returns what the user entered.
  *
- * `{ funnelKeys: [] }` is legal and is the ONLY way a brand can say it sells
- * through nothing — which is a different answer from never having said anything,
- * and the reason this route exists alongside the per-funnel one.
+ * The list may not be empty — an org that has answered sells through at least
+ * one funnel, which is what leaves zero rows as the only way to say "never
+ * answered".
  */
 orgRouter.put('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
   try {
@@ -193,6 +213,11 @@ orgRouter.put('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, 
  * Switch the funnel OFF. The row and its numbers SURVIVE, so switching it back
  * on returns what the user already entered. Refused when it is the last active
  * one. Returns the whole set so the caller renders what it just created.
+ *
+ * `?erase=true` instead FORGETS the funnel — the row and every number on it are
+ * deleted. It is opt-in precisely because it is the destructive one: an ordinary
+ * deselect must never take a user's numbers with it, and a caller that means to
+ * destroy them has to say so.
  */
 orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Request, res: Response) => {
   try {
@@ -207,8 +232,15 @@ orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Reques
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
+    const erase = parseEraseFlag(req, res);
+    if (erase === null) return;
+
     try {
-      await salesFunnelsService.deactivateByBrandId(req.orgId!, brandId, funnelKey);
+      if (erase) {
+        await salesFunnelsService.eraseByBrandId(req.orgId!, brandId, funnelKey);
+      } else {
+        await salesFunnelsService.deactivateByBrandId(req.orgId!, brandId, funnelKey);
+      }
     } catch (error) {
       if (rejectDeclaration(res, error)) return;
       throw error;
