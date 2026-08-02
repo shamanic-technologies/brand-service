@@ -262,6 +262,35 @@ export class RetiredGoalNamesNoFunnelError extends Error {
   }
 }
 
+/**
+ * Resolve a retired goal to the funnel(s) it named, or throw.
+ *
+ * Separate from the write so a caller can settle "can this goal be honoured?"
+ * BEFORE it starts writing anything of its own. The sales-economics PUT needs
+ * that: it stores metrics and declares a funnel in one call, and a goal that
+ * cannot be declared has to reject the whole thing rather than leave the metrics
+ * saved under a word that says nothing.
+ *
+ * Returns the keys so the caller does not resolve the mapping twice.
+ */
+export function assertRetiredGoalDeclarable(
+  goal: RetiredGoal,
+  context: RetiredGoalContext,
+  brandDomain: string | null
+): SalesFunnelKey[] {
+  const keys = funnelKeysForRetiredGoal(goal, context);
+  if (keys.length === 0) throw new RetiredGoalNamesNoFunnelError(goal);
+
+  for (const key of keys) {
+    const def = salesFunnelByKey(key);
+    if (def.requiresWebsite && !brandDomain) {
+      throw new SalesFunnelRequiresWebsiteError(key);
+    }
+  }
+
+  return keys;
+}
+
 export class SalesFunnelsService {
   /**
    * Every funnel THIS org has configured on THIS brand, in catalogue order —
@@ -450,17 +479,7 @@ export class SalesFunnelsService {
     context: RetiredGoalContext,
     brandDomain: string | null
   ): Promise<DeclaredSalesFunnelSet> {
-    const keys = funnelKeysForRetiredGoal(goal, context);
-    if (keys.length === 0) throw new RetiredGoalNamesNoFunnelError(goal);
-
-    // Validated whole before anything is written, so a goal that cannot apply
-    // rejects the call with nothing half-declared.
-    for (const key of keys) {
-      const def = salesFunnelByKey(key);
-      if (def.requiresWebsite && !brandDomain) {
-        throw new SalesFunnelRequiresWebsiteError(key);
-      }
-    }
+    const keys = assertRetiredGoalDeclarable(goal, context, brandDomain);
 
     await db
       .insert(brandSalesFunnels)

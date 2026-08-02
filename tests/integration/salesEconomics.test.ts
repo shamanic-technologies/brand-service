@@ -620,20 +620,30 @@ describe('Sales Economics Endpoints', () => {
     expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
-  // AC2 — whatsapp_conversations (dedicated Pattern-A goal) round-trips on write + read.
-  it('PUT optimizationGoal "whatsapp_conversations" → GET returns it', async () => {
+  // `whatsappConversation` is the one retired goal that names no funnel — the
+  // catalogue has no whatsapp chain. It is refused rather than accepted into
+  // silence, and the refusal must leave the metrics EXACTLY as they were: a
+  // write that half-applies and then fails is worse than either outcome alone.
+  it('PUT optimizationGoal "whatsapp_conversations" → 400, and nothing is written', async () => {
+    const before = await request(app)
+      .get(path(singleStepBrandId))
+      .set(getAuthHeaders(ownerOrgId));
+
     const putRes = await request(app)
       .put(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, optimizationGoal: 'whatsapp_conversations' });
+      .send({ ...validMetrics, lifetimeRevenueUsd: 987654, optimizationGoal: 'whatsapp_conversations' });
 
-    expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
+    expect(putRes.status).toBe(400);
+    expect(putRes.body.error).toMatch(/names no sales funnel/);
 
-    const getRes = await request(app)
+    const after = await request(app)
       .get(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
+    expect(after.body.salesEconomics.lifetimeRevenueUsd).toBe(
+      before.body.salesEconomics.lifetimeRevenueUsd
+    );
+    expect(after.body.salesEconomics.lifetimeRevenueUsd).not.toBe(987654);
   });
 
   // Omitting the single-step rates leaves prior values unchanged (partial update).

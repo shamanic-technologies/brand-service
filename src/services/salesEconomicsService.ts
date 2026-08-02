@@ -8,7 +8,7 @@ import {
   updateCurrentGoalByBrandId,
 } from './brandGoalService';
 import { getBrand } from './brandService';
-import { salesFunnelsService } from './salesFunnelsService';
+import { assertRetiredGoalDeclarable, salesFunnelsService } from './salesFunnelsService';
 
 /** Brand-level B2C vs B2B classification. */
 export type BusinessModel = 'b2c' | 'b2b';
@@ -459,6 +459,18 @@ export class SalesEconomicsService {
       ? toRetiredGoal(metrics.optimizationGoal)
       : null;
 
+    // Resolved and validated BEFORE anything is written. A goal we cannot turn
+    // into a declaration rejects the whole call, so the metrics are not stored
+    // under a word that says nothing — half-applying the write and then failing
+    // is worse than either outcome on its own.
+    const goalContext = retiredGoal
+      ? { hasClickDestination: await hasClickDestination(orgId, brandId) }
+      : null;
+    if (retiredGoal && goalContext) {
+      const brand = await getBrand(brandId);
+      assertRetiredGoalDeclarable(retiredGoal, goalContext, brand?.domain ?? null);
+    }
+
     const currentGoal = retiredGoal
       ? await updateCurrentGoalByBrandId(orgId, brandId, retiredGoal)
       : await getCurrentGoalByBrandId(orgId, brandId);
@@ -578,13 +590,13 @@ export class SalesEconomicsService {
     // the dedicated acceptor and the one-time backfill apply, so a brand reaches
     // the same declaration whichever way its goal arrived. Additive: it never
     // switches off a funnel the org stated through the funnel routes.
-    if (retiredGoal) {
+    if (retiredGoal && goalContext) {
       const brand = await getBrand(brandId);
       await salesFunnelsService.declareFromRetiredGoal(
         orgId,
         brandId,
         retiredGoal,
-        { hasClickDestination: await hasClickDestination(orgId, brandId) },
+        goalContext,
         brand?.domain ?? null
       );
     }
