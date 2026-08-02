@@ -125,6 +125,8 @@ A funnel row is never deleted on the normal path. Switching one OFF keeps its ra
 
 The ORG read returns active and inactive funnels alike (the screen needs the numbers it is holding); the INTERNAL read returns **only the active ones**, because a scheduler asking what an org sells through must never rank a funnel it switched off.
 
+**The list is the whole answer — there is no `declared` flag.** One existed, saying exactly what a non-empty list says, and it was briefly re-served after the org-scoping ship purely because features-service refused a payload without it. features-service reads the list alone as of v0.118.0 and the flag is gone (migration `0052` also dropped `orphaned_brand_config_archive`, the reviewed 0050 archive). Do not reintroduce a second way to say "this org has answered": absence of rows is the only one.
+
 ## Boot: the port binds BEFORE migrations, and a gate — not a wait — is what protects the schema
 
 `src/index.ts` calls `app.listen()` FIRST and runs `migrate()` behind it. Do NOT restore the old `migrate().then(listen)` order, and do NOT reintroduce `process.exit(1)` on migration failure.
