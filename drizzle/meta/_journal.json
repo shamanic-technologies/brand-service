@@ -362,8 +362,15 @@
     {
       "idx": 52,
       "version": "7",
-      "when": 1785577347629,
-      "tag": "0052_goal_never_chosen",
+      "when": 1785600000000,
+      "tag": "0052_drop_orphaned_config_archive",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1785600001000,
+      "tag": "0053_goal_never_chosen",
       "breakpoints": true
     }
   ]

@@ -2293,17 +2293,6 @@ export const GetSalesFunnelsResponseSchema = z
   })
   .openapi('GetSalesFunnelsResponse');
 
-// The INTERNAL read carries one extra field, `declared`, which is DEPRECATED and
-// transitional. It is not a second source of truth: an org that has answered
-// always keeps at least one funnel ACTIVE, so `funnels.length > 0` and "this org
-// has answered" are the same fact, and `declared` is the older spelling of it.
-// It stays only because features-service refuses a payload without it, so
-// dropping it would break every funnels read it makes. Remove once that consumer
-// reads the list alone.
-export const InternalGetSalesFunnelsResponseSchema = GetSalesFunnelsResponseSchema.extend({
-  declared: z.boolean(),
-}).openapi('InternalGetSalesFunnelsResponse')
-
 // WRITE response — the one funnel just declared (never null).
 export const DeclareSalesFunnelResponseSchema = z
   .object({
@@ -2461,7 +2450,7 @@ registry.registerPath({
   responses: {
     200: {
       description: 'The declared funnels (possibly empty)',
-      content: { 'application/json': { schema: InternalGetSalesFunnelsResponseSchema } },
+      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
     },
     400: { description: 'Invalid brand ID format' },
     404: { description: 'No such brand' },

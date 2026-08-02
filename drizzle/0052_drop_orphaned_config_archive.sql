@@ -1,0 +1,15 @@
+-- The archive of configuration that belonged to brands no org claims, plus the
+-- no-website shells themselves, written by 0050 before it deleted them.
+--
+-- It was a review copy, and the review is done: 6 rows, all belonging to two
+-- brand rows created for one business on 2026-07-27 during a no-website
+-- onboarding that minted duplicates. That business re-onboarded properly with
+-- its domain two days later, and the live row carries strictly more than the
+-- shells did (a 702-character business context against 109, all 7 confirmed
+-- fields, the same click destination). Nothing here is reachable or wanted.
+--
+-- Dropped rather than left in place because a table nobody reads is one nobody
+-- notices holding customer data, and it is absent from schema.ts, so any
+-- `drizzle-kit push` would delete it silently and out of view anyway. Doing it
+-- here makes the removal explicit and reviewable.
+DROP TABLE IF EXISTS "orphaned_brand_config_archive";

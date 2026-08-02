@@ -54,7 +54,7 @@ describe('a goal nobody chose is not a goal', () => {
 
 describe('the migration that removed it', () => {
   const sql = readFileSync(
-    join(__dirname, '../../drizzle/0052_goal_never_chosen.sql'),
+    join(__dirname, '../../drizzle/0053_goal_never_chosen.sql'),
     'utf8'
   );
 

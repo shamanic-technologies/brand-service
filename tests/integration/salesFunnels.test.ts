@@ -433,8 +433,8 @@ describe('Sales Funnels Endpoints', () => {
     expect(keys).toEqual(['reply_meeting', 'visit_signup']);
     expect(res.body.funnels.every((f: any) => f.active)).toBe(true);
     expect(res.body.funnels[0].currentGoal).toBe('meetingBooked');
-    // Deprecated compat flag: features-service throws on a payload without it.
-    expect(res.body.declared).toBe(true);
+    // The list answers on its own — no separate flag saying the same thing.
+    expect(res.body.declared).toBeUndefined();
   });
 
   it('refuses to guess when the brand is claimed by several orgs and no org is given', async () => {
@@ -461,24 +461,22 @@ describe('Sales Funnels Endpoints', () => {
       .set(getInternalAuthHeaders());
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ funnels: [], declared: false });
+    expect(res.body).toEqual({ funnels: [] });
   });
 
-  // features-service refuses a payload whose `declared` is not a boolean, and
-  // reads `declared: false` as "this org has never answered". Both of its cases
-  // have to keep working byte-for-byte until it reads the list alone.
-  it('still answers the deprecated `declared` flag both ways, for features-service', async () => {
+  // The retired `declared` flag said exactly what the list says. features-service
+  // reads the list alone as of its v0.118.0, so nothing consumes the flag.
+  it('answers with the list alone — the retired `declared` flag is gone', async () => {
     const answered = await request(app)
       .get(`/internal/brands/${noWebsiteBrandId}/sales-funnels`)
       .set(getInternalAuthHeaders());
-    expect(typeof answered.body.declared).toBe('boolean');
-    expect(answered.body.declared).toBe(true);
+    expect(answered.body.declared).toBeUndefined();
     expect(answered.body.funnels.length).toBeGreaterThan(0);
 
     const neverAnswered = await request(app)
       .get(`/internal/brands/${unknownBrandId}/sales-funnels`)
       .set(getInternalAuthHeaders());
-    expect(neverAnswered.body.declared).toBe(false);
+    expect(neverAnswered.body.declared).toBeUndefined();
     expect(neverAnswered.body.funnels).toEqual([]);
   });
 });
