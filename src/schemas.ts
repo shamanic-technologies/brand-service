@@ -2269,8 +2269,9 @@ export const DeclaredSalesFunnelSchema = z
   })
   .openapi('DeclaredSalesFunnel');
 
-// WRITE request for the WHOLE set: exactly these funnels, no others. `[]` is
-// legal and is the ONLY way a brand can state it sells through nothing.
+// WRITE request for the WHOLE set: exactly these funnels are active, no others.
+// Everything left out is switched off and KEPT with its numbers. `[]` is refused:
+// an org that has answered sells through at least one funnel.
 export const StateSalesFunnelSetRequestSchema = z
   .object({
     // Exactly these funnels are ACTIVE; every other one the org configured is
@@ -2354,10 +2355,10 @@ registry.registerPath({
   description:
     'State the WHOLE set at once: exactly these funnels, no others. ' + SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
     'Funnels already in the set keep the economics they were priced with (restating a set never ' +
-    'wipes them); funnels dropped from it lose their declaration and their economics together. ' +
-    '`{ "funnelKeys": [] }` is legal and is the ONLY way a brand can state it sells through ' +
-    'NOTHING — a different answer from never having said anything, which is why this route exists ' +
-    'alongside the per-funnel one. The set is validated whole before anything is written, so a set ' +
+    'wipes them); funnels dropped from it are switched OFF and KEPT with every number on them, so ' +
+    'putting one back in the set returns what the user entered rather than an empty form. ' +
+    'The set may not be empty — an org that has answered sells through at least one funnel. ' +
+    'The set is validated whole before anything is written, so a set ' +
     'naming a website-led funnel on a brand with no website is rejected 400 and nothing is ' +
     'half-applied. Returns the stated set.',
   request: {
@@ -2418,15 +2419,30 @@ registry.registerPath({
 registry.registerPath({
   method: 'delete',
   path: '/orgs/brands/{brandId}/sales-funnels/{funnelKey}',
-  summary: 'Switch a sales funnel off',
+  summary: 'Switch a sales funnel off, or erase it outright',
   description:
     'The org no longer sells through this funnel. The row and every number on it SURVIVE — that is ' +
     'the point: switching it back on returns what the user already entered instead of an empty form. ' +
     'Idempotent: switching off a funnel that is already off is a 200 with the unchanged set. ' +
     'REFUSED (400) when it is the LAST active funnel — an org that has answered sells through at ' +
-    'least one. Returns the whole set, active and inactive.',
+    'least one. Returns the whole set, active and inactive. ' +
+    '`?erase=true` instead FORGETS the funnel: the row and every number on it are deleted, and ' +
+    'declaring it again starts from an empty form. It is opt-in because it is the destructive one — ' +
+    'an ordinary deselect must never take a user\'s numbers with it. Erasing is refused (400) when ' +
+    'it would leave the org holding funnels with none of them active; erasing the LAST remaining ' +
+    'funnel is allowed and returns the brand to "never answered".',
   request: {
     params: z.object({ brandId: z.string().uuid(), funnelKey: SalesFunnelKeySchema }),
+    query: z.object({
+      erase: z
+        .enum(['true', 'false'])
+        .optional()
+        .openapi({
+          description:
+            'Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the ' +
+            'funnel and its economics for good.',
+        }),
+    }),
   },
   responses: {
     200: {

@@ -125,6 +125,8 @@ A funnel row is never deleted on the normal path. Switching one OFF keeps its ra
 
 The ORG read returns active and inactive funnels alike (the screen needs the numbers it is holding); the INTERNAL read returns **only the active ones**, because a scheduler asking what an org sells through must never rank a funnel it switched off.
 
+**Erasing is a SEPARATE, OPT-IN act — `DELETE ...?erase=true`.** Retiring stopped destroying data, so there had to stay a way to actually destroy it; making it a flag on the same route is what keeps the ordinary deselect non-destructive while leaving a deliberate "forget what I told you" reachable. `eraseByBrandId` deletes the row outright and is refused (400, the same `LastActiveSalesFunnelError`) when it would leave the org holding funnel rows with NONE active — erasure must not reach the state deactivation cannot. Erasing the LAST remaining row IS allowed: it returns the brand to zero rows, which is exactly "never answered". An `erase` value that is neither `true` nor `false` is a 400, never read as "no" — a mistyped destructive flag must not silently get the other behaviour.
+
 ## Boot: the port binds BEFORE migrations, and a gate — not a wait — is what protects the schema
 
 `src/index.ts` calls `app.listen()` FIRST and runs `migrate()` behind it. Do NOT restore the old `migrate().then(listen)` order, and do NOT reintroduce `process.exit(1)` on migration failure.

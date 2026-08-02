@@ -326,6 +326,121 @@ describe('Sales Funnels Endpoints', () => {
     expect(after.body).toEqual(before.body);
   });
 
+  // ── Erasing, the one destructive path ──────────────────────────────────────
+  //
+  // Switching a funnel off stopped destroying anything, so "forget what I told
+  // you about this funnel" had to stay reachable — deliberately, never as the
+  // side effect of an ordinary deselect.
+  it('erases a funnel outright, so redeclaring it starts from an empty form', async () => {
+    const eraseBrand = randomUUID();
+    await db.insert(brands).values({
+      id: eraseBrand,
+      url: `https://${dom(eraseBrand)}`,
+      domain: dom(eraseBrand),
+      name: 'Erase Funnel Brand',
+    });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: eraseBrand });
+    allBrandIds.push(eraseBrand);
+
+    await request(app)
+      .put(one(eraseBrand, 'reply_meeting'))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ rates: { replyToMeetingPct: 40 }, lifetimeRevenueUsd: 9000 });
+    await request(app)
+      .put(one(eraseBrand, 'visit_signup'))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ rates: { visitToSignupPct: 30 }, lifetimeRevenueUsd: 4200 });
+
+    const erased = await request(app)
+      .delete(one(eraseBrand, 'visit_signup'))
+      .query({ erase: 'true' })
+      .set(getAuthHeaders(ownerOrgId));
+
+    expect(erased.status).toBe(200);
+    // Gone entirely — not listed as inactive, the way a deselect leaves it.
+    expect(erased.body.funnels.map((f: any) => f.funnelKey)).toEqual(['reply_meeting']);
+
+    const back = await request(app)
+      .put(one(eraseBrand, 'visit_signup'))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({});
+    expect(back.status).toBe(200);
+    expect(back.body.funnel.lifetimeRevenueUsd).toBeNull();
+    expect(back.body.funnel.rates.visitToSignupPct).toBeNull();
+  });
+
+  it('refuses an erase that would leave the org holding funnels with none active', async () => {
+    const solo = randomUUID();
+    // Needs a website: the second funnel here is a website-led one.
+    await db.insert(brands).values({
+      id: solo,
+      url: `https://${dom(solo)}`,
+      domain: dom(solo),
+      name: 'Erase Invariant Brand',
+    });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: solo });
+    allBrandIds.push(solo);
+
+    await request(app)
+      .put(one(solo, 'reply_meeting'))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ rates: { replyToMeetingPct: 20 } });
+    await request(app)
+      .put(one(solo, 'visit_meeting'))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ rates: { meetingToClosePct: 25 } });
+    await request(app).delete(one(solo, 'visit_meeting')).set(getAuthHeaders(ownerOrgId));
+
+    // reply_meeting is the only active one, and an inactive row would survive it.
+    const res = await request(app)
+      .delete(one(solo, 'reply_meeting'))
+      .query({ erase: 'true' })
+      .set(getAuthHeaders(ownerOrgId));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at least one funnel on/);
+
+    const after = await request(app).get(list(solo)).set(getAuthHeaders(ownerOrgId));
+    expect(after.body.funnels).toHaveLength(2);
+    expect(after.body.funnels.find((f: any) => f.funnelKey === 'reply_meeting').rates
+      .replyToMeetingPct).toBe(20);
+  });
+
+  it('erasing the LAST remaining funnel is allowed, and says "never answered" again', async () => {
+    const solo = randomUUID();
+    await db.insert(brands).values({ id: solo, name: 'Erase Everything Brand' });
+    await db.insert(orgBrands).values({ orgId: ownerOrgId, brandId: solo });
+    allBrandIds.push(solo);
+
+    await request(app)
+      .put(one(solo, 'reply_meeting'))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ rates: { replyToMeetingPct: 20 } });
+
+    const res = await request(app)
+      .delete(one(solo, 'reply_meeting'))
+      .query({ erase: 'true' })
+      .set(getAuthHeaders(ownerOrgId));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ funnels: [] });
+  });
+
+  it('rejects an erase flag that is neither true nor false, changing nothing', async () => {
+    const res = await request(app)
+      .delete(one(brandId, 'visit_signup'))
+      .query({ erase: 'yes' })
+      .set(getAuthHeaders(ownerOrgId));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Invalid "erase"/);
+
+    const after = await request(app).get(list(brandId)).set(getAuthHeaders(ownerOrgId));
+    const byKey = Object.fromEntries(after.body.funnels.map((f: any) => [f.funnelKey, f]));
+    expect(byKey.visit_signup.active).toBe(true);
+    expect(byKey.visit_signup.lifetimeRevenueUsd).toBe(5000);
+  });
+
   // ── Validation ─────────────────────────────────────────────────────────────
   it('rejects a rate that is not a leg of this chain', async () => {
     const res = await request(app)

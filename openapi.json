@@ -4860,7 +4860,7 @@
       },
       "put": {
         "summary": "State the whole set of funnels a brand sells through",
-        "description": "State the WHOLE set at once: exactly these funnels, no others. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Funnels already in the set keep the economics they were priced with (restating a set never wipes them); funnels dropped from it lose their declaration and their economics together. `{ \"funnelKeys\": [] }` is legal and is the ONLY way a brand can state it sells through NOTHING — a different answer from never having said anything, which is why this route exists alongside the per-funnel one. The set is validated whole before anything is written, so a set naming a website-led funnel on a brand with no website is rejected 400 and nothing is half-applied. Returns the stated set.",
+        "description": "State the WHOLE set at once: exactly these funnels, no others. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `reply_meeting` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `visit_meeting` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `visit_signup` (Website visit -> Signup -> Paid client) and `visit_form` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. Funnels already in the set keep the economics they were priced with (restating a set never wipes them); funnels dropped from it are switched OFF and KEPT with every number on them, so putting one back in the set returns what the user entered rather than an empty form. The set may not be empty — an org that has answered sells through at least one funnel. The set is validated whole before anything is written, so a set naming a website-led funnel on a brand with no website is rejected 400 and nothing is half-applied. Returns the stated set.",
         "parameters": [
           {
             "schema": {
@@ -4965,8 +4965,8 @@
         }
       },
       "delete": {
-        "summary": "Switch a sales funnel off",
-        "description": "The org no longer sells through this funnel. The row and every number on it SURVIVE — that is the point: switching it back on returns what the user already entered instead of an empty form. Idempotent: switching off a funnel that is already off is a 200 with the unchanged set. REFUSED (400) when it is the LAST active funnel — an org that has answered sells through at least one. Returns the whole set, active and inactive.",
+        "summary": "Switch a sales funnel off, or erase it outright",
+        "description": "The org no longer sells through this funnel. The row and every number on it SURVIVE — that is the point: switching it back on returns what the user already entered instead of an empty form. Idempotent: switching off a funnel that is already off is a 200 with the unchanged set. REFUSED (400) when it is the LAST active funnel — an org that has answered sells through at least one. Returns the whole set, active and inactive. `?erase=true` instead FORGETS the funnel: the row and every number on it are deleted, and declaring it again starts from an empty form. It is opt-in because it is the destructive one — an ordinary deselect must never take a user's numbers with it. Erasing is refused (400) when it would leave the org holding funnels with none of them active; erasing the LAST remaining funnel is allowed and returns the brand to \"never answered\".",
         "parameters": [
           {
             "schema": {
@@ -4984,6 +4984,20 @@
             "required": true,
             "name": "funnelKey",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the funnel and its economics for good."
+            },
+            "required": false,
+            "description": "Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the funnel and its economics for good.",
+            "name": "erase",
+            "in": "query"
           }
         ],
         "responses": {
