@@ -343,13 +343,13 @@ describe('Sales Economics Endpoints', () => {
 
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics.funnelStages).toEqual([]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('sales');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
 
     const getRes = await request(app)
       .get(path(funnelUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId));
     expect(getRes.body.salesEconomics.funnelStages).toEqual([]);
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('sales');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
   });
 
   // AC1 — PUT both fields then GET round-trips exactly
@@ -368,7 +368,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
 
     const getRes = await request(app)
       .get(path(funnelBrandId))
@@ -377,7 +377,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
   });
 
   // AC3 — omitting both keys leaves prior values unchanged (idempotent)
@@ -392,7 +392,7 @@ describe('Sales Economics Endpoints', () => {
       'website_purchase',
       'sales_meeting',
     ]);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
   });
 
   // Sending [] explicitly clears funnelStages (distinct from omitting)
@@ -405,7 +405,7 @@ describe('Sales Economics Endpoints', () => {
     expect(putRes.status).toBe(200);
     expect(putRes.body.salesEconomics.funnelStages).toEqual([]);
     // optimizationGoal omitted → preserved
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('booked_meetings');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('meetingBooked');
   });
 
   // AC4 — invalid funnelStages value fails loud, no write
@@ -449,35 +449,34 @@ describe('Sales Economics Endpoints', () => {
       .send({ ...validMetrics, optimizationGoal: 'combined_sales' });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('combined_sales');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('combinedSales');
 
     const getRes = await request(app)
       .get(path(combinedGoalBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('combined_sales');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('combinedSales');
   });
 
-  it('PUT website_purchase → org GET recovers it; internal GET collapses to sales', async () => {
+  it('PUT website_purchase → both reads answer websitePurchase', async () => {
     const putRes = await request(app)
       .put(path(combinedGoalBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...validMetrics, optimizationGoal: 'website_purchase' });
 
     expect(putRes.status).toBe(200);
-    // Org (dashboard) read recovers the new preferred spelling from the stored column.
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('website_purchase');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
 
     const orgGet = await request(app)
       .get(path(combinedGoalBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(orgGet.body.salesEconomics.optimizationGoal).toBe('website_purchase');
+    expect(orgGet.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
 
-    // Internal (campaign-service) read collapses the sub-type to the runtime-safe
-    // legacy spelling `sales` so downstream runtime consumers never see a new value.
+    // The internal (campaign-service) read answers the SAME token — one
+    // vocabulary, so there is no per-entry-point collapse left.
     const internalGet = await request(app)
       .get(internalPath(combinedGoalBrandId))
       .set(getInternalAuthHeaders());
-    expect(internalGet.body.salesEconomics.optimizationGoal).toBe('sales');
+    expect(internalGet.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
   });
 
   it('PUT legacy sales spelling still accepted → website-purchase, never combined (backward-compat + no collision)', async () => {
@@ -487,9 +486,9 @@ describe('Sales Economics Endpoints', () => {
       .send({ ...validMetrics, optimizationGoal: 'sales' });
 
     expect(putRes.status).toBe(200);
-    // Stays website-purchase (`sales`), is NEVER reinterpreted as combined_sales.
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('sales');
-    expect(putRes.body.salesEconomics.optimizationGoal).not.toBe('combined_sales');
+    // Stays website purchase, is NEVER reinterpreted as the combined goal.
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('websitePurchase');
+    expect(putRes.body.salesEconomics.optimizationGoal).not.toBe('combinedSales');
   });
 
   // ── split self-serve close (visit→signup, signup→paid) ───────────
@@ -535,6 +534,7 @@ describe('Sales Economics Endpoints', () => {
     // the DB column defaults apply. visit_to_close_pct is required (no default);
     // set it to a stale value to prove the response derives, not reads it.
     await db.insert(brandSalesEconomics).values({
+      orgId: ownerOrgId,
       brandId: defaultsBrandId,
       lifetimeRevenueUsd: 1000,
       replyToMeetingPct: 10,
@@ -586,14 +586,14 @@ describe('Sales Economics Endpoints', () => {
       });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('website_visits');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('websiteVisit');
     expect(putRes.body.salesEconomics.visitToPaidClientPct).toBe(7.5);
     expect(putRes.body.salesEconomics.replyToPaidClientPct).toBe(40);
 
     const getRes = await request(app)
       .get(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('website_visits');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('websiteVisit');
     expect(getRes.body.salesEconomics.visitToPaidClientPct).toBe(7.5);
     expect(getRes.body.salesEconomics.replyToPaidClientPct).toBe(40);
   });
@@ -606,12 +606,12 @@ describe('Sales Economics Endpoints', () => {
       .send({ ...validMetrics, optimizationGoal: 'positive_replies' });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('positive_replies');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('positiveReply');
 
     const getRes = await request(app)
       .get(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('positive_replies');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('positiveReply');
   });
 
   // AC2 — whatsapp_conversations (dedicated Pattern-A goal) round-trips on write + read.
@@ -622,12 +622,12 @@ describe('Sales Economics Endpoints', () => {
       .send({ ...validMetrics, optimizationGoal: 'whatsapp_conversations' });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('whatsapp_conversations');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('whatsappConversation');
 
     const getRes = await request(app)
       .get(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('whatsapp_conversations');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('whatsappConversation');
   });
 
   // Omitting the single-step rates leaves prior values unchanged (partial update).
@@ -690,14 +690,14 @@ describe('Sales Economics Endpoints', () => {
       });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('form_submissions');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('formSubmission');
     expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
     expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
 
     const getRes = await request(app)
       .get(path(formSubBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.optimizationGoal).toBe('form_submissions');
+    expect(getRes.body.salesEconomics.optimizationGoal).toBe('formSubmission');
     expect(getRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
     expect(getRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
   });
@@ -711,7 +711,7 @@ describe('Sales Economics Endpoints', () => {
       .send(validMetrics);
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.optimizationGoal).toBe('form_submissions');
+    expect(putRes.body.salesEconomics.optimizationGoal).toBe('formSubmission');
     expect(putRes.body.salesEconomics.visitToFormSubmissionPct).toBe(8.5);
     expect(putRes.body.salesEconomics.formSubmissionToPaidClientPct).toBe(30);
   });

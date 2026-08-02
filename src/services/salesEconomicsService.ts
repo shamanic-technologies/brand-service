@@ -1,11 +1,10 @@
-import { eq, sql } from 'drizzle-orm';
-import { db, brands, brandSalesEconomics } from '../db';
+import { and, eq, sql } from 'drizzle-orm';
+import { db, orgBrands, brandSalesEconomics } from '../db';
 import {
+  AcceptedOptimizationGoal,
   CurrentGoal,
-  currentGoalToLegacyOptimizationGoal,
   getCurrentGoalByBrandId,
-  legacyOptimizationGoalToCurrentGoal,
-  resolveWireOptimizationGoal,
+  toCurrentGoal,
   updateCurrentGoalByBrandId,
 } from './brandGoalService';
 
@@ -16,24 +15,11 @@ export type BusinessModel = 'b2c' | 'b2b';
 export type FunnelStage = 'website_purchase' | 'sales_meeting';
 
 /**
- * Single brand-level optimization goal (wire vocabulary). Server default 'sales'.
- * `sales` + `website_purchase` are both the "website purchase" goal (`website_purchase`
- * is the new preferred spelling; `sales` is kept for backward-compat). `combined_sales`
- * is the NEW combined "Sales" goal (paying clients via reply OR visit, at CLTV).
- * `sales_meetings` is ACCEPTED-ON-WRITE ONLY — the dashboard's local spelling of
- * `booked_meetings`; every read answers `booked_meetings`.
+ * A brand's single optimization goal AS ACCEPTED ON WRITE: the canonical eight
+ * plus every legacy spelling, kept working forever. Reads never use this type —
+ * they emit a `CurrentGoal`, and only a `CurrentGoal`.
  */
-export type OptimizationGoal =
-  | 'signups'
-  | 'booked_meetings'
-  | 'sales_meetings'
-  | 'sales'
-  | 'website_visits'
-  | 'positive_replies'
-  | 'form_submissions'
-  | 'whatsapp_conversations'
-  | 'website_purchase'
-  | 'combined_sales';
+export type OptimizationGoal = AcceptedOptimizationGoal;
 
 /**
  * Self-serve close rate DERIVED from the two sub-rates:
@@ -190,36 +176,28 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   businessModel: BusinessModel | null;
   // Always an array on read; `[]` = never set.
   funnelStages: FunnelStage[];
-  // Always present on read; `'sales'` = never set.
-  optimizationGoal: OptimizationGoal;
+  // Always present on read; a canonical token, never a legacy spelling.
+  // `'websitePurchase'` = never set (the column default).
+  optimizationGoal: CurrentGoal;
   updatedAt: string;
 }
 
 /**
- * `brands.current_goal` is the ONLY authority on what a brand optimizes for.
- * `brand_sales_economics.optimization_goal` is NOT a second goal field: it is a
- * discriminator that records the RAW wire spelling the caller sent, and it is
- * consulted only to tell two wire values that share ONE runtime goal apart
- * (`form_submissions` under `signup`, `website_purchase` under `purchase`). It
- * is never read as a goal on its own, so the two can no longer answer
- * differently — there is only one answer, plus a spelling for it.
+ * `brands.current_goal` is the ONLY authority on what a brand optimizes for, and
+ * it now holds a canonical token — so `optimizationGoal` on the wire IS that
+ * token, on the org read and the internal read alike. There is one vocabulary,
+ * so there is nothing left to resolve, recover or collapse per entry point.
  *
- * `currentGoal` is therefore REQUIRED here. It used to be optional, with a
- * fall-back that read the stored column as if it were a goal; that branch was
- * the one place the two fields could contradict each other.
+ * `brand_sales_economics.optimization_goal` is NOT a second goal field. It used
+ * to be a discriminator recording the raw wire spelling, because two wire values
+ * (`form_submissions`, `website_purchase`) shared one runtime goal; both are
+ * first-class goals now, so nothing reads the column and it survives only as a
+ * mirror of `brands.current_goal`.
  */
 function formatSalesEconomics(
   row: typeof brandSalesEconomics.$inferSelect,
-  currentGoal: CurrentGoal,
-  // ORG (dashboard) reads pass wire=true so the form_submissions sub-type is
-  // recovered from the stored spelling. INTERNAL (campaign-service) reads use
-  // the default (false) so the goal collapses to the runtime-safe `signups`.
-  wireOptimizationGoal = false
+  currentGoal: CurrentGoal
 ): SavedSalesEconomics {
-  const optimizationGoal = wireOptimizationGoal
-    ? resolveWireOptimizationGoal(currentGoal, row.optimizationGoal)
-    : currentGoalToLegacyOptimizationGoal(currentGoal);
-
   return {
     lifetimeRevenueUsd: row.lifetimeRevenueUsd,
     replyToMeetingPct: row.replyToMeetingPct,
@@ -239,7 +217,7 @@ function formatSalesEconomics(
     formSubmissionToPaidClientPct: row.formSubmissionToPaidClientPct,
     businessModel: row.businessModel as BusinessModel | null,
     funnelStages: (row.funnelStages ?? []) as FunnelStage[],
-    optimizationGoal,
+    optimizationGoal: currentGoal,
     updatedAt: row.updatedAt,
   };
 }
@@ -326,24 +304,34 @@ export class SalesEconomicsService {
    * Unset is a clean null — the caller falls back to its own defaults.
    */
   async getByBrandId(
-    brandId: string,
-    opts: { wireOptimizationGoal?: boolean } = {}
+    orgId: string,
+    brandId: string
   ): Promise<SavedSalesEconomics | null> {
     const result = await db
       .select({
         salesEconomics: brandSalesEconomics,
-        currentGoal: brands.currentGoal,
+        currentGoal: orgBrands.currentGoal,
       })
       .from(brandSalesEconomics)
-      .innerJoin(brands, eq(brands.id, brandSalesEconomics.brandId))
-      .where(eq(brandSalesEconomics.brandId, brandId))
+      .innerJoin(
+        orgBrands,
+        and(
+          eq(orgBrands.orgId, brandSalesEconomics.orgId),
+          eq(orgBrands.brandId, brandSalesEconomics.brandId)
+        )
+      )
+      .where(
+        and(
+          eq(brandSalesEconomics.orgId, orgId),
+          eq(brandSalesEconomics.brandId, brandId)
+        )
+      )
       .limit(1);
 
     if (result.length === 0) return null;
     return formatSalesEconomics(
       result[0].salesEconomics,
-      result[0].currentGoal as CurrentGoal,
-      opts.wireOptimizationGoal ?? false
+      result[0].currentGoal as CurrentGoal
     );
   }
 
@@ -384,8 +372,11 @@ export class SalesEconomicsService {
    * average, source "cross-brand-average". Nothing saved anywhere → both null.
    * Centralizes the null→average defaulting so consumers don't reimplement it.
    */
-  async getEffectiveByBrandId(brandId: string): Promise<EffectiveSalesEconomics> {
-    const saved = await this.getByBrandId(brandId);
+  async getEffectiveByBrandId(
+    orgId: string,
+    brandId: string
+  ): Promise<EffectiveSalesEconomics> {
+    const saved = await this.getByBrandId(orgId, brandId);
     if (saved) {
       return {
         economics: {
@@ -429,6 +420,7 @@ export class SalesEconomicsService {
    * (route → 400).
    */
   async upsertByBrandId(
+    orgId: string,
     brandId: string,
     metrics: SalesEconomicsPatch
   ): Promise<SavedSalesEconomics> {
@@ -438,7 +430,12 @@ export class SalesEconomicsService {
     const [storedRow] = await db
       .select()
       .from(brandSalesEconomics)
-      .where(eq(brandSalesEconomics.brandId, brandId))
+      .where(
+        and(
+          eq(brandSalesEconomics.orgId, orgId),
+          eq(brandSalesEconomics.brandId, brandId)
+        )
+      )
       .limit(1);
 
     const storedCore: CoreSalesEconomics | null = storedRow
@@ -459,22 +456,20 @@ export class SalesEconomicsService {
 
     const core = mergeCoreMetrics(storedCore, metrics);
 
+    // Whatever spelling the caller sent, the goal is resolved to its canonical
+    // token before anything is written — that is what keeps the column and the
+    // wire saying the same word.
     const currentGoal = metrics.optimizationGoal !== undefined
       ? await updateCurrentGoalByBrandId(
+        orgId,
         brandId,
-        legacyOptimizationGoalToCurrentGoal(metrics.optimizationGoal)
+        toCurrentGoal(metrics.optimizationGoal)
       )
-      : await getCurrentGoalByBrandId(brandId);
+      : await getCurrentGoalByBrandId(orgId, brandId);
 
-    if (!currentGoal) throw new Error(`Brand not found: ${brandId}`);
-
-    // The stored optimization_goal column preserves the RAW wire value the caller
-    // sent, so the form_submissions sub-type round-trips on the org read (it
-    // collapses to the signup current_goal, which alone can't distinguish it from
-    // signups). When the caller omitted the goal, a fresh insert falls back to the
-    // runtime-derived legacy value; an update preserves the stored column below.
-    const optimizationGoalToStore =
-      metrics.optimizationGoal ?? currentGoalToLegacyOptimizationGoal(currentGoal);
+    // No membership => this org does not claim this brand, so there is no goal
+    // of its own to write economics against.
+    if (!currentGoal) throw new Error(`Brand not claimed by org: ${brandId}`);
 
     // visit_to_close_pct is a STORED-but-DERIVED column: recompute on every
     // write from the two sub-rates so the column never drifts from them. Derived
@@ -488,6 +483,7 @@ export class SalesEconomicsService {
     const result = await db
       .insert(brandSalesEconomics)
       .values({
+        orgId,
         brandId,
         lifetimeRevenueUsd: core.lifetimeRevenueUsd,
         replyToMeetingPct: core.replyToMeetingPct,
@@ -512,14 +508,13 @@ export class SalesEconomicsService {
           : {}),
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
-        // Fresh row: omitted funnelStages defaults to []; optimizationGoal is
-        // the raw wire value (form_submissions sub-type preserved) or the legacy
-        // alias of brands.current_goal.
+        // Fresh row: omitted funnelStages defaults to []; optimization_goal
+        // mirrors brands.current_goal, canonical either way.
         funnelStages: metrics.funnelStages ?? [],
-        optimizationGoal: optimizationGoalToStore,
+        optimizationGoal: currentGoal,
       })
       .onConflictDoUpdate({
-        target: brandSalesEconomics.brandId,
+        target: [brandSalesEconomics.orgId, brandSalesEconomics.brandId],
         set: {
           // Only touch a core metric when the caller supplied it. Omitted =
           // preserve the stored value (the UPDATE never names the column), so a
@@ -571,19 +566,19 @@ export class SalesEconomicsService {
           ...(metrics.funnelStages !== undefined
             ? { funnelStages: metrics.funnelStages }
             : {}),
-          // Only touch optimization_goal when the caller supplied it — store the
-          // RAW wire value so the form_submissions sub-type is preserved. Omitted
-          // = preserve the stored column (leave-unchanged contract).
+          // Only touch optimization_goal when the caller supplied one — store the
+          // CANONICAL token, not the spelling that arrived. Omitted = preserve
+          // the stored column (leave-unchanged contract), which is also what
+          // keeps a metrics-only PUT from quietly rewriting the goal mirror of a
+          // brand whose two columns disagree.
           ...(metrics.optimizationGoal !== undefined
-            ? { optimizationGoal: metrics.optimizationGoal }
+            ? { optimizationGoal: currentGoal }
             : {}),
         },
       })
       .returning();
 
-    // PUT is the ORG (dashboard) write — return the wire optimizationGoal so a
-    // form_submissions save round-trips.
-    return formatSalesEconomics(result[0], currentGoal, true);
+    return formatSalesEconomics(result[0], currentGoal);
   }
 }
 

@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db, brandWhatsappLinks } from '../db';
 
 /**
@@ -118,11 +118,11 @@ export function tryNormalizeWhatsAppLink(input: unknown): string | null {
 
 export class WhatsAppLinkService {
   /** The saved WhatsApp link for a brand, or null when unset (no row). */
-  async getByBrandId(brandId: string): Promise<string | null> {
+  async getByBrandId(orgId: string, brandId: string): Promise<string | null> {
     const [row] = await db
       .select({ whatsappLink: brandWhatsappLinks.whatsappLink })
       .from(brandWhatsappLinks)
-      .where(eq(brandWhatsappLinks.brandId, brandId))
+      .where(and(eq(brandWhatsappLinks.orgId, orgId), eq(brandWhatsappLinks.brandId, brandId)))
       .limit(1);
 
     return row?.whatsappLink ?? null;
@@ -132,7 +132,7 @@ export class WhatsAppLinkService {
    * Batch read for many brands at once. Returns a Map keyed by brandId; brands
    * with no row are absent from the map (caller treats absent as null).
    */
-  async getMapByBrandIds(brandIds: string[]): Promise<Map<string, string>> {
+  async getMapByBrandIds(orgId: string, brandIds: string[]): Promise<Map<string, string>> {
     if (brandIds.length === 0) return new Map();
     const rows = await db
       .select({
@@ -151,12 +151,12 @@ export class WhatsAppLinkService {
    * link is validated + normalized (`normalizeWhatsAppLink`) before this is
    * called. Returns the saved link.
    */
-  async upsertByBrandId(brandId: string, whatsappLink: string): Promise<string> {
+  async upsertByBrandId(orgId: string, brandId: string, whatsappLink: string): Promise<string> {
     const [row] = await db
       .insert(brandWhatsappLinks)
-      .values({ brandId, whatsappLink })
+      .values({ orgId, brandId, whatsappLink })
       .onConflictDoUpdate({
-        target: brandWhatsappLinks.brandId,
+        target: [brandWhatsappLinks.orgId, brandWhatsappLinks.brandId],
         set: { whatsappLink, updatedAt: sql`NOW()` },
       })
       .returning({ whatsappLink: brandWhatsappLinks.whatsappLink });

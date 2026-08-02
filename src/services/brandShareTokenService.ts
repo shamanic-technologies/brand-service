@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db, brandShareTokens } from '../db';
 
 /**
@@ -60,7 +60,7 @@ export interface ShareTokenRow {
 }
 
 /** The brand's current credential, or null when the brand is not shareable. */
-export async function getByBrandId(brandId: string): Promise<ShareTokenRow | null> {
+export async function getByBrandId(orgId: string, brandId: string): Promise<ShareTokenRow | null> {
   const [row] = await db
     .select({
       shareToken: brandShareTokens.token,
@@ -68,7 +68,7 @@ export async function getByBrandId(brandId: string): Promise<ShareTokenRow | nul
       updatedAt: brandShareTokens.updatedAt,
     })
     .from(brandShareTokens)
-    .where(eq(brandShareTokens.brandId, brandId))
+    .where(and(eq(brandShareTokens.orgId, orgId), eq(brandShareTokens.brandId, brandId)))
     .limit(1);
 
   return row ?? null;
@@ -91,13 +91,13 @@ export async function getByBrandId(brandId: string): Promise<ShareTokenRow | nul
  * first, and this call minted nothing.
  */
 export async function createIfAbsent(
-  brandId: string,
-  orgId: string
+  orgId: string,
+  brandId: string
 ): Promise<{ row: ShareTokenRow; created: boolean }> {
   const inserted = await db
     .insert(brandShareTokens)
-    .values({ brandId, orgId, token: generateShareToken() })
-    .onConflictDoNothing({ target: brandShareTokens.brandId })
+    .values({ orgId, brandId, token: generateShareToken() })
+    .onConflictDoNothing({ target: [brandShareTokens.orgId, brandShareTokens.brandId] })
     .returning({
       shareToken: brandShareTokens.token,
       createdAt: brandShareTokens.createdAt,
@@ -108,7 +108,7 @@ export async function createIfAbsent(
     return { row: inserted[0], created: true };
   }
 
-  const existing = await getByBrandId(brandId);
+  const existing = await getByBrandId(orgId, brandId);
   if (!existing) {
     // The insert conflicted, so a row exists; a read that finds none means it
     // was revoked between the two statements. Fail loud rather than returning a
@@ -129,14 +129,14 @@ export async function createIfAbsent(
  * org on a credential nobody in that org can produce anymore would be the wrong
  * answer.
  */
-export async function rotate(brandId: string, orgId: string): Promise<ShareTokenRow> {
+export async function rotate(orgId: string, brandId: string): Promise<ShareTokenRow> {
   const token = generateShareToken();
   const [row] = await db
     .insert(brandShareTokens)
-    .values({ brandId, orgId, token })
+    .values({ orgId, brandId, token })
     .onConflictDoUpdate({
-      target: brandShareTokens.brandId,
-      set: { token, orgId, updatedAt: new Date().toISOString() },
+      target: [brandShareTokens.orgId, brandShareTokens.brandId],
+      set: { token, updatedAt: new Date().toISOString() },
     })
     .returning({
       shareToken: brandShareTokens.token,
@@ -152,10 +152,10 @@ export async function rotate(brandId: string, orgId: string): Promise<ShareToken
  * removed, so a revoke on an already-unshared brand is a truthful no-op rather
  * than an error.
  */
-export async function revoke(brandId: string): Promise<boolean> {
+export async function revoke(orgId: string, brandId: string): Promise<boolean> {
   const deleted = await db
     .delete(brandShareTokens)
-    .where(eq(brandShareTokens.brandId, brandId))
+    .where(and(eq(brandShareTokens.orgId, orgId), eq(brandShareTokens.brandId, brandId)))
     .returning({ brandId: brandShareTokens.brandId });
 
   return deleted.length > 0;
@@ -172,11 +172,9 @@ export async function revoke(brandId: string): Promise<boolean> {
  * number. It is read off the row, never derived — `org_brands` cannot answer
  * which org shared a brand that several orgs claim.
  */
-export async function resolve(
-  shareToken: string
-): Promise<{ brandId: string; orgId: string } | null> {
+export async function resolve(shareToken: string): Promise<{ orgId: string; brandId: string } | null> {
   const [row] = await db
-    .select({ brandId: brandShareTokens.brandId, orgId: brandShareTokens.orgId })
+    .select({ orgId: brandShareTokens.orgId, brandId: brandShareTokens.brandId })
     .from(brandShareTokens)
     .where(eq(brandShareTokens.token, shareToken))
     .limit(1);

@@ -390,7 +390,11 @@ export async function multiBrandExtractFields(
   const confirmedByBrandId = new Map<string, Map<string, ConfirmedUserField>>();
   await Promise.all(
     brandIds.map(async (id) => {
-      confirmedByBrandId.set(id, await getConfirmedByBrandId(id));
+      // Which org's confirmed layer this reads: the caller in org mode, the
+      // brand's own org in platform mode — same rule the extraction itself uses.
+      const configOrgId =
+        caller.mode === 'org' ? caller.orgId : brandsMap.get(id)!.orgId;
+      confirmedByBrandId.set(id, await getConfirmedByBrandId(configOrgId, id));
     }),
   );
 

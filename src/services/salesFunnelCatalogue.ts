@@ -13,15 +13,14 @@
  * are byte-equal with it on purpose, so the screen and the store describe one
  * model rather than two that drift.
  *
- * Vocabulary: `goal` is emitted in brand-service's OWN wire spelling
- * (`booked_meetings`, not the dashboard's local `sales_meetings`) so this service
- * speaks ONE vocabulary everywhere; `currentGoal` is the canonical runtime token
- * features-service / campaign-service select candidates on. A consumer reading a
- * declared funnel therefore never has to map anything itself.
+ * Vocabulary: a funnel's goal is a token from the fleet's canonical list
+ * (`brandGoalService.CANONICAL_GOALS`) and nothing else. `goal` and `currentGoal`
+ * on the wire therefore carry the SAME token — `goal` is kept as a byte-stable
+ * alias for the deployed consumer that reads it first (features-service
+ * `authorized-goals.ts`), not as a second vocabulary.
  */
 
-import type { CurrentGoal, LegacyOptimizationGoal } from './brandGoalService';
-import { legacyOptimizationGoalToCurrentGoal } from './brandGoalService';
+import type { CurrentGoal } from './brandGoalService';
 
 /** The funnels in the catalogue. Wire values — never rename one in place. */
 export const SALES_FUNNEL_KEYS = [
@@ -61,8 +60,8 @@ export interface SalesFunnelDef {
   steps: string[];
   /** The rate each leg of the chain converts at, in chain order. */
   legs: SalesFunnelRateKey[];
-  /** What a campaign running this funnel optimizes for (brand-service wire). */
-  goal: LegacyOptimizationGoal;
+  /** What a campaign running this funnel optimizes for. Canonical token. */
+  goal: CurrentGoal;
   /** The first step is a click onto the brand's site, so a domain is required. */
   requiresWebsite: boolean;
   /** This funnel lands an outreach click on a page of the brand's own site. */
@@ -77,7 +76,7 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     name: 'Sales Meeting from Conversation',
     steps: ['Positive reply', 'Meeting booked', 'Meeting attended', 'Paid client'],
     legs: ['replyToMeetingPct', 'meetingBookedToAttendedPct', 'meetingToClosePct'],
-    goal: 'booked_meetings',
+    goal: 'meetingBooked',
     requiresWebsite: false,
     pageDestination: false,
     bookingLink: true,
@@ -87,7 +86,7 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     name: 'Sales Meeting from Website',
     steps: ['Website visit', 'Meeting booked', 'Meeting attended', 'Paid client'],
     legs: ['visitToMeetingPct', 'meetingBookedToAttendedPct', 'meetingToClosePct'],
-    goal: 'booked_meetings',
+    goal: 'meetingBooked',
     requiresWebsite: true,
     pageDestination: true,
     bookingLink: true,
@@ -97,7 +96,7 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     name: 'Website Purchase',
     steps: ['Website visit', 'Signup', 'Paid client'],
     legs: ['visitToSignupPct', 'signupToPaidClientPct'],
-    goal: 'signups',
+    goal: 'signup',
     requiresWebsite: true,
     pageDestination: true,
     bookingLink: false,
@@ -107,7 +106,7 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     name: 'Form Magnet',
     steps: ['Website visit', 'Form filled', 'Paid client'],
     legs: ['visitToFormSubmissionPct', 'formSubmissionToPaidClientPct'],
-    goal: 'form_submissions',
+    goal: 'formSubmission',
     requiresWebsite: true,
     pageDestination: true,
     bookingLink: false,
@@ -127,7 +126,7 @@ export function salesFunnelByKey(key: SalesFunnelKey): SalesFunnelDef {
 
 /** The runtime goal a campaign on this funnel selects candidates for. */
 export function currentGoalForFunnel(def: SalesFunnelDef): CurrentGoal {
-  return legacyOptimizationGoalToCurrentGoal(def.goal);
+  return def.goal;
 }
 
 /** The rates this funnel prices, in chain order, deduped across repeated legs. */
