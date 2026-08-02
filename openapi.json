@@ -2101,24 +2101,6 @@
           }
         }
       },
-      "InternalGetSalesFunnelsResponse": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/GetSalesFunnelsResponse"
-          },
-          {
-            "type": "object",
-            "properties": {
-              "declared": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "declared"
-            ]
-          }
-        ]
-      },
       "UpsertClickDestinationResponse": {
         "type": "object",
         "properties": {
@@ -5047,7 +5029,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InternalGetSalesFunnelsResponse"
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
                 }
               }
             }

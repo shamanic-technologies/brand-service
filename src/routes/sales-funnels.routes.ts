@@ -84,9 +84,10 @@ function rejectDeclaration(res: Response, error: unknown): boolean {
 
 /**
  * GET /orgs/brands/:brandId/sales-funnels
- * `{ declared, funnels }` — whether the brand has stated a set at all, and the
- * funnels in it. Read `declared` first: an empty list means opposite things
- * either side of it.
+ * `{ funnels }` — every funnel this org has configured on this brand, ACTIVE and
+ * retired alike, each carrying `active`. A retired one still holds the numbers
+ * the user entered, which is what the screen has to show. An empty list means
+ * the org has never answered.
  */
 orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
   try {
@@ -257,11 +258,9 @@ orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Reques
  * Service-auth read of the funnels a brand AUTHORIZES, keyed by brandId with no
  * org context — what campaign-service arbitration ranks over.
  *
- * A brand id we hold nothing for is a THIRD answer, and it 404s rather than
- * joining either of the other two. Serving `declared: false` for it would say
- * "this brand has told us nothing" about a brand that does not exist, which
- * reads to the caller as a producer gap to surface and wait on — when what it
- * actually has is a bad id, and no amount of waiting will fill it in.
+ * An unknown or unclaimed brand simply has nothing configured, and answers with
+ * an empty set — the same contract the internal sales-economics read has always
+ * had.
  */
 internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Response) => {
   try {
@@ -281,14 +280,7 @@ internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: R
     const set = scope.orgId
       ? await salesFunnelsService.readActiveByBrandId(scope.orgId, brandId)
       : { funnels: [] };
-
-    // DEPRECATED, and transitional. features-service throws unless this flag is
-    // a boolean, so removing it here breaks every funnels read it makes the
-    // moment this ships, whatever the merge order. It is not a second source of
-    // truth: an org that has answered always keeps at least one funnel ACTIVE,
-    // so a non-empty list and "has answered" are the same fact, and this is the
-    // older spelling of it. Drop it once features-service reads the list alone.
-    return res.status(200).json({ ...set, declared: set.funnels.length > 0 });
+    return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Internal get sales funnels error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
