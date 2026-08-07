@@ -342,6 +342,13 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	// by a timestamp window, and what lets its result be counted from an
 	// independent query instead of the script's own log. Read by nothing.
 	backfilledFromGoal: text("backfilled_from_goal"),
+	// PROVENANCE, for the one-time economics backfill that moved the numbers a
+	// brand stated on `brand_sales_economics` — before the funnel model existed —
+	// onto the funnel(s) that replaced them. Set to the moment the copy was made;
+	// NULL for every value a user or a caller wrote directly. It is what makes
+	// that backfill identifiable (so it can be undone by an exact predicate) and
+	// what makes a re-run a no-op. Read by nothing.
+	economicsBackfilledAt: timestamp("economics_backfilled_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [

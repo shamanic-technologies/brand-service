@@ -1,0 +1,21 @@
+-- Provenance for the one-time economics backfill.
+--
+-- A brand that priced its funnel BEFORE the funnel model existed stated those
+-- numbers on `brand_sales_economics`, and the goal→funnel backfill created its
+-- declaration carrying nothing but the funnel key. This column records that a
+-- row's numbers were COPIED from the brand-level record rather than written by
+-- a user, which is what makes that copy identifiable afterwards:
+--
+--   -- what it wrote
+--   SELECT count(*) FROM brand_sales_funnels WHERE economics_backfilled_at IS NOT NULL;
+--   -- undoing it, exactly, without touching anyone's own numbers
+--   UPDATE brand_sales_funnels
+--      SET lifetime_revenue_usd = NULL, reply_to_meeting_pct = NULL,
+--          visit_to_meeting_pct = NULL, meeting_to_close_pct = NULL,
+--          visit_to_signup_pct = NULL, signup_to_paid_client_pct = NULL,
+--          visit_to_form_submission_pct = NULL, form_submission_to_paid_client_pct = NULL,
+--          economics_backfilled_at = NULL
+--    WHERE economics_backfilled_at IS NOT NULL;
+--
+-- NULL for every value a user or a caller wrote directly. Read by nothing.
+ALTER TABLE "brand_sales_funnels" ADD COLUMN IF NOT EXISTS "economics_backfilled_at" timestamp with time zone;
