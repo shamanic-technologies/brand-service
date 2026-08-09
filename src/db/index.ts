@@ -25,10 +25,23 @@ if (!connectionString) {
 // distance case for every environment.
 net.setDefaultAutoSelectFamilyAttemptTimeout(5000);
 
+// TLS is REQUIRED unless the connection string says otherwise IN SO MANY WORDS.
+// Every database this service talks to for real is remote and must be encrypted,
+// so `require` stays the default and no host pattern (localhost, a private IP, a
+// docker service name) is ever allowed to turn it off on its own — a heuristic
+// like that silently drops TLS the day a remote host resolves to something that
+// looks local. The one caller that legitimately has no TLS at all is CI's
+// throwaway `postgres:16` service container, which states it: `?sslmode=disable`.
+// Without this, every query there dies as `Client network socket disconnected
+// before secure TLS connection was established`.
+export function sslOptionFor(dsn: string): 'require' | false {
+  return /[?&]sslmode=disable(&|$)/.test(dsn) ? false : 'require';
+}
+
 // Create postgres client for Drizzle
 const client = postgres(connectionString, {
   max: 10,
-  ssl: 'require',
+  ssl: sslOptionFor(connectionString),
 });
 
 // Create Drizzle instance with schema
