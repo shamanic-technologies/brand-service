@@ -99,7 +99,11 @@ jobs:
       # ALWAYS the throwaway service container. No CI job may hold a DSN for a
       # database anything else points at.
       - name: Set database URL
-        run: echo "DB_URL=postgresql://postgres:postgres@127.0.0.1:5432/brand_service_test" >> "$GITHUB_ENV"
+        # `sslmode=disable` is load-bearing: `src/db/index.ts` requires TLS unless
+        # the connection string says otherwise in so many words, and the service
+        # container serves plaintext. Without it every query dies as
+        # `Client network socket disconnected before secure TLS connection was established`.
+        run: echo "DB_URL=postgresql://postgres:postgres@127.0.0.1:5432/brand_service_test?sslmode=disable" >> "$GITHUB_ENV"
 
       # The database starts EMPTY, so the schema is built from `schema.ts` — the
       # step that was always the authority on drift, and now the only one.
