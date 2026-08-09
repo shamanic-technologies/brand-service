@@ -38,6 +38,32 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
 
+    # A throwaway Postgres, one per run, inside the runner.
+    #
+    # This used to be an isolated Neon branch cut per run (issue #385: before
+    # that, a push to main/staging ran the integration suite against a LIVE
+    # database and `drizzle-kit push --force` reconciled its schema). The Neon
+    # project no longer exists — the fleet moved to a self-hosted Postgres — so
+    # the create-branch step began failing with a 404 and NOTHING could merge.
+    # A service container gives the same guarantee the Neon branch was there
+    # for (never a database anything else points at, discarded when the job
+    # ends) with no external dependency, no API key, and no cleanup step that
+    # can leave a branch behind.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: brand_service_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -70,42 +96,36 @@ jobs:
           SCRAPING_SERVICE_URL: http://localhost:3010
           SCRAPING_SERVICE_API_KEY: test-scraping-key
 
-      # Isolated, throwaway Neon branch for EVERY run — pull_request AND push.
-      #
-      # A push to main/staging used to run against `secrets.BRAND_SERVICE_DATABASE_URL`, a LIVE database:
-      # the integration suite created and deleted brand rows there (~12.5k inserts sustaining ~157 live
-      # rows), and the `drizzle-kit push --force` step below reconciled its SCHEMA to whatever the branch
-      # declared — a forced, unreviewed schema change against a database serving traffic. See issue #385.
-      #
-      # `github.run_id` is unique per run, so concurrent pushes never share a branch. The delete step at
-      # the end runs `if: always()`, so a failed run still cleans up.
-      - name: Create isolated Neon branch
-        id: neon
-        uses: neondatabase/create-branch-action@v6
-        with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: ci-${{ github.run_id }}
-          api_key: ${{ secrets.NEON_API_KEY }}
-
-      # ALWAYS the throwaway branch. No CI job may hold a DSN for a database Railway points at.
+      # ALWAYS the throwaway service container. No CI job may hold a DSN for a
+      # database anything else points at.
       - name: Set database URL
-        run: echo "DB_URL=${{ steps.neon.outputs.db_url_pooled }}" >> "$GITHUB_ENV"
+        run: echo "DB_URL=postgresql://postgres:postgres@127.0.0.1:5432/brand_service_test" >> "$GITHUB_ENV"
 
-      # The branch starts on PRODUCTION's schema, so apply the migrations to it the
-      # way a deploy does BEFORE reconciling against schema.ts. Pushing straight
-      # onto the old schema makes drizzle-kit diff, and a diff that adds a column
-      # and rekeys the table on it emits those two statements in the wrong order.
-      # This is also the only place the migration SQL is exercised at all — the
-      # suite itself builds its schema from schema.ts (see #386).
-      - name: Apply migrations
-        run: pnpm exec tsx scripts/ci-migrate.ts
-        env:
-          BRAND_SERVICE_DATABASE_URL: ${{ env.DB_URL }}
-
-      # Still the authority on schema.ts drift; after the migrations it has
-      # nothing structural left to reconcile.
+      # The database starts EMPTY, so the schema is built from `schema.ts` — the
+      # step that was always the authority on drift, and now the only one.
+      #
+      # `scripts/ci-migrate.ts` no longer runs here. It replayed the journal onto
+      # a Neon branch that already carried production's schema, applying only the
+      # migrations that branch was missing; the journal cannot build a database
+      # from nothing (migrations 0024/0025 were hand-authored against an existing
+      # one, so a replay from empty dies on a foreign key to a table that does
+      # not exist yet). Nothing about that is new — the suite has always built
+      # its schema from `schema.ts` (#386) — but the migration SQL is now first
+      # exercised by the boot migrator on staging rather than here. The journal's
+      # own guards (`tests/unit/migration-order.test.ts`, the migration-stamp
+      # guard above, `src/lib/migration-ledger.ts`) still run on every PR.
+      #
+      # `drizzle-kit push` reports a failed statement and EXITS 0, abandoning the
+      # rest of the run — which on an empty database means silently serving the
+      # suite a half-built schema. Fail the job on any error it prints.
       - name: Push schema to database
-        run: pnpm exec drizzle-kit push --force
+        run: |
+          set -o pipefail
+          pnpm exec drizzle-kit push --force 2>&1 | tee /tmp/drizzle-push.log
+          if grep -qiE '^error:' /tmp/drizzle-push.log; then
+            echo "::error::drizzle-kit push reported an error (and exited 0) — the schema is incomplete."
+            exit 1
+          fi
         env:
           BRAND_SERVICE_DATABASE_URL: ${{ env.DB_URL }}
 
@@ -127,18 +147,9 @@ jobs:
           files: ./coverage/coverage-final.json
           fail_ci_if_error: false
 
-      # Delete by the id the create step reported, not by a re-derived name. The create step now
-      # names the branch `ci-<run_id>`, so asking for `pr-<number>` deleted nothing, failed the
-      # whole job with `ERROR: Branch pr-387 not found`, and left the branch behind on every run.
-      # Deleting the branch is the entire point of provisioning a throwaway one, so a name this
-      # step derives on its own must not appear here.
-      - name: Delete Neon branch
-        if: always() && steps.neon.outputs.branch_id
-        uses: neondatabase/delete-branch-action@v3
-        with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch: ${{ steps.neon.outputs.branch_id }}
-          api_key: ${{ secrets.NEON_API_KEY }}
+      # No cleanup step: the service container dies with the job. The Neon branch
+      # this replaced needed one, and a name it derived on its own once deleted
+      # nothing and failed every run (`ERROR: Branch pr-387 not found`).
 
   test-coverage-check:
     if: github.event_name == 'pull_request'
