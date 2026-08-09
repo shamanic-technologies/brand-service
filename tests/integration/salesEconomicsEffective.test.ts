@@ -29,6 +29,9 @@ const STORED = [
 // Fields present on the RESPONSE economics object (STORED + derived).
 const METRICS = [...STORED, 'visitToClosePct'] as const;
 type Row = Record<(typeof STORED)[number], number>;
+// A raw table row also carries the brand it belongs to, so the snapshot can be
+// collapsed to one data point per brand the way the service does.
+type SnapshotRow = Row & { brandId: string };
 
 const effPath = (id: string) => `/orgs/brands/${id}/sales-economics-effective`;
 
@@ -42,7 +45,8 @@ function percentileCont(sorted: number[], p: number): number {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo);
 }
 const round4 = (n: number) => Number(n.toFixed(4));
-const mean = (vals: number[]) => round4(vals.reduce((a, b) => a + b, 0) / vals.length);
+const rawMean = (vals: number[]) => vals.reduce((a, b) => a + b, 0) / vals.length;
+const mean = (vals: number[]) => round4(rawMean(vals));
 // The service rounds the median via SQL `ROUND(PERCENTILE_CONT(0.5) ...)::int`,
 // and Postgres `ROUND(double precision)` rounds HALF-TO-EVEN (banker's). JS
 // `Math.round` rounds half-UP, so the two diverge by 1 whenever the median lands
@@ -58,7 +62,29 @@ function roundHalfToEven(n: number): number {
   return floor % 2 === 0 ? floor : floor + 1;
 }
 
-function expectedFrom(rows: Row[]) {
+/**
+ * ONE BRAND IS ONE DATA POINT. The table is keyed on (org_id, brand_id), so a
+ * brand several orgs claim carries one row PER ORG — correct rows, each org
+ * reading its own, but they are several statements about one business. The
+ * service collapses them to their mean before aggregating; mirror that here,
+ * or this helper re-derives the claim-count-weighted number the fix removed.
+ */
+function collapsePerBrand(rows: SnapshotRow[]): Row[] {
+  const byBrand = new Map<string, SnapshotRow[]>();
+  for (const r of rows) {
+    const bucket = byBrand.get(r.brandId);
+    if (bucket) bucket.push(r);
+    else byBrand.set(r.brandId, [r]);
+  }
+  return [...byBrand.values()].map((group) =>
+    Object.fromEntries(
+      STORED.map((k) => [k, rawMean(group.map((r) => r[k]))])
+    ) as Row
+  );
+}
+
+function expectedFrom(snapshotRows: SnapshotRow[]) {
+  const rows = collapsePerBrand(snapshotRows);
   const ltvSorted = rows.map((r) => r.lifetimeRevenueUsd).sort((a, b) => a - b);
   const visitToSignupPct = mean(rows.map((r) => r.visitToSignupPct));
   const signupToPaidClientPct = mean(rows.map((r) => r.signupToPaidClientPct));
@@ -80,9 +106,10 @@ function expectedFrom(rows: Row[]) {
   };
 }
 
-async function snapshot(): Promise<Row[]> {
+async function snapshot(): Promise<SnapshotRow[]> {
   return db
     .select({
+      brandId: brandSalesEconomics.brandId,
       lifetimeRevenueUsd: brandSalesEconomics.lifetimeRevenueUsd,
       replyToMeetingPct: brandSalesEconomics.replyToMeetingPct,
       visitToMeetingPct: brandSalesEconomics.visitToMeetingPct,
