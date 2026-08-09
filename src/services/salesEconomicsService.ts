@@ -332,30 +332,65 @@ export class SalesEconomicsService {
 
   /**
    * Cross-brand defaults to seed a brand that has saved nothing.
-   * GLOBAL — no org/brand WHERE filter: averages over EVERY saved row in the
-   * table (per product decision). `lifetimeRevenueUsd` uses the MEDIAN (LTV is
-   * heavy-tailed — one outlier brand skews the mean); the conversion percents
-   * use the MEAN (bounded 0-100, no heavy tail). Percent averages preserve
-   * decimals. Empty table → null (nothing to average).
+   * GLOBAL — no org/brand WHERE filter: it spans every brand that saved
+   * anything. `lifetimeRevenueUsd` uses the MEDIAN (LTV is heavy-tailed — one
+   * outlier brand skews the mean); the conversion percents use the MEAN
+   * (bounded 0-100, no heavy tail). Percent averages preserve decimals.
+   * Nothing saved anywhere → null (nothing to average).
+   *
+   * ONE BRAND IS ONE DATA POINT — the aggregate runs over a per-brand collapse,
+   * never over the raw rows. Since migration 0050 the table is keyed on
+   * (org_id, brand_id) and every org claiming a brand carries its OWN copy of
+   * the config, so a brand ten orgs claim holds ten rows. Those rows are
+   * correct and each org reads its own, but they are ten statements ABOUT ONE
+   * BUSINESS: averaging the raw rows weights that brand ten times against a
+   * brand a single org claims, and quietly turns a fleet benchmark into a
+   * claim-count-weighted one. Production carries 112 rows over 70 brands (one
+   * brand claimed by ten orgs, one by nine), and the raw-row aggregate differs
+   * from the per-brand one by up to ~27% on a leg. A brand's own copies can
+   * legitimately diverge once each
+   * org edits its own, so the collapse is their MEAN — the brand's position,
+   * whoever states it.
    *
    * Does NOT touch getByBrandId — the per-brand read still returns null for an
    * unset brand, so features-service's null-pipeline contract stays intact.
    */
   async getAverageAcrossBrands(): Promise<SalesEconomicsAverages | null> {
+    // One row per brand: the mean of whatever its claiming orgs each stated.
+    const perBrand = db
+      .select({
+        // Kept as double precision so the outer PERCENTILE_CONT resolves to the
+        // float8 overload and `ROUND(double precision)` keeps its half-to-even
+        // (banker's) rounding — identical to the pre-collapse behaviour.
+        lifetimeRevenueUsd: sql<number>`AVG(${brandSalesEconomics.lifetimeRevenueUsd})::double precision`.as('lifetime_revenue_usd'),
+        replyToMeetingPct: sql<number>`AVG(${brandSalesEconomics.replyToMeetingPct})`.as('reply_to_meeting_pct'),
+        visitToMeetingPct: sql<number>`AVG(${brandSalesEconomics.visitToMeetingPct})`.as('visit_to_meeting_pct'),
+        meetingToClosePct: sql<number>`AVG(${brandSalesEconomics.meetingToClosePct})`.as('meeting_to_close_pct'),
+        visitToSignupPct: sql<number>`AVG(${brandSalesEconomics.visitToSignupPct})`.as('visit_to_signup_pct'),
+        signupToPaidClientPct: sql<number>`AVG(${brandSalesEconomics.signupToPaidClientPct})`.as('signup_to_paid_client_pct'),
+        visitToPaidClientPct: sql<number>`AVG(${brandSalesEconomics.visitToPaidClientPct})`.as('visit_to_paid_client_pct'),
+        replyToPaidClientPct: sql<number>`AVG(${brandSalesEconomics.replyToPaidClientPct})`.as('reply_to_paid_client_pct'),
+        visitToFormSubmissionPct: sql<number>`AVG(${brandSalesEconomics.visitToFormSubmissionPct})`.as('visit_to_form_submission_pct'),
+        formSubmissionToPaidClientPct: sql<number>`AVG(${brandSalesEconomics.formSubmissionToPaidClientPct})`.as('form_submission_to_paid_client_pct'),
+      })
+      .from(brandSalesEconomics)
+      .groupBy(brandSalesEconomics.brandId)
+      .as('per_brand');
+
     const [row] = await db
       .select({
-        lifetimeRevenueUsd: sql<number | null>`ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${brandSalesEconomics.lifetimeRevenueUsd}))::int`,
-        replyToMeetingPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.replyToMeetingPct})::numeric, 4)::double precision`,
-        visitToMeetingPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToMeetingPct})::numeric, 4)::double precision`,
-        meetingToClosePct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.meetingToClosePct})::numeric, 4)::double precision`,
-        visitToSignupPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToSignupPct})::numeric, 4)::double precision`,
-        signupToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.signupToPaidClientPct})::numeric, 4)::double precision`,
-        visitToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToPaidClientPct})::numeric, 4)::double precision`,
-        replyToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.replyToPaidClientPct})::numeric, 4)::double precision`,
-        visitToFormSubmissionPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.visitToFormSubmissionPct})::numeric, 4)::double precision`,
-        formSubmissionToPaidClientPct: sql<number | null>`ROUND(AVG(${brandSalesEconomics.formSubmissionToPaidClientPct})::numeric, 4)::double precision`,
+        lifetimeRevenueUsd: sql<number | null>`ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${perBrand.lifetimeRevenueUsd}))::int`,
+        replyToMeetingPct: sql<number | null>`ROUND(AVG(${perBrand.replyToMeetingPct})::numeric, 4)::double precision`,
+        visitToMeetingPct: sql<number | null>`ROUND(AVG(${perBrand.visitToMeetingPct})::numeric, 4)::double precision`,
+        meetingToClosePct: sql<number | null>`ROUND(AVG(${perBrand.meetingToClosePct})::numeric, 4)::double precision`,
+        visitToSignupPct: sql<number | null>`ROUND(AVG(${perBrand.visitToSignupPct})::numeric, 4)::double precision`,
+        signupToPaidClientPct: sql<number | null>`ROUND(AVG(${perBrand.signupToPaidClientPct})::numeric, 4)::double precision`,
+        visitToPaidClientPct: sql<number | null>`ROUND(AVG(${perBrand.visitToPaidClientPct})::numeric, 4)::double precision`,
+        replyToPaidClientPct: sql<number | null>`ROUND(AVG(${perBrand.replyToPaidClientPct})::numeric, 4)::double precision`,
+        visitToFormSubmissionPct: sql<number | null>`ROUND(AVG(${perBrand.visitToFormSubmissionPct})::numeric, 4)::double precision`,
+        formSubmissionToPaidClientPct: sql<number | null>`ROUND(AVG(${perBrand.formSubmissionToPaidClientPct})::numeric, 4)::double precision`,
       })
-      .from(brandSalesEconomics);
+      .from(perBrand);
 
     // A WHERE-less aggregate always returns exactly one row (all-null on empty).
     return mapAverageRow(row);
