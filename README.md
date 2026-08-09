@@ -286,13 +286,16 @@ GitHub Actions runs on push to main and PRs:
 **`.github/workflows/test.yml`:**
 1. Build TypeScript + sanity tests
 2. Unit tests
-3. Integration tests (creates isolated Neon DB branch per PR, falls back to dev DB on main)
+3. Integration tests against a throwaway `postgres:16` **service container**, one per run, its schema built from `schema.ts` by `drizzle-kit push --force`
 4. Coverage upload to Codecov
 
-**`.github/workflows/neon-cleanup.yml`:**
-- Deletes the Neon branch when a PR is closed
+The database is never one anything else points at, and it dies with the job — no API key, no cleanup step. It replaced a per-run Neon branch, which stopped existing when the fleet moved off Neon (the create step began 404-ing and nothing could merge).
 
-**Required secrets/variables:** `NEON_API_KEY` (secret), `NEON_PROJECT_ID` (variable)
+`drizzle-kit push` prints a failed statement and **exits 0**, abandoning the rest of the run, so the push step greps its own output and fails the job on any error — otherwise the suite silently runs against a half-built schema.
+
+The migration SQL is no longer replayed in CI (`scripts/ci-migrate.ts` needed a database that already carried production's schema; the journal cannot build one from empty, since migrations 0024/0025 were hand-authored against an existing database). It is first exercised by the boot migrator on staging. The journal's own guards — `tests/unit/migration-order.test.ts`, the migration-stamp guard, `src/lib/migration-ledger.ts` — still run on every PR.
+
+**Required secrets/variables:** none for the test database.
 
 Deployed via Docker on Railway.
 

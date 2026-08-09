@@ -529,7 +529,13 @@ export const mediaAssets = pgTable("media_assets", {
 }, (table) => [
 	index().using("btree", table.assetType.asc().nullsLast().op("text_ops")),
 	index("media_assets_organization_id_index").using("btree", table.brandId.asc().nullsLast().op("uuid_ops")),
-	index("media_assets_organization_id_is_shareable_index").using("btree", table.brandId.asc().nullsLast().op("bool_ops"), table.isShareable.asc().nullsLast().op("uuid_ops")),
+	// The two operator classes were introspected onto the WRONG columns (uuid
+	// tagged `bool_ops`, boolean tagged `uuid_ops`). It never surfaced while
+	// `drizzle-kit push` only ever ran against a database that already had this
+	// index; building the schema from empty, Postgres rejects it outright
+	// (`operator class "bool_ops" does not accept data type uuid`) and push
+	// abandons the rest of the run while still exiting 0.
+	index("media_assets_organization_id_is_shareable_index").using("btree", table.brandId.asc().nullsLast().op("uuid_ops"), table.isShareable.asc().nullsLast().op("bool_ops")),
 	index().using("btree", table.supabaseStorageId.asc().nullsLast().op("uuid_ops")),
 	foreignKey({
 			columns: [table.supabaseStorageId],
@@ -1024,6 +1030,27 @@ export const brandIndividuals = pgTable("brand_individuals", {
 		}).onDelete("cascade"),
 	primaryKey({ columns: [table.brandId, table.individualId], name: "organization_individuals_pkey"}),
 ]);
+/**
+ * EIGHT LEGACY REPORTING VIEWS, DECLARED AS `.existing()` — drizzle does not
+ * manage them and never creates them.
+ *
+ * Each one selects `o.external_organization_id` from `brands`, a column that
+ * column no longer has: the silver/gold restructure (migrations 0024/0025)
+ * renamed the old table aside and built a new `brands` without it. The views
+ * survive in production bound to the table they were created against, so they
+ * keep answering the legacy `/organizations/*` routes that query them by name
+ * through raw SQL — but their recorded SQL cannot be replayed against the
+ * schema this file describes. Asking `drizzle-kit push` to create them fails
+ * (`column o.external_organization_id does not exist`), and because push
+ * reports a failed statement and exits 0, that failure USED to pass silently:
+ * CI built its schema on a database forked from production, where the views
+ * already existed, so it never tried. Building from empty, it does.
+ *
+ * `.existing()` states the truth — this service reads them, it does not own
+ * their shape. Restating them correctly means deciding what
+ * `external_organization_id` means now, which is a product question, not a CI
+ * one; the routes that read them have no test coverage today.
+ */
 export const vIndividualsLinkedinPosts = pgView("v_individuals_linkedin_posts", {	externalOrganizationId: text("external_organization_id"),
 	postId: uuid("post_id"),
 	individualId: uuid("individual_id"),
@@ -1049,7 +1076,7 @@ export const vIndividualsLinkedinPosts = pgView("v_individuals_linkedin_posts", 
 	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }),
-}).as(sql`SELECT o.external_organization_id, lp.id AS post_id, i.id AS individual_id, TRIM(BOTH FROM concat(i.first_name, ' ', i.last_name)) AS individual_name, lp.linkedin_post_id, lp.linkedin_url, lp.post_type, lp.content, lp.author_name, lp.author_linkedin_url, lp.author_avatar_url, lp.author_info, lp.article_image_url, lp.posted_at, lp.likes_count, lp.comments_count, lp.shares_count, lp.impressions_count, lp.has_images, lp.post_images, lp.is_repost, lp.repost_id, lp.scraped_at, lp.created_at, lp.updated_at FROM brands o JOIN brand_individuals oi ON o.id = oi.brand_id JOIN individuals i ON oi.individual_id = i.id JOIN individuals_linkedin_posts lp ON i.id = lp.individual_id WHERE lp.has_article = false ORDER BY o.external_organization_id, lp.posted_at DESC NULLS LAST, lp.created_at DESC`);
+}).existing();
 
 export const vOrganizationScrapedPages = pgView("v_organization_scraped_pages", {	externalOrganizationId: text("external_organization_id"),
 	id: uuid(),
@@ -1063,7 +1090,7 @@ export const vOrganizationScrapedPages = pgView("v_organization_scraped_pages", 
 	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }),
 	pageCategory: webPageCategoryEnum("page_category"),
-}).as(sql`SELECT o.external_organization_id, s.id, s.url, s.domain, s.title, s.description, s.content, s.markdown, CASE WHEN s.content IS NOT NULL AND s.content <> ''::text THEN true ELSE false END AS has_content, s.scraped_at, s.created_at, wp.page_category FROM brands o JOIN web_pages wp ON o.domain = wp.domain JOIN scraped_url_firecrawl s ON wp.normalized_url = s.normalized_url WHERE o.domain IS NOT NULL AND wp.domain IS NOT NULL AND s.raw_response IS NOT NULL ORDER BY o.external_organization_id, s.scraped_at DESC NULLS LAST, s.created_at DESC`);
+}).existing();
 
 export const vIndividualsPersonalContent = pgView("v_individuals_personal_content", {	externalOrganizationId: text("external_organization_id"),
 	scrapedId: uuid("scraped_id"),
@@ -1078,7 +1105,7 @@ export const vIndividualsPersonalContent = pgView("v_individuals_personal_conten
 	hasContent: boolean("has_content"),
 	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }),
-}).as(sql`SELECT o.external_organization_id, s.id AS scraped_id, i.id AS individual_id, TRIM(BOTH FROM concat(i.first_name, ' ', i.last_name)) AS individual_name, s.url, s.domain, s.title, s.description, s.content, s.markdown, CASE WHEN s.content IS NOT NULL AND s.content <> ''::text THEN true ELSE false END AS has_content, s.scraped_at, s.created_at FROM brands o JOIN brand_individuals oi ON o.id = oi.brand_id JOIN individuals i ON oi.individual_id = i.id JOIN scraped_url_firecrawl s ON CASE WHEN i.personal_website_url IS NOT NULL THEN regexp_replace(regexp_replace(i.personal_website_url, '^https?://(www\.)?'::text, ''::text), '/.*$'::text, ''::text) ELSE NULL::text END = s.domain WHERE i.personal_website_url IS NOT NULL AND s.raw_response IS NOT NULL ORDER BY o.external_organization_id, s.scraped_at DESC NULLS LAST, s.created_at DESC`);
+}).existing();
 
 export const vOrganizationLinkedinPosts = pgView("v_organization_linkedin_posts", {	externalOrganizationId: text("external_organization_id"),
 	id: uuid(),
@@ -1104,7 +1131,7 @@ export const vOrganizationLinkedinPosts = pgView("v_organization_linkedin_posts"
 	scrapedAt: timestamp("scraped_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }),
-}).as(sql`SELECT o.external_organization_id, lp.id, lp.linkedin_post_id, lp.linkedin_url, lp.post_type, lp.content, lp.author_name, lp.author_linkedin_url, lp.author_universal_name, lp.author_avatar_url, lp.author_info, lp.article_image_url, lp.posted_at, lp.likes_count, lp.comments_count, lp.shares_count, lp.impressions_count, lp.has_images, lp.post_images, lp.is_repost, lp.repost_id, lp.scraped_at, lp.created_at, lp.updated_at FROM brands o JOIN brand_linkedin_posts lp ON o.id = lp.brand_id WHERE lp.has_article = false ORDER BY o.external_organization_id, lp.posted_at DESC NULLS LAST, lp.created_at DESC`);
+}).existing();
 
 export const vIndividualsLinkedinArticles = pgView("v_individuals_linkedin_articles", {	externalOrganizationId: text("external_organization_id"),
 	postId: uuid("post_id"),
@@ -1153,7 +1180,7 @@ export const vIndividualsLinkedinArticles = pgView("v_individuals_linkedin_artic
 	scrapedPageScrapedAt: timestamp("scraped_page_scraped_at", { withTimezone: true, mode: 'string' }),
 	scrapedPageCreatedAt: timestamp("scraped_page_created_at", { withTimezone: true, mode: 'string' }),
 	hasScrapedContent: boolean("has_scraped_content"),
-}).as(sql`SELECT o.external_organization_id, lp.id AS post_id, i.id AS individual_id, TRIM(BOTH FROM concat(i.first_name, ' ', i.last_name)) AS individual_name, lp.linkedin_post_id, lp.linkedin_url, lp.post_type, lp.content, lp.article_title, lp.article_link, lp.article_image_url, lp.article_description, lp.article, lp.author_name, lp.author_linkedin_url, lp.author_avatar_url, lp.author_info, lp.posted_at, lp.likes_count, lp.comments_count, lp.shares_count, lp.impressions_count, lp.has_images, lp.post_images, lp.is_repost, lp.repost_id, lp.scraped_at, lp.created_at, lp.updated_at, scraped.id AS scraped_id, scraped.source_url AS scraped_source_url, scraped.url AS scraped_url, scraped.domain AS scraped_domain, scraped.title AS scraped_title, scraped.description AS scraped_description, scraped.content AS scraped_content, scraped.markdown AS scraped_markdown, scraped.html AS scraped_html, scraped.raw_html AS scraped_raw_html, scraped.links AS scraped_links, scraped.language AS scraped_language, scraped.og_title AS scraped_og_title, scraped.og_description AS scraped_og_description, scraped.og_image AS scraped_og_image, scraped.scraped_at AS scraped_page_scraped_at, scraped.created_at AS scraped_page_created_at, CASE WHEN scraped.content IS NOT NULL AND scraped.content <> ''::text THEN true ELSE false END AS has_scraped_content FROM brands o JOIN brand_individuals oi ON o.id = oi.brand_id JOIN individuals i ON oi.individual_id = i.id JOIN individuals_linkedin_posts lp ON i.id = lp.individual_id LEFT JOIN scraped_url_firecrawl scraped ON lp.article_link = scraped.source_url WHERE lp.has_article = true ORDER BY o.external_organization_id, lp.posted_at DESC NULLS LAST, lp.created_at DESC`);
+}).existing();
 
 export const vOrganizationLinkedinArticles = pgView("v_organization_linkedin_articles", {	externalOrganizationId: text("external_organization_id"),
 	id: uuid(),
@@ -1201,7 +1228,7 @@ export const vOrganizationLinkedinArticles = pgView("v_organization_linkedin_art
 	scrapedPageScrapedAt: timestamp("scraped_page_scraped_at", { withTimezone: true, mode: 'string' }),
 	scrapedPageCreatedAt: timestamp("scraped_page_created_at", { withTimezone: true, mode: 'string' }),
 	hasScrapedContent: boolean("has_scraped_content"),
-}).as(sql`SELECT o.external_organization_id, lp.id, lp.linkedin_post_id, lp.linkedin_url, lp.post_type, lp.content, lp.article_title, lp.article_link, lp.article_image_url, lp.article_description, lp.article, lp.author_name, lp.author_linkedin_url, lp.author_universal_name, lp.author_avatar_url, lp.author_info, lp.posted_at, lp.likes_count, lp.comments_count, lp.shares_count, lp.impressions_count, lp.has_images, lp.post_images, lp.is_repost, lp.repost_id, lp.scraped_at, lp.created_at, lp.updated_at, scraped.id AS scraped_id, scraped.source_url AS scraped_source_url, scraped.url AS scraped_url, scraped.domain AS scraped_domain, scraped.title AS scraped_title, scraped.description AS scraped_description, scraped.content AS scraped_content, scraped.markdown AS scraped_markdown, scraped.html AS scraped_html, scraped.raw_html AS scraped_raw_html, scraped.links AS scraped_links, scraped.language AS scraped_language, scraped.og_title AS scraped_og_title, scraped.og_description AS scraped_og_description, scraped.og_image AS scraped_og_image, scraped.scraped_at AS scraped_page_scraped_at, scraped.created_at AS scraped_page_created_at, CASE WHEN scraped.content IS NOT NULL AND scraped.content <> ''::text THEN true ELSE false END AS has_scraped_content FROM brands o JOIN brand_linkedin_posts lp ON o.id = lp.brand_id LEFT JOIN scraped_url_firecrawl scraped ON lp.article_link = scraped.source_url WHERE lp.has_article = true ORDER BY o.external_organization_id, lp.posted_at DESC NULLS LAST, lp.created_at DESC`);
+}).existing();
 
 export const vOrganizationIndividuals = pgView("v_organization_individuals", {	externalOrganizationId: text("external_organization_id"),
 	individualId: uuid("individual_id"),
@@ -1231,7 +1258,7 @@ export const vOrganizationIndividuals = pgView("v_organization_individuals", {	e
 	joinedOrganizationAt: timestamp("joined_organization_at", { withTimezone: true, mode: 'string' }),
 	belongingConfidenceLevel: belongingConfidenceLevelEnum("belonging_confidence_level"),
 	belongingConfidenceRationale: text("belonging_confidence_rationale"),
-}).as(sql`SELECT o.external_organization_id, i.id AS individual_id, i.first_name, i.last_name, TRIM(BOTH FROM concat(i.first_name, ' ', i.last_name)) AS full_name, i.linkedin_url, i.personal_website_url, CASE WHEN i.personal_website_url IS NOT NULL THEN regexp_replace(regexp_replace(i.personal_website_url, '^https?://(www\.)?'::text, ''::text), '/.*$'::text, ''::text) ELSE NULL::text END AS personal_domain, pdl.pdl_id, pdl.full_name AS pdl_full_name, pdl.location_name AS pdl_location_name, pdl.job_title AS pdl_job_title, pdl.job_company_name AS pdl_job_company_name, pdl.job_company_industry AS pdl_job_company_industry, pdl.linkedin_url AS pdl_linkedin_url, pdl.job_company_website AS pdl_job_company_website, pdl.twitter_url AS pdl_twitter_url, pdl.facebook_url AS pdl_facebook_url, pdl.github_url AS pdl_github_url, latest_post.author_avatar_url AS linkedin_author_avatar_url, latest_post.author_info AS linkedin_author_info, oi.created_at AS relation_created_at, i.created_at AS individual_created_at, oi.status AS relationship_status, oi.organization_role, oi.joined_organization_at, oi.belonging_confidence_level, oi.belonging_confidence_rationale FROM brands o JOIN brand_individuals oi ON o.id = oi.brand_id JOIN individuals i ON oi.individual_id = i.id LEFT JOIN individuals_pdl_enrichment pdl ON i.id = pdl.individual_id LEFT JOIN LATERAL ( SELECT lp.author_avatar_url, lp.author_info FROM individuals_linkedin_posts lp WHERE lp.individual_id = i.id ORDER BY lp.scraped_at DESC NULLS LAST, lp.created_at DESC LIMIT 1) latest_post ON true ORDER BY o.external_organization_id, oi.created_at DESC, i.created_at DESC`);
+}).existing();
 
 export const vTargetOrganizations = pgView("v_target_organizations", {	sourceExternalOrganizationId: text("source_external_organization_id"),
 	targetOrgId: uuid("target_org_id"),
@@ -1260,7 +1287,7 @@ export const vTargetOrganizations = pgView("v_target_organizations", {	sourceExt
 	targetOrgContactEmail: text("target_org_contact_email"),
 	targetOrgContactPhone: text("target_org_contact_phone"),
 	targetOrgSocialMedia: jsonb("target_org_social_media"),
-}).as(sql`SELECT source_org.external_organization_id AS source_external_organization_id, target_org.id AS target_org_id, target_org.external_organization_id AS target_org_external_id, target_org.name AS target_org_name, target_org.url AS target_org_url, target_org.organization_linkedin_url AS target_org_linkedin_url, target_org.domain AS target_org_domain, rel.relation_type, rel.relation_confidence_level, rel.relation_confidence_rationale, rel.status AS relation_status, rel.created_at AS relation_created_at, rel.updated_at AS relation_updated_at, target_org.location AS target_org_location, target_org.bio AS target_org_bio, target_org.elevator_pitch AS target_org_elevator_pitch, target_org.mission AS target_org_mission, target_org.story AS target_org_story, target_org.offerings AS target_org_offerings, target_org.problem_solution AS target_org_problem_solution, target_org.goals AS target_org_goals, target_org.categories AS target_org_categories, target_org.founded_date AS target_org_founded_date, target_org.contact_name AS target_org_contact_name, target_org.contact_email AS target_org_contact_email, target_org.contact_phone AS target_org_contact_phone, target_org.social_media AS target_org_social_media FROM brands source_org JOIN brand_relations rel ON source_org.id = rel.source_brand_id JOIN brands target_org ON rel.target_brand_id = target_org.id ORDER BY source_org.external_organization_id, rel.created_at DESC`);
+}).existing();
 
 export const brandExtractedImages = pgTable("brand_extracted_images", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
