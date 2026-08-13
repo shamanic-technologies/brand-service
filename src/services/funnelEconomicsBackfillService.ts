@@ -12,6 +12,21 @@
  *  - the "every value column IS NULL" predicate is what keeps a funnel a human
  *    priced untouched, and it is repeated in the UPDATE so a row priced between
  *    the read and the write is left exactly as the user left it.
+ *
+ * PROVENANCE IS NOT ONE OF THE RULES, and it used to be. The first run also
+ * required `backfilled_from_goal IS NOT NULL`, so it only ever saw declarations
+ * the goal→funnel backfill had made. That was harmless while the brand-wide
+ * record still PRICED a brand whose funnels held nothing: the numbers were
+ * reachable either way. They are not any more — a brand's rates and lifetime
+ * revenue belong to the funnel that earns them, and the brand-wide record is
+ * being reduced to a legacy fallthrough and a prefill. A funnel a human declared
+ * BY HAND and left blank is therefore in exactly the position this backfill
+ * exists to repair, and the provenance clause was the only thing hiding it.
+ *
+ * Dropping that clause widens nothing else: the two rules above are what protect
+ * a brand that stated nothing (no economics row, no candidate) and a funnel
+ * somebody priced (any value present, no candidate). Measured in production when
+ * this shipped, it moves exactly one brand's two declarations.
  */
 
 import { and, eq, sql } from 'drizzle-orm';
@@ -37,8 +52,8 @@ const VALUE_COLUMNS = [
 ] as const;
 
 /**
- * Declarations the goal→funnel backfill created that hold no number at all,
- * beside the numbers their brand stated on the brand-wide record.
+ * Declarations that hold no number at all, whatever declared them, beside the
+ * numbers their brand stated on the brand-wide record.
  */
 export async function readEconomicsBackfillCandidates(): Promise<EconomicsBackfillCandidate[]> {
   const rows = await db.execute<{
@@ -68,8 +83,7 @@ export async function readEconomicsBackfillCandidates(): Promise<EconomicsBackfi
       FROM brand_sales_funnels f
       JOIN brand_sales_economics e
         ON e.org_id = f.org_id AND e.brand_id = f.brand_id
-     WHERE f.backfilled_from_goal IS NOT NULL
-       AND f.economics_backfilled_at IS NULL
+     WHERE f.economics_backfilled_at IS NULL
        AND f.lifetime_revenue_usd IS NULL
        AND f.reply_to_meeting_pct IS NULL
        AND f.visit_to_meeting_pct IS NULL
