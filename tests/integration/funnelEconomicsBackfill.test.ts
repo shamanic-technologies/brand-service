@@ -36,9 +36,16 @@ describe('Funnel economics backfill', () => {
   const statedBrandId = randomUUID(); // stated economics + a backfilled funnel
   const silentBrandId = randomUUID(); // a backfilled funnel, never stated a number
   const humanPricedBrandId = randomUUID(); // a funnel a human priced, plus economics
+  const handBlankBrandId = randomUUID(); // a funnel a human declared and left blank
   const sharedBrandId = randomUUID(); // claimed by BOTH orgs
 
-  const allBrandIds = [statedBrandId, silentBrandId, humanPricedBrandId, sharedBrandId];
+  const allBrandIds = [
+    statedBrandId,
+    silentBrandId,
+    humanPricedBrandId,
+    handBlankBrandId,
+    sharedBrandId,
+  ];
   const dom = (id: string) => `econ-backfill-${id.slice(0, 8)}.com`;
 
   /** The brand-wide record, exactly as the economics form writes one. */
@@ -74,6 +81,7 @@ describe('Funnel economics backfill', () => {
     await db.insert(brandSalesEconomics).values([
       economicsRow(statedBrandId),
       economicsRow(humanPricedBrandId),
+      economicsRow(handBlankBrandId),
       economicsRow(sharedBrandId),
       economicsRow(sharedBrandId, secondOrgId),
     ]);
@@ -106,6 +114,15 @@ describe('Funnel economics backfill', () => {
         funnelKey: 'website_purchases',
         lifetimeRevenueUsd: 999,
         visitToSignupPct: 3,
+      },
+      // A funnel a human DECLARED and left blank, on a brand that had already
+      // stated its numbers brand-wide. No provenance, no values. Priced until
+      // now by the brand-wide record alone, which is exactly what is being
+      // retired — so this is the case the backfill has to reach.
+      {
+        orgId,
+        brandId: handBlankBrandId,
+        funnelKey: 'sales_meetings_from_conversation',
       },
       // The same brand, claimed by two orgs, each with its own declaration.
       {
@@ -174,6 +191,19 @@ describe('Funnel economics backfill', () => {
     expect(funnel.rates.signupToPaidClientPct).toBeNull();
   });
 
+  it('reaches a funnel a human declared and left blank, whatever declared it', async () => {
+    // No provenance column to vouch for it, and until now that alone excluded
+    // it. Its brand stated these numbers; the brand-wide record that served them
+    // is being retired, so the funnel has to carry them or the brand loses them.
+    const [funnel] = await readFunnels(handBlankBrandId);
+    expect(funnel.funnelKey).toBe('sales_meetings_from_conversation');
+    expect(funnel.lifetimeRevenueUsd).toBe(4200);
+    expect(funnel.rates.replyToMeetingPct).toBe(31);
+    expect(funnel.rates.meetingToClosePct).toBe(44);
+    // Still never invented: the show-up rate exists on no brand-wide column.
+    expect(funnel.rates.meetingBookedToAttendedPct).toBeNull();
+  });
+
   it('reads back exactly what a human entered on a funnel they priced', async () => {
     const [funnel] = await readFunnels(humanPricedBrandId);
     expect(funnel.lifetimeRevenueUsd).toBe(999);
@@ -191,7 +221,7 @@ describe('Funnel economics backfill', () => {
 
     const filled = rows.filter((r) => r.economicsBackfilledAt !== null);
     expect(filled.map((r) => r.brandId).sort()).toEqual(
-      [statedBrandId, statedBrandId, sharedBrandId, sharedBrandId].sort()
+      [statedBrandId, statedBrandId, handBlankBrandId, sharedBrandId, sharedBrandId].sort()
     );
     // The human-priced row and the never-stated row carry no stamp.
     const untouched = rows.filter((r) => r.economicsBackfilledAt === null);
