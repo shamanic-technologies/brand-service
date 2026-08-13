@@ -26,11 +26,15 @@
  *     `meetingBookedToAttendedPct` — the meeting show-up rate — exists only on
  *     the funnel table and was never stated anywhere, so it stays NULL. That is
  *     the whole of the mapping: same name, same number, nothing else.
- *  2. Only a funnel the goal→funnel backfill created AND that holds no number at
- *     all is filled. A funnel a human priced is never touched, not even on a
- *     column they left empty — the numbers on it are the ones they chose to
- *     state, and half-filling it from a brand-wide record would put a value they
- *     did not enter beside the ones they did.
+ *  2. Only a funnel that holds no number AT ALL is filled. A funnel a human
+ *     priced is never touched, not even on a column they left empty — the
+ *     numbers on it are the ones they chose to state, and half-filling it from a
+ *     brand-wide record would put a value they did not enter beside the ones
+ *     they did. Note what this rule does NOT say: it does not ask who declared
+ *     the funnel. It once did, and the provenance clause turned out to hide the
+ *     brands most in need of it — the ones who declared a funnel by hand and
+ *     left it blank, priced until now by the brand-wide record that is being
+ *     retired underneath them.
  */
 
 import {
