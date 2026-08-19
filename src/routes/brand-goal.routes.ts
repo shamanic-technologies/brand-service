@@ -122,7 +122,18 @@ internalRouter.get('/brands/:brandId/runtime-context', async (req: Request, res:
       return res.status(404).json({ error: 'Brand not found' });
     }
 
-    const profile = await brandProfileService.getByBrandId(scope.orgId, brandId);
+    // WHICH offer's confirmed words this snapshot carries. campaign-service
+    // holds the campaign, and a campaign belongs to an offer, so the caller is
+    // the one that can name it — `?offerId=`. Omitted keeps today's answer for
+    // every brand selling one thing; a brand selling several answers 409
+    // SEVERAL_OFFERS until the loop names which proposition it is running.
+    const rawOfferId = req.query.offerId;
+    const offerId = typeof rawOfferId === 'string' && rawOfferId.length > 0 ? rawOfferId : undefined;
+    if (offerId !== undefined && !UUID_REGEX.test(offerId)) {
+      return res.status(400).json({ error: 'Invalid offer ID format: must be a UUID' });
+    }
+
+    const profile = await brandProfileService.getByBrandId(scope.orgId, brandId, offerId);
 
     return res.status(200).json({
       brand,
@@ -140,6 +151,9 @@ internalRouter.get('/brands/:brandId/runtime-context', async (req: Request, res:
       },
     });
   } catch (error: any) {
+    // A named offer that names nothing (404), and the deliberate 409 for a
+    // brand selling several when the caller named none.
+    if (rejectOfferProblem(res, error)) return;
     console.error('[brand-service] Get runtime context error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }

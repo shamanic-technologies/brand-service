@@ -1,6 +1,7 @@
 import { eq, and, isNull } from 'drizzle-orm';
 import { db, brandExtractedFields } from '../db';
-import { getConfirmedByBrandId } from './brandUserFieldsService';
+import { getConfirmedByOfferId } from './brandUserFieldsService';
+import { resolveNamedOffer } from './brandOffersService';
 
 export type ProfileFields = Record<string, string | string[]>;
 
@@ -62,14 +63,30 @@ export class BrandProfileService {
    * The brand's own-info profile: confirmed (user-validated) fields overlaid on
    * the fields derived from the ephemeral extract cache. `confirmedFields` is the
    * confirmed layer alone; `hasConfirmed` gates injecting it as authoritative.
+   *
+   * The CONFIRMED half belongs to ONE offer — a dream outcome and a risk
+   * reversal are claims about one thing a brand sells — so a caller that knows
+   * which proposition it is asking about names it. `offerId` omitted keeps the
+   * brand-scoped resolution unchanged: the sole offer, nothing when the brand
+   * has none, and the deliberate `SeveralOffersError` when it has several and
+   * the caller named none. The DERIVED half stays brand-wide, deliberately: it
+   * is the auto-extract prefill read off the brand's own site, which describes
+   * the company and knows nothing about which of its products is being asked
+   * about.
    */
-  async getByBrandId(orgId: string, brandId: string): Promise<BrandProfileResponse> {
+  async getByBrandId(
+    orgId: string,
+    brandId: string,
+    offerId?: string | null,
+  ): Promise<BrandProfileResponse> {
+    const resolvedOfferId = await resolveNamedOffer(orgId, brandId, offerId);
+
     const [extractedRows, confirmedMap] = await Promise.all([
       db
         .select({ fieldKey: brandExtractedFields.fieldKey, fieldValue: brandExtractedFields.fieldValue })
         .from(brandExtractedFields)
         .where(and(eq(brandExtractedFields.brandId, brandId), isNull(brandExtractedFields.campaignId))),
-      getConfirmedByBrandId(orgId, brandId),
+      getConfirmedByOfferId(orgId, brandId, resolvedOfferId),
     ]);
 
     const derived = coerceProfileFields(extractedRows);

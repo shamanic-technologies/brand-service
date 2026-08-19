@@ -74,9 +74,16 @@ vi.mock('../../src/services/imageExtractionService', () => ({
 // Mock the confirmed-fields store: no confirmed values → every non-user-facing
 // key is `extracted`, no overlay. Keeps the DB out of the provenance path.
 vi.mock('../../src/services/brandUserFieldsService', () => ({
-  getConfirmedByBrandId: vi.fn().mockResolvedValue(new Map()),
+  getConfirmedByOfferId: vi.fn().mockResolvedValue(new Map()),
   isUserFacingFieldKey: (k: string) =>
     ['services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity'].includes(k),
+}));
+
+// The offer a brand-scoped extraction resolves to. `null` is what a brand with
+// no offer answers, and it selects the pre-offer rows — the same value every
+// production brand's sole offer produced before offers existed.
+vi.mock('../../src/services/brandOffersService', () => ({
+  resolveNamedOffer: vi.fn().mockResolvedValue(null),
 }));
 
 import { multiBrandExtractFields } from '../../src/services/multiBrandFieldExtractionService';
@@ -84,9 +91,9 @@ import { multiBrandExtractImages } from '../../src/services/multiBrandImageExtra
 import { extractFields, getBrand } from '../../src/services/fieldExtractionService';
 import { extractImages, getBrandForImages } from '../../src/services/imageExtractionService';
 import { chat } from '../../src/lib/chat-client';
-import { getConfirmedByBrandId } from '../../src/services/brandUserFieldsService';
+import { getConfirmedByOfferId } from '../../src/services/brandUserFieldsService';
 
-const mockedGetConfirmed = vi.mocked(getConfirmedByBrandId);
+const mockedGetConfirmed = vi.mocked(getConfirmedByOfferId);
 const mockedGetBrand = vi.mocked(getBrand);
 const mockedExtractFields = vi.mocked(extractFields);
 const mockedGetBrandForImages = vi.mocked(getBrandForImages);

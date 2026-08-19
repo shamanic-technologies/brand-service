@@ -283,6 +283,33 @@ export async function resolveSoleOffer(
 }
 
 /**
+ * WHICH offer a READ is about when the caller MAY name one.
+ *
+ * The offer a caller names wins, once it is proved to exist under this
+ * (org, brand) — naming an offer of somebody else's brand, or an id that names
+ * nothing, is `OfferNotFoundError` (404), never a quiet fall back to the brand's
+ * own rows. That refusal is the whole point: a read that silently swapped a
+ * named offer for a resolved one would feed one proposition's words into
+ * another proposition's answer, and the output would look plausible.
+ *
+ * A caller that names NOTHING keeps `resolveSoleOffer`'s three answers exactly
+ * — one offer, no offer, or the deliberate `SeveralOffersError` (409) for a
+ * brand that has stated several. That is what makes this byte-for-byte today's
+ * behaviour for every brand in production, all of which hold exactly one offer.
+ */
+export async function resolveNamedOffer(
+  orgId: string,
+  brandId: string,
+  offerId?: string | null
+): Promise<string | null> {
+  if (offerId === undefined || offerId === null) {
+    return resolveSoleOffer(orgId, brandId);
+  }
+  await assertOfferOnBrand(orgId, brandId, offerId);
+  return offerId;
+}
+
+/**
  * The offer a BRAND-scoped WRITE is about, creating the brand's first one when
  * it has none.
  *

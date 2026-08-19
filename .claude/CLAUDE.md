@@ -181,6 +181,23 @@ Read as a flat table they look exactly like clones of one proposition, and the r
 
 **Every read, write and resolution is org-scoped, and that is what must not regress.** `listOffers`, `getOffer` and therefore `resolveSoleOffer` all filter on `org_id`, so a brand ten orgs claim still resolves to ONE offer per org and a brand-scoped call never 409s `SeveralOffersError` on somebody else's row. `getOfferById` (internal, offer id alone) reads the org OFF the row rather than taking one. Regression: `tests/integration/offersAcrossOrgsClaimingOneBrand.test.ts` (three orgs on one brand, same offer name, independent prices, `404` across orgs, `ORG_REQUIRED` on the org-less internal read), plus `tests/unit/offerMigrationPlan.test.ts` for the per-pair planning and the empty re-run.
 
+## Every reader of the confirmed fields names an OFFER — there is no brand-scoped read of them left
+
+The 7 user-facing fields are ONE proposition's words, so "the brand's confirmed fields" is not a question with an answer once a brand sells two things. `getConfirmedByBrandId` was the compatibility wrapper that resolved the sole offer and it is GONE; the only read is `getConfirmedByOfferId(orgId, brandId, offerId)`, and every caller states which offer it means through **`resolveNamedOffer(orgId, brandId, offerId?)`** (`brandOffersService`):
+
+- **an offer NAMED** → proved to exist under this `(org, brand)` with `assertOfferOnBrand`, else `OfferNotFoundError` (404). Naming another brand's offer is never a quiet fall back to this brand's rows.
+- **nothing named** → `resolveSoleOffer`'s three answers unchanged: the sole offer, `null` for a brand with none, and the deliberate `SeveralOffersError` (409) for a brand selling several.
+
+**A wrong pick here is worse than the 409**, which is why no default was added. The confirmed words are used TWICE on the extraction path — injected into the prompt as authoritative context and overlaid back over the model's answer — so grounding a $200 self-serve extraction in a $20k enterprise promise produces output that reads perfectly and is wrong throughout. Both halves resolve from the SAME `offerId` (`extractFields` for the prompt, the overlay loop in `multiBrandFieldExtractionService`), so they can never disagree.
+
+**What each caller can name, and it is not the same answer:**
+
+- `POST /orgs|internal/brands/extract-fields` — optional body `offerId`, **single-brand requests only**. An offer belongs to one brand, so one id cannot name a proposition on each of several: `OfferIdWithSeveralBrandsError` (400) rather than an id applied to one brand and ignored on the rest.
+- `POST /orgs/brands/:brandId/icp/suggest` — optional body `offerId`. Who to prospect follows from what is being sold, so a brand selling two things has two ICPs.
+- `GET /internal/brands/:brandId/runtime-context` — optional `?offerId=`. campaign-service holds the campaign and a campaign belongs to an offer, so the CALLER is the one that can name it. Until it sends the param, a multi-offer brand answers 409 there — deliberately, and loudly.
+
+Every one of these is ADDITIVE: omitted, the read is byte-for-byte what it was, which is the whole of production (every brand holds exactly one offer). The brand-scoped user-fields and sales-funnel ROUTES are untouched — their 409 is the answer for a caller that names nothing, not a gap. `rejectOfferProblem` maps both failures at each route, so an unresolvable offer surfaces as 404/409 instead of a 500. Regression: `tests/integration/internalReadersOfferGrain.test.ts`, `tests/unit/extractionOfferGrain.test.ts`.
+
 ## Boot: the port binds BEFORE migrations, and a gate — not a wait — is what protects the schema
 
 `src/index.ts` calls `app.listen()` FIRST and runs `migrate()` behind it. Do NOT restore the old `migrate().then(listen)` order, and do NOT reintroduce `process.exit(1)` on migration failure.

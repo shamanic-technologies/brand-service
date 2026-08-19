@@ -11,7 +11,8 @@ import { eq, gt, sql, and } from 'drizzle-orm';
 import { extractFields, getBrand, buildFieldsResponseSchema, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
 import { chat, Caller, OrgCaller, PlatformCaller } from '../lib/chat-client';
 import { db, consolidatedFieldCache } from '../db';
-import { getConfirmedByBrandId, isUserFacingFieldKey, ConfirmedUserField } from './brandUserFieldsService';
+import { getConfirmedByOfferId, isUserFacingFieldKey, ConfirmedUserField } from './brandUserFieldsService';
+import { resolveNamedOffer } from './brandOffersService';
 
 interface Brand {
   id: string;
@@ -50,6 +51,34 @@ export interface MultiBrandExtractFieldsOptions {
    * still apply, on both sides. Nothing is persisted or cleared.
    */
   regenerateFieldKeys?: string[];
+  /**
+   * WHICH offer's confirmed fields ground the prompt and overlay the response.
+   *
+   * The 7 user-facing keys are one proposition's words, so a brand selling two
+   * things has two right answers and only the caller knows which it meant.
+   * Naming one is how a multi-offer brand becomes answerable at all.
+   *
+   * Only meaningful for a SINGLE-brand request — a cross-brand consolidation
+   * spans several brands, and one offer id cannot name a proposition on each of
+   * them. Sending it with several brands is `OfferIdWithSeveralBrandsError`
+   * (400) rather than an id quietly applied to one brand and ignored on the
+   * rest.
+   *
+   * Omitted → each brand resolves its sole offer, byte-for-byte today's
+   * behaviour.
+   */
+  offerId?: string | null;
+}
+
+/** Thrown when `offerId` rides a multi-brand request → 400 upstream. */
+export class OfferIdWithSeveralBrandsError extends Error {
+  constructor(public readonly brandCount: number) {
+    super(
+      `offerId was sent with ${brandCount} brands. An offer belongs to one brand, so it cannot ` +
+        'name a proposition on each of them. Send offerId with a single brand, or omit it.',
+    );
+    this.name = 'OfferIdWithSeveralBrandsError';
+  }
 }
 
 /** Thrown when a regenerate key was not also requested in `fields` → 400 upstream. */
@@ -262,6 +291,11 @@ export async function multiBrandExtractFields(
   assertRegenerateKeysAreRequested(fields.map((f) => f.key), options.regenerateFieldKeys);
   const regenerateKeys = new Set(options.regenerateFieldKeys ?? []);
 
+  const offerId = options.offerId ?? undefined;
+  if (offerId !== undefined && brandIds.length > 1) {
+    throw new OfferIdWithSeveralBrandsError(brandIds.length);
+  }
+
   // Look up all brands first to validate and get domains
   const brandLookups = await Promise.all(brandIds.map((id) => getBrand(id)));
   const brandsMap = new Map<string, Brand>();
@@ -302,6 +336,7 @@ export async function multiBrandExtractFields(
         urlStrategy,
         mode,
         regenerateFieldKeys: options.regenerateFieldKeys,
+        offerId,
       }),
     ),
   );
@@ -394,7 +429,14 @@ export async function multiBrandExtractFields(
       // brand's own org in platform mode — same rule the extraction itself uses.
       const configOrgId =
         caller.mode === 'org' ? caller.orgId : brandsMap.get(id)!.orgId;
-      confirmedByBrandId.set(id, await getConfirmedByBrandId(configOrgId, id));
+      // The SAME offer the prompt was grounded in — resolved once here and once
+      // in `extractFields` from the same input, so the words shown to the model
+      // and the values overlaid on its answer can never come from two different
+      // propositions.
+      confirmedByBrandId.set(
+        id,
+        await getConfirmedByOfferId(configOrgId, id, await resolveNamedOffer(configOrgId, id, offerId)),
+      );
     }),
   );
 

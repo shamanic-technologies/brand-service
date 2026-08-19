@@ -287,13 +287,20 @@ export interface SuggestIcpOptions {
   existingIcps: string[];
   /** Org-scoped caller. `runId` (if any) is the upstream run — used as parent. */
   caller: OrgCaller;
+  /**
+   * WHICH offer to prospect for. Who to contact follows from what is being
+   * sold, so a brand selling two things has two ICPs and the caller names which
+   * one it is asking about. Omitted → the brand's sole offer, and the
+   * deliberate 409 when it holds several and nobody named one.
+   */
+  offerId?: string | null;
 }
 
 export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
   const { brandId, existingIcps, caller } = opts;
 
   // 1. Seed context from existing brand data (no persistence happens here).
-  const profile = await brandProfileService.getByBrandId(caller.orgId, brandId);
+  const profile = await brandProfileService.getByBrandId(caller.orgId, brandId, opts.offerId);
   const profileFields = profile.current.fields;
   // Fail loud when there is nothing OFFER/TARGETING-relevant to seed from — an
   // empty profile OR one carrying only conversion-copy / brand-vanity fields

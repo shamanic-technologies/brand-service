@@ -588,6 +588,15 @@ export const ExtractFieldsRequestSchema = z
           'Field keys to REGENERATE from scratch, ignoring whatever the user has already confirmed for them. For each listed key: the previously confirmed value is NOT shown to the model as authoritative context, the extraction cache is bypassed, and the response returns the newly generated value (provenance `suggested`) instead of the confirmed one. Confirmed values for user-facing keys NOT listed here still reach the model as authoritative context — so regenerating the offer levers still sees the brand\'s confirmed services. Nothing is persisted: confirmed values stay in place until the caller saves the reviewed draft via PUT /orgs/brands/{brandId}/user-fields. Every key MUST also appear in `fields` (400 otherwise). Omit for the default behaviour.',
         example: ['dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity'],
       }),
+    offerId: z
+      .string()
+      .uuid()
+      .optional()
+      .openapi({
+        description:
+          "WHICH offer's confirmed fields ground the prompt and overlay the response. The 7 user-facing keys describe ONE proposition, so a brand selling two things has two right answers and only the caller knows which it means. Omit for a brand with a single offer (unchanged behaviour); a brand holding SEVERAL offers answers 409 SEVERAL_OFFERS until one is named. Only valid on a single-brand request — sent with several brands it is a 400, since one offer cannot name a proposition on each of them. An id that names no offer of this brand is a 404.",
+        example: '9f1c2f6e-2a4b-4f0e-9d21-6b0b8a5f2d31',
+      }),
   })
   .openapi('ExtractFieldsRequest');
 
@@ -2719,6 +2728,15 @@ registry.registerPath({
 export const SuggestIcpRequestSchema = z
   .object({
     existingIcps: z.array(z.string().min(1)).optional(),
+    offerId: z
+      .string()
+      .uuid()
+      .optional()
+      .openapi({
+        description:
+          'WHICH offer to prospect for. Who to contact follows from what is being sold, so a brand selling two things has two ICPs. Omit for a brand with a single offer (unchanged behaviour); a brand holding SEVERAL offers answers 409 SEVERAL_OFFERS until one is named. An id that names no offer of this brand is a 404.',
+        example: '9f1c2f6e-2a4b-4f0e-9d21-6b0b8a5f2d31',
+      }),
   })
   .openapi('SuggestIcpRequest');
 
@@ -2818,14 +2836,27 @@ registry.registerPath({
     'brand-service serves. What a brand sells through is its declared sales funnels ' +
     '(GET /internal/brands/{brandId}/sales-funnels), which tell the two meeting funnels apart where ' +
     'the goal cannot. This field survives only until campaign-service boots on the funnel set.',
-  request: { params: z.object({ brandId: z.string().uuid() }) },
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    query: z.object({
+      offerId: z
+        .string()
+        .uuid()
+        .optional()
+        .openapi({
+          description:
+            "WHICH offer's confirmed fields the returned brandProfile carries. A campaign belongs to an offer, so the caller is the one that can name it. Omit for a brand selling one thing (unchanged behaviour); a brand holding SEVERAL offers answers 409 SEVERAL_OFFERS until one is named, rather than being served another proposition's words.",
+        }),
+    }),
+  },
   responses: {
     200: {
       description: 'Runtime context snapshot',
       content: { 'application/json': { schema: BrandRuntimeContextResponseSchema } },
     },
-    400: { description: 'Invalid brand ID format' },
-    404: { description: 'Brand not found' },
+    400: { description: 'Invalid brand ID or offer ID format' },
+    404: { description: 'Brand not found, or offerId names no offer of this brand' },
+    409: { description: 'The brand sells several offers and none was named (code SEVERAL_OFFERS)' },
     500: { description: 'Internal server error' },
   },
 });

@@ -5,6 +5,7 @@ import {
   IcpSuggestionUnavailableError,
 } from '../services/icpSuggestionService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
+import { rejectOfferProblem } from '../lib/offer-scope';
 
 export const orgRouter = Router();
 
@@ -42,6 +43,7 @@ orgRouter.post('/brands/:brandId/icp/suggest', async (req: Request, res: Respons
     const icp = await suggestIcp({
       brandId,
       existingIcps: parsed.data.existingIcps ?? [],
+      offerId: parsed.data.offerId,
       caller: {
         mode: 'org',
         orgId: req.orgId!,
@@ -57,6 +59,10 @@ orgRouter.post('/brands/:brandId/icp/suggest', async (req: Request, res: Respons
 
     return res.status(200).json({ icp });
   } catch (error: any) {
+    // A named offer that names nothing (404), and the deliberate 409 for a
+    // brand selling several when none was named — who to prospect follows from
+    // what is being sold, so there is no defensible pick.
+    if (rejectOfferProblem(res, error)) return;
     if (error instanceof IcpSuggestionUnavailableError) {
       return res.status(422).json({ error: error.message });
     }
