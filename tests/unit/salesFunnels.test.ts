@@ -37,12 +37,15 @@ import { ClickDestinationValidationError } from '../../src/services/clickDestina
  * the brand never declared reads `null` — never a zero, never a stand-in.
  */
 describe('sales funnel catalogue', () => {
-  it('carries the four funnels the dashboard renders, in its order', () => {
+  it('carries the funnels the dashboard renders, in its order, with the original four unmoved', () => {
     expect(SALES_FUNNELS.map((f) => f.key)).toEqual([
       'sales_meetings_from_conversation',
       'sales_meetings_from_website',
       'website_purchases',
       'form_magnet',
+      'sales_from_conversation',
+      'sales_meetings_from_ads',
+      'lead_forms_from_ads',
     ]);
     expect(SALES_FUNNEL_KEYS).toEqual(SALES_FUNNELS.map((f) => f.key));
   });
@@ -53,13 +56,14 @@ describe('sales funnel catalogue', () => {
     }
   });
 
-  it('gives the meeting show-up rate a home in both meeting chains', () => {
+  it('gives the meeting show-up rate a home in every meeting chain', () => {
     const withShowUp = SALES_FUNNELS.filter((f) =>
       f.legs.includes('meetingBookedToAttendedPct')
     ).map((f) => f.key);
     expect(withShowUp).toEqual([
       'sales_meetings_from_conversation',
       'sales_meetings_from_website',
+      'sales_meetings_from_ads',
     ]);
   });
 
@@ -86,8 +90,8 @@ describe('sales funnel catalogue', () => {
       expect('goal' in def).toBe(false);
     }
     const meetingChains = SALES_FUNNELS.filter((f) => f.steps.includes('Meeting booked'));
-    expect(meetingChains).toHaveLength(2);
-    expect(new Set(meetingChains.map((f) => f.key)).size).toBe(2);
+    expect(meetingChains).toHaveLength(3);
+    expect(new Set(meetingChains.map((f) => f.key)).size).toBe(3);
   });
 
   it('rejects an unknown funnel key rather than guessing one', () => {
