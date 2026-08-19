@@ -8,6 +8,8 @@ const { mockInsert } = vi.hoisted(() => ({ mockInsert: vi.fn() }));
 vi.mock('../../src/db', () => ({
   db: { insert: mockInsert },
   brandUserFields: {
+    orgId: 'buf.orgId',
+    offerId: 'buf.offerId',
     brandId: 'buf.brandId',
     fieldKey: 'buf.fieldKey',
     value: 'buf.value',
@@ -22,6 +24,7 @@ import {
   isUserFacingFieldKey,
   buildUserFieldsView,
   upsertUserFields,
+  upsertUserFieldsForOffer,
   UnknownUserFieldKeyError,
   type ConfirmedUserField,
 } from '../../src/services/brandUserFieldsService';
@@ -89,8 +92,10 @@ describe('upsertUserFields', () => {
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
+  // The OFFER-scoped write is the real one; the brand-scoped wrapper resolves an
+  // offer first (a DB read this suite deliberately has no database for).
   it('upserts one insert per valid key', async () => {
-    await upsertUserFields('org-1', 'brand-1', { services: ['x'], urgency: 'soon' });
+    await upsertUserFieldsForOffer('org-1', 'brand-1', 'offer-1', { services: ['x'], urgency: 'soon' });
     expect(mockInsert).toHaveBeenCalledTimes(2);
   });
 

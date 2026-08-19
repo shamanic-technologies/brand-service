@@ -230,6 +230,57 @@ export async function updateCostStatus(
   });
 }
 
+/**
+ * A PLATFORM run — work with no customer org behind it (a one-time migration, a
+ * cron, a startup task). `x-service-name` is the only identity it carries; there
+ * is no org, so there is no affordability gate and no cost-status PATCH.
+ *
+ * brand-service declares the RUN and nothing else here. The one thing this run
+ * spends on is an LLM completion, and per fleet convention that goes through
+ * chat-service, which is the terminal caller and declares the token cost itself
+ * on its own platform run. Adding a cost row here would double-count it.
+ */
+export async function createPlatformRun(params: {
+  serviceName: string;
+  taskName: string;
+  idempotencyKey?: string;
+}): Promise<{ id: string; status: string }> {
+  const response = await fetchWithRetry(`${RUNS_SERVICE_URL}/v1/platform-runs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': RUNS_SERVICE_API_KEY,
+      'x-service-name': params.serviceName,
+    },
+    body: JSON.stringify({
+      serviceName: params.serviceName,
+      taskName: params.taskName,
+      ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
+    }),
+    label: 'runs-service POST /v1/platform-runs',
+  });
+
+  return response.json() as Promise<{ id: string; status: string }>;
+}
+
+/** Close a platform run. Fails loud — a run left open is a run nobody can read. */
+export async function updatePlatformRun(
+  runId: string,
+  status: 'completed' | 'failed',
+  serviceName: string
+): Promise<void> {
+  await fetchWithRetry(`${RUNS_SERVICE_URL}/v1/platform-runs/${runId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': RUNS_SERVICE_API_KEY,
+      'x-service-name': serviceName,
+    },
+    body: JSON.stringify({ status }),
+    label: 'runs-service PATCH /v1/platform-runs/:id',
+  });
+}
+
 export async function listRuns(
   params: ListRunsParams
 ): Promise<{ runs: RunWithOwnCost[]; limit: number; offset: number }> {

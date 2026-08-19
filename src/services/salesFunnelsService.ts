@@ -1,5 +1,6 @@
-import { and, eq, notInArray } from 'drizzle-orm';
+import { and, eq, isNull, notInArray, type SQL } from 'drizzle-orm';
 import { db, brandSalesFunnels } from '../db';
+import { resolveLegacyOfferId, resolveOrCreateLegacyOfferId } from './brandOfferService';
 import {
   SALES_FUNNELS,
   SalesFunnelDef,
@@ -314,30 +315,85 @@ export function assertRetiredGoalDeclarable(
   return keys;
 }
 
+/**
+ * A declaration belongs to an OFFER: what a brand sells through, and what a won
+ * client is worth, differ between the two things it sells. `offerId === null`
+ * scopes to the rows stated before offers existed, which is what the
+ * transitional brand-scoped surface must answer with until the one-time
+ * migration has moved them.
+ */
+function offerScope(offerId: string | null): SQL {
+  return offerId === null
+    ? isNull(brandSalesFunnels.offerId)
+    : eq(brandSalesFunnels.offerId, offerId);
+}
+
+/**
+ * Everything a declaration is checked for, and the normalization it gets, with
+ * NOTHING written. Split out so a brand-scoped write can reject a bad patch
+ * BEFORE resolving an offer — otherwise a 400 could leave behind an offer that
+ * was auto-created purely to host a write that never happened.
+ */
+export function validateDeclaration(
+  funnelKey: SalesFunnelKey,
+  patch: SalesFunnelPatch,
+  brandDomain: string | null
+): SalesFunnelPatch {
+  const def = salesFunnelByKey(funnelKey);
+  if (patch.active !== false && def.requiresWebsite && !brandDomain) {
+    throw new SalesFunnelRequiresWebsiteError(funnelKey);
+  }
+  assertPatchFitsFunnel(def, patch);
+
+  const normalized: SalesFunnelPatch = { ...patch };
+  if (typeof patch.destinationUrl === 'string') {
+    const url = normalizeClickDestinationUrl(patch.destinationUrl);
+    if (brandDomain) assertClickDestinationOnBrandDomain(url, brandDomain);
+    normalized.destinationUrl = url;
+  }
+  if (typeof patch.bookingUrl === 'string') {
+    normalized.bookingUrl = normalizeBookingUrl(patch.bookingUrl);
+  }
+  return normalized;
+}
+
+/** The whole-set statement, validated with nothing written. */
+export function validateFunnelSet(
+  funnelKeys: SalesFunnelKey[],
+  brandDomain: string | null
+): SalesFunnelKey[] {
+  const keys = [...new Set(funnelKeys)];
+  if (keys.length === 0) throw new LastActiveSalesFunnelError();
+  for (const key of keys) {
+    const def = salesFunnelByKey(key);
+    if (def.requiresWebsite && !brandDomain) {
+      throw new SalesFunnelRequiresWebsiteError(key);
+    }
+  }
+  return keys;
+}
+
+/**
+ * The declared funnels of an org's offers, and the transitional brand-scoped
+ * surface on top of them.
+ *
+ * Every `*ByOffer` method is the real one. Every `*ByBrandId` method is the
+ * TRANSITION: it resolves the brand's EARLIEST offer (or, before the one-time
+ * migration, the rows still carrying none) and delegates. A consumer that has
+ * not migrated therefore reads and writes exactly what it did before offers
+ * existed, and keeps doing so when a second offer is added.
+ */
 export class SalesFunnelsService {
   /**
-   * Every funnel THIS org has configured on THIS brand, in catalogue order —
+   * Every funnel this org has configured on this OFFER, in catalogue order —
    * active and inactive alike, because an inactive one still carries the numbers
    * the user entered and the screen has to show them. `[]` = never answered.
    */
-  async readByBrandId(orgId: string, brandId: string): Promise<DeclaredSalesFunnelSet> {
-    const rows = await db
-      .select()
-      .from(brandSalesFunnels)
-      .where(
-        and(eq(brandSalesFunnels.orgId, orgId), eq(brandSalesFunnels.brandId, brandId))
-      );
-
-    return { funnels: rows.map(formatDeclaredFunnel).sort(byCatalogueOrder) };
-  }
-
-  /**
-   * Only the funnels the org currently sells through. This is what a scheduler
-   * asks for: a funnel switched off must never be ranked. `[]` = never answered,
-   * which is a gap to surface — it can never mean "sells through nothing",
-   * because the last active funnel cannot be switched off.
-   */
-  async readActiveByBrandId(orgId: string, brandId: string): Promise<DeclaredSalesFunnelSet> {
+  async readByOffer(
+    orgId: string,
+    brandId: string,
+    offerId: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
     const rows = await db
       .select()
       .from(brandSalesFunnels)
@@ -345,6 +401,32 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(offerId)
+        )
+      );
+
+    return { funnels: rows.map(formatDeclaredFunnel).sort(byCatalogueOrder) };
+  }
+
+  /**
+   * Only the funnels the org currently sells this offer through. This is what a
+   * scheduler asks for: a funnel switched off must never be ranked. `[]` = never
+   * answered, which is a gap to surface — it can never mean "sells through
+   * nothing", because the last active funnel cannot be switched off.
+   */
+  async readActiveByOffer(
+    orgId: string,
+    brandId: string,
+    offerId: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
+    const rows = await db
+      .select()
+      .from(brandSalesFunnels)
+      .where(
+        and(
+          eq(brandSalesFunnels.orgId, orgId),
+          eq(brandSalesFunnels.brandId, brandId),
+          offerScope(offerId),
           eq(brandSalesFunnels.active, true)
         )
       );
@@ -352,8 +434,12 @@ export class SalesFunnelsService {
     return { funnels: rows.map(formatDeclaredFunnel).sort(byCatalogueOrder) };
   }
 
-  /** The funnel keys this org currently sells this brand through. */
-  private async activeKeys(orgId: string, brandId: string): Promise<SalesFunnelKey[]> {
+  /** The funnel keys this org currently sells this offer through. */
+  private async activeKeys(
+    orgId: string,
+    brandId: string,
+    offerId: string | null
+  ): Promise<SalesFunnelKey[]> {
     const rows = await db
       .select({ funnelKey: brandSalesFunnels.funnelKey })
       .from(brandSalesFunnels)
@@ -361,6 +447,7 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(offerId),
           eq(brandSalesFunnels.active, true)
         )
       );
@@ -368,7 +455,7 @@ export class SalesFunnelsService {
   }
 
   /**
-   * Configure one funnel and write what the caller sent. Idempotent.
+   * Configure one funnel on an offer and write what the caller sent. Idempotent.
    *
    * `active` defaults to true on a first write (configuring a funnel is saying
    * you sell through it) and is left as stored otherwise. Switching one OFF
@@ -376,45 +463,33 @@ export class SalesFunnelsService {
    * the user already entered — but the LAST active funnel cannot be switched
    * off, because an org that has answered always sells through something.
    */
-  async declareByBrandId(
+  async declareByOffer(
     orgId: string,
     brandId: string,
+    offerId: string | null,
     funnelKey: SalesFunnelKey,
     patch: SalesFunnelPatch,
     brandDomain: string | null
   ): Promise<DeclaredSalesFunnel> {
-    const def = salesFunnelByKey(funnelKey);
-    if (patch.active !== false && def.requiresWebsite && !brandDomain) {
-      throw new SalesFunnelRequiresWebsiteError(funnelKey);
-    }
-    assertPatchFitsFunnel(def, patch);
+    const normalized = validateDeclaration(funnelKey, patch, brandDomain);
 
     if (patch.active === false) {
-      const active = await this.activeKeys(orgId, brandId);
+      const active = await this.activeKeys(orgId, brandId, offerId);
       if (active.length === 1 && active[0] === funnelKey) {
         throw new LastActiveSalesFunnelError(funnelKey);
       }
-    }
-
-    const normalized: SalesFunnelPatch = { ...patch };
-    if (typeof patch.destinationUrl === 'string') {
-      const url = normalizeClickDestinationUrl(patch.destinationUrl);
-      if (brandDomain) assertClickDestinationOnBrandDomain(url, brandDomain);
-      normalized.destinationUrl = url;
-    }
-    if (typeof patch.bookingUrl === 'string') {
-      normalized.bookingUrl = normalizeBookingUrl(patch.bookingUrl);
     }
 
     const write = buildFunnelWrite(normalized);
 
     const [row] = await db
       .insert(brandSalesFunnels)
-      .values({ orgId, brandId, funnelKey, ...write })
+      .values({ orgId, brandId, offerId, funnelKey, ...write })
       .onConflictDoUpdate({
         target: [
           brandSalesFunnels.orgId,
           brandSalesFunnels.brandId,
+          brandSalesFunnels.offerId,
           brandSalesFunnels.funnelKey,
         ],
         // Only the columns the patch carries are named, so an omitted field is
@@ -427,28 +502,22 @@ export class SalesFunnelsService {
   }
 
   /**
-   * State the WHOLE set: exactly these funnels are active, every other one the
-   * org has configured is switched off but KEPT with its numbers intact.
+   * State the WHOLE set for an offer: exactly these funnels are active, every
+   * other one the org has configured on it is switched off but KEPT with its
+   * numbers intact.
    *
    * The list may not be empty — an org that has answered sells through at least
    * one funnel. The set is validated whole before anything is written, so a
    * member that cannot apply rejects the call with nothing half-applied.
    */
-  async statesetByBrandId(
+  async statesetByOffer(
     orgId: string,
     brandId: string,
+    offerId: string | null,
     funnelKeys: SalesFunnelKey[],
     brandDomain: string | null
   ): Promise<DeclaredSalesFunnelSet> {
-    const keys = [...new Set(funnelKeys)];
-    if (keys.length === 0) throw new LastActiveSalesFunnelError();
-
-    for (const key of keys) {
-      const def = salesFunnelByKey(key);
-      if (def.requiresWebsite && !brandDomain) {
-        throw new SalesFunnelRequiresWebsiteError(key);
-      }
-    }
+    const keys = validateFunnelSet(funnelKeys, brandDomain);
 
     // Everything outside the set is switched OFF, never deleted: its numbers are
     // the memory a user gets back if they switch it on again.
@@ -459,6 +528,7 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(offerId),
           notInArray(brandSalesFunnels.funnelKey, keys)
         )
       );
@@ -466,38 +536,31 @@ export class SalesFunnelsService {
     // Members already configured keep everything they were priced with.
     await db
       .insert(brandSalesFunnels)
-      .values(keys.map((funnelKey) => ({ orgId, brandId, funnelKey, active: true })))
+      .values(keys.map((funnelKey) => ({ orgId, brandId, offerId, funnelKey, active: true })))
       .onConflictDoUpdate({
         target: [
           brandSalesFunnels.orgId,
           brandSalesFunnels.brandId,
+          brandSalesFunnels.offerId,
           brandSalesFunnels.funnelKey,
         ],
         set: { active: true, updatedAt: new Date().toISOString() },
       });
 
-    return this.readByBrandId(orgId, brandId);
+    return this.readByOffer(orgId, brandId, offerId);
   }
 
   /**
    * WRITE TOLERANCE for the retired goal vocabulary: declare the funnel(s) a
-   * goal a caller sent MEANT, and answer with the funnel set.
+   * goal a caller sent MEANT on this offer, and answer with its funnel set.
    *
-   * A caller still sending yesterday's word keeps working, and what it gets back
-   * is a funnel — the only vocabulary this service emits. The mapping is
-   * `funnelKeysForRetiredGoal`, the same one the one-time backfill inverted, so
-   * a brand lands on the same declaration whichever way its goal arrived.
-   *
-   * ADDITIVE, never destructive. It switches the named funnels ON and leaves
-   * every other declaration exactly as stored, numbers included. A goal was one
-   * word and the model is multi-funnel, so treating a goal write as "these and
-   * only these" would silently switch off a funnel the org stated deliberately
-   * through the funnel routes. Stating the whole set is what `statesetByBrandId`
-   * is for, and it is the only thing that switches a funnel off.
+   * ADDITIVE, never destructive — see the class doc and `statesetByOffer`, which
+   * is the only thing that switches a funnel off.
    */
-  async declareFromRetiredGoal(
+  async declareFromRetiredGoalByOffer(
     orgId: string,
     brandId: string,
+    offerId: string | null,
     goal: RetiredGoal,
     context: RetiredGoalContext,
     brandDomain: string | null
@@ -506,11 +569,12 @@ export class SalesFunnelsService {
 
     await db
       .insert(brandSalesFunnels)
-      .values(keys.map((funnelKey) => ({ orgId, brandId, funnelKey, active: true })))
+      .values(keys.map((funnelKey) => ({ orgId, brandId, offerId, funnelKey, active: true })))
       .onConflictDoUpdate({
         target: [
           brandSalesFunnels.orgId,
           brandSalesFunnels.brandId,
+          brandSalesFunnels.offerId,
           brandSalesFunnels.funnelKey,
         ],
         // Only `active` is named: a funnel the org already priced keeps every
@@ -518,20 +582,21 @@ export class SalesFunnelsService {
         set: { active: true, updatedAt: new Date().toISOString() },
       });
 
-    return this.readByBrandId(orgId, brandId);
+    return this.readByOffer(orgId, brandId, offerId);
   }
 
   /**
-   * Switch a funnel off. The row and every number on it SURVIVE — that is the
-   * point: a user who switches it back on finds what they already entered.
-   * Refused when it is the last active one. Returns true when something changed.
+   * Switch a funnel off on this offer. The row and every number on it SURVIVE —
+   * that is the point: a user who switches it back on finds what they already
+   * entered. Refused when it is the last active one. True when something changed.
    */
-  async deactivateByBrandId(
+  async deactivateByOffer(
     orgId: string,
     brandId: string,
+    offerId: string | null,
     funnelKey: SalesFunnelKey
   ): Promise<boolean> {
-    const active = await this.activeKeys(orgId, brandId);
+    const active = await this.activeKeys(orgId, brandId, offerId);
     if (active.length === 1 && active[0] === funnelKey) {
       throw new LastActiveSalesFunnelError(funnelKey);
     }
@@ -543,6 +608,7 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(offerId),
           eq(brandSalesFunnels.funnelKey, funnelKey)
         )
       )
@@ -552,31 +618,30 @@ export class SalesFunnelsService {
   }
 
   /**
-   * FORGET the funnel: delete the row and every number on it. This is the only
-   * path that destroys what a user entered, and it exists so that a deliberate
-   * "forget what I told you about this" stays possible now that an ordinary
-   * deselect only switches the funnel off.
+   * FORGET the funnel on this offer: delete the row and every number on it. This
+   * is the only path that destroys what a user entered, and it exists so that a
+   * deliberate "forget what I told you about this" stays possible now that an
+   * ordinary deselect only switches the funnel off.
    *
-   * It is refused (400) when it would leave the org holding funnel rows with
-   * NONE of them active — the same invariant `deactivate` protects, since a
-   * state of "answered, but sells through nothing" is not reachable and must
-   * not become reachable through erasure. Erasing the LAST remaining row is
-   * therefore allowed and is the one way back to "never answered": nothing is
-   * left to be inconsistent with.
-   *
-   * Returns true when a row was actually erased (erasing what is not there is a
-   * no-op, not an error).
+   * Refused (400) when it would leave the offer holding funnel rows with NONE of
+   * them active. Erasing the LAST remaining row IS allowed and is the one way
+   * back to "never answered": nothing is left to be inconsistent with.
    */
-  async eraseByBrandId(
+  async eraseByOffer(
     orgId: string,
     brandId: string,
+    offerId: string | null,
     funnelKey: SalesFunnelKey
   ): Promise<boolean> {
     const rows = await db
       .select({ funnelKey: brandSalesFunnels.funnelKey, active: brandSalesFunnels.active })
       .from(brandSalesFunnels)
       .where(
-        and(eq(brandSalesFunnels.orgId, orgId), eq(brandSalesFunnels.brandId, brandId))
+        and(
+          eq(brandSalesFunnels.orgId, orgId),
+          eq(brandSalesFunnels.brandId, brandId),
+          offerScope(offerId)
+        )
       );
 
     const survivors = rows.filter((r) => r.funnelKey !== funnelKey);
@@ -590,12 +655,87 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(offerId),
           eq(brandSalesFunnels.funnelKey, funnelKey)
         )
       )
       .returning({ funnelKey: brandSalesFunnels.funnelKey });
 
     return deleted.length > 0;
+  }
+
+  // ── The TRANSITIONAL brand-scoped surface ─────────────────────────────────
+  //
+  // Reads resolve the brand's earliest offer and answer with it; before the
+  // one-time migration they resolve `null` and answer with the rows that carry
+  // no offer — which are the very rows this read has always returned. Writes
+  // VALIDATE FIRST and only then resolve, so a rejected write never has the side
+  // effect of auto-creating an offer to host it.
+
+  async readByBrandId(orgId: string, brandId: string): Promise<DeclaredSalesFunnelSet> {
+    return this.readByOffer(orgId, brandId, await resolveLegacyOfferId(orgId, brandId));
+  }
+
+  async readActiveByBrandId(orgId: string, brandId: string): Promise<DeclaredSalesFunnelSet> {
+    return this.readActiveByOffer(orgId, brandId, await resolveLegacyOfferId(orgId, brandId));
+  }
+
+  async declareByBrandId(
+    orgId: string,
+    brandId: string,
+    funnelKey: SalesFunnelKey,
+    patch: SalesFunnelPatch,
+    brandDomain: string | null
+  ): Promise<DeclaredSalesFunnel> {
+    validateDeclaration(funnelKey, patch, brandDomain);
+    const offerId = await resolveOrCreateLegacyOfferId(orgId, brandId);
+    return this.declareByOffer(orgId, brandId, offerId, funnelKey, patch, brandDomain);
+  }
+
+  async statesetByBrandId(
+    orgId: string,
+    brandId: string,
+    funnelKeys: SalesFunnelKey[],
+    brandDomain: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
+    validateFunnelSet(funnelKeys, brandDomain);
+    const offerId = await resolveOrCreateLegacyOfferId(orgId, brandId);
+    return this.statesetByOffer(orgId, brandId, offerId, funnelKeys, brandDomain);
+  }
+
+  async declareFromRetiredGoal(
+    orgId: string,
+    brandId: string,
+    goal: RetiredGoal,
+    context: RetiredGoalContext,
+    brandDomain: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
+    assertRetiredGoalDeclarable(goal, context, brandDomain);
+    const offerId = await resolveOrCreateLegacyOfferId(orgId, brandId);
+    return this.declareFromRetiredGoalByOffer(orgId, brandId, offerId, goal, context, brandDomain);
+  }
+
+  /**
+   * Switching a funnel off never CREATES anything: a brand with no offer has no
+   * declaration to switch off either, so this resolves the earliest offer or the
+   * pre-offer rows and leaves it at that.
+   */
+  async deactivateByBrandId(
+    orgId: string,
+    brandId: string,
+    funnelKey: SalesFunnelKey
+  ): Promise<boolean> {
+    const offerId = await resolveLegacyOfferId(orgId, brandId);
+    return this.deactivateByOffer(orgId, brandId, offerId, funnelKey);
+  }
+
+  async eraseByBrandId(
+    orgId: string,
+    brandId: string,
+    funnelKey: SalesFunnelKey
+  ): Promise<boolean> {
+    const offerId = await resolveLegacyOfferId(orgId, brandId);
+    return this.eraseByOffer(orgId, brandId, offerId, funnelKey);
   }
 }
 

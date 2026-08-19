@@ -56,24 +56,40 @@ export async function rewriteBrandReferences(
      AND individual_id IN (SELECT individual_id FROM brand_individuals WHERE brand_id = $2)`,
     [sourceBrandId, targetBrandId],
   );
-  // brand_user_fields: unique(org_id, brand_id, field_key) — the caller's own
-  // confirmed values collide per org, never across orgs.
+  // brand_offers: unique(org_id, brand_id, lower(name)) — the caller's own offers
+  // collide per org on the NAME, never across orgs. An offer whose name the
+  // target already uses is dropped along with its config, exactly as every other
+  // collision here resolves: the target always wins.
+  await query(
+    `DELETE FROM brand_offers s WHERE s.brand_id = $1
+     AND EXISTS (
+       SELECT 1 FROM brand_offers t
+        WHERE t.brand_id = $2 AND t.org_id = s.org_id AND lower(t.name) = lower(s.name)
+     )`,
+    [sourceBrandId, targetBrandId],
+  );
+  // brand_user_fields: unique(org_id, brand_id, offer_id, field_key) NULLS NOT
+  // DISTINCT — the caller's own confirmed values collide per org AND per offer,
+  // never across orgs. Rows that predate offers carry a NULL offer and collide on
+  // (org, field_key) exactly as they always did.
   await query(
     `DELETE FROM brand_user_fields s WHERE s.brand_id = $1
      AND EXISTS (
        SELECT 1 FROM brand_user_fields t
         WHERE t.brand_id = $2 AND t.org_id = s.org_id AND t.field_key = s.field_key
+          AND t.offer_id IS NOT DISTINCT FROM s.offer_id
      )`,
     [sourceBrandId, targetBrandId],
   );
-  // brand_sales_funnels: PK(org_id, brand_id, funnel_key) — the declared funnels
-  // and their economics, including the ones switched off (their numbers are the
-  // memory a user gets back).
+  // brand_sales_funnels: unique(org_id, brand_id, offer_id, funnel_key) NULLS NOT
+  // DISTINCT — the declared funnels and their economics, including the ones
+  // switched off (their numbers are the memory a user gets back).
   await query(
     `DELETE FROM brand_sales_funnels s WHERE s.brand_id = $1
      AND EXISTS (
        SELECT 1 FROM brand_sales_funnels t
         WHERE t.brand_id = $2 AND t.org_id = s.org_id AND t.funnel_key = s.funnel_key
+          AND t.offer_id IS NOT DISTINCT FROM s.offer_id
      )`,
     [sourceBrandId, targetBrandId],
   );
@@ -95,7 +111,12 @@ export async function rewriteBrandReferences(
   // (a read-only share credential: moving one minted for the abandoned holder
   // onto the target would silently widen what every existing link holder can
   // see — a credential stays with the brand it was minted for).
+  // `brand_offers` is rewritten FIRST: `brand_user_fields.offer_id` and
+  // `brand_sales_funnels.offer_id` point at it, so the offer must already sit on
+  // the target brand when its config arrives — otherwise the surviving brand
+  // would hold config pointing at an offer belonging to a brand it just absorbed.
   const tables = [
+    'brand_offers',
     'media_assets',
     'brand_extracted_fields',
     'brand_extracted_images',

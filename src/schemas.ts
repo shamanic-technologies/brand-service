@@ -2910,6 +2910,240 @@ registry.registerPath({
 });
 
 // ============================================================
+// Offers — the distinct things an org sells under one brand
+// ============================================================
+
+export const OfferSchema = z
+  .object({
+    id: z.string().uuid(),
+    orgId: z.string().uuid(),
+    brandId: z.string().uuid(),
+    name: z.string().openapi({
+      description: 'Short human-readable label: at most 2 words, at most 20 characters, unique within the brand.',
+    }),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('Offer');
+
+export const OfferResponseSchema = z.object({ offer: OfferSchema }).openapi('OfferResponse');
+
+export const OffersResponseSchema = z
+  .object({
+    offers: z.array(OfferSchema).openapi({
+      description:
+        'Every offer this org sells under this brand, OLDEST FIRST. None outranks another — there ' +
+        'is no primary offer.',
+    }),
+  })
+  .openapi('OffersResponse');
+
+export const CreateOfferRequestSchema = z
+  .object({ name: z.string() })
+  .openapi('CreateOfferRequest');
+
+export const RenameOfferRequestSchema = z
+  .object({ name: z.string() })
+  .openapi('RenameOfferRequest');
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/offers',
+  summary: 'Create an offer on a brand',
+  description:
+    'An OFFER is a distinct thing the org sells under this brand, with its own value proposition, ' +
+    'its own declared sales funnels and its own economics. `name` is at most 2 words and 20 ' +
+    'characters and must be unique within the brand (case-insensitively).',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: CreateOfferRequestSchema } } },
+  },
+  responses: {
+    201: { description: 'Offer created', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid brand ID format or invalid offer name' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    409: { description: 'An offer with that name already exists on this brand' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers',
+  summary: "List a brand's offers",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Offers, oldest first', content: { 'application/json': { schema: OffersResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/offers/{offerId}',
+  summary: 'Read one offer',
+  request: { params: z.object({ offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The offer', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid offer ID format' },
+    403: { description: "Offer does not belong to the caller's org" },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/orgs/offers/{offerId}',
+  summary: 'Rename an offer',
+  request: {
+    params: z.object({ offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: RenameOfferRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The renamed offer', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid offer ID format or invalid offer name' },
+    403: { description: "Offer does not belong to the caller's org" },
+    404: { description: 'Offer not found' },
+    409: { description: 'An offer with that name already exists on this brand' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/offers/{offerId}/user-fields',
+  summary: "Get an offer's user-facing fields (confirmed + suggested)",
+  description:
+    'Same shape as the brand-scoped read. The CONFIRMED layer is per offer — what THIS offer ' +
+    'promises. The SUGGESTED layer stays brand-scoped: a suggestion is what the extractor read ' +
+    "off the brand's site, and the site says one thing whichever offer is being described.",
+  request: { params: z.object({ offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'User-facing fields with provenance', content: { 'application/json': { schema: UserFieldsResponseSchema } } },
+    400: { description: 'Invalid offer ID format' },
+    403: { description: "Offer does not belong to the caller's org" },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/offers/{offerId}/user-fields',
+  summary: "Confirm (upsert) an offer's user-facing fields",
+  request: {
+    params: z.object({ offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PutUserFieldsRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Updated user-facing fields with provenance', content: { 'application/json': { schema: UserFieldsResponseSchema } } },
+    400: { description: 'Invalid offer ID format or unknown field key' },
+    403: { description: "Offer does not belong to the caller's org" },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/offers/{offerId}/sales-funnels',
+  summary: 'The sales funnels this offer sells through',
+  request: { params: z.object({ offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Declared funnels, active and retired alike', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    400: { description: 'Invalid offer ID format' },
+    403: { description: "Offer does not belong to the caller's org" },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/offers/{offerId}/sales-funnels',
+  summary: 'State the whole set of funnels this offer sells through',
+  request: {
+    params: z.object({ offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: StateSalesFunnelSetRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The resulting set', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    400: { description: 'Invalid request' },
+    403: { description: "Offer does not belong to the caller's org" },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/offers/{offerId}/sales-funnels/{funnelKey}',
+  summary: "Declare one funnel on an offer and price it",
+  request: {
+    params: z.object({ offerId: z.string().uuid(), funnelKey: AcceptedSalesFunnelKeySchema }),
+    body: { content: { 'application/json': { schema: DeclareSalesFunnelRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The declared funnel', content: { 'application/json': { schema: DeclareSalesFunnelResponseSchema } } },
+    400: { description: 'Invalid request' },
+    403: { description: "Offer does not belong to the caller's org" },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/offers/{offerId}/sales-funnels/{funnelKey}',
+  summary: 'Switch a funnel off on an offer (or `?erase=true` to forget it)',
+  request: {
+    params: z.object({ offerId: z.string().uuid(), funnelKey: AcceptedSalesFunnelKeySchema }),
+    query: z.object({ erase: z.enum(['true', 'false']).optional() }),
+  },
+  responses: {
+    200: { description: 'The resulting set', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    400: { description: 'Invalid request' },
+    403: { description: "Offer does not belong to the caller's org" },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/offers',
+  summary: "Service-auth read of a brand's offers",
+  description:
+    'Resolves the org the same way every other internal per-brand read does: `x-org-id` when sent, ' +
+    'else the single claiming org, else 400. A brand no org claims answers with an empty list.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Offers, oldest first', content: { 'application/json': { schema: OffersResponseSchema } } },
+    400: { description: 'Invalid brand ID format, or the brand is claimed by more than one org' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/offers/{offerId}/sales-funnels',
+  summary: 'Service-auth read of the funnels an offer AUTHORIZES',
+  description: 'ACTIVE only — a scheduler must never rank a funnel the org switched off.',
+  request: { params: z.object({ offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Active declared funnels', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    400: { description: 'Invalid offer ID format' },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ============================================================
 // Brand share token (per-brand read-only share credential)
 // ============================================================
 

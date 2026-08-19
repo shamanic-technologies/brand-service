@@ -1,5 +1,6 @@
-import { eq, and, isNull, or, gt, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, isNull, or, gt, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import { db, brandUserFields, brandExtractedFields } from '../db';
+import { resolveLegacyOfferId, resolveOrCreateLegacyOfferId } from './brandOfferService';
 
 /**
  * The 7 user-facing "confirmed" field keys. A value the user validates in the
@@ -39,12 +40,25 @@ export interface ConfirmedUserField {
 }
 
 /**
- * Read the confirmed (user-validated) fields for a brand as a Map keyed by
+ * The value proposition is what an OFFER promises, so a confirmed value belongs
+ * to an offer. `offerId === null` scopes to the rows stated before offers existed
+ * — which is exactly what a brand-scoped read must answer with until the one-time
+ * migration has moved them.
+ */
+function offerScope(offerId: string | null): SQL {
+  return offerId === null
+    ? isNull(brandUserFields.offerId)
+    : eq(brandUserFields.offerId, offerId);
+}
+
+/**
+ * Read the confirmed (user-validated) fields for one OFFER as a Map keyed by
  * field key. Only the 7 user-facing keys can ever be present (DB CHECK).
  */
-export async function getConfirmedByBrandId(
+export async function getConfirmedByOfferId(
   orgId: string,
   brandId: string,
+  offerId: string | null,
 ): Promise<Map<string, ConfirmedUserField>> {
   const rows = await db
     .select({
@@ -53,13 +67,34 @@ export async function getConfirmedByBrandId(
       confirmedAt: brandUserFields.confirmedAt,
     })
     .from(brandUserFields)
-    .where(and(eq(brandUserFields.orgId, orgId), eq(brandUserFields.brandId, brandId)));
+    .where(
+      and(
+        eq(brandUserFields.orgId, orgId),
+        eq(brandUserFields.brandId, brandId),
+        offerScope(offerId),
+      ),
+    );
 
   const map = new Map<string, ConfirmedUserField>();
   for (const row of rows) {
     map.set(row.fieldKey, { value: row.value, confirmedAt: row.confirmedAt });
   }
   return map;
+}
+
+/**
+ * TRANSITIONAL brand-scoped read: the confirmed fields of the brand's EARLIEST
+ * offer, or — before the one-time migration has run for this pair — the rows
+ * that still carry no offer at all. Both branches return exactly what this read
+ * returned before offers existed, which is the whole point: a consumer that has
+ * not migrated sees no change.
+ */
+export async function getConfirmedByBrandId(
+  orgId: string,
+  brandId: string,
+): Promise<Map<string, ConfirmedUserField>> {
+  const offerId = await resolveLegacyOfferId(orgId, brandId);
+  return getConfirmedByOfferId(orgId, brandId, offerId);
 }
 
 export type FieldProvenance = 'confirmed' | 'suggested';
@@ -123,28 +158,49 @@ export async function getSuggestedByBrandId(orgId: string, brandId: string): Pro
 }
 
 /**
- * The full user-fields view for a brand: all 7 keys, each tagged `confirmed`
+ * The full user-fields view for one OFFER: all 7 keys, each tagged `confirmed`
  * (user-validated value) or `suggested` (auto-extract prefill or null). Does NOT
  * trigger extraction.
+ *
+ * The CONFIRMED layer is offer-scoped; the SUGGESTED layer stays BRAND-scoped and
+ * that is deliberate. A suggestion is what the extractor read off the brand's own
+ * site — an ephemeral prefill, not something a user stated — and the site says
+ * one thing whichever offer is being described. Two offers therefore start from
+ * the same prefill and diverge the moment either is confirmed, which is the same
+ * value this read produced before offers existed.
  */
-export async function getUserFieldsView(orgId: string, brandId: string): Promise<Record<string, UserFieldView>> {
+export async function getUserFieldsViewForOffer(
+  orgId: string,
+  brandId: string,
+  offerId: string | null,
+): Promise<Record<string, UserFieldView>> {
   const [confirmed, suggested] = await Promise.all([
-    getConfirmedByBrandId(orgId, brandId),
+    getConfirmedByOfferId(orgId, brandId, offerId),
     getSuggestedByBrandId(orgId, brandId),
   ]);
   return buildUserFieldsView(confirmed, suggested);
 }
 
 /**
- * Upsert one or more confirmed user fields for a brand. Every supplied key MUST
+ * TRANSITIONAL brand-scoped view — the brand's earliest offer, or the pre-offer
+ * rows when it has none. Byte-identical to what this returned before offers.
+ */
+export async function getUserFieldsView(orgId: string, brandId: string): Promise<Record<string, UserFieldView>> {
+  const offerId = await resolveLegacyOfferId(orgId, brandId);
+  return getUserFieldsViewForOffer(orgId, brandId, offerId);
+}
+
+/**
+ * Upsert one or more confirmed user fields on one OFFER. Every supplied key MUST
  * be one of the 7 user-facing keys — an unknown key throws
  * `UnknownUserFieldKeyError` (400 upstream) and NOTHING is written. Each key is
- * upserted on (brand_id, field_key): value is replaced and confirmed_at /
- * updated_at bumped to NOW().
+ * upserted on (org_id, brand_id, offer_id, field_key): value is replaced and
+ * confirmed_at / updated_at bumped to NOW().
  */
-export async function upsertUserFields(
+export async function upsertUserFieldsForOffer(
   orgId: string,
   brandId: string,
+  offerId: string,
   fields: Record<string, unknown>,
 ): Promise<void> {
   const entries = Object.entries(fields);
@@ -166,13 +222,19 @@ export async function upsertUserFields(
       .values({
         orgId,
         brandId,
+        offerId,
         fieldKey,
         value: value as any,
         confirmedAt: nowIso,
         updatedAt: nowIso,
       })
       .onConflictDoUpdate({
-        target: [brandUserFields.orgId, brandUserFields.brandId, brandUserFields.fieldKey],
+        target: [
+          brandUserFields.orgId,
+          brandUserFields.brandId,
+          brandUserFields.offerId,
+          brandUserFields.fieldKey,
+        ],
         set: {
           value: value as any,
           confirmedAt: nowIso,
@@ -180,4 +242,26 @@ export async function upsertUserFields(
         },
       });
   }
+}
+
+/**
+ * TRANSITIONAL brand-scoped write. It lands on the brand's earliest offer, and
+ * creates one from the brand's own name when the pair has none — a write has to
+ * go somewhere, and refusing it would break the contract this transition exists
+ * to keep. See `resolveOrCreateLegacyOfferId`.
+ */
+export async function upsertUserFields(
+  orgId: string,
+  brandId: string,
+  fields: Record<string, unknown>,
+): Promise<void> {
+  // Validate BEFORE resolving an offer, so a rejected write never has the side
+  // effect of creating one.
+  for (const key of Object.keys(fields)) {
+    if (!isUserFacingFieldKey(key)) throw new UnknownUserFieldKeyError(key);
+  }
+  if (Object.keys(fields).length === 0) return;
+
+  const offerId = await resolveOrCreateLegacyOfferId(orgId, brandId);
+  return upsertUserFieldsForOffer(orgId, brandId, offerId, fields);
 }

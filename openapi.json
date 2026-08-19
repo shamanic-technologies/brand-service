@@ -2456,6 +2456,89 @@
           "fields"
         ]
       },
+      "OfferResponse": {
+        "type": "object",
+        "properties": {
+          "offer": {
+            "$ref": "#/components/schemas/Offer"
+          }
+        },
+        "required": [
+          "offer"
+        ]
+      },
+      "Offer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "brandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "Short human-readable label: at most 2 words, at most 20 characters, unique within the brand."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "orgId",
+          "brandId",
+          "name",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CreateOfferRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "OffersResponse": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Offer"
+            },
+            "description": "Every offer this org sells under this brand, OLDEST FIRST. None outranks another — there is no primary offer."
+          }
+        },
+        "required": [
+          "offers"
+        ]
+      },
+      "RenameOfferRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
       "ShareTokenResponse": {
         "type": "object",
         "properties": {
@@ -5452,6 +5535,550 @@
           },
           "404": {
             "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers": {
+      "post": {
+        "summary": "Create an offer on a brand",
+        "description": "An OFFER is a distinct thing the org sells under this brand, with its own value proposition, its own declared sales funnels and its own economics. `name` is at most 2 words and 20 characters and must be unique within the brand (case-insensitively).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOfferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Offer created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format or invalid offer name"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "409": {
+            "description": "An offer with that name already exists on this brand"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "get": {
+        "summary": "List a brand's offers",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Offers, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OffersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/offers/{offerId}": {
+      "get": {
+        "summary": "Read one offer",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID format"
+          },
+          "403": {
+            "description": "Offer does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Rename an offer",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameOfferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The renamed offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID format or invalid offer name"
+          },
+          "403": {
+            "description": "Offer does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "409": {
+            "description": "An offer with that name already exists on this brand"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/offers/{offerId}/user-fields": {
+      "get": {
+        "summary": "Get an offer's user-facing fields (confirmed + suggested)",
+        "description": "Same shape as the brand-scoped read. The CONFIRMED layer is per offer — what THIS offer promises. The SUGGESTED layer stays brand-scoped: a suggestion is what the extractor read off the brand's site, and the site says one thing whichever offer is being described.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User-facing fields with provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFieldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID format"
+          },
+          "403": {
+            "description": "Offer does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Confirm (upsert) an offer's user-facing fields",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutUserFieldsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user-facing fields with provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFieldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID format or unknown field key"
+          },
+          "403": {
+            "description": "Offer does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/offers/{offerId}/sales-funnels": {
+      "get": {
+        "summary": "The sales funnels this offer sells through",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Declared funnels, active and retired alike",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID format"
+          },
+          "403": {
+            "description": "Offer does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "State the whole set of funnels this offer sells through",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StateSalesFunnelSetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The resulting set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Offer does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/offers/{offerId}/sales-funnels/{funnelKey}": {
+      "put": {
+        "summary": "Declare one funnel on an offer and price it",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/AcceptedSalesFunnelKey"
+            },
+            "required": true,
+            "name": "funnelKey",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareSalesFunnelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The declared funnel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclareSalesFunnelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Offer does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Switch a funnel off on an offer (or `?erase=true` to forget it)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/AcceptedSalesFunnelKey"
+            },
+            "required": true,
+            "name": "funnelKey",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "name": "erase",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The resulting set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "403": {
+            "description": "Offer does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/offers": {
+      "get": {
+        "summary": "Service-auth read of a brand's offers",
+        "description": "Resolves the org the same way every other internal per-brand read does: `x-org-id` when sent, else the single claiming org, else 400. A brand no org claims answers with an empty list.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Offers, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OffersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format, or the brand is claimed by more than one org"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/offers/{offerId}/sales-funnels": {
+      "get": {
+        "summary": "Service-auth read of the funnels an offer AUTHORIZES",
+        "description": "ACTIVE only — a scheduler must never rank a funnel the org switched off.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active declared funnels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID format"
+          },
+          "404": {
+            "description": "Offer not found"
           },
           "500": {
             "description": "Internal server error"

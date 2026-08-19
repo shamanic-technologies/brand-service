@@ -274,6 +274,69 @@ export const brandShareTokens = pgTable("brand_share_tokens", {
 ]);
 
 /**
+ * An OFFER — a distinct thing an org sells under a brand.
+ *
+ * The hierarchy is Org > Brand > Offer > Campaign. The BRAND is the identity (a
+ * domain, a name, a logo — see `brands`); the OFFER is what is actually sold
+ * through it, and a brand legitimately sells several: a $200 self-serve plan and
+ * a $20k enterprise contract are one brand and two offers, with their own value
+ * proposition, their own declared funnels and their own economics. Before this
+ * table those all hung off the brand, so a brand selling both had to describe
+ * them as one thing with one set of rates and one lifetime revenue.
+ *
+ * ORG-SCOPED like every other per-brand config table: `brands` is the global
+ * silver identity that several orgs legitimately share (21 in production, one by
+ * ten), so what an org sells under it is the data of an (org, brand) pair.
+ *
+ * `name` is short and human-readable, and the shape is owner-fixed: at most TWO
+ * words, at most 20 characters, unique within its brand case-insensitively. It
+ * is a label a customer scans in a list beside its siblings, not a description —
+ * `assertOfferName` in `brandOfferService` is the single validator and the DB
+ * CHECK/unique index is what makes it true of rows written any other way.
+ *
+ * There is deliberately NO "primary" or "default" flag. Several offers run at
+ * once and none outranks another; the transitional brand-scoped surface resolves
+ * to the brand's EARLIEST offer purely so a consumer that has not migrated keeps
+ * seeing exactly what it saw before, and that pick never moves when a second
+ * offer is added.
+ *
+ * `migratedFromBrandAt` is PROVENANCE for the one-time move of brand-scoped
+ * config onto offers: set on the single offer that move created, NULL on every
+ * offer a user created. It is what makes the migration identifiable (undoable by
+ * an exact predicate) and a re-run a no-op. Read by nothing else.
+ */
+export const brandOffers = pgTable("brand_offers", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	name: text().notNull(),
+	migratedFromBrandAt: timestamp("migrated_from_brand_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	// Unique WITHIN the brand, case-insensitively: two orgs selling under the same
+	// shared brand each name their own offers, and one org may not hold two offers
+	// that read as the same word.
+	uniqueIndex("brand_offers_org_id_brand_id_lower_name_key").on(
+		table.orgId,
+		table.brandId,
+		sql`lower(${table.name})`
+	),
+	index("brand_offers_org_id_brand_id_idx").on(table.orgId, table.brandId),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_offers_brand_id_fkey",
+	}).onDelete("cascade"),
+	// The owner-fixed shape, enforced where it cannot be bypassed: 1..20 chars and
+	// at most two whitespace-separated words.
+	check(
+		"brand_offers_name_check",
+		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 20 AND array_length(regexp_split_to_array(btrim(${table.name}), '\\s+'), 1) <= 2`
+	),
+]);
+
+/**
  * The sales funnels an org sells a brand through, and what each one is worth.
  *
  * One row per (org, brand, funnel). `active` says whether the org currently
@@ -307,6 +370,21 @@ export const brandShareTokens = pgTable("brand_share_tokens", {
 export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
+	/**
+	 * The OFFER this funnel is declared for. A brand sells several distinct
+	 * things and each one converts differently, so the chain and its economics
+	 * belong to the offer, not to the brand.
+	 *
+	 * NULLABLE, and it stays nullable: NULL means "stated before offers existed
+	 * and not yet moved onto one". The one-time migration
+	 * (`scripts/migrate-brand-config-to-offers.ts`) needs an LLM to name the
+	 * offer it creates, so it cannot run inside a boot-time SQL migration — which
+	 * means a deployed schema has to be correct for rows that still carry NULL.
+	 * The uniqueness below is `NULLS NOT DISTINCT`, so those rows keep exactly the
+	 * old (org, brand, funnel) uniqueness while migrated rows are unique per
+	 * offer. Do NOT "clean this up" to NOT NULL without checking the table first.
+	 */
+	offerId: uuid("offer_id"),
 	funnelKey: text("funnel_key").notNull(),
 	// Whether the brand currently sells through this funnel. The ROW is the
 	// memory and is never deleted on the normal path: switching a funnel off
@@ -360,7 +438,18 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	primaryKey({ columns: [table.orgId, table.brandId, table.funnelKey] }),
+	// One declaration per (org, brand, OFFER, funnel). `NULLS NOT DISTINCT` is
+	// load-bearing: a row not yet moved onto an offer carries NULL there, and two
+	// such rows for one (org, brand, funnel) must still collide exactly as they
+	// did under the old primary key. Postgres 15+ (production and CI run 17).
+	unique("brand_sales_funnels_org_brand_offer_funnel_key")
+		.on(table.orgId, table.brandId, table.offerId, table.funnelKey)
+		.nullsNotDistinct(),
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_sales_funnels_offer_id_fkey",
+	}).onDelete("cascade"),
 	// THE funnel vocabulary — the only tokens brand-service stores or emits for
 	// what a brand sells through. The pre-retirement spellings (reply_meeting,
 	// visit_meeting, visit_signup, visit_form) are accepted on the WIRE forever
@@ -416,17 +505,34 @@ export const brandUserFields = pgTable("brand_user_fields", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
+	/**
+	 * The OFFER this confirmed value describes. The Hormozi value-proposition
+	 * fields are what an offer PROMISES, so a brand selling two things has two
+	 * sets of them. NULLABLE for exactly the reason spelled out on
+	 * `brand_sales_funnels.offer_id` — see there.
+	 */
+	offerId: uuid("offer_id"),
 	fieldKey: text("field_key").notNull(),
 	value: jsonb(),
 	confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	uniqueIndex("brand_user_fields_org_id_brand_id_field_key_key").on(table.orgId, table.brandId, table.fieldKey),
+	// `NULLS NOT DISTINCT` keeps the pre-offer (org, brand, field_key) uniqueness
+	// true of rows still carrying a NULL offer, while a migrated row is unique per
+	// offer so two offers can each confirm their own `dreamOutcome`.
+	unique("brand_user_fields_org_brand_offer_field_key")
+		.on(table.orgId, table.brandId, table.offerId, table.fieldKey)
+		.nullsNotDistinct(),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
 		name: "brand_user_fields_brand_id_fkey",
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_user_fields_offer_id_fkey",
 	}).onDelete("cascade"),
 	check("brand_user_fields_field_key_check", sql`${table.fieldKey} IN ('services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity')`),
 ]);
