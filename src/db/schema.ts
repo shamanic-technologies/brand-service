@@ -274,6 +274,78 @@ export const brandShareTokens = pgTable("brand_share_tokens", {
 ]);
 
 /**
+ * An OFFER — one distinct thing a brand sells.
+ *
+ * The level between a brand and a campaign. A brand is an IDENTITY (a name, a
+ * domain, a logo); an offer is a PROPOSITION: the value it promises (the 7
+ * Hormozi user-fields) and the sales funnels it is sold through, with their
+ * conversion rates, their lifetime revenue and their destinations. All of that
+ * used to hang off the brand, which forced a brand selling a $200 self-serve
+ * plan and a $20k contract to describe both as one thing — one set of rates, one
+ * lifetime revenue, one value proposition. `brand_user_fields` and
+ * `brand_sales_funnels` now hang off a row here instead.
+ *
+ * ORG-SCOPED like every other config table: `brands` is the global silver
+ * identity several orgs legitimately share, so what an org sells under a brand
+ * is the data of an (org, brand) pair and never a property of the brand.
+ *
+ * THERE IS NO PRIMARY OFFER. Several run at once and none outranks another —
+ * the same rule the sales-funnel model settled on, for the same reason: ranking
+ * them is a question for whoever is spending money, not for the record of what
+ * exists.
+ *
+ * The brand's IDENTITY stays on the brand, deliberately: the name, the domain,
+ * the logo and the conversion-tracking credential describe the company, not one
+ * of the things it sells, and two offers of one brand share every one of them.
+ */
+export const brandOffers = pgTable("brand_offers", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	// AT MOST 2 WORDS, AT MOST 20 CHARACTERS — an owner-fixed limit, enforced here
+	// by a CHECK and at the write path by `offerNameProblem` so the caller gets a
+	// sentence rather than a constraint-violation string. It is the only word
+	// anyone reads for this offer: a longer one is a description and truncates
+	// differently on every surface that renders it. UNIQUE within the (org, brand)
+	// pair — two offers a reader cannot tell apart are two offers nobody can pick
+	// between.
+	name: text().notNull(),
+	// PROVENANCE, for the one-time migration that gave every brand already
+	// selling something the single offer carrying all of it. Set to the moment
+	// that offer was created; NULL for every offer a user or a caller created
+	// directly. It is what makes the migration reversible by an exact predicate
+	// rather than a timestamp window, what makes its result countable from an
+	// independent query instead of the script's own log, and what makes a re-run
+	// a no-op. Read by nothing.
+	migratedAt: timestamp("migrated_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("brand_offers_org_id_brand_id_name_key").on(table.orgId, table.brandId, table.name),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_offers_brand_id_fkey",
+	}).onDelete("cascade"),
+	// The two limits, in the database as well as in the write path. Belt and
+	// braces on purpose: a name is what four other services will key their
+	// display on, and a script that writes around the service must not be able to
+	// create one no surface can render.
+	check(
+		"brand_offers_name_length_check",
+		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 20`
+	),
+	// `\\s` and not `\s`: a template literal eats the backslash, so `'\s+'` would
+	// reach Postgres as `'s+'` and split every name on the LETTER s — "User
+	// Fields" becomes three words and a perfectly legal name is refused. Caught
+	// by the integration suite as a 500 on the first user-fields write.
+	check(
+		"brand_offers_name_words_check",
+		sql`array_length(regexp_split_to_array(btrim(${table.name}), '\\s+'), 1) <= 2`
+	),
+]);
+
+/**
  * The sales funnels an org sells a brand through, and what each one is worth.
  *
  * One row per (org, brand, funnel). `active` says whether the org currently
@@ -305,8 +377,27 @@ export const brandShareTokens = pgTable("brand_share_tokens", {
  * the two values the funnel model needs that had no home anywhere in the fleet.
  */
 export const brandSalesFunnels = pgTable("brand_sales_funnels", {
+	// Surrogate key. The natural key USED to be (org_id, brand_id, funnel_key) and
+	// was the primary key; it stopped being unique the day a brand could hold
+	// several OFFERS, because two offers of one brand legitimately sell through
+	// the same chain at different rates and a different lifetime revenue. The
+	// natural key is now (offer_id, funnel_key), enforced by a unique index.
+	id: uuid().defaultRandom().primaryKey().notNull(),
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
+	// The OFFER this funnel prices. Conversion rates and a lifetime revenue
+	// describe ONE thing a brand sells, so they hang off the offer rather than
+	// the brand: a brand selling a $200 self-serve plan and a $20k contract
+	// converts and is worth completely different numbers on the same chain.
+	//
+	// NULLABLE at the database, NOT NULL at the write path, and the gap between
+	// the two is the one-time migration: the offer a pre-offer brand gets is
+	// NAMED from what that brand actually sells, which is an LLM call and
+	// therefore a script rather than a line of DDL. Every row a caller writes
+	// from now on carries one. A row still holding NULL is a row the migration
+	// has not reached, and it is exactly what makes the migration idempotent —
+	// a second run finds no candidates.
+	offerId: uuid("offer_id"),
 	funnelKey: text("funnel_key").notNull(),
 	// Whether the brand currently sells through this funnel. The ROW is the
 	// memory and is never deleted on the normal path: switching a funnel off
@@ -360,7 +451,19 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	primaryKey({ columns: [table.orgId, table.brandId, table.funnelKey] }),
+	// The natural key, now that a brand holds offers: one declaration of a chain
+	// PER OFFER. `offer_id` is nullable, and Postgres treats NULLs as distinct, so
+	// this index constrains nothing while rows wait for the migration — which is
+	// what the partial index below is for.
+	uniqueIndex("brand_sales_funnels_offer_id_funnel_key_key").on(table.offerId, table.funnelKey),
+	// The PREVIOUS natural key, kept for exactly the rows the migration has not
+	// reached yet. Without it, dropping the old primary key would leave
+	// un-migrated rows with no uniqueness at all and a legacy write could create
+	// a second row for the same (org, brand, funnel) — silently splitting a
+	// brand's economics across two rows nothing would ever reconcile.
+	uniqueIndex("brand_sales_funnels_unmigrated_key")
+		.on(table.orgId, table.brandId, table.funnelKey)
+		.where(sql`offer_id IS NULL`),
 	// THE funnel vocabulary — the only tokens brand-service stores or emits for
 	// what a brand sells through. The pre-retirement spellings (reply_meeting,
 	// visit_meeting, visit_signup, visit_form) are accepted on the WIRE forever
@@ -373,6 +476,13 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
 		name: "brand_sales_funnels_brand_id_fkey",
+	}).onDelete("cascade"),
+	// Deleting an offer takes its economics with it: a rate that prices nothing
+	// is not a number anyone can read.
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_sales_funnels_offer_id_fkey",
 	}).onDelete("cascade"),
 ]);
 
@@ -416,17 +526,41 @@ export const brandUserFields = pgTable("brand_user_fields", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
+	// The OFFER whose value proposition this field states. The 7 Hormozi levers
+	// describe ONE thing a brand sells — a dream outcome, a risk reversal and a
+	// scarcity are claims about an offer, not about a company — so they hang off
+	// the offer rather than the brand.
+	//
+	// NULLABLE at the database and NOT NULL at the write path, for the same
+	// reason as `brand_sales_funnels.offer_id`: the offer a pre-offer brand gets
+	// is NAMED from what that brand sells, which is a script and not DDL. A row
+	// still holding NULL is one the migration has not reached.
+	offerId: uuid("offer_id"),
 	fieldKey: text("field_key").notNull(),
 	value: jsonb(),
 	confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
-	uniqueIndex("brand_user_fields_org_id_brand_id_field_key_key").on(table.orgId, table.brandId, table.fieldKey),
+	// The natural key, now that a brand holds offers: one confirmed value per
+	// (offer, field). Constrains nothing while `offer_id` is NULL — Postgres
+	// treats NULLs as distinct — which is what the partial index below covers.
+	uniqueIndex("brand_user_fields_offer_id_field_key_key").on(table.offerId, table.fieldKey),
+	// The PREVIOUS natural key, for exactly the rows the migration has not
+	// reached. Without it an un-migrated brand could grow two confirmed values
+	// for one field and no read could say which the user meant.
+	uniqueIndex("brand_user_fields_unmigrated_key")
+		.on(table.orgId, table.brandId, table.fieldKey)
+		.where(sql`offer_id IS NULL`),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
 		name: "brand_user_fields_brand_id_fkey",
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_user_fields_offer_id_fkey",
 	}).onDelete("cascade"),
 	check("brand_user_fields_field_key_check", sql`${table.fieldKey} IN ('services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity')`),
 ]);

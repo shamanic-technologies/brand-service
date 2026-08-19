@@ -2580,6 +2580,87 @@
         "required": [
           "shareToken"
         ]
+      },
+      "ListOffersResponse": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Offer"
+            }
+          }
+        },
+        "required": [
+          "offers"
+        ]
+      },
+      "Offer": {
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "brandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "offerId",
+          "brandId",
+          "name",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "OfferResponse": {
+        "type": "object",
+        "properties": {
+          "offer": {
+            "$ref": "#/components/schemas/Offer"
+          }
+        },
+        "required": [
+          "offer"
+        ]
+      },
+      "CreateOfferRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/OfferName"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "OfferName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20
+      },
+      "RenameOfferRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/OfferName"
+          }
+        },
+        "required": [
+          "name"
+        ]
       }
     },
     "parameters": {
@@ -5697,6 +5778,632 @@
           },
           "404": {
             "description": "Spec not generated"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers": {
+      "get": {
+        "summary": "List the offers a brand sells",
+        "description": "Every offer this org sells under this brand, oldest first — a stable order that implies NO rank. An EMPTY list means the org has never stated one, which is not an error. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and the sales funnels it is sold through, with their conversion rates, lifetime revenue and destinations — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offers (possibly empty)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOffersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create an offer",
+        "description": "Create one thing this brand sells. The new offer starts with NOTHING — no funnel, no confirmed field — and is fully independent of every other offer on the brand. The name is at most 2 words and at most 20 characters and is unique within the brand: a name already taken is refused 409 rather than suffixed with a number. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and the sales funnels it is sold through, with their conversion rates, lifetime revenue and destinations — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOfferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The offer just created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID, or a name over the word/character limit"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "409": {
+            "description": "This brand already has an offer with that name"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}": {
+      "get": {
+        "summary": "Get one offer",
+        "description": "One offer of this brand. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and the sales funnels it is sold through, with their conversion rates, lifetime revenue and destinations — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand or offer ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Rename an offer",
+        "description": "Rename it. The two limits apply exactly as they do on create, and the name stays unique within the brand. Nothing else about the offer changes — its funnels, its economics and its value proposition are untouched.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameOfferRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The renamed offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID, or a name over the word/character limit"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "409": {
+            "description": "This brand already has another offer with that name"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/sales-funnels": {
+      "get": {
+        "summary": "Get one offer's sales funnels",
+        "description": "The funnels THIS OFFER is sold through, each with its own rates, lifetime revenue, landing page and booking link. A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), `form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` (Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid client: booked straight from an ad, the brand's site never touched) and `lead_forms_from_ads` (Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform itself, deliberately general across webinar signup, guide download, quote request and demo request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or `ad_click` — which is how a consumer decides which acquisition channels can feed it, and `milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that tells a brand the funnel is working, and what a channel's minimum budget is priced against (one month must pay for at least one of these). Read them rather than hardcoding a mapping. Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The declared funnels (possibly empty)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand or offer ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "State the whole set of funnels one offer is sold through",
+        "description": "State the WHOLE set for THIS OFFER: exactly these funnels, no others. Funnels dropped from the set are switched OFF and KEPT with every number on them. A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), `form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` (Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid client: booked straight from an ad, the brand's site never touched) and `lead_forms_from_ads` (Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform itself, deliberately general across webinar signup, guide download, quote request and demo request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or `ad_click` — which is how a consumer decides which acquisition channels can feed it, and `milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that tells a brand the funnel is working, and what a channel's minimum budget is priced against (one month must pay for at least one of these). Read them rather than hardcoding a mapping. Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StateSalesFunnelSetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stated set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID, an unknown funnel key, or a website-led funnel on a brand with no website"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/sales-funnels/{funnelKey}": {
+      "put": {
+        "summary": "Declare a sales funnel on one offer and write its economics",
+        "description": "Declare that THIS OFFER is sold through this funnel, and write what you send of its economics. Idempotent and PARTIAL, exactly like the brand-scoped route: an omitted field is left as stored, an explicit `null` clears it. Two offers of one brand may sell through the SAME funnel with completely different rates and a different lifetime revenue — that is the point of the offer level. A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), `form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` (Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid client: booked straight from an ad, the brand's site never touched) and `lead_forms_from_ads` (Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform itself, deliberately general across webinar signup, guide download, quote request and demo request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or `ad_click` — which is how a consumer decides which acquisition channels can feed it, and `milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that tells a brand the funnel is working, and what a channel's minimum budget is priced against (one month must pay for at least one of these). Read them rather than hardcoding a mapping. Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/AcceptedSalesFunnelKey"
+            },
+            "required": true,
+            "name": "funnelKey",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareSalesFunnelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The declared funnel",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeclareSalesFunnelResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID or funnel key, a rate outside this funnel's chain, a destination the funnel has no use for, an off-domain page destination, or a website-led funnel on a brand with no website"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Switch a sales funnel off on one offer, or erase it outright",
+        "description": "This OFFER is no longer sold through this funnel. The row and every number on it SURVIVE. REFUSED (400) when it is the last active funnel of this offer. `?erase=true` instead FORGETS the funnel and its economics for good.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "$ref": "#/components/schemas/AcceptedSalesFunnelKey"
+            },
+            "required": true,
+            "name": "funnelKey",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the funnel and its economics for good."
+            },
+            "required": false,
+            "description": "Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the funnel and its economics for good.",
+            "name": "erase",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The funnels still declared on this offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID or unknown funnel key"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/user-fields": {
+      "get": {
+        "summary": "Get one offer's value proposition",
+        "description": "The 7 user-facing fields for THIS OFFER. The `confirmed` values are the offer's own — a dream outcome and a risk reversal are claims about one thing a brand sells. The `suggested` prefill stays BRAND-wide: it is read off the brand's own site, which describes the company and knows nothing about which of its products you are looking at, so every offer of a brand prefills from the same extraction and diverges the moment a human confirms anything.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User-facing fields with provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFieldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand or offer ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Write one offer's value proposition",
+        "description": "Upsert confirmed user fields for THIS OFFER. An unknown key (not one of the 7) is a 400 and NOTHING is written. Two offers of one brand hold completely independent values under the same key. Returns the updated view in the same shape as GET.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutUserFieldsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated user-facing fields with provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserFieldsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID, or an unknown field key"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/offers": {
+      "get": {
+        "summary": "Internal read of the offers under a brand",
+        "description": "Internal api-key read of the offers under a brand — for a sibling service that holds a brand id and is moving to the offer grain. The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the brand, and rejected 400 `ORG_REQUIRED` when several do. An unclaimed brand answers 200 with an empty list. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and the sales funnels it is sold through, with their conversion rates, lifetime revenue and destinations — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offers (possibly empty)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOffersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID format, or the brand is claimed by several orgs"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/offers/{offerId}/sales-funnels": {
+      "get": {
+        "summary": "Internal read of one offer's active sales funnels",
+        "description": "The ACTIVE funnels of ONE offer, keyed by the offer alone — what a scheduler ranks over once it holds an offer id. A funnel switched off is never listed: it must never be ranked. An unknown offer id is a 404, unlike the brand-keyed read, because an id that names nothing is a caller error rather than an unconfigured brand. A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), `form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` (Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid client: booked straight from an ad, the brand's site never touched) and `lead_forms_from_ads` (Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform itself, deliberately general across webinar signup, guide download, quote request and demo request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or `ad_click` — which is how a consumer decides which acquisition channels can feed it, and `milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that tells a brand the funnel is working, and what a channel's minimum budget is priced against (one month must pay for at least one of these). Read them rather than hardcoding a mapping. Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The active funnels of this offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSalesFunnelsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID format"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }

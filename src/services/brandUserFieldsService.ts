@@ -1,5 +1,6 @@
 import { eq, and, isNull, or, gt, desc, inArray, sql } from 'drizzle-orm';
 import { db, brandUserFields, brandExtractedFields } from '../db';
+import { offerScope, resolveOfferForWrite, resolveSoleOffer } from './brandOffersService';
 
 /**
  * The 7 user-facing "confirmed" field keys. A value the user validates in the
@@ -46,6 +47,21 @@ export async function getConfirmedByBrandId(
   orgId: string,
   brandId: string,
 ): Promise<Map<string, ConfirmedUserField>> {
+  return getConfirmedByOfferId(orgId, brandId, await resolveSoleOffer(orgId, brandId));
+}
+
+/**
+ * The same read, for ONE named offer.
+ *
+ * `null` reads the rows the migration has not reached, which — scoped by org and
+ * brand — is byte-for-byte what this query answered before offers existed. It is
+ * also what an empty brand answers: nothing confirmed.
+ */
+export async function getConfirmedByOfferId(
+  orgId: string,
+  brandId: string,
+  offerId: string | null,
+): Promise<Map<string, ConfirmedUserField>> {
   const rows = await db
     .select({
       fieldKey: brandUserFields.fieldKey,
@@ -53,7 +69,13 @@ export async function getConfirmedByBrandId(
       confirmedAt: brandUserFields.confirmedAt,
     })
     .from(brandUserFields)
-    .where(and(eq(brandUserFields.orgId, orgId), eq(brandUserFields.brandId, brandId)));
+    .where(
+      and(
+        eq(brandUserFields.orgId, orgId),
+        eq(brandUserFields.brandId, brandId),
+        offerScope(brandUserFields.offerId, offerId),
+      ),
+    );
 
   const map = new Map<string, ConfirmedUserField>();
   for (const row of rows) {
@@ -128,8 +150,26 @@ export async function getSuggestedByBrandId(orgId: string, brandId: string): Pro
  * trigger extraction.
  */
 export async function getUserFieldsView(orgId: string, brandId: string): Promise<Record<string, UserFieldView>> {
+  return getUserFieldsViewByOfferId(orgId, brandId, await resolveSoleOffer(orgId, brandId));
+}
+
+/**
+ * The same view, for ONE named offer.
+ *
+ * The CONFIRMED half is the offer's — a dream outcome and a risk reversal are
+ * claims about one thing a brand sells. The SUGGESTED half stays BRAND-wide and
+ * deliberately so: it is the auto-extract prefill read off the brand's own site,
+ * which describes the company and knows nothing about which of its products a
+ * reader is looking at. Every offer of a brand therefore prefills from the same
+ * extraction and diverges the moment a human confirms anything.
+ */
+export async function getUserFieldsViewByOfferId(
+  orgId: string,
+  brandId: string,
+  offerId: string | null,
+): Promise<Record<string, UserFieldView>> {
   const [confirmed, suggested] = await Promise.all([
-    getConfirmedByBrandId(orgId, brandId),
+    getConfirmedByOfferId(orgId, brandId, offerId),
     getSuggestedByBrandId(orgId, brandId),
   ]);
   return buildUserFieldsView(confirmed, suggested);
@@ -149,7 +189,33 @@ export async function upsertUserFields(
 ): Promise<void> {
   const entries = Object.entries(fields);
 
-  // Validate ALL keys before writing anything (fail loud, atomic-ish).
+  // Validate ALL keys before writing anything, and before resolving an offer:
+  // a rejected body must not have created a brand's first offer on its way out.
+  for (const [key] of entries) {
+    if (!isUserFacingFieldKey(key)) {
+      throw new UnknownUserFieldKeyError(key);
+    }
+  }
+
+  if (entries.length === 0) return;
+
+  return upsertUserFieldsByOfferId(
+    orgId,
+    brandId,
+    await resolveOfferForWrite(orgId, brandId),
+    fields,
+  );
+}
+
+/** The same upsert, against ONE named offer. */
+export async function upsertUserFieldsByOfferId(
+  orgId: string,
+  brandId: string,
+  offerId: string,
+  fields: Record<string, unknown>,
+): Promise<void> {
+  const entries = Object.entries(fields);
+
   for (const [key] of entries) {
     if (!isUserFacingFieldKey(key)) {
       throw new UnknownUserFieldKeyError(key);
@@ -166,13 +232,16 @@ export async function upsertUserFields(
       .values({
         orgId,
         brandId,
+        offerId,
         fieldKey,
         value: value as any,
         confirmedAt: nowIso,
         updatedAt: nowIso,
       })
       .onConflictDoUpdate({
-        target: [brandUserFields.orgId, brandUserFields.brandId, brandUserFields.fieldKey],
+        // The natural key is the OFFER and the field: two offers of one brand
+        // legitimately make different claims under the same lever.
+        target: [brandUserFields.offerId, brandUserFields.fieldKey],
         set: {
           value: value as any,
           confirmedAt: nowIso,

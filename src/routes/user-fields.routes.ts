@@ -6,6 +6,7 @@ import {
   UnknownUserFieldKeyError,
 } from '../services/brandUserFieldsService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
+import { rejectOfferProblem } from '../lib/offer-scope';
 
 export const orgRouter = Router();
 
@@ -25,7 +26,13 @@ orgRouter.get('/brands/:brandId/user-fields', async (req: Request, res: Response
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const fields = await getUserFieldsView(req.orgId!, brandId);
+    let fields;
+    try {
+      fields = await getUserFieldsView(req.orgId!, brandId);
+    } catch (error) {
+      if (rejectOfferProblem(res, error)) return;
+      throw error;
+    }
     return res.status(200).json({ fields });
   } catch (error: any) {
     console.error('[brand-service] Get user fields error:', error);
@@ -60,12 +67,16 @@ orgRouter.put('/brands/:brandId/user-fields', async (req: Request, res: Response
       if (err instanceof UnknownUserFieldKeyError) {
         return res.status(400).json({ error: err.message });
       }
+      // A brand holding several offers has no single value proposition to
+      // write — 409, naming the offer routes, rather than overwriting one.
+      if (rejectOfferProblem(res, err)) return;
       throw err;
     }
 
     const fields = await getUserFieldsView(req.orgId!, brandId);
     return res.status(200).json({ fields });
   } catch (error: any) {
+    if (rejectOfferProblem(res, error)) return;
     console.error('[brand-service] Put user fields error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }

@@ -9,12 +9,17 @@ vi.mock('../../src/db', () => ({
   db: { insert: mockInsert },
   brandUserFields: {
     brandId: 'buf.brandId',
+    offerId: 'buf.offerId',
     fieldKey: 'buf.fieldKey',
     value: 'buf.value',
     confirmedAt: 'buf.confirmedAt',
     updatedAt: 'buf.updatedAt',
   },
   brandExtractedFields: {},
+  // The service now reaches the offer resolver, which imports these.
+  brandOffers: {},
+  brandSalesFunnels: {},
+  brands: {},
 }));
 
 import {
@@ -22,6 +27,7 @@ import {
   isUserFacingFieldKey,
   buildUserFieldsView,
   upsertUserFields,
+  upsertUserFieldsByOfferId,
   UnknownUserFieldKeyError,
   type ConfirmedUserField,
 } from '../../src/services/brandUserFieldsService';
@@ -89,9 +95,18 @@ describe('upsertUserFields', () => {
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
+  // The offer-grain write is the one that reaches the database directly; the
+  // brand-scoped wrapper resolves an offer first, which needs a live db.select.
   it('upserts one insert per valid key', async () => {
-    await upsertUserFields('org-1', 'brand-1', { services: ['x'], urgency: 'soon' });
+    await upsertUserFieldsByOfferId('org-1', 'brand-1', 'offer-1', { services: ['x'], urgency: 'soon' });
     expect(mockInsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('writes NOTHING on an unknown key at the offer grain either', async () => {
+    await expect(
+      upsertUserFieldsByOfferId('org-1', 'brand-1', 'offer-1', { industry: 'nope' }),
+    ).rejects.toBeInstanceOf(UnknownUserFieldKeyError);
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 
   it('no-ops on an empty map', async () => {

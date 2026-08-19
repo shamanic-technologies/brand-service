@@ -1,6 +1,11 @@
 import { and, eq, notInArray } from 'drizzle-orm';
 import { db, brandSalesFunnels } from '../db';
 import {
+  offerScope,
+  resolveOfferForWrite,
+  resolveSoleOffer,
+} from './brandOffersService';
+import {
   SALES_FUNNELS,
   SalesFunnelDef,
   SalesFunnelKey,
@@ -321,11 +326,24 @@ export class SalesFunnelsService {
    * the user entered and the screen has to show them. `[]` = never answered.
    */
   async readByBrandId(orgId: string, brandId: string): Promise<DeclaredSalesFunnelSet> {
+    return this.readByOfferId(orgId, brandId, await resolveSoleOffer(orgId, brandId));
+  }
+
+  /** The same read, for ONE named offer. `null` = the rows no offer owns yet. */
+  async readByOfferId(
+    orgId: string,
+    brandId: string,
+    offerId: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
     const rows = await db
       .select()
       .from(brandSalesFunnels)
       .where(
-        and(eq(brandSalesFunnels.orgId, orgId), eq(brandSalesFunnels.brandId, brandId))
+        and(
+          eq(brandSalesFunnels.orgId, orgId),
+          eq(brandSalesFunnels.brandId, brandId),
+          offerScope(brandSalesFunnels.offerId, offerId)
+        )
       );
 
     return { funnels: rows.map(formatDeclaredFunnel).sort(byCatalogueOrder) };
@@ -338,6 +356,15 @@ export class SalesFunnelsService {
    * because the last active funnel cannot be switched off.
    */
   async readActiveByBrandId(orgId: string, brandId: string): Promise<DeclaredSalesFunnelSet> {
+    return this.readActiveByOfferId(orgId, brandId, await resolveSoleOffer(orgId, brandId));
+  }
+
+  /** The active-only read, for ONE named offer. */
+  async readActiveByOfferId(
+    orgId: string,
+    brandId: string,
+    offerId: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
     const rows = await db
       .select()
       .from(brandSalesFunnels)
@@ -345,6 +372,7 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(brandSalesFunnels.offerId, offerId),
           eq(brandSalesFunnels.active, true)
         )
       );
@@ -353,7 +381,11 @@ export class SalesFunnelsService {
   }
 
   /** The funnel keys this org currently sells this brand through. */
-  private async activeKeys(orgId: string, brandId: string): Promise<SalesFunnelKey[]> {
+  private async activeKeys(
+    orgId: string,
+    brandId: string,
+    offerId: string | null
+  ): Promise<SalesFunnelKey[]> {
     const rows = await db
       .select({ funnelKey: brandSalesFunnels.funnelKey })
       .from(brandSalesFunnels)
@@ -361,6 +393,7 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(brandSalesFunnels.offerId, offerId),
           eq(brandSalesFunnels.active, true)
         )
       );
@@ -383,6 +416,25 @@ export class SalesFunnelsService {
     patch: SalesFunnelPatch,
     brandDomain: string | null
   ): Promise<DeclaredSalesFunnel> {
+    return this.declareByOfferId(
+      orgId,
+      brandId,
+      await resolveOfferForWrite(orgId, brandId),
+      funnelKey,
+      patch,
+      brandDomain
+    );
+  }
+
+  /** The same write, against ONE named offer. */
+  async declareByOfferId(
+    orgId: string,
+    brandId: string,
+    offerId: string,
+    funnelKey: SalesFunnelKey,
+    patch: SalesFunnelPatch,
+    brandDomain: string | null
+  ): Promise<DeclaredSalesFunnel> {
     const def = salesFunnelByKey(funnelKey);
     if (patch.active !== false && def.requiresWebsite && !brandDomain) {
       throw new SalesFunnelRequiresWebsiteError(funnelKey);
@@ -390,7 +442,7 @@ export class SalesFunnelsService {
     assertPatchFitsFunnel(def, patch);
 
     if (patch.active === false) {
-      const active = await this.activeKeys(orgId, brandId);
+      const active = await this.activeKeys(orgId, brandId, offerId);
       if (active.length === 1 && active[0] === funnelKey) {
         throw new LastActiveSalesFunnelError(funnelKey);
       }
@@ -410,13 +462,11 @@ export class SalesFunnelsService {
 
     const [row] = await db
       .insert(brandSalesFunnels)
-      .values({ orgId, brandId, funnelKey, ...write })
+      .values({ orgId, brandId, offerId, funnelKey, ...write })
       .onConflictDoUpdate({
-        target: [
-          brandSalesFunnels.orgId,
-          brandSalesFunnels.brandId,
-          brandSalesFunnels.funnelKey,
-        ],
+        // The natural key is the OFFER and the chain: two offers of one brand
+        // legitimately sell through the same chain at different rates.
+        target: [brandSalesFunnels.offerId, brandSalesFunnels.funnelKey],
         // Only the columns the patch carries are named, so an omitted field is
         // left exactly as stored and an explicit null clears it.
         set: { ...write, updatedAt: new Date().toISOString() },
@@ -440,6 +490,23 @@ export class SalesFunnelsService {
     funnelKeys: SalesFunnelKey[],
     brandDomain: string | null
   ): Promise<DeclaredSalesFunnelSet> {
+    return this.statesetByOfferId(
+      orgId,
+      brandId,
+      await resolveOfferForWrite(orgId, brandId),
+      funnelKeys,
+      brandDomain
+    );
+  }
+
+  /** The same whole-set write, against ONE named offer. */
+  async statesetByOfferId(
+    orgId: string,
+    brandId: string,
+    offerId: string,
+    funnelKeys: SalesFunnelKey[],
+    brandDomain: string | null
+  ): Promise<DeclaredSalesFunnelSet> {
     const keys = [...new Set(funnelKeys)];
     if (keys.length === 0) throw new LastActiveSalesFunnelError();
 
@@ -459,6 +526,7 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(brandSalesFunnels.offerId, offerId),
           notInArray(brandSalesFunnels.funnelKey, keys)
         )
       );
@@ -466,17 +534,13 @@ export class SalesFunnelsService {
     // Members already configured keep everything they were priced with.
     await db
       .insert(brandSalesFunnels)
-      .values(keys.map((funnelKey) => ({ orgId, brandId, funnelKey, active: true })))
+      .values(keys.map((funnelKey) => ({ orgId, brandId, offerId, funnelKey, active: true })))
       .onConflictDoUpdate({
-        target: [
-          brandSalesFunnels.orgId,
-          brandSalesFunnels.brandId,
-          brandSalesFunnels.funnelKey,
-        ],
+        target: [brandSalesFunnels.offerId, brandSalesFunnels.funnelKey],
         set: { active: true, updatedAt: new Date().toISOString() },
       });
 
-    return this.readByBrandId(orgId, brandId);
+    return this.readByOfferId(orgId, brandId, offerId);
   }
 
   /**
@@ -503,22 +567,19 @@ export class SalesFunnelsService {
     brandDomain: string | null
   ): Promise<DeclaredSalesFunnelSet> {
     const keys = assertRetiredGoalDeclarable(goal, context, brandDomain);
+    const offerId = await resolveOfferForWrite(orgId, brandId);
 
     await db
       .insert(brandSalesFunnels)
-      .values(keys.map((funnelKey) => ({ orgId, brandId, funnelKey, active: true })))
+      .values(keys.map((funnelKey) => ({ orgId, brandId, offerId, funnelKey, active: true })))
       .onConflictDoUpdate({
-        target: [
-          brandSalesFunnels.orgId,
-          brandSalesFunnels.brandId,
-          brandSalesFunnels.funnelKey,
-        ],
+        target: [brandSalesFunnels.offerId, brandSalesFunnels.funnelKey],
         // Only `active` is named: a funnel the org already priced keeps every
         // number on it.
         set: { active: true, updatedAt: new Date().toISOString() },
       });
 
-    return this.readByBrandId(orgId, brandId);
+    return this.readByOfferId(orgId, brandId, offerId);
   }
 
   /**
@@ -531,7 +592,22 @@ export class SalesFunnelsService {
     brandId: string,
     funnelKey: SalesFunnelKey
   ): Promise<boolean> {
-    const active = await this.activeKeys(orgId, brandId);
+    return this.deactivateByOfferId(
+      orgId,
+      brandId,
+      await resolveSoleOffer(orgId, brandId),
+      funnelKey
+    );
+  }
+
+  /** The same switch-off, against ONE named offer. */
+  async deactivateByOfferId(
+    orgId: string,
+    brandId: string,
+    offerId: string | null,
+    funnelKey: SalesFunnelKey
+  ): Promise<boolean> {
+    const active = await this.activeKeys(orgId, brandId, offerId);
     if (active.length === 1 && active[0] === funnelKey) {
       throw new LastActiveSalesFunnelError(funnelKey);
     }
@@ -543,6 +619,7 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(brandSalesFunnels.offerId, offerId),
           eq(brandSalesFunnels.funnelKey, funnelKey)
         )
       )
@@ -572,11 +649,30 @@ export class SalesFunnelsService {
     brandId: string,
     funnelKey: SalesFunnelKey
   ): Promise<boolean> {
+    return this.eraseByOfferId(
+      orgId,
+      brandId,
+      await resolveSoleOffer(orgId, brandId),
+      funnelKey
+    );
+  }
+
+  /** The same erasure, against ONE named offer. */
+  async eraseByOfferId(
+    orgId: string,
+    brandId: string,
+    offerId: string | null,
+    funnelKey: SalesFunnelKey
+  ): Promise<boolean> {
     const rows = await db
       .select({ funnelKey: brandSalesFunnels.funnelKey, active: brandSalesFunnels.active })
       .from(brandSalesFunnels)
       .where(
-        and(eq(brandSalesFunnels.orgId, orgId), eq(brandSalesFunnels.brandId, brandId))
+        and(
+          eq(brandSalesFunnels.orgId, orgId),
+          eq(brandSalesFunnels.brandId, brandId),
+          offerScope(brandSalesFunnels.offerId, offerId)
+        )
       );
 
     const survivors = rows.filter((r) => r.funnelKey !== funnelKey);
@@ -590,6 +686,7 @@ export class SalesFunnelsService {
         and(
           eq(brandSalesFunnels.orgId, orgId),
           eq(brandSalesFunnels.brandId, brandId),
+          offerScope(brandSalesFunnels.offerId, offerId),
           eq(brandSalesFunnels.funnelKey, funnelKey)
         )
       )

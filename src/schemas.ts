@@ -10,6 +10,11 @@ import {
   SALES_FUNNEL_KEYS,
   SALES_FUNNEL_START_EVENTS,
 } from './services/salesFunnelCatalogue';
+import {
+  OFFER_NAME_MAX_CHARS,
+  OFFER_NAME_MAX_WORDS,
+  offerNameProblem,
+} from './lib/offer-name';
 
 extendZodWithOpenApi(z);
 
@@ -3122,5 +3127,319 @@ registry.registerPath({
   responses: {
     200: { description: 'OpenAPI JSON spec' },
     404: { description: 'Spec not generated' },
+  },
+});
+
+// ============================================================
+// Offers — the things a brand sells
+// ============================================================
+// A brand is an IDENTITY (a name, a domain, a logo). An OFFER is a PROPOSITION:
+// the value it promises (the 7 Hormozi user-fields) and the sales funnels it is
+// sold through, with their conversion rates, lifetime revenue and destinations.
+// All of that used to hang off the brand, which forced a brand selling a $200
+// self-serve plan and a $20k contract to describe both as one thing.
+//
+// THERE IS NO PRIMARY OFFER. Several run at once and none outranks another.
+
+const OFFER_MODEL_DESCRIPTION =
+  'An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) ' +
+  'and the sales funnels it is sold through, with their conversion rates, lifetime revenue and ' +
+  'destinations — a brand selling a $200 self-serve plan and a $20k contract prices each one for ' +
+  'what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its ' +
+  'conversion-tracking credential describe the company, not one of the things it sells, and every ' +
+  'offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks ' +
+  'another, so the list order implies no rank. ' +
+  'The BRAND-scoped routes are unchanged and still answer exactly what they always did: they ' +
+  "resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one " +
+  'rather than guessing which the caller meant — a wrong guess writes one product\'s economics over ' +
+  "another's. A brand-scoped WRITE on a brand with no offer creates its first one.";
+
+// A name is at most 2 words and at most 20 characters, and is unique within the
+// brand. It is the only word anyone reads for the offer: a longer one is a
+// description and truncates differently on every surface that renders it.
+export const OfferNameSchema = z
+  .string()
+  .min(1)
+  .max(OFFER_NAME_MAX_CHARS)
+  .refine((value) => offerNameProblem(value) === null, {
+    message: `At most ${OFFER_NAME_MAX_WORDS} words and at most ${OFFER_NAME_MAX_CHARS} characters.`,
+  })
+  .openapi('OfferName');
+
+export const OfferSchema = z
+  .object({
+    // The identifier the sibling services (human, billing, campaign, features)
+    // reference an offer by.
+    offerId: z.string().uuid(),
+    brandId: z.string().uuid(),
+    name: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('Offer');
+
+export const CreateOfferRequestSchema = z
+  .object({ name: OfferNameSchema })
+  .openapi('CreateOfferRequest');
+
+export const RenameOfferRequestSchema = z
+  .object({ name: OfferNameSchema })
+  .openapi('RenameOfferRequest');
+
+export const OfferResponseSchema = z
+  .object({ offer: OfferSchema })
+  .openapi('OfferResponse');
+
+export const ListOffersResponseSchema = z
+  .object({ offers: z.array(OfferSchema) })
+  .openapi('ListOffersResponse');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers',
+  summary: 'List the offers a brand sells',
+  description:
+    'Every offer this org sells under this brand, oldest first — a stable order that implies NO ' +
+    'rank. An EMPTY list means the org has never stated one, which is not an error. ' +
+    OFFER_MODEL_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The offers (possibly empty)', content: { 'application/json': { schema: ListOffersResponseSchema } } },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/offers',
+  summary: 'Create an offer',
+  description:
+    'Create one thing this brand sells. The new offer starts with NOTHING — no funnel, no confirmed ' +
+    'field — and is fully independent of every other offer on the brand. ' +
+    `The name is at most ${OFFER_NAME_MAX_WORDS} words and at most ${OFFER_NAME_MAX_CHARS} ` +
+    'characters and is unique within the brand: a name already taken is refused 409 rather than ' +
+    'suffixed with a number. ' + OFFER_MODEL_DESCRIPTION,
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: CreateOfferRequestSchema } } },
+  },
+  responses: {
+    201: { description: 'The offer just created', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid brand ID, or a name over the word/character limit' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    409: { description: 'This brand already has an offer with that name' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}',
+  summary: 'Get one offer',
+  description: 'One offer of this brand. ' + OFFER_MODEL_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The offer', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid brand or offer ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/orgs/brands/{brandId}/offers/{offerId}',
+  summary: 'Rename an offer',
+  description:
+    'Rename it. The two limits apply exactly as they do on create, and the name stays unique within ' +
+    'the brand. Nothing else about the offer changes — its funnels, its economics and its value ' +
+    'proposition are untouched.',
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: RenameOfferRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The renamed offer', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid ID, or a name over the word/character limit' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    409: { description: 'This brand already has another offer with that name' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-funnels',
+  summary: "Get one offer's sales funnels",
+  description:
+    'The funnels THIS OFFER is sold through, each with its own rates, lifetime revenue, landing page ' +
+    'and booking link. ' + SALES_FUNNELS_MODEL_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The declared funnels (possibly empty)', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    400: { description: 'Invalid brand or offer ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-funnels',
+  summary: "State the whole set of funnels one offer is sold through",
+  description:
+    'State the WHOLE set for THIS OFFER: exactly these funnels, no others. Funnels dropped from the ' +
+    'set are switched OFF and KEPT with every number on them. ' + SALES_FUNNELS_MODEL_DESCRIPTION,
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: StateSalesFunnelSetRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The stated set', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    400: { description: 'Invalid ID, an unknown funnel key, or a website-led funnel on a brand with no website' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-funnels/{funnelKey}',
+  summary: "Declare a sales funnel on one offer and write its economics",
+  description:
+    'Declare that THIS OFFER is sold through this funnel, and write what you send of its economics. ' +
+    'Idempotent and PARTIAL, exactly like the brand-scoped route: an omitted field is left as ' +
+    'stored, an explicit `null` clears it. Two offers of one brand may sell through the SAME funnel ' +
+    'with completely different rates and a different lifetime revenue — that is the point of the ' +
+    'offer level. ' + SALES_FUNNELS_MODEL_DESCRIPTION,
+  request: {
+    params: z.object({
+      brandId: z.string().uuid(),
+      offerId: z.string().uuid(),
+      funnelKey: AcceptedSalesFunnelKeySchema,
+    }),
+    body: { content: { 'application/json': { schema: DeclareSalesFunnelRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The declared funnel', content: { 'application/json': { schema: DeclareSalesFunnelResponseSchema } } },
+    400: { description: "Invalid ID or funnel key, a rate outside this funnel's chain, a destination the funnel has no use for, an off-domain page destination, or a website-led funnel on a brand with no website" },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-funnels/{funnelKey}',
+  summary: 'Switch a sales funnel off on one offer, or erase it outright',
+  description:
+    'This OFFER is no longer sold through this funnel. The row and every number on it SURVIVE. ' +
+    'REFUSED (400) when it is the last active funnel of this offer. `?erase=true` instead FORGETS ' +
+    'the funnel and its economics for good.',
+  request: {
+    params: z.object({
+      brandId: z.string().uuid(),
+      offerId: z.string().uuid(),
+      funnelKey: AcceptedSalesFunnelKeySchema,
+    }),
+    query: z.object({
+      erase: z.enum(['true', 'false']).optional().openapi({
+        description:
+          'Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the ' +
+          'funnel and its economics for good.',
+      }),
+    }),
+  },
+  responses: {
+    200: { description: 'The funnels still declared on this offer', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    400: { description: 'Invalid ID or unknown funnel key' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/user-fields',
+  summary: "Get one offer's value proposition",
+  description:
+    'The 7 user-facing fields for THIS OFFER. The `confirmed` values are the offer\'s own — a dream ' +
+    'outcome and a risk reversal are claims about one thing a brand sells. The `suggested` prefill ' +
+    "stays BRAND-wide: it is read off the brand's own site, which describes the company and knows " +
+    'nothing about which of its products you are looking at, so every offer of a brand prefills from ' +
+    'the same extraction and diverges the moment a human confirms anything.',
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'User-facing fields with provenance', content: { 'application/json': { schema: UserFieldsResponseSchema } } },
+    400: { description: 'Invalid brand or offer ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/user-fields',
+  summary: "Write one offer's value proposition",
+  description:
+    'Upsert confirmed user fields for THIS OFFER. An unknown key (not one of the 7) is a 400 and ' +
+    'NOTHING is written. Two offers of one brand hold completely independent values under the same ' +
+    'key. Returns the updated view in the same shape as GET.',
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PutUserFieldsRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Updated user-facing fields with provenance', content: { 'application/json': { schema: UserFieldsResponseSchema } } },
+    400: { description: 'Invalid ID, or an unknown field key' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/offers',
+  summary: 'Internal read of the offers under a brand',
+  description:
+    'Internal api-key read of the offers under a brand — for a sibling service that holds a brand id ' +
+    'and is moving to the offer grain. The org is taken from `x-org-id`; without it, it is resolved ' +
+    'when exactly ONE org claims the brand, and rejected 400 `ORG_REQUIRED` when several do. An ' +
+    'unclaimed brand answers 200 with an empty list. ' + OFFER_MODEL_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The offers (possibly empty)', content: { 'application/json': { schema: ListOffersResponseSchema } } },
+    400: { description: 'Invalid brand ID format, or the brand is claimed by several orgs' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/offers/{offerId}/sales-funnels',
+  summary: 'Internal read of one offer\'s active sales funnels',
+  description:
+    'The ACTIVE funnels of ONE offer, keyed by the offer alone — what a scheduler ranks over once it ' +
+    'holds an offer id. A funnel switched off is never listed: it must never be ranked. An unknown ' +
+    'offer id is a 404, unlike the brand-keyed read, because an id that names nothing is a caller ' +
+    'error rather than an unconfigured brand. ' + SALES_FUNNELS_MODEL_DESCRIPTION,
+  request: { params: z.object({ offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The active funnels of this offer', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    400: { description: 'Invalid offer ID format' },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
   },
 });
