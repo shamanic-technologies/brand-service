@@ -169,6 +169,18 @@ The same thing is true of `brand_sales_economics`, keyed on `(org_id, brand_id)`
 
 **When you add a fleet-wide read over any per-`(org, brand)` config table, GROUP BY the brand first.** The per-brand and per-row answers agree only while every brand is singly claimed, so the bug is invisible in a fixture and invisible in the code. Regression: `tests/integration/crossBrandAverageWeighting.test.ts` (five orgs claiming one brand move the benchmark by one brand's worth, and it asserts the two answers genuinely differ on its fixture so it cannot pass with the collapse removed).
 
+## Six offers named "Press Coverage" on one brand are SIX ORGS, not six clones — do not merge them
+
+`brand_offers` is per-`(org, brand)` like every other table a customer configures, and the one-time migration created exactly ONE offer per pair. Production carries **188 rows over 188 distinct `(org_id, brand_id)` pairs and 139 brands** — verified: `count(*) = count(DISTINCT (org_id, brand_id)) = 188`, so **no org holds two offers for one brand anywhere on the platform**. The 21 brands showing several rows are the 21 brands claimed by several orgs, one by ten. Rows created half a second apart are one pass of one loop over those pairs, one LLM naming call each, which is what the loop is.
+
+Read as a flat table they look exactly like clones of one proposition, and the repair that suggests itself — merge onto a survivor, repoint the campaigns — **deletes nine orgs' configuration and hands their campaigns to a tenth org's row.** That is the leak migration `0050` closed, reopened as data loss. The same trap as the "duplicate declarations" on `brand_sales_funnels` above: the key you are counting against is the pre-`0050` one.
+
+**No campaign is split across those rows.** `campaign_service.campaigns.offer_id` was populated per org, and it holds: of 700 campaigns, 555 carry an offer, referencing 45 offers, and **every one of the 45 belongs to the org that owns the campaign — zero org mismatches, zero dangling ids.** A brand whose campaigns look "split 53 / 6 / 1 across three clones" is three ORGS running their own outreach on a domain they each claim, and each of them sees one row carrying all 53, or all 6, or the 1. Verify the same way before believing otherwise: join `campaigns(offer_id, org_id)` to `brand_offers(id, org_id)` and count the mismatches, rather than reading offer names off a listing.
+
+**A name that differs between two of those rows — "Electric Cars" / "Electric Vehicles", "Co-working" / "Coworking" — is two orgs' independent naming calls on one brand, not a bad merge key.** Each org sees only its own, so nothing incoherent is rendered; and the offer name is a label a person can rename at any time through `PATCH .../offers/{offerId}`.
+
+**Every read, write and resolution is org-scoped, and that is what must not regress.** `listOffers`, `getOffer` and therefore `resolveSoleOffer` all filter on `org_id`, so a brand ten orgs claim still resolves to ONE offer per org and a brand-scoped call never 409s `SeveralOffersError` on somebody else's row. `getOfferById` (internal, offer id alone) reads the org OFF the row rather than taking one. Regression: `tests/integration/offersAcrossOrgsClaimingOneBrand.test.ts` (three orgs on one brand, same offer name, independent prices, `404` across orgs, `ORG_REQUIRED` on the org-less internal read), plus `tests/unit/offerMigrationPlan.test.ts` for the per-pair planning and the empty re-run.
+
 ## Boot: the port binds BEFORE migrations, and a gate — not a wait — is what protects the schema
 
 `src/index.ts` calls `app.listen()` FIRST and runs `migrate()` behind it. Do NOT restore the old `migrate().then(listen)` order, and do NOT reintroduce `process.exit(1)` on migration failure.
