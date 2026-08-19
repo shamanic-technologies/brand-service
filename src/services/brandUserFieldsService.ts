@@ -40,18 +40,13 @@ export interface ConfirmedUserField {
 }
 
 /**
- * Read the confirmed (user-validated) fields for a brand as a Map keyed by
+ * Read the confirmed (user-validated) fields of ONE offer as a Map keyed by
  * field key. Only the 7 user-facing keys can ever be present (DB CHECK).
- */
-export async function getConfirmedByBrandId(
-  orgId: string,
-  brandId: string,
-): Promise<Map<string, ConfirmedUserField>> {
-  return getConfirmedByOfferId(orgId, brandId, await resolveSoleOffer(orgId, brandId));
-}
-
-/**
- * The same read, for ONE named offer.
+ *
+ * There is deliberately no brand-scoped sibling of this read anymore. Every
+ * reader now states which proposition it is asking about — by naming an offer,
+ * or by resolving one through `resolveNamedOffer`, which still refuses a brand
+ * selling several rather than picking one.
  *
  * `null` reads the rows the migration has not reached, which — scoped by org and
  * brand — is byte-for-byte what this query answered before offers existed. It is
