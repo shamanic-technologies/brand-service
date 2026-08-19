@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  DEFAULT_OFFER_NAME,
   OFFER_NAME_MAX_CHARS,
   OFFER_NAME_MAX_WORDS,
   normalizeOfferName,
@@ -135,5 +136,24 @@ describe("offerNameForBrand — the implicit offer a legacy write creates", () =
     const name = offerNameForBrand({ name: 'A Very Long Company Name Indeed', domain: null });
     expect(name).not.toBeNull();
     expect(offerNameProblem(name!)).toBeNull();
+  });
+});
+
+describe('DEFAULT_OFFER_NAME', () => {
+  it('satisfies the two limits it will be stored under', () => {
+    expect(offerNameProblem(DEFAULT_OFFER_NAME)).toBeNull();
+  });
+
+  // Most brands never stated a value proposition, so this is what most offers
+  // are called. It must not imply a ranking: there is no primary offer in this
+  // model, and a default label is the one place a customer would read that
+  // claim. Nor may it name the offer after its SALES FUNNEL — a funnel is how
+  // an offer is sold, not what it is.
+  it('claims no rank and names no funnel', () => {
+    expect(DEFAULT_OFFER_NAME.toLowerCase()).not.toContain('main');
+    expect(DEFAULT_OFFER_NAME.toLowerCase()).not.toContain('primary');
+    for (const funnelWord of ['website', 'meeting', 'form', 'purchase', 'sales']) {
+      expect(DEFAULT_OFFER_NAME.toLowerCase()).not.toContain(funnelWord);
+    }
   });
 });

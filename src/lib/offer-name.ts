@@ -20,6 +20,31 @@ export const OFFER_NAME_MAX_WORDS = 2;
 export const OFFER_NAME_MAX_CHARS = 20;
 
 /**
+ * What an offer is called when the brand has not said enough to name it.
+ *
+ * Owner-picked. Most brands on the platform never filled in a value
+ * proposition, so their offer cannot be named after what it sells — there is no
+ * statement of what it sells. This is the honest label for that: "the offer you
+ * were given by default", which is exactly what it is.
+ *
+ * Two names were considered and rejected, and both rejections matter:
+ *
+ * "Main Offer" implies a RANKING. There is deliberately no primary offer in this
+ * model — several run at once and none outranks another — and a default label is
+ * the one place a customer would read that claim.
+ *
+ * A name derived from the offer's SALES FUNNEL ("Website Sales" for
+ * `website_purchases`) names how the offer is SOLD, not what it IS. A funnel is
+ * the mechanism; an offer is the proposition. Conflating them is exactly the
+ * confusion this whole level was introduced to remove.
+ *
+ * It is a NAME like any other, not a sentinel: nothing keys on it, a customer
+ * renames it through the ordinary rename route, and a brand that later states
+ * what it sells simply edits it.
+ */
+export const DEFAULT_OFFER_NAME = 'Default Offer';
+
+/**
  * The canonical form of a name: outer whitespace removed and every internal run
  * of whitespace collapsed to ONE space.
  *
