@@ -4,7 +4,9 @@ import { getBrand } from '../services/fieldExtractionService';
 import {
   multiBrandExtractFields,
   UnrequestedRegenerateFieldKeyError,
+  OfferIdWithSeveralBrandsError,
 } from '../services/multiBrandFieldExtractionService';
+import { rejectOfferProblem } from '../lib/offer-scope';
 import { SiteMapError } from '../lib/scraping-client';
 import { ExtractFieldsRequestSchema } from '../schemas';
 import { db, brandExtractedFields } from '../db';
@@ -78,11 +80,21 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
       urlStrategy: parsed.data.urlStrategy,
       mode: parsed.data.mode,
       regenerateFieldKeys: parsed.data.regenerateFieldKeys,
+      offerId: parsed.data.offerId,
     });
 
     return res.json(result);
   } catch (error: any) {
     console.error('[brand-service] Extract fields (multi-brand) error:', error);
+    // A named offer that does not exist (404), and the deliberate 409 for a
+    // brand holding several offers when the caller named none. Neither is
+    // something to clean up and proceed with: the confirmed fields ground the
+    // prompt, so guessing which proposition was meant produces plausible output
+    // nobody can see is wrong.
+    if (rejectOfferProblem(res, error)) return;
+    if (error instanceof OfferIdWithSeveralBrandsError) {
+      return res.status(400).json({ error: error.message });
+    }
     if (error instanceof UnrequestedRegenerateFieldKeyError) {
       return res.status(400).json({ error: error.message });
     }
@@ -142,11 +154,21 @@ internalRouter.post('/brands/extract-fields', async (req: Request, res: Response
       urlStrategy: parsed.data.urlStrategy,
       mode: parsed.data.mode,
       regenerateFieldKeys: parsed.data.regenerateFieldKeys,
+      offerId: parsed.data.offerId,
     });
 
     return res.json(result);
   } catch (error: any) {
     console.error('[brand-service] Extract fields (internal multi-brand) error:', error);
+    // A named offer that does not exist (404), and the deliberate 409 for a
+    // brand holding several offers when the caller named none. Neither is
+    // something to clean up and proceed with: the confirmed fields ground the
+    // prompt, so guessing which proposition was meant produces plausible output
+    // nobody can see is wrong.
+    if (rejectOfferProblem(res, error)) return;
+    if (error instanceof OfferIdWithSeveralBrandsError) {
+      return res.status(400).json({ error: error.message });
+    }
     if (error instanceof UnrequestedRegenerateFieldKeyError) {
       return res.status(400).json({ error: error.message });
     }

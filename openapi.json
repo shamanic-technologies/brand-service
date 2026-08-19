@@ -810,6 +810,12 @@
               "urgency",
               "scarcity"
             ]
+          },
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "WHICH offer's confirmed fields ground the prompt and overlay the response. The 7 user-facing keys describe ONE proposition, so a brand selling two things has two right answers and only the caller knows which it means. Omit for a brand with a single offer (unchanged behaviour); a brand holding SEVERAL offers answers 409 SEVERAL_OFFERS until one is named. Only valid on a single-brand request — sent with several brands it is a 400, since one offer cannot name a proposition on each of them. An id that names no offer of this brand is a 404.",
+            "example": "9f1c2f6e-2a4b-4f0e-9d21-6b0b8a5f2d31"
           }
         },
         "required": [
@@ -2309,6 +2315,12 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "WHICH offer to prospect for. Who to contact follows from what is being sold, so a brand selling two things has two ICPs. Omit for a brand with a single offer (unchanged behaviour); a brand holding SEVERAL offers answers 409 SEVERAL_OFFERS until one is named. An id that names no offer of this brand is a 404.",
+            "example": "9f1c2f6e-2a4b-4f0e-9d21-6b0b8a5f2d31"
           }
         }
       },
@@ -5426,6 +5438,17 @@
             "required": true,
             "name": "brandId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "WHICH offer's confirmed fields the returned brandProfile carries. A campaign belongs to an offer, so the caller is the one that can name it. Omit for a brand selling one thing (unchanged behaviour); a brand holding SEVERAL offers answers 409 SEVERAL_OFFERS until one is named, rather than being served another proposition's words."
+            },
+            "required": false,
+            "description": "WHICH offer's confirmed fields the returned brandProfile carries. A campaign belongs to an offer, so the caller is the one that can name it. Omit for a brand selling one thing (unchanged behaviour); a brand holding SEVERAL offers answers 409 SEVERAL_OFFERS until one is named, rather than being served another proposition's words.",
+            "name": "offerId",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5440,10 +5463,13 @@
             }
           },
           "400": {
-            "description": "Invalid brand ID format"
+            "description": "Invalid brand ID or offer ID format"
           },
           "404": {
-            "description": "Brand not found"
+            "description": "Brand not found, or offerId names no offer of this brand"
+          },
+          "409": {
+            "description": "The brand sells several offers and none was named (code SEVERAL_OFFERS)"
           },
           "500": {
             "description": "Internal server error"

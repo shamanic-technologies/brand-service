@@ -616,6 +616,18 @@ export interface ExtractFieldsOptions {
    * slot for a regenerated key is refreshed with the new draft.
    */
   regenerateFieldKeys?: string[];
+  /**
+   * WHICH offer's confirmed fields ground the prompt. The 7 user-facing keys
+   * belong to one proposition, so a brand selling two things has two different
+   * right answers and only the caller knows which it means.
+   *
+   * Omitted → the brand's sole offer (byte-for-byte today's behaviour, and the
+   * only case in production), nothing when the brand has none, and the
+   * deliberate `SeveralOffersError` when it has several and nobody named one.
+   * An id that names no offer of this (org, brand) is `OfferNotFoundError` —
+   * never a quiet fall back to the brand's own rows.
+   */
+  offerId?: string | null;
 }
 
 export async function extractFields(
@@ -778,7 +790,13 @@ export async function extractFields(
     // draft impossible. Only the listed keys are withheld, so the rest of the
     // confirmed profile still grounds the regeneration (the offer levers are
     // written FROM the brand's confirmed services).
-    const profileResponse = await brandProfileService.getByBrandId(configOrgId, brandId);
+    //
+    // WHICH offer's confirmed words are injected is the caller's to state: the
+    // 7 user-facing keys describe one proposition, so on a brand selling two
+    // things the wrong pick would ground this extraction in the other product's
+    // promise and produce output nobody can see is wrong. `offerId` omitted
+    // resolves the brand's sole offer, exactly as before.
+    const profileResponse = await brandProfileService.getByBrandId(configOrgId, brandId, options.offerId);
     const confirmedForPrompt = regenerateKeys.size === 0
       ? profileResponse.confirmedFields
       : Object.fromEntries(

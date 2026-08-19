@@ -53,9 +53,16 @@ vi.mock('../../src/services/fieldExtractionService', () => ({
 const { mockGetConfirmed } = vi.hoisted(() => ({ mockGetConfirmed: vi.fn() }));
 
 vi.mock('../../src/services/brandUserFieldsService', () => ({
-  getConfirmedByBrandId: (...args: unknown[]) => mockGetConfirmed(...args),
+  getConfirmedByOfferId: (...args: unknown[]) => mockGetConfirmed(...args),
   isUserFacingFieldKey: (k: string) =>
     ['services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity'].includes(k),
+}));
+
+// The offer a brand-scoped extraction resolves to. `null` is what a brand with
+// no offer answers, and it selects the pre-offer rows — the same value every
+// production brand's sole offer produced before offers existed.
+vi.mock('../../src/services/brandOffersService', () => ({
+  resolveNamedOffer: vi.fn().mockResolvedValue(null),
 }));
 
 import {
