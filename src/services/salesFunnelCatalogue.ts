@@ -1,15 +1,19 @@
 /**
  * The catalogue of sales funnels a brand can sell through.
  *
- * A funnel is ONE chain, from the first signal outreach can buy (a positive
- * reply, or a click onto the site) down to a paid client. It owns everything
- * that chain needs priced: the conversion rate of each of its legs, the lifetime
- * revenue of a client won through it, the page an outreach click lands on and,
- * when a meeting sits in the chain, a booking link.
+ * A funnel is ONE chain, from the event that STARTS it down to the SALE. It owns
+ * everything that chain needs priced: the conversion rate of each of its steps,
+ * the lifetime revenue of a client won through it, the page an outreach click
+ * lands on and, when a meeting sits in the chain, a booking link.
+ *
+ * VOCABULARY (owner-fixed): the terminal outcome of every funnel is a SALE —
+ * it is what the customer buys. Each intermediate stage is a STEP. The step a
+ * funnel is NAMED after is its MILESTONE. The word "outcome" is deprecated
+ * fleet-wide: it used to name the retired per-brand optimization goal.
  *
  * brand-service OWNS this catalogue because it owns what a brand declares. The
- * dashboard renders the same four funnels (`apps/dashboard/src/lib/sales-funnels.ts`
- * in `shamanic-technologies/distribute.you`) — the keys, the chains and the legs
+ * dashboard renders the same funnels (`apps/dashboard/src/lib/sales-funnels.ts`
+ * in `shamanic-technologies/distribute.you`) — the keys, the chains and the steps
  * are byte-equal with it on purpose, so the screen and the store describe one
  * model rather than two that drift.
  *
@@ -26,19 +30,54 @@
 /**
  * The funnels in the catalogue. Wire values.
  *
- * These four tokens are an owner decision and are the ONLY names the fleet uses
- * for what a brand sells through. The pre-retirement spellings (`reply_meeting`,
+ * These tokens are an owner decision and are the ONLY names the fleet uses for
+ * what a brand sells through. The pre-retirement spellings (`reply_meeting`,
  * `visit_meeting`, `visit_signup`, `visit_form`) are accepted on WRITE forever —
  * `toSalesFunnelKey` resolves them — and are never emitted again.
+ *
+ * The first four are the original catalogue, written while cold email was the
+ * only channel we ran: every journey began either in a conversation we started
+ * or on the brand's own website. The last three describe journeys that begin
+ * somewhere else entirely, and exist because roughly thirty acquisition channels
+ * are opening. They are ADDED, never renamed over the four: live brands and live
+ * budgets reference those keys.
  */
 export const SALES_FUNNEL_KEYS = [
   'sales_meetings_from_conversation',
   'sales_meetings_from_website',
   'website_purchases',
   'form_magnet',
+  'sales_from_conversation',
+  'sales_meetings_from_ads',
+  'lead_forms_from_ads',
 ] as const;
 
 export type SalesFunnelKey = (typeof SALES_FUNNEL_KEYS)[number];
+
+/**
+ * The event that STARTS a funnel. A consumer reads this to decide which
+ * acquisition channels can even feed which funnels: a channel that can only
+ * produce a phone conversation cannot feed a funnel that starts at a website
+ * visit, and a channel that never touches the brand's site cannot feed one that
+ * starts there.
+ *
+ * - `conversation_reply` — somebody answered a conversation we started.
+ * - `website_visit`      — somebody landed on the brand's OWN site.
+ * - `ad_click`           — somebody engaged with an ad and stayed on the
+ *                          advertising platform: a platform-hosted lead form
+ *                          (Meta Lead Ads, LinkedIn Lead Gen Forms, TikTok lead
+ *                          forms) or a booking taken straight from the ad (Meta
+ *                          "Book Now", Google Local Services). The brand's own
+ *                          site is never touched, which is exactly what makes
+ *                          this a third starting situation rather than a visit.
+ */
+export const SALES_FUNNEL_START_EVENTS = [
+  'conversation_reply',
+  'website_visit',
+  'ad_click',
+] as const;
+
+export type SalesFunnelStartEvent = (typeof SALES_FUNNEL_START_EVENTS)[number];
 
 /**
  * Every funnel spelling a caller may still send, besides the four canonical ones.
@@ -56,7 +95,7 @@ export const LEGACY_SALES_FUNNEL_KEYS = {
 
 export type LegacySalesFunnelKey = keyof typeof LEGACY_SALES_FUNNEL_KEYS;
 
-/** Every funnel spelling accepted on write: the canonical four + every legacy one. */
+/** Every funnel spelling accepted on write: every canonical key + every legacy one. */
 export const ACCEPTED_SALES_FUNNEL_KEYS = [
   ...SALES_FUNNEL_KEYS,
   ...(Object.keys(LEGACY_SALES_FUNNEL_KEYS) as LegacySalesFunnelKey[]),
@@ -80,6 +119,14 @@ export const SALES_FUNNEL_RATE_KEYS = [
   'signupToPaidClientPct',
   'visitToFormSubmissionPct',
   'formSubmissionToPaidClientPct',
+  // The chains that begin somewhere other than a conversation-with-a-meeting or
+  // the brand's own website. None of these has a counterpart on the brand-wide
+  // `brand_sales_economics` record — that record predates them — so they are
+  // stated on the funnel or not at all.
+  'replyToPaidClientPct',
+  'adClickToMeetingPct',
+  'adClickToLeadFormPct',
+  'leadFormToPaidClientPct',
 ] as const;
 
 export type SalesFunnelRateKey = (typeof SALES_FUNNEL_RATE_KEYS)[number];
@@ -88,10 +135,27 @@ export interface SalesFunnelDef {
   key: SalesFunnelKey;
   /** What the funnel is called. */
   name: string;
+  /**
+   * The event that STARTS this chain. `steps[0]` is that event as a label; this
+   * is the token a consumer matches a channel against.
+   */
+  startEvent: SalesFunnelStartEvent;
   /** The chain. `legs[i]` is the rate between `steps[i]` and `steps[i + 1]`. */
   steps: string[];
   /** The rate each leg of the chain converts at, in chain order. */
   legs: SalesFunnelRateKey[];
+  /**
+   * The step this funnel is NAMED after — its MILESTONE. The moment that tells a
+   * brand the funnel is working, which for most chains lands before any sale has
+   * happened. It is what a channel's minimum budget is priced against: one month
+   * must pay for at least one of these. MUST be one of `steps`; the assertion at
+   * the bottom of this file refuses a catalogue where it is not.
+   *
+   * A chain whose only stage IS the sale (`sales_from_conversation`) names the
+   * sale, because that is genuinely the moment it is named after — not a
+   * fallback, and never a step borrowed from another chain.
+   */
+  milestoneStep: string;
   /** The first step is a click onto the brand's site, so a domain is required. */
   requiresWebsite: boolean;
   /** This funnel lands an outreach click on a page of the brand's own site. */
@@ -100,12 +164,21 @@ export interface SalesFunnelDef {
   bookingLink: boolean;
 }
 
+/**
+ * The terminal step of every chain is the SALE. Its LABEL is `Paid client` for
+ * every funnel, old and new: the four original chains have carried that label
+ * since before the sale/step/milestone vocabulary was fixed, live consumers
+ * render it, and a new chain spelling the same stage differently would describe
+ * one model as two.
+ */
 export const SALES_FUNNELS: SalesFunnelDef[] = [
   {
     key: 'sales_meetings_from_conversation',
     name: 'Sales Meeting from Conversation',
+    startEvent: 'conversation_reply',
     steps: ['Positive reply', 'Meeting booked', 'Meeting attended', 'Paid client'],
     legs: ['replyToMeetingPct', 'meetingBookedToAttendedPct', 'meetingToClosePct'],
+    milestoneStep: 'Meeting booked',
     requiresWebsite: false,
     pageDestination: false,
     bookingLink: true,
@@ -113,8 +186,10 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
   {
     key: 'sales_meetings_from_website',
     name: 'Sales Meeting from Website',
+    startEvent: 'website_visit',
     steps: ['Website visit', 'Meeting booked', 'Meeting attended', 'Paid client'],
     legs: ['visitToMeetingPct', 'meetingBookedToAttendedPct', 'meetingToClosePct'],
+    milestoneStep: 'Meeting booked',
     requiresWebsite: true,
     pageDestination: true,
     bookingLink: true,
@@ -122,8 +197,10 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
   {
     key: 'website_purchases',
     name: 'Website Purchase',
+    startEvent: 'website_visit',
     steps: ['Website visit', 'Signup', 'Paid client'],
     legs: ['visitToSignupPct', 'signupToPaidClientPct'],
+    milestoneStep: 'Signup',
     requiresWebsite: true,
     pageDestination: true,
     bookingLink: false,
@@ -131,10 +208,60 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
   {
     key: 'form_magnet',
     name: 'Form Magnet',
+    startEvent: 'website_visit',
     steps: ['Website visit', 'Form filled', 'Paid client'],
     legs: ['visitToFormSubmissionPct', 'formSubmissionToPaidClientPct'],
+    milestoneStep: 'Form filled',
     requiresWebsite: true,
     pageDestination: true,
+    bookingLink: false,
+  },
+  {
+    // The sale closes INSIDE the conversation — no meeting is ever booked. The
+    // common shape under roughly two thousand dollars (agencies, freelancers,
+    // wholesale) and the default in markets where business runs on WhatsApp.
+    // Its milestone IS the sale, because the chain has no stage before it; that
+    // is the moment the funnel is named after, not a stand-in for a missing one.
+    key: 'sales_from_conversation',
+    name: 'Sale from Conversation',
+    startEvent: 'conversation_reply',
+    steps: ['Positive reply', 'Paid client'],
+    legs: ['replyToPaidClientPct'],
+    milestoneStep: 'Paid client',
+    requiresWebsite: false,
+    pageDestination: false,
+    bookingLink: false,
+  },
+  {
+    // A meeting booked DIRECTLY from an ad — Meta "Book Now", Google Local
+    // Services — without the buyer ever visiting the brand's site. It shares the
+    // show-up and close legs with the other meeting chains, because once a
+    // meeting is booked the rest of the journey is the same; only its first leg
+    // is its own.
+    key: 'sales_meetings_from_ads',
+    name: 'Sales Meeting from Ads',
+    startEvent: 'ad_click',
+    steps: ['Ad click', 'Meeting booked', 'Meeting attended', 'Paid client'],
+    legs: ['adClickToMeetingPct', 'meetingBookedToAttendedPct', 'meetingToClosePct'],
+    milestoneStep: 'Meeting booked',
+    requiresWebsite: false,
+    pageDestination: false,
+    bookingLink: true,
+  },
+  {
+    // A form hosted BY THE ADVERTISING PLATFORM — Meta Lead Ads, LinkedIn Lead
+    // Gen Forms, TikTok lead forms — which the buyer fills without ever touching
+    // the brand's site. Deliberately GENERAL: the same chain prices a webinar
+    // signup, a guide download, a quote request and a demo request, so naming it
+    // after any one of them would exclude the others.
+    key: 'lead_forms_from_ads',
+    name: 'Lead Form from Ads',
+    startEvent: 'ad_click',
+    steps: ['Ad click', 'Lead form submitted', 'Paid client'],
+    legs: ['adClickToLeadFormPct', 'leadFormToPaidClientPct'],
+    milestoneStep: 'Lead form submitted',
+    requiresWebsite: false,
+    pageDestination: false,
     bookingLink: false,
   },
 ];
@@ -184,4 +311,51 @@ export function funnelRateKeys(def: SalesFunnelDef): SalesFunnelRateKey[] {
 /** True when this funnel's chain converts at `rate`. */
 export function funnelPricesRate(def: SalesFunnelDef, rate: SalesFunnelRateKey): boolean {
   return def.legs.includes(rate);
+}
+
+/**
+ * Where the MILESTONE sits in the chain. Throws when the funnel names a step it
+ * does not have — a consumer pricing a channel's minimum budget against a step
+ * that is not in the chain would be pricing nothing, so this fails loud rather
+ * than answering 0 (which is a real position: the starting event).
+ */
+export function funnelMilestoneStepIndex(def: SalesFunnelDef): number {
+  const index = def.steps.indexOf(def.milestoneStep);
+  if (index < 0) {
+    throw new Error(
+      `Sales funnel "${def.key}" names milestone step "${def.milestoneStep}", which is not one of its steps: ` +
+      def.steps.join(' -> ')
+    );
+  }
+  return index;
+}
+
+/**
+ * The catalogue is checked once, at load.
+ *
+ * Both new fields have to resolve for EVERY funnel or a consumer cannot answer
+ * the two questions they exist for — which channels can feed this funnel, and
+ * what does one month of that channel have to pay for. A funnel that cannot
+ * answer them must break the service at boot, where it is one obvious error,
+ * rather than at read time on whichever brand happens to have declared it.
+ */
+for (const def of SALES_FUNNELS) {
+  if (!(SALES_FUNNEL_START_EVENTS as readonly string[]).includes(def.startEvent)) {
+    throw new Error(`Sales funnel "${def.key}" declares an unknown start event: ${def.startEvent}`);
+  }
+  if (def.steps.length < 2) {
+    throw new Error(`Sales funnel "${def.key}" has no chain: a funnel runs from its start event to the sale.`);
+  }
+  if (def.legs.length !== def.steps.length - 1) {
+    throw new Error(
+      `Sales funnel "${def.key}" has ${def.steps.length} steps and ${def.legs.length} legs: ` +
+      'every step but the first is reached through exactly one rate.'
+    );
+  }
+  if ((def.startEvent === 'website_visit') !== def.requiresWebsite) {
+    throw new Error(
+      `Sales funnel "${def.key}" starts at ${def.startEvent} but ${def.requiresWebsite ? 'requires' : 'does not require'} a website.`
+    );
+  }
+  funnelMilestoneStepIndex(def);
 }

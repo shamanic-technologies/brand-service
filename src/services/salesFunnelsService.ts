@@ -5,6 +5,8 @@ import {
   SalesFunnelDef,
   SalesFunnelKey,
   SalesFunnelRateKey,
+  SalesFunnelStartEvent,
+  funnelMilestoneStepIndex,
   funnelPricesRate,
   funnelRateKeys,
   salesFunnelByKey,
@@ -68,6 +70,22 @@ export interface DeclaredSalesFunnel {
   name: string;
   /** The chain the rates below price. */
   steps: string[];
+  /**
+   * The event that STARTS this chain. A consumer matches an acquisition channel
+   * against it: a channel that can only produce a phone conversation cannot feed
+   * a funnel that starts at a `website_visit`. `steps[0]` is the same event as a
+   * label.
+   */
+  startEvent: SalesFunnelStartEvent;
+  /**
+   * The step this funnel is NAMED after — its MILESTONE — and where it sits in
+   * `steps`. The moment that tells a brand the funnel is working, and what a
+   * channel's minimum budget is priced against: one month must pay for at least
+   * one of these. Always a member of `steps`, so a consumer reads it instead of
+   * hardcoding a funnel-to-step mapping of its own.
+   */
+  milestoneStep: string;
+  milestoneStepIndex: number;
   /**
    * NO GOAL. A funnel used to carry one beside its key, and it is retired: it
    * was the poorer word (both meeting funnels mapped onto one `meetingBooked`,
@@ -197,6 +215,11 @@ export function formatDeclaredFunnel(row: FunnelRow): DeclaredSalesFunnel {
     active: row.active,
     name: def.name,
     steps: def.steps,
+    startEvent: def.startEvent,
+    milestoneStep: def.milestoneStep,
+    // Fails loud on a funnel whose milestone is not one of its steps, rather
+    // than answering 0 — which is a real position in the chain, the start event.
+    milestoneStepIndex: funnelMilestoneStepIndex(def),
     rates,
     lifetimeRevenueUsd: row.lifetimeRevenueUsd ?? null,
     destinationUrl: row.destinationUrl ?? null,
