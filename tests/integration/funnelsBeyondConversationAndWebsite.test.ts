@@ -93,7 +93,7 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
       });
 
     expect(res.status).toBe(200);
-    expect(res.body.funnel.bookingUrl).toBe('https://cal.com/beyond/30min/');
+    expect(res.body.funnel.bookingUrl).toBe('https://cal.com/beyond/30min');
     expect(res.body.funnel.rates.adClickToMeetingPct).toBe(4);
   });
 
