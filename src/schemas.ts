@@ -8,6 +8,7 @@ import { ACCEPTED_OPTIMIZATION_GOALS, RETIRED_GOALS } from './lib/goal-vocabular
 import {
   ACCEPTED_SALES_FUNNEL_KEYS,
   SALES_FUNNEL_KEYS,
+  SALES_FUNNEL_START_EVENTS,
 } from './services/salesFunnelCatalogue';
 
 extendZodWithOpenApi(z);
@@ -2208,7 +2209,15 @@ export const SalesFunnelKeySchema = z
   .enum(SALES_FUNNEL_KEYS)
   .openapi('SalesFunnelKey');
 
-// Every funnel spelling accepted on WRITE: the canonical four plus the
+// The event that STARTS a funnel. A consumer reads it to decide which
+// acquisition channels can feed which funnels. `ad_click` covers the journeys
+// that begin on the advertising platform and never touch the brand's own site —
+// a platform-hosted lead form, or a booking taken straight from the ad.
+export const SalesFunnelStartEventSchema = z
+  .enum(SALES_FUNNEL_START_EVENTS)
+  .openapi('SalesFunnelStartEvent');
+
+// Every funnel spelling accepted on WRITE: every canonical key plus the
 // pre-retirement ones (`reply_meeting`, `visit_meeting`, `visit_signup`,
 // `visit_form`), kept working FOREVER so no caller had to change in lockstep
 // with the rename. A legacy spelling is resolved before anything is stored and
@@ -2233,6 +2242,14 @@ export const SalesFunnelRatesSchema = z
     signupToPaidClientPct: PercentSchema.nullable(),
     visitToFormSubmissionPct: PercentSchema.nullable(),
     formSubmissionToPaidClientPct: PercentSchema.nullable(),
+    // The legs of the chains that start neither in a conversation leading to a
+    // meeting nor on the brand's own site. Stored ONLY on a funnel — the
+    // brand-wide economics record predates them and has no column for any of
+    // them, so they are stated here or not at all.
+    replyToPaidClientPct: PercentSchema.nullable(),
+    adClickToMeetingPct: PercentSchema.nullable(),
+    adClickToLeadFormPct: PercentSchema.nullable(),
+    leadFormToPaidClientPct: PercentSchema.nullable(),
   })
   .partial()
   .openapi('SalesFunnelRates');
@@ -2264,6 +2281,19 @@ export const DeclaredSalesFunnelSchema = z
     active: z.boolean(),
     name: z.string(),
     steps: z.array(z.string()),
+    // The event that STARTS this chain, and the token a consumer matches an
+    // acquisition channel against: a channel that can only produce a phone
+    // conversation cannot feed a funnel that starts at a `website_visit`, and a
+    // channel that never touches the brand's site cannot feed one that does.
+    // `steps[0]` is the same event as a label.
+    startEvent: SalesFunnelStartEventSchema,
+    // The step this funnel is NAMED after — its MILESTONE — and where it sits in
+    // `steps`. The moment that tells a brand the funnel is working, and what a
+    // channel's minimum budget is priced against: one month must pay for at
+    // least one of these. Always a member of `steps`, so a consumer READS it
+    // rather than hardcoding a funnel-to-step mapping of its own.
+    milestoneStep: z.string(),
+    milestoneStepIndex: z.number().int(),
     // NO `goal` / `currentGoal`. A funnel used to carry the goal it optimized
     // for, and that vocabulary is retired: `sales_meetings_from_conversation`
     // and `sales_meetings_from_website` both mapped onto one `meetingBooked`,
@@ -2311,15 +2341,25 @@ export const DeclareSalesFunnelResponseSchema = z
   .openapi('DeclareSalesFunnelResponse');
 
 const SALES_FUNNELS_MODEL_DESCRIPTION =
-  'A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto ' +
-  'the site) down to a paid client, and it owns everything that chain needs priced: the conversion ' +
-  'rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach ' +
-  'click lands on and, when a meeting sits in the chain, a booking link. The catalogue is ' +
+  'A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything ' +
+  'that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a ' +
+  'client won through it, the page an outreach click lands on and, when a meeting sits in the ' +
+  'chain, a booking link. The catalogue is ' +
   '`sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> ' +
   'Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting ' +
-  'attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and ' +
-  '`form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the ' +
-  'brand never declared reads `null`, which never means zero. ' +
+  'attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), ' +
+  '`form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` ' +
+  '(Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever ' +
+  'booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid ' +
+  'client: booked straight from an ad, the brand\'s site never touched) and `lead_forms_from_ads` ' +
+  '(Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform ' +
+  'itself, deliberately general across webinar signup, guide download, quote request and demo ' +
+  'request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or ' +
+  '`ad_click` — which is how a consumer decides which acquisition channels can feed it, and ' +
+  '`milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that ' +
+  'tells a brand the funnel is working, and what a channel\'s minimum budget is priced against ' +
+  '(one month must pay for at least one of these). Read them rather than hardcoding a mapping. ' +
+  'Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. ' +
   'THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set ' +
   'is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not ' +
   'price a meeting won from a reply apart from one won on the website. Every goal spelling, and ' +

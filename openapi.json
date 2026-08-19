@@ -1923,6 +1923,15 @@
               "type": "string"
             }
           },
+          "startEvent": {
+            "$ref": "#/components/schemas/SalesFunnelStartEvent"
+          },
+          "milestoneStep": {
+            "type": "string"
+          },
+          "milestoneStepIndex": {
+            "type": "integer"
+          },
           "rates": {
             "type": "object",
             "additionalProperties": {
@@ -1951,6 +1960,9 @@
           "active",
           "name",
           "steps",
+          "startEvent",
+          "milestoneStep",
+          "milestoneStepIndex",
           "rates",
           "lifetimeRevenueUsd",
           "destinationUrl",
@@ -1964,7 +1976,18 @@
           "sales_meetings_from_conversation",
           "sales_meetings_from_website",
           "website_purchases",
-          "form_magnet"
+          "form_magnet",
+          "sales_from_conversation",
+          "sales_meetings_from_ads",
+          "lead_forms_from_ads"
+        ]
+      },
+      "SalesFunnelStartEvent": {
+        "type": "string",
+        "enum": [
+          "conversation_reply",
+          "website_visit",
+          "ad_click"
         ]
       },
       "StateSalesFunnelSetRequest": {
@@ -1988,6 +2011,9 @@
           "sales_meetings_from_website",
           "website_purchases",
           "form_magnet",
+          "sales_from_conversation",
+          "sales_meetings_from_ads",
+          "lead_forms_from_ads",
           "reply_meeting",
           "visit_meeting",
           "visit_signup",
@@ -2078,6 +2104,30 @@
             "maximum": 100
           },
           "formSubmissionToPaidClientPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "replyToPaidClientPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "adClickToMeetingPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "adClickToLeadFormPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "leadFormToPaidClientPct": {
             "type": "number",
             "nullable": true,
             "minimum": 0,
@@ -4789,7 +4839,7 @@
     "/orgs/brands/{brandId}/sales-funnels": {
       "get": {
         "summary": "Get the sales funnels a brand has declared it sells through",
-        "description": "The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime revenue, landing page and booking link. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and `form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Lists ACTIVE and INACTIVE funnels alike: an inactive one keeps every number on it, so the screen can show what the user entered and switching it back on returns it. An EMPTY list means the org has NEVER answered — a gap, never \"sells through nothing\", which is unreachable because an org that answered always keeps at least one funnel on. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
+        "description": "The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime revenue, landing page and booking link. A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), `form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` (Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid client: booked straight from an ad, the brand's site never touched) and `lead_forms_from_ads` (Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform itself, deliberately general across webinar signup, guide download, quote request and demo request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or `ad_click` — which is how a consumer decides which acquisition channels can feed it, and `milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that tells a brand the funnel is working, and what a channel's minimum budget is priced against (one month must pay for at least one of these). Read them rather than hardcoding a mapping. Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Lists ACTIVE and INACTIVE funnels alike: an inactive one keeps every number on it, so the screen can show what the user entered and switching it back on returns it. An EMPTY list means the org has NEVER answered — a gap, never \"sells through nothing\", which is unreachable because an org that answered always keeps at least one funnel on. The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
         "parameters": [
           {
             "schema": {
@@ -4828,7 +4878,7 @@
       },
       "put": {
         "summary": "State the whole set of funnels a brand sells through",
-        "description": "State the WHOLE set at once: exactly these funnels, no others. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and `form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Funnels already in the set keep the economics they were priced with (restating a set never wipes them); funnels dropped from it are switched OFF and KEPT with every number on them, so putting one back in the set returns what the user entered rather than an empty form. The set may not be empty — an org that has answered sells through at least one funnel. The set is validated whole before anything is written, so a set naming a website-led funnel on a brand with no website is rejected 400 and nothing is half-applied. Returns the stated set.",
+        "description": "State the WHOLE set at once: exactly these funnels, no others. A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), `form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` (Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid client: booked straight from an ad, the brand's site never touched) and `lead_forms_from_ads` (Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform itself, deliberately general across webinar signup, guide download, quote request and demo request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or `ad_click` — which is how a consumer decides which acquisition channels can feed it, and `milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that tells a brand the funnel is working, and what a channel's minimum budget is priced against (one month must pay for at least one of these). Read them rather than hardcoding a mapping. Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Funnels already in the set keep the economics they were priced with (restating a set never wipes them); funnels dropped from it are switched OFF and KEPT with every number on them, so putting one back in the set returns what the user entered rather than an empty form. The set may not be empty — an org that has answered sells through at least one funnel. The set is validated whole before anything is written, so a set naming a website-led funnel on a brand with no website is rejected 400 and nothing is half-applied. Returns the stated set.",
         "parameters": [
           {
             "schema": {
@@ -4878,7 +4928,7 @@
     "/orgs/brands/{brandId}/sales-funnels/{funnelKey}": {
       "put": {
         "summary": "Declare a sales funnel and write its economics",
-        "description": "Declare that the brand sells through this funnel, and write what you send of its economics. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and `form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Idempotent: the declaration IS the row, so declaring twice is declaring once, and a body with no fields declares the funnel without pricing it yet. PARTIAL: an omitted field is left exactly as stored, an explicit `null` CLEARS the value back to never-declared. `rates` may only carry the legs of THIS funnel's own chain — a foreign rate is rejected 400 rather than dropped. `destinationUrl` is accepted only for a funnel that lands a click on the site and must be on the brand's own domain (or a subdomain); `bookingUrl` only for a funnel whose chain contains a meeting, and it may point at any third-party scheduler. A funnel that starts with a website visit cannot be declared for a brand that has no website (400).",
+        "description": "Declare that the brand sells through this funnel, and write what you send of its economics. A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), `form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` (Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid client: booked straight from an ad, the brand's site never touched) and `lead_forms_from_ads` (Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform itself, deliberately general across webinar signup, guide download, quote request and demo request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or `ad_click` — which is how a consumer decides which acquisition channels can feed it, and `milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that tells a brand the funnel is working, and what a channel's minimum budget is priced against (one month must pay for at least one of these). Read them rather than hardcoding a mapping. Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Idempotent: the declaration IS the row, so declaring twice is declaring once, and a body with no fields declares the funnel without pricing it yet. PARTIAL: an omitted field is left exactly as stored, an explicit `null` CLEARS the value back to never-declared. `rates` may only carry the legs of THIS funnel's own chain — a foreign rate is rejected 400 rather than dropped. `destinationUrl` is accepted only for a funnel that lands a click on the site and must be on the brand's own domain (or a subdomain); `bookingUrl` only for a funnel whose chain contains a meeting, and it may point at any third-party scheduler. A funnel that starts with a website visit cannot be declared for a brand that has no website (400).",
         "parameters": [
           {
             "schema": {
@@ -4997,7 +5047,7 @@
     "/internal/brands/{brandId}/sales-funnels": {
       "get": {
         "summary": "Internal read of the funnels a brand has declared",
-        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for and the economics it is ranked on. `goal` and `currentGoal` carry the SAME canonical token — one vocabulary; `goal` is kept as a byte-stable alias. A funnel is one chain from the first signal outreach can buy (a positive reply, or a click onto the site) down to a paid client, and it owns everything that chain needs priced: the conversion rate of each of its legs, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client) and `form_magnet` (Website visit -> Form filled -> Paid client). Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Returns ONLY the funnels the org currently sells through — a funnel switched off must never be ranked. An EMPTY list means the org has never answered: surface it as a gap, do NOT substitute a plausible set and do NOT derive one from the stored economics. The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the brand, and the read is rejected 400 `ORG_REQUIRED` when several do — each org configures the brand independently, so there is no shared answer to guess at.",
+        "description": "Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. Built for the schedulers (campaign-service arbitration, features-service pricing): these are the funnels a brand AUTHORIZES, each carrying the goal it optimizes for and the economics it is ranked on. `goal` and `currentGoal` carry the SAME canonical token — one vocabulary; `goal` is kept as a byte-stable alias. A funnel is one chain from the event that STARTS it down to the SALE, and it owns everything that chain needs priced: the conversion rate of each of its steps, the lifetime revenue of a client won through it, the page an outreach click lands on and, when a meeting sits in the chain, a booking link. The catalogue is `sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), `form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` (Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid client: booked straight from an ad, the brand's site never touched) and `lead_forms_from_ads` (Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform itself, deliberately general across webinar signup, guide download, quote request and demo request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or `ad_click` — which is how a consumer decides which acquisition channels can feed it, and `milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that tells a brand the funnel is working, and what a channel's minimum budget is priced against (one month must pay for at least one of these). Read them rather than hardcoding a mapping. Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not price a meeting won from a reply apart from one won on the website. Every goal spelling, and every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, `visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none is ever emitted. Returns ONLY the funnels the org currently sells through — a funnel switched off must never be ranked. An EMPTY list means the org has never answered: surface it as a gap, do NOT substitute a plausible set and do NOT derive one from the stored economics. The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the brand, and the read is rejected 400 `ORG_REQUIRED` when several do — each org configures the brand independently, so there is no shared answer to guess at.",
         "parameters": [
           {
             "schema": {

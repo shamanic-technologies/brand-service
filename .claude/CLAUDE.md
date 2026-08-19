@@ -86,10 +86,12 @@ brand-service has NO `buildInternalHeaders`/allowlist helper (unlike instantly-s
 
 ## The GOAL vocabulary is RETIRED — the sales funnel is the only word for what a brand sells through
 
-**`src/services/salesFunnelCatalogue.ts` owns the vocabulary.** Four tokens, and brand-service emits nothing else on any read:
+**`src/services/salesFunnelCatalogue.ts` owns the vocabulary.** Seven tokens, and brand-service emits nothing else on any read:
 
     sales_meetings_from_conversation | sales_meetings_from_website
     website_purchases                | form_magnet
+    sales_from_conversation          | sales_meetings_from_ads
+    lead_forms_from_ads
 
 **Why the goal died rather than living beside the funnel.** They were never equals: the funnel is strictly the richer word. `sales_meetings_from_conversation` and `sales_meetings_from_website` BOTH mapped onto one `meetingBooked`, so a meeting won from a reply and one won on the website were the same thing to every consumer, and features-service could not price them apart. Keeping both meant every consumer carried a translation layer for the poorer of the two words. The four keys were renamed in the same ship (`reply_meeting` → `sales_meetings_from_conversation`, `visit_meeting` → `sales_meetings_from_website`, `visit_signup` → `website_purchases`, `visit_form` → `form_magnet`) because prod carried 10 funnel rows and it was never going to be cheaper.
 
@@ -118,6 +120,20 @@ brand-service has NO `buildInternalHeaders`/allowlist helper (unlike instantly-s
 **The no-website SHELLS nobody claims go too, and only those.** A no-website brand has no domain, so neither way in reaches it once unclaimed — an org's own brand list (it has no org) or a lookup by domain (it has none) — and it accumulates forever. An unclaimed brand that HAS a domain is the opposite: it is still the global identity row for that domain and the next org to enter it gets that exact row back, so deleting one only has it recreated (16 in production). The delete is additionally guarded on every table that can point at a brand, so a shell carrying anything at all is kept rather than cascaded away, and the row is archived verbatim first. Production had exactly 2, both abandoned duplicates of one business that later onboarded properly with its domain.
 
 **The internal reads resolve the org, they never guess.** `resolveInternalOrgScope` (`src/lib/internal-org-scope.ts`): `x-org-id` when sent; else the single claiming org when there is exactly one; else **400 `ORG_REQUIRED`**. A brand no org claims is not an error — it is "unset", answered with the route's own empty shape (`null`, `[]`), which is the contract those reads always had. Do NOT add a "first claiming org" fallback for the ambiguous case: that reintroduces the leak in the one place it was just closed. Follow-up to make callers send the header: #407.
+
+## A funnel states the event that STARTS it and the step it is NAMED after — and both must resolve
+
+Vocabulary, owner-fixed: the terminal outcome of every funnel is a **SALE** (it is what the customer buys), each intermediate stage is a **STEP**, and the step a funnel is named after is its **MILESTONE**. The word "outcome" is deprecated fleet-wide — it used to mean the retired per-brand optimization goal. Use this vocabulary in anything new.
+
+**`startEvent` is what lets a consumer match a CHANNEL to a funnel**, which is the whole reason it exists now that roughly thirty acquisition channels are opening: a channel that can only produce a phone conversation cannot feed a funnel that starts at a website visit. Three tokens, and they are exhaustive by construction (`SALES_FUNNEL_START_EVENTS`): `conversation_reply` (somebody answered a conversation we started), `website_visit` (somebody landed on the brand's OWN site), `ad_click` (somebody engaged with an ad and stayed on the advertising platform — the brand's site is never touched). `startEvent === 'website_visit'` is exactly `requiresWebsite`, asserted at load.
+
+**`milestoneStep` / `milestoneStepIndex` is what a channel's minimum budget is priced against** — one month must pay for at least one of them — so a consumer READS it instead of hardcoding a funnel-to-step mapping. It is `Meeting booked` for all three meeting chains, `Signup` for `website_purchases`, `Form filled` for `form_magnet`, `Lead form submitted` for `lead_forms_from_ads`, and `Paid client` for `sales_from_conversation` — that last one has no stage before the sale, so the sale genuinely IS the moment it is named after, not a stand-in for a missing step.
+
+**Neither may be defaulted.** `funnelMilestoneStepIndex` throws on a milestone that is not one of the funnel's own steps rather than answering `0`, which is a real position (the starting event). A load-time loop over `SALES_FUNNELS` re-checks the start event, the milestone, the leg count (`legs.length === steps.length - 1`) and the website/start-event agreement, so a catalogue that cannot answer breaks the service at boot — one obvious error — instead of at read time on whichever brand happened to declare it.
+
+**The three chains that begin somewhere else** were added (never renamed over the four, which live brands and live budgets reference): `sales_from_conversation` (Positive reply → Paid client — the sale closes INSIDE the conversation, no meeting ever booked; common under ~$2k and the default where business runs on WhatsApp), `sales_meetings_from_ads` (Ad click → Meeting booked → Meeting attended → Paid client — Meta "Book Now", Google Local Services), `lead_forms_from_ads` (Ad click → Lead form submitted → Paid client — Meta Lead Ads, LinkedIn Lead Gen Forms, TikTok lead forms). The last one is deliberately GENERAL: the same chain prices a webinar signup, a guide download, a quote request and a demo request, so naming it after any one of them would exclude the others. Their four legs (`replyToPaidClientPct`, `adClickToMeetingPct`, `adClickToLeadFormPct`, `leadFormToPaidClientPct`) exist ONLY on `brand_sales_funnels` — `brand_sales_economics` predates these chains and has no column for any of them, so the economics backfill produces no candidate for them and they are stated on the funnel or not at all.
+
+**The terminal step's LABEL stays `Paid client` on every chain, old and new.** The four original chains have carried it since before this vocabulary was fixed and live consumers render it; a new chain spelling the same stage differently would describe one model as two. Migration `0056` WIDENS the `funnel_key` CHECK (drop + re-add — Postgres has no ALTER CONSTRAINT for a CHECK expression) and adds the four nullable rate columns. Regression: `tests/unit/funnelStartEventAndMilestone.test.ts`, `tests/integration/funnelsBeyondConversationAndWebsite.test.ts`.
 
 ## Sales FUNNELS — `active` is the memory, and the last one cannot be switched off
 
