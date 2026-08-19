@@ -154,13 +154,17 @@ export function buildNamingPrompt(candidate: OfferMigrationCandidate): string {
  * owner picked precisely for it. Aborting the migration there would block it on
  * the majority of the platform over a case the design anticipated.
  *
- * Every OTHER direction still fails loud. A name that breaks a limit, or an
- * answer carrying no name field at all, is an anomaly rather than a signal: the
- * model was asked for an empty string when it could not tell, so anything else
- * malformed means the call itself went wrong. There is still no fallback to the
- * brand's own name and no truncation of an over-long answer — a name nobody
- * chose, on a row four other services key their display on, is worse than a
- * migration that stops and says which brand it stopped on.
+ * A name that BREAKS A LIMIT gets one more turn with the broken rule quoted
+ * back. Language models count words badly and correct well once told, and this
+ * is worth a call rather than a stop: "Dinner with Docs" is a good name that is
+ * one word too long, and losing it would be worse than asking again. Twice
+ * unable, the brand takes the default and is reported by id.
+ *
+ * An answer carrying NO NAME FIELD still throws. The schema makes it required,
+ * so its absence is a broken call rather than an answer we can judge — and
+ * there is still no fallback to the brand's own name and no truncation of an
+ * over-long answer, because a name nobody chose, on a row four other services
+ * key their display on, is worse than a migration that says where it stopped.
  */
 export async function generateOfferName(
   candidate: OfferMigrationCandidate
@@ -169,6 +173,44 @@ export async function generateOfferName(
   // Nothing at all to read — do not spend a call to be told so.
   if (message.trim() === '') return DEFAULT_OFFER_NAME;
 
+  const first = await askForOfferName(candidate, message);
+  if (first.name !== null) return first.name;
+
+  // The model broke a limit rather than failing to understand. Language models
+  // count words badly and correct well once told which rule they broke and by
+  // how much, so it gets ONE more turn with its own answer quoted back. This is
+  // not a retry of a flaky call: the same prompt at temperature 0 would return
+  // the same answer, so re-asking identically would be pure waste.
+  const second = await askForOfferName(
+    candidate,
+    `${message}\n\nYour previous answer was rejected: ${first.problem} ` +
+      'Answer again, within the limits, keeping the words the business itself used.'
+  );
+  if (second.name !== null) return second.name;
+
+  // Twice unable to answer within limits. Take the default rather than stop the
+  // migration or mint something of our own: the name is a label a person can
+  // rename, and "Default Offer" states honestly that we could not derive one.
+  // The brand is reported so it can be named by hand.
+  console.warn(
+    `[offer-migration] brand ${candidate.brandId} fell back to "${DEFAULT_OFFER_NAME}": ${second.problem}`
+  );
+  return DEFAULT_OFFER_NAME;
+}
+
+/**
+ * One naming turn. Returns the name, or the SENTENCE saying why it cannot be
+ * stored — the same sentence a person would be shown, which is what makes it
+ * usable as the correction handed back to the model.
+ *
+ * A missing name FIELD is not a rejected answer, it is a broken call: the schema
+ * makes it required, so its absence means chat-service did not answer at all.
+ * That still throws.
+ */
+async function askForOfferName(
+  candidate: OfferMigrationCandidate,
+  message: string
+): Promise<{ name: string | null; problem: string }> {
   const result = await chat(
     {
       message,
@@ -196,13 +238,10 @@ export async function generateOfferName(
   const name = normalizeOfferName(raw);
   // The designed "I cannot tell from this" answer, which the system prompt asks
   // for by name. It is the majority case, not an error.
-  if (name === '') return DEFAULT_OFFER_NAME;
+  if (name === '') return { name: DEFAULT_OFFER_NAME, problem: '' };
 
   const problem = offerNameProblem(name);
-  if (problem) {
-    throw new OfferNameGenerationError(candidate.brandId, problem);
-  }
-  return name;
+  return problem ? { name: null, problem } : { name, problem: '' };
 }
 
 /** One offer as created, beside the rows it took over. Read back, not assumed. */
