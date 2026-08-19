@@ -10,6 +10,7 @@ import {
   RetiredGoalNamesNoFunnelError,
   SalesFunnelRequiresWebsiteError,
 } from '../services/salesFunnelsService';
+import { rejectOfferProblem } from '../lib/offer-scope';
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 
 export const orgRouter = Router();
@@ -163,6 +164,9 @@ orgRouter.put('/brands/:brandId/sales-economics', async (req: Request, res: Resp
     ) {
       return res.status(400).json({ error: error.message });
     }
+    // A brand holding several offers has no single set of funnels this write
+    // can declare into — 409 rather than declaring into one of them.
+    if (rejectOfferProblem(res, error)) return;
     console.error('[brand-service] Upsert sales economics error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }

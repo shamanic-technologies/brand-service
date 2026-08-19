@@ -17,6 +17,7 @@ import {
 } from '../services/salesFunnelsService';
 import { ClickDestinationValidationError } from '../services/clickDestinationService';
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
+import { rejectOfferProblem } from '../lib/offer-scope';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -77,6 +78,9 @@ export function parseEraseFlag(req: Request, res: Response): boolean | null {
  * clean up and store anyway.
  */
 function rejectDeclaration(res: Response, error: unknown): boolean {
+  // A brand-scoped call against a brand holding SEVERAL offers has no single
+  // answer — 409, naming the offer routes, rather than a guess.
+  if (rejectOfferProblem(res, error)) return true;
   if (
     error instanceof SalesFunnelRateNotInChainError ||
     error instanceof SalesFunnelDestinationNotUsedError ||
@@ -108,7 +112,13 @@ orgRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: Respon
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const set = await salesFunnelsService.readByBrandId(req.orgId!, brandId);
+    let set;
+    try {
+      set = await salesFunnelsService.readByBrandId(req.orgId!, brandId);
+    } catch (error) {
+      if (rejectOfferProblem(res, error)) return;
+      throw error;
+    }
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Get sales funnels error:', error);
@@ -263,6 +273,7 @@ orgRouter.delete('/brands/:brandId/sales-funnels/:funnelKey', async (req: Reques
     const set = await salesFunnelsService.readByBrandId(req.orgId!, brandId);
     return res.status(200).json(set);
   } catch (error: any) {
+    if (rejectOfferProblem(res, error)) return;
     console.error('[brand-service] Undeclare sales funnel error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
@@ -292,9 +303,15 @@ internalRouter.get('/brands/:brandId/sales-funnels', async (req: Request, res: R
 
     // ACTIVE only: a scheduler asking what this org sells through must never
     // rank a funnel the org switched off.
-    const set = scope.orgId
-      ? await salesFunnelsService.readActiveByBrandId(scope.orgId, brandId)
-      : { funnels: [] };
+    let set;
+    try {
+      set = scope.orgId
+        ? await salesFunnelsService.readActiveByBrandId(scope.orgId, brandId)
+        : { funnels: [] };
+    } catch (error) {
+      if (rejectOfferProblem(res, error)) return;
+      throw error;
+    }
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Internal get sales funnels error:', error);

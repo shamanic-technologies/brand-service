@@ -13,6 +13,7 @@ import {
   SalesFunnelRequiresWebsiteError,
   salesFunnelsService,
 } from '../services/salesFunnelsService';
+import { rejectOfferProblem } from '../lib/offer-scope';
 import { getBrand } from '../services/brandService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
@@ -79,6 +80,9 @@ orgRouter.put('/brands/:brandId/current-goal', async (req: Request, res: Respons
       ) {
         return res.status(400).json({ error: error.message });
       }
+      // A brand holding several offers has no single set of funnels a goal can
+      // declare into — 409 rather than declaring into one of them.
+      if (rejectOfferProblem(res, error)) return;
       throw error;
     }
   } catch (error: any) {

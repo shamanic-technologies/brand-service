@@ -230,6 +230,106 @@ export async function updateCostStatus(
   });
 }
 
+// ─── Platform runs ───────────────────────────────────────────────────────────
+//
+// Work that belongs to NO customer org — a one-time migration, a boot task, a
+// cron sweep. An ordinary run needs `x-org-id`, and there is no org to send: the
+// platform is the one doing the work and the one paying for it.
+//
+// The protocol is SHORTER than the org one, and the two differences matter:
+// there is NO affordability AUTHORIZE (no org balance to gate) and NO cost-status
+// PATCH, so a cost is posted as `actual` AFTER the call rather than provisioned
+// before it and reconciled after. Still fail-loud: a platform run or cost that
+// cannot be declared blocks the op rather than under-reporting it.
+//
+// ⚠️ LLM spend is NOT declared here. A completion goes through chat-service,
+// which owns the model, the provider key AND the token cost — including on
+// `/internal/platform-complete`, which declares its own platform-run cost. A
+// caller that also posted those tokens would double-count them. Post here only
+// what THIS service spends itself on a paid third-party API of its own.
+
+export interface PlatformRun {
+  id: string;
+  serviceName: string;
+  taskName: string;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export interface CreatePlatformRunParams {
+  serviceName: string;
+  taskName: string;
+}
+
+export interface PlatformCostItem {
+  costName: string;
+  quantity: number;
+  /** Always `platform` on a platform run — there is no org to bill. */
+  costSource: 'platform';
+}
+
+/**
+ * Open a platform run. No org, no user, no parent — `x-api-key` and
+ * `x-service-name` are the whole identity.
+ */
+export async function createPlatformRun(
+  params: CreatePlatformRunParams
+): Promise<PlatformRun> {
+  const response = await fetchWithRetry(`${RUNS_SERVICE_URL}/v1/platform-runs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': RUNS_SERVICE_API_KEY,
+      'x-service-name': params.serviceName,
+    },
+    body: JSON.stringify({ serviceName: params.serviceName, taskName: params.taskName }),
+    label: 'runs-service POST /v1/platform-runs',
+  });
+  return response.json() as Promise<PlatformRun>;
+}
+
+/**
+ * Declare what a platform run spent. Posted as `actual` after the call: there is
+ * no status PATCH on a platform cost, so there is nothing to reconcile later.
+ */
+export async function addPlatformRunCosts(
+  runId: string,
+  items: PlatformCostItem[],
+  serviceName: string
+): Promise<{ costs: RunCost[] }> {
+  const response = await fetchWithRetry(`${RUNS_SERVICE_URL}/v1/platform-runs/${runId}/costs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': RUNS_SERVICE_API_KEY,
+      'x-service-name': serviceName,
+    },
+    body: JSON.stringify({ items }),
+    label: 'runs-service POST /v1/platform-runs/:id/costs',
+  });
+  return response.json() as Promise<{ costs: RunCost[] }>;
+}
+
+/** Close a platform run. `failed` is a real outcome — never swallow one. */
+export async function updatePlatformRun(
+  runId: string,
+  status: 'completed' | 'failed',
+  serviceName: string
+): Promise<PlatformRun> {
+  const response = await fetchWithRetry(`${RUNS_SERVICE_URL}/v1/platform-runs/${runId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': RUNS_SERVICE_API_KEY,
+      'x-service-name': serviceName,
+    },
+    body: JSON.stringify({ status }),
+    label: 'runs-service PATCH /v1/platform-runs/:id',
+  });
+  return response.json() as Promise<PlatformRun>;
+}
+
 export async function listRuns(
   params: ListRunsParams
 ): Promise<{ runs: RunWithOwnCost[]; limit: number; offset: number }> {
