@@ -1,14 +1,13 @@
 import { isNull, sql } from 'drizzle-orm';
 import { db, brandSalesFunnels, brandUserFields } from '../db';
 import { chat } from '../lib/chat-client';
-import { offerNameProblem, normalizeOfferName, OFFER_NAME_MAX_CHARS, OFFER_NAME_MAX_WORDS } from '../lib/offer-name';
+import { offerNameProblem, normalizeOfferName, DEFAULT_OFFER_NAME, OFFER_NAME_MAX_CHARS, OFFER_NAME_MAX_WORDS } from '../lib/offer-name';
 import {
   OfferMigrationCandidate,
   OfferMigrationPlan,
   PlannedOffer,
 } from '../lib/offer-migration-plan';
 import { adoptUnmigratedRows, createOffer } from './brandOffersService';
-import { salesFunnelByKey } from './salesFunnelCatalogue';
 
 /**
  * The database and LLM halves of the one-time brand→offer migration. The pure
@@ -80,9 +79,11 @@ export class OfferNameGenerationError extends Error {
 }
 
 const NAMING_SYSTEM_PROMPT =
-  'You name the OFFER a business sells: the one distinct thing it is selling, not the company ' +
-  'and not its industry. You are given what the business itself stated — its value proposition, ' +
-  'the services it lists, and the sales funnels it sells through. ' +
+  'You name the OFFER a business sells — WHAT IT SELLS, in its customer\'s words. ' +
+  'The services it lists are the answer whenever it lists any: name those. The rest of the input ' +
+  '(its value proposition, who it is for, the business itself) is there to sharpen that name when ' +
+  'the services are vague or several, not to replace it. Do not echo a field label back — name ' +
+  'the thing, not the category it was filed under. ' +
   `Answer with a name of AT MOST ${OFFER_NAME_MAX_WORDS} words and AT MOST ${OFFER_NAME_MAX_CHARS} ` +
   'characters, in the language the input is written in. ' +
   'Use the words the business itself used wherever they fit. Do not invent a product it never ' +
@@ -104,31 +105,36 @@ const NAMING_RESPONSE_SCHEMA = {
 
 /**
  * What the model is shown. Only what the brand itself stated — its confirmed
- * value proposition, its funnel names and its own identity. Nothing derived,
- * nothing from another brand.
+ * value proposition and its own identity. Nothing derived, nothing from another
+ * brand.
+ *
+ * The SERVICES lead, because an offer is what the brand sells and that field is
+ * the brand's own answer to exactly that question. Everything else follows to
+ * sharpen it.
+ *
+ * THE SALES FUNNELS ARE DELIBERATELY ABSENT. A funnel is how an offer is SOLD —
+ * a click onto the site, a reply that becomes a meeting — and an offer is what
+ * is sold. Showing them invites a name like "Website Sales" for
+ * `website_purchases`, which labels the offer with its delivery mechanism and
+ * collapses the two levels this whole entity exists to separate. Do not add
+ * them back as "context": the model reads whatever it is given, and a brand
+ * that states nothing else would be named after its funnel every time.
  */
 export function buildNamingPrompt(candidate: OfferMigrationCandidate): string {
   const lines: string[] = [];
-  if (candidate.brandName) lines.push(`Business name: ${candidate.brandName}`);
-  if (candidate.brandDomain) lines.push(`Website: ${candidate.brandDomain}`);
+
+  const services = candidate.userFields.services;
+  const renderedServices = Array.isArray(services) ? services.join('; ') : String(services ?? '');
+  if (renderedServices.trim() !== '') lines.push(`Services sold: ${renderedServices}`);
 
   for (const [key, value] of Object.entries(candidate.userFields)) {
+    if (key === 'services') continue;
     const rendered = Array.isArray(value) ? value.join('; ') : String(value ?? '');
     if (rendered.trim() !== '') lines.push(`${key}: ${rendered}`);
   }
 
-  if (candidate.funnelKeys.length > 0) {
-    const names = candidate.funnelKeys.map((key) => {
-      try {
-        return salesFunnelByKey(key as never).name;
-      } catch {
-        // A stored key the catalogue does not know is reported as itself rather
-        // than dropped: the model should see everything the brand stated.
-        return key;
-      }
-    });
-    lines.push(`Sold through: ${names.join(', ')}`);
-  }
+  if (candidate.brandName) lines.push(`Business name: ${candidate.brandName}`);
+  if (candidate.brandDomain) lines.push(`Website: ${candidate.brandDomain}`);
 
   return lines.join('\n');
 }
@@ -141,21 +147,27 @@ export function buildNamingPrompt(candidate: OfferMigrationCandidate): string {
  * owns the model, the provider key and the token cost — this service declares
  * no LLM cost of its own and must not, or the same tokens are counted twice.
  *
- * Fails loud in every direction. There is no fallback to the brand's name, no
- * truncation of an over-long answer and no empty default: a name nobody chose,
- * on a row four other services key their display on, is worse than a migration
- * that stops and says which brand it stopped on.
+ * An EMPTY answer is not a failure — it is the answer the system prompt asks
+ * for when the input says too little to name anything, and 135 of the 188
+ * brands on the platform state no value proposition at all, so it is the
+ * COMMON case rather than the edge. Those get `DEFAULT_OFFER_NAME`, which the
+ * owner picked precisely for it. Aborting the migration there would block it on
+ * the majority of the platform over a case the design anticipated.
+ *
+ * Every OTHER direction still fails loud. A name that breaks a limit, or an
+ * answer carrying no name field at all, is an anomaly rather than a signal: the
+ * model was asked for an empty string when it could not tell, so anything else
+ * malformed means the call itself went wrong. There is still no fallback to the
+ * brand's own name and no truncation of an over-long answer — a name nobody
+ * chose, on a row four other services key their display on, is worse than a
+ * migration that stops and says which brand it stopped on.
  */
 export async function generateOfferName(
   candidate: OfferMigrationCandidate
 ): Promise<string> {
   const message = buildNamingPrompt(candidate);
-  if (message.trim() === '') {
-    throw new OfferNameGenerationError(
-      candidate.brandId,
-      'it states no value proposition, no services and no funnel to read'
-    );
-  }
+  // Nothing at all to read — do not spend a call to be told so.
+  if (message.trim() === '') return DEFAULT_OFFER_NAME;
 
   const result = await chat(
     {
@@ -182,6 +194,10 @@ export async function generateOfferName(
   }
 
   const name = normalizeOfferName(raw);
+  // The designed "I cannot tell from this" answer, which the system prompt asks
+  // for by name. It is the majority case, not an error.
+  if (name === '') return DEFAULT_OFFER_NAME;
+
   const problem = offerNameProblem(name);
   if (problem) {
     throw new OfferNameGenerationError(candidate.brandId, problem);
