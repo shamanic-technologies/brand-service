@@ -93,14 +93,16 @@ describe('Suggest ICP Endpoint', () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
   });
 
-  it('calls chat-service with flash-pro at temperature 0.1', async () => {
+  it('calls chat-service with openai/gpt-pro and sends NO sampling params', async () => {
     const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
 
     expect(res.status).toBe(200);
     const params = mockChat.mock.calls[0][0];
-    expect(params.provider).toBe('google');
-    expect(params.model).toBe('flash-pro');
-    expect(params.temperature).toBe(0.1);
+    expect(params.provider).toBe('openai');
+    expect(params.model).toBe('gpt-pro');
+    // GPT-6 Astra 400s on `temperature` != 1 and on `top_p`.
+    expect(params.temperature).toBeUndefined();
+    expect(params.disableThinking).toBe(true);
   });
 
   it('injects target-audience signals (targetAudience + customerPainPoints) into the prompt', async () => {

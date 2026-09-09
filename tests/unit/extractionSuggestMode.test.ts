@@ -52,12 +52,13 @@ describe('extractFieldsFromContent — mode selects the prompt persona', () => {
     mockChat.mockResolvedValue({ json: { dreamOutcome: 'x' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
   });
 
-  it('default (omitted) mode = extract: keeps the "Unknown" contract, temperature 0', async () => {
+  it('default (omitted) mode = extract: keeps the "Unknown" contract, no sampling params', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing');
     const params = mockChat.mock.calls[0][0];
     expect(params.systemPrompt).toContain('brand information extraction assistant');
     expect(params.systemPrompt).toContain('"Unknown"');
-    expect(params.temperature).toBe(0);
+    // no sampling params — Astra rejects them
+    expect(params.temperature).toBeUndefined();
     // extract prompt does NOT invoke the generative persona
     expect(params.systemPrompt).not.toContain('Hormozi');
   });
@@ -71,14 +72,14 @@ describe('extractFieldsFromContent — mode selects the prompt persona', () => {
     expect(mockChat.mock.calls[0][0].systemPrompt).toBe(dflt);
   });
 
-  it('suggest mode: Hormozi + top-3-expert persona, NEVER "Unknown", temperature 0, keeps the date guard', async () => {
+  it('suggest mode: Hormozi + top-3-expert persona, NEVER "Unknown", no sampling params, keeps the date guard', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'suggest');
     const params = mockChat.mock.calls[0][0];
     expect(params.systemPrompt).toContain('Hormozi');
     expect(params.systemPrompt).toContain('top 3 experts');
     expect(params.systemPrompt).toContain('NEVER return "Unknown"');
-    // deterministic — same temperature as extract
-    expect(params.temperature).toBe(0);
+    // no sampling params — Astra rejects them
+    expect(params.temperature).toBeUndefined();
     // date guard preserved in both modes (today's date is injected)
     const today = new Date().toISOString().slice(0, 10);
     expect(params.systemPrompt).toContain(today);
@@ -87,10 +88,11 @@ describe('extractFieldsFromContent — mode selects the prompt persona', () => {
     expect(params.message).not.toContain('return the string "Unknown"');
   });
 
-  it('suggest mode keeps the same model selection as extract (landing → flash-pro, disableThinking)', async () => {
+  it('suggest mode keeps the same model selection as extract (landing → gpt-pro, disableThinking)', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'suggest');
     const params = mockChat.mock.calls[0][0];
-    expect(params.model).toBe('flash-pro');
+    expect(params.provider).toBe('openai');
+    expect(params.model).toBe('gpt-pro');
     expect(params.disableThinking).toBe(true);
     expect(params.responseSchema).toBeDefined();
   });

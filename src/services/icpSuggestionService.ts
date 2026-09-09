@@ -347,18 +347,17 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
       {
         systemPrompt: SYSTEM_PROMPT,
         message: buildMessage(profileFields, audienceSignals, economics, existingIcps),
-        provider: 'google',
-        // flash-pro (Gemini 3.5 Flash, mid-tier) — stronger segmentation
-        // reasoning than flash for sharper ICP relevance.
-        model: 'flash-pro',
+        provider: 'openai',
+        // gpt-pro (GPT-6 Astra) — the onboarding prefill path runs on the
+        // strongest model we serve; the user reviews and edits every ICP.
+        model: 'gpt-pro',
         responseFormat: 'json',
-        // Low temperature for precise, deterministic segment selection. The
-        // "DISTINCT from existingIcps" instruction (not sampling noise) drives a
-        // complementary segment on follow-up calls.
-        temperature: 0.1,
+        // No `temperature`: Astra rejects any sampling param with a 400
+        // `unsupported_value`. The "DISTINCT from existingIcps" instruction (not
+        // sampling noise) is what drives a complementary segment on follow-ups.
         maxTokens: 512,
-        // Short one-line JSON ICP — no funnel-of-thought needed. Minimizes
-        // Gemini's internal reasoning (flash-pro → `minimal`) for a faster reply.
+        // Short one-line JSON ICP — no funnel-of-thought needed. Floors Astra's
+        // reasoning to `low` for a faster reply.
         disableThinking: true,
       },
       chatCaller,

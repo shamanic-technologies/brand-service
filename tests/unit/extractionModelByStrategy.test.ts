@@ -30,27 +30,32 @@ describe('extractFieldsFromContent — model selection by urlStrategy', () => {
     mockChat.mockResolvedValue({ json: { services: 'widgets' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
   });
 
-  it('landing strategy → flash-pro, disableThinking floors thinking to minimal, no dead thinkingBudget', async () => {
+  it('landing strategy → openai/gpt-pro, disableThinking floors reasoning, no sampling params', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
-    // flash-pro (Gemini 3.5 Flash) for the discrimination the task needs;
-    // disableThinking floors Gemini 3 thinking to "minimal" (cheap + fast).
-    expect(params.model).toBe('flash-pro');
+    // GPT-6 Astra — the onboarding prefill path runs on the strongest model we
+    // serve; disableThinking floors its reasoning to `low` (fast).
+    expect(params.provider).toBe('openai');
+    expect(params.model).toBe('gpt-pro');
     expect(params.disableThinking).toBe(true);
+    // Astra 400s on any sampling param (`unsupported_value`).
+    expect(params.temperature).toBeUndefined();
     // thinkingBudget was dead config — chat-service /complete never honored it.
     expect(params.thinkingBudget).toBeUndefined();
   });
 
-  it('url_map strategy → Pro, default thinking, no dead thinkingBudget', async () => {
+  it('url_map strategy → openai/gpt-pro, default reasoning, no sampling params', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'url_map');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
-    expect(params.model).toBe('pro');
-    // Pro keeps chat-service's default bounded thinking for depth (not disabled).
+    expect(params.provider).toBe('openai');
+    expect(params.model).toBe('gpt-pro');
+    // url_map keeps chat-service's default bounded reasoning for depth.
     expect(params.disableThinking).toBeUndefined();
+    expect(params.temperature).toBeUndefined();
     expect(params.thinkingBudget).toBeUndefined();
   });
 });

@@ -73,9 +73,9 @@ describe('extraction maxTokens regression', () => {
   );
 
   it('URL selection call should use maxTokens >= 4096 (was 1024, caused 502)', () => {
-    // The selectRelevantUrls function uses google/flash for URL selection
+    // The selectRelevantUrls function uses openai/gpt-pro for URL selection
     const urlSelectionBlock = fieldExtractionSrc.match(
-      /selectRelevantUrls[\s\S]*?model:\s*'flash'[\s\S]*?maxTokens:\s*(\d+)/,
+      /selectRelevantUrls[\s\S]*?model:\s*'gpt-pro'[\s\S]*?maxTokens:\s*(\d+)/,
     );
     expect(urlSelectionBlock).not.toBeNull();
     const urlSelectionMaxTokens = parseInt(urlSelectionBlock![1], 10);
@@ -83,8 +83,11 @@ describe('extraction maxTokens regression', () => {
   });
 
   it('field extraction call should use maxTokens >= 16384 (was 4096, caused truncated JSON)', () => {
+    // Anchored on the modelParams block: both the URL-selection call and the
+    // field extraction now run on gpt-pro, so the model literal alone no longer
+    // tells the two calls apart.
     const extractionBlock = fieldExtractionSrc.match(
-      /extractFieldsFromContent[\s\S]*?model:\s*'pro'[\s\S]*?maxTokens:\s*(\d+)/,
+      /const modelParams[\s\S]*?maxTokens:\s*(\d+)/,
     );
     expect(extractionBlock).not.toBeNull();
     const extractionMaxTokens = parseInt(extractionBlock![1], 10);
@@ -102,7 +105,7 @@ describe('extraction maxTokens regression', () => {
 
   it('multi-brand consolidation call should use maxTokens >= 16384 (was 4096)', () => {
     const consolidationBlock = multiBrandSrc.match(
-      /consolidateFields[\s\S]*?model:\s*'pro'[\s\S]*?maxTokens:\s*(\d+)/,
+      /consolidateFields[\s\S]*?model:\s*'gpt-pro'[\s\S]*?maxTokens:\s*(\d+)/,
     );
     expect(consolidationBlock).not.toBeNull();
     const consolidationMaxTokens = parseInt(consolidationBlock![1], 10);
