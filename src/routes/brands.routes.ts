@@ -3,12 +3,13 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld, brandColors } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandWebsite, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
+import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandIdentity, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
 import { rewriteBrandReferences } from '../services/brandMergeService';
 import { getBrandIdentitiesByOrgIds } from '../services/orgBrandIdentityService';
 import { CheckoutStatusUnavailableError } from '../lib/client-client';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
-import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, SetBrandWebsiteRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema } from '../schemas';
+import { InvalidLogoUrlError, parseLogoUrlIssue } from '../lib/logo-url';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, UpdateBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema } from '../schemas';
 import { resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 
 /** Max brand ids accepted per batch request. ~3.7KB query string at 36-char UUIDs. */
@@ -159,11 +160,20 @@ orgRouter.get('/brands', async (req: Request, res: Response) => {
 
 /**
  * PATCH /orgs/brands/:brandId
- * Attach a website to an existing brand (e.g. a no-website brand whose user later
- * adds their site). Sets brands.url + brands.domain. The extraction source-switch
- * is automatic and rides the existing field cache: extractFields reads brands.url
- * fresh on every call, so the next post-cache-expiry extraction re-sources from
- * the site — no new TTL/cron. Body `{ url }`.
+ *
+ * Correct the brand identity. PARTIAL: the caller sends only the fields it is
+ * changing and every omitted field is left exactly as stored, so `{ url }` alone
+ * is the website attach this route has always been, conflict semantics included.
+ *
+ * - `url`     — attaches a website. Sets brands.url + brands.domain. The
+ *               extraction source-switch is automatic and rides the existing
+ *               field cache: extractFields reads brands.url fresh on every call,
+ *               so the next post-cache-expiry extraction re-sources from the
+ *               site — no new TTL/cron.
+ * - `name`    — corrects the display name. Both derived today, both un-correctable
+ * - `logoUrl` — replaces the logo.       until now (see updateBrandIdentity).
+ *
+ * `logoUrl: null` clears the replacement so the derived default comes back.
  */
 orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
   try {
@@ -172,14 +182,15 @@ orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
     }
 
-    const parsed = SetBrandWebsiteRequestSchema.safeParse(req.body);
+    const parsed = UpdateBrandRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
-      const { code, message } = parseZodIssueCode(issue?.message);
+      const logoIssue = parseLogoUrlIssue(issue?.message);
+      const { code, message } = logoIssue ?? parseZodIssueCode(issue?.message);
       return res.status(400).json({
         error: 'Invalid request',
         code,
-        field: issue?.path?.join('.') ?? 'url',
+        field: issue?.path?.join('.') || (logoIssue ? 'logoUrl' : 'url'),
         message,
         details: parsed.error.flatten(),
       });
@@ -189,12 +200,16 @@ orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
     if (rejectOwnership(res, ownership)) return;
 
     try {
-      const brand = await updateBrandWebsite(brandId, parsed.data.url, req.orgId!);
+      const brand = await updateBrandIdentity(brandId, req.orgId!, parsed.data);
       return res.json({
         brandId: brand.id,
         domain: brand.domain,
         name: brand.name,
         url: brand.url,
+        // The mark the brand now wears. A cleared replacement reads null here and
+        // the derived default returns on the next brand read, which is where the
+        // logo.dev fill lives.
+        logoUrl: brand.logoUrl,
       });
     } catch (err) {
       if (err instanceof BrandDomainConflictError) {
@@ -209,7 +224,11 @@ orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
       throw err;
     }
   } catch (error: unknown) {
-    if (error instanceof InvalidUrlError || error instanceof UrlRequiredError) {
+    if (
+      error instanceof InvalidUrlError ||
+      error instanceof UrlRequiredError ||
+      error instanceof InvalidLogoUrlError
+    ) {
       return res.status(400).json({ error: error.message, code: error.code, field: error.field, message: error.message });
     }
     if (error instanceof CheckoutStatusUnavailableError) {
