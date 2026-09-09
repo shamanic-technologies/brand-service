@@ -1,0 +1,1 @@
+ALTER TABLE "brands" ADD COLUMN IF NOT EXISTS "name_set_by_org_at" timestamp with time zone;

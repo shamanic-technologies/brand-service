@@ -32,7 +32,19 @@ export const brands = pgTable("brands", {
 	domain: text(),
 	url: text(),
 	name: text(),
+	// `logo_url` holds whichever mark the brand currently wears: the logo.dev URL
+	// this service derives from the domain, or the replacement a customer stored
+	// through PATCH /orgs/brands/{brandId}. Derivation only ever fills a NULL, so
+	// a stored replacement is never overwritten, and clearing the column is what
+	// brings the derived default back on the next read.
 	logoUrl: text("logo_url"),
+	// Set when a HUMAN corrected the display name. The automatic derivations
+	// (ensureBrandName's index/landing chain, and the background upgrade off the
+	// provisional titlecased domain) refuse to touch a row carrying this, so a
+	// correction is never silently reverted — including in the one case the
+	// name-equality guard cannot catch, where the corrected name happens to equal
+	// the placeholder the upgrade is looking for.
+	nameSetByOrgAt: timestamp("name_set_by_org_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
