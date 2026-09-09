@@ -360,6 +360,16 @@ export const brandOffers = pgTable("brand_offers", {
 	// independent query instead of the script's own log, and what makes a re-run
 	// a no-op. Read by nothing.
 	migratedAt: timestamp("migrated_at", { withTimezone: true, mode: 'string' }),
+	// The hosted URL of the offer's own image — an OBJECT or EMBLEM standing for
+	// the thing this offer sells, so a brand selling several propositions can
+	// tell them apart at a glance wherever an offer is rendered.
+	//
+	// NULLABLE and null by default: an offer created today has no image, and that
+	// absence is a first-class answer the consumer falls back to its own glyph on.
+	// Nothing here defaults, invents or derives one — a wrong picture for a
+	// proposition is worse than no picture. The bytes are chat-service's (it
+	// generates AND hosts them); we store the URL it hands back and nothing else.
+	imageUrl: text("image_url"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
