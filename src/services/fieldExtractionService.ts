@@ -286,10 +286,9 @@ async function selectRelevantUrls(
       systemPrompt:
         'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON object with a "urls" key containing an array of URL strings. If no URL is relevant to the requested fields, return {"urls":[]}.',
       message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}${contextBlock}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON object: {"urls": ["url1", "url2", ...]}. If none are relevant, return {"urls":[]}.`,
-      provider: 'google',
-      model: 'flash',
+      provider: 'openai',
+      model: 'gpt-pro',
       responseFormat: 'json',
-      temperature: 0,
       maxTokens: 4096,
     },
     chatCaller,
@@ -343,8 +342,7 @@ function normalizeSelectedUrls(value: unknown): string[] {
  * ("Model returned malformed or truncated JSON") on free-form JSON output.
  *
  * NOTE: deliberately NO `additionalProperties: false` — that is the Anthropic
- * strict-schema dialect; Gemini rejects it with HTTP 400. These calls all use
- * provider: 'google'.
+ * strict-schema dialect; Gemini rejects it with HTTP 400.
  */
 export function buildFieldsResponseSchema(keys: string[]): Record<string, unknown> {
   const valueSchema = {
@@ -392,24 +390,23 @@ export async function extractFieldsFromContent(
     ? `\n\nCampaign context (HIGHEST PRIORITY — overrides both the brand profile and the website content; use it to guide and refine your extraction):\n${campaignContext}\n`
     : '';
 
-  // Model by strategy: a single landing page (onboarding "what services do you
-  // offer", name fill) uses flash-pro (Gemini 3.5 Flash) — the discrimination
-  // between genuinely-sellable paid services and internal process steps needs
-  // judgment, and flash was too weak for it. `disableThinking: true` floors
-  // Gemini 3 thinking to "minimal" (cheap + fast), which is what we want here;
-  // do NOT remove it — that would default Gemini 3.5 Flash to HIGH thinking.
-  // The url_map full-profile extraction keeps Pro (and chat-service's default
-  // bounded thinking) for depth.
+  // Both strategies run on gpt-pro (GPT-6 Astra): this is the onboarding
+  // prefill path, so it gets the strongest model we serve. The single landing
+  // page (onboarding "what services do you offer", name fill) keeps
+  // `disableThinking: true`, which floors Astra's reasoning to `low` — the
+  // sellable-services vs internal-steps discrimination needs judgment, not a
+  // long deliberation. The url_map full-profile extraction keeps chat-service's
+  // default bounded reasoning for depth.
   //
   // A strict responseSchema is sent on BOTH paths so the provider enforces the
-  // output shape server-side — this is what stops Gemini Pro from emitting
+  // output shape server-side — this is what stops the model from emitting
   // malformed/truncated JSON on the 19-field url_map extraction (chat-service
   // 502 "Model returned malformed or truncated JSON"). `thinkingBudget` was
   // dead config — chat-service /complete never honored it (only `disableThinking`).
   const modelParams =
     urlStrategy === 'landing'
-      ? { model: 'flash-pro' as const, maxTokens: 24000, disableThinking: true }
-      : { model: 'pro' as const, maxTokens: 24000 };
+      ? { model: 'gpt-pro' as const, maxTokens: 24000, disableThinking: true }
+      : { model: 'gpt-pro' as const, maxTokens: 24000 };
 
   const responseSchema = buildFieldsResponseSchema(fields.map((f) => f.key));
 
@@ -468,10 +465,9 @@ export async function extractFieldsFromContent(
     {
       systemPrompt,
       message,
-      provider: 'google',
+      provider: 'openai',
       responseFormat: 'json',
       responseSchema,
-      temperature: 0,
       ...modelParams,
     },
     chatCaller,

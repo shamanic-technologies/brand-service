@@ -111,7 +111,7 @@ describe('multi-brand consolidation — sends a strict responseSchema, no dead t
 
   it('consolidateFields call passes responseSchema and drops thinkingBudget', () => {
     const consolidationBlock = multiBrandSrc.match(
-      /consolidateFields[\s\S]*?model:\s*'pro'[\s\S]*?\},\s*\n\s*chatCaller/,
+      /consolidateFields[\s\S]*?model:\s*'gpt-pro'[\s\S]*?\},\s*\n\s*chatCaller/,
     );
     expect(consolidationBlock).not.toBeNull();
     expect(consolidationBlock![0]).toContain('responseSchema: buildFieldsResponseSchema(fieldKeys)');

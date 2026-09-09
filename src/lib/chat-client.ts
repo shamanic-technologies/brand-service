@@ -17,10 +17,24 @@ const CHAT_SERVICE_API_KEY = process.env.CHAT_SERVICE_API_KEY || '';
 export interface ChatParams {
   message: string;
   systemPrompt: string;
-  /** LLM provider — 'google' (Gemini) or 'anthropic' (Claude). */
-  provider: 'google' | 'anthropic';
+  /**
+   * LLM provider — 'google' (Gemini), 'anthropic' (Claude) or 'openai' (GPT).
+   *
+   * OpenAI reasoning models (GPT-6 Astra, served as `model: 'gpt-pro'`) REJECT
+   * sampling params: `temperature` != 1 and `top_p` both 400 with
+   * `unsupported_value`. Never send `temperature` on an `openai` call.
+   */
+  provider: 'google' | 'anthropic' | 'openai';
   /** Model tier — chat-service resolves the versioned model internally. */
-  model: 'flash' | 'flash-lite' | 'flash-pro' | 'pro' | 'sonnet' | 'haiku' | 'opus';
+  model:
+    | 'flash'
+    | 'flash-lite'
+    | 'flash-pro'
+    | 'pro'
+    | 'sonnet'
+    | 'haiku'
+    | 'opus'
+    | 'gpt-pro';
   responseFormat?: 'json';
   /**
    * Optional JSON Schema describing the exact shape of the expected response.
