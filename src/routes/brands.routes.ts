@@ -3,12 +3,12 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld, brandColors } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandWebsite, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
+import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandWebsite, updateBrandIdentity, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
 import { rewriteBrandReferences } from '../services/brandMergeService';
 import { getBrandIdentitiesByOrgIds } from '../services/orgBrandIdentityService';
 import { CheckoutStatusUnavailableError } from '../lib/client-client';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
-import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, SetBrandWebsiteRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema } from '../schemas';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, UpdateBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema } from '../schemas';
 import { resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 
 /** Max brand ids accepted per batch request. ~3.7KB query string at 36-char UUIDs. */
@@ -159,11 +159,23 @@ orgRouter.get('/brands', async (req: Request, res: Response) => {
 
 /**
  * PATCH /orgs/brands/:brandId
- * Attach a website to an existing brand (e.g. a no-website brand whose user later
- * adds their site). Sets brands.url + brands.domain. The extraction source-switch
- * is automatic and rides the existing field cache: extractFields reads brands.url
- * fresh on every call, so the next post-cache-expiry extraction re-sources from
- * the site — no new TTL/cron. Body `{ url }`.
+ * Partially update a brand IDENTITY. Body `{ url?, name?, logoUrl? }`, at least one.
+ *
+ * `url` attaches a website to a brand that has none (sets brands.url + brands.domain).
+ * The extraction source-switch is automatic and rides the existing field cache:
+ * extractFields reads brands.url fresh on every call, so the next post-cache-expiry
+ * extraction re-sources from the site — no new TTL/cron.
+ *
+ * `name` corrects the display name, and `logoUrl` stores a logo the customer chose
+ * (an https URL to an image already on our own storage — this service stores a URL,
+ * it never receives a file). `logoUrl: null` CLEARS it, putting the brand back on the
+ * logo derived from its domain. Both are otherwise DERIVED and unfixable by the person
+ * they describe, which is the whole reason they are here.
+ *
+ * The url leg keeps its own path because a domain change carries consequences the
+ * other two do not: a conflict resolution against whoever holds that domain, and a
+ * palette reset. Running the identity write AFTER it means a request carrying both
+ * ends on the identity the caller stated, not on whatever the domain implies.
  */
 orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
   try {
@@ -172,7 +184,7 @@ orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
     }
 
-    const parsed = SetBrandWebsiteRequestSchema.safeParse(req.body);
+    const parsed = UpdateBrandRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       const { code, message } = parseZodIssueCode(issue?.message);
@@ -188,13 +200,37 @@ orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
+    // `logoUrl: null` is a real instruction (clear it), so the identity leg is
+    // decided on key PRESENCE — `'logoUrl' in body` — never on truthiness.
+    const body = parsed.data;
+    const wantsIdentity = body.name !== undefined || 'logoUrl' in body;
+
     try {
-      const brand = await updateBrandWebsite(brandId, parsed.data.url, req.orgId!);
+      // The schema refuses an empty body, so at least one leg runs and `brand` is
+      // always the row as it stands AFTER every write this request made.
+      let brand = body.url !== undefined
+        ? await updateBrandWebsite(brandId, body.url, req.orgId!)
+        : null;
+
+      if (wantsIdentity) {
+        brand = await updateBrandIdentity(
+          brandId,
+          {
+            ...(body.name !== undefined ? { name: body.name } : {}),
+            ...('logoUrl' in body ? { logoUrl: body.logoUrl ?? null } : {}),
+          },
+          req.orgId!,
+        );
+      }
+
+      if (!brand) throw new Error(`Brand not found: ${brandId}`);
+
       return res.json({
         brandId: brand.id,
         domain: brand.domain,
         name: brand.name,
         url: brand.url,
+        logoUrl: brand.logoUrl,
       });
     } catch (err) {
       if (err instanceof BrandDomainConflictError) {

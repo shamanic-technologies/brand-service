@@ -153,6 +153,49 @@ export const UpsertBrandResponseSchema = z
   })
   .openapi('UpsertBrandResponse');
 
+/**
+ * A logo a person chose for their brand, as an already-hosted image URL.
+ *
+ * This service stores a URL, it never receives a file: the caller uploads to our
+ * own object storage first and sends back the public URL it got. `https` only,
+ * because the value is rendered as an `<img>` in a dashboard and a mixed-content
+ * `http` source is one a browser refuses to draw — a stored logo that cannot be
+ * displayed is worse than none, so it is refused at the boundary rather than
+ * discovered on screen.
+ */
+export const BrandLogoUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2048)
+  .url()
+  .refine((value) => value.toLowerCase().startsWith('https://'), {
+    message: 'logoUrl must be an https URL',
+  });
+
+export const UpdateBrandRequestSchema = z
+  .object({
+    url: BrandUrlSchema.optional(),
+    name: z.string().trim().min(1).max(255).optional(),
+    /**
+     * `null` CLEARS the stored logo, which is not the same as omitting the field.
+     * Omitted leaves whatever is stored; null puts the brand back on the logo this
+     * service derives from its domain, so a person who dislikes their upload has a
+     * way back without a support request.
+     */
+    logoUrl: BrandLogoUrlSchema.nullable().optional(),
+  })
+  .refine(
+    (body) => body.url !== undefined || body.name !== undefined || body.logoUrl !== undefined,
+    { message: 'At least one of url, name or logoUrl is required' },
+  )
+  .openapi('UpdateBrandRequest', {
+    description:
+      'Partially update a brand IDENTITY. Every field is optional and an omitted field is left exactly as it is. `url` attaches a website to a brand that has none (bare domain or full URL, normalized server-side; sets url + domain, and the next post-cache-expiry field extraction re-sources from the site). `name` corrects the display name, which is otherwise derived once at signup and never revisited. `logoUrl` stores a logo the customer chose, as an https URL to an image already hosted on our own storage; sending `logoUrl: null` CLEARS it so the logo this service derives from the brand domain comes back. At least one field is required.',
+    example: { name: 'Acme', logoUrl: 'https://cdn.distribute.you/brand-logos/acme.png' },
+  });
+
+/** @deprecated Use UpdateBrandRequestSchema — kept so an external reference does not break. */
 export const SetBrandWebsiteRequestSchema = z
   .object({
     url: BrandUrlSchema,
@@ -169,6 +212,10 @@ export const SetBrandWebsiteResponseSchema = z
     domain: z.string().nullable(),
     name: z.string().nullable(),
     url: z.string().nullable(),
+    // The logo the brand now stands behind: the customer's own when they stored
+    // one, otherwise null, meaning the derived default applies. Additive — a
+    // caller that only reads domain/url is unaffected.
+    logoUrl: z.string().nullable(),
   })
   .openapi('SetBrandWebsiteResponse');
 
@@ -391,14 +438,14 @@ registry.registerPath({
 registry.registerPath({
   method: 'patch',
   path: '/orgs/brands/{brandId}',
-  summary: 'Attach a website to an existing brand',
+  summary: 'Update a brand identity (website, display name, logo)',
   description:
-    'Sets brands.url + brands.domain on an existing brand (e.g. a no-website brand whose user later adds their site). The next post-cache-expiry field extraction re-sources from the site automatically (rides the existing field cache — no new TTL). ' +
+    'Partially updates a brand IDENTITY — every field is optional and an omitted field is left untouched. `name` corrects the display name (otherwise derived once at signup); `logoUrl` stores a customer-chosen logo as an https URL to an image already on our own storage, and `logoUrl: null` clears it so the domain-derived default comes back. `url` sets brands.url + brands.domain on an existing brand (e.g. a no-website brand whose user later adds their site). The next post-cache-expiry field extraction re-sources from the site automatically (rides the existing field cache — no new TTL). ' +
     'A domain belongs to whoever has CHECKED OUT on it (client-service is the source of truth). If another brand already holds the derived domain but NOBODY ever checked out on it, the domain is moved onto this brand and the abandoned holder is left as a no-website brand (and, when it belongs to the caller\'s own org, its data is merged in and it is removed from the caller\'s brand list). ' +
     'Only a holder somebody paid for is a 409, with a distinct `code` per case: `DOMAIN_OWNED_BY_YOUR_PAID_BRAND` (the caller\'s own org already checked out on it) or `DOMAIN_OWNED_BY_ANOTHER_ORG`.',
-  request: { body: { content: { 'application/json': { schema: SetBrandWebsiteRequestSchema } } } },
+  request: { body: { content: { 'application/json': { schema: UpdateBrandRequestSchema } } } },
   responses: {
-    200: { description: 'Website attached', content: { 'application/json': { schema: SetBrandWebsiteResponseSchema } } },
+    200: { description: 'Brand updated', content: { 'application/json': { schema: SetBrandWebsiteResponseSchema } } },
     400: { description: 'Invalid brand ID or URL', content: { 'application/json': { schema: ValidationErrorResponseSchema } } },
     403: { description: 'Brand not owned by the requesting org' },
     404: { description: 'Brand not found' },

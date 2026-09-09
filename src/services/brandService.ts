@@ -38,6 +38,19 @@ interface Brand {
   domain: string | null;
 }
 
+/**
+ * A brand row plus the logo it stands behind.
+ *
+ * Deliberately a SEPARATE type rather than a field on `Brand`: `Brand` is returned
+ * by a dozen creation/lookup paths that legitimately do not read the column, and
+ * widening it there would force every one of them to select a value they have no
+ * use for. Only the two writers a person's own correction flows through carry it.
+ *
+ * `null` means nobody chose a logo, so the one derived from the domain applies —
+ * it is never a derived URL, which is what makes "clear it" expressible at all.
+ */
+export type BrandWithLogo = Brand & { logoUrl: string | null };
+
 export interface BrandDetail {
   id: string;
   // NULLABLE — a no-website brand has no domain / url. Consumers must handle null
@@ -808,6 +821,7 @@ export async function createBrandWithoutWebsite(
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
+      logoUrl: brands.logoUrl,
     });
 
   await db
@@ -849,11 +863,60 @@ export async function createBrandWithoutWebsite(
  * membership row is dropped, so the abandoned shell stops polluting their brand
  * list. Holders belonging to OTHER orgs are never unlinked or stripped.
  */
+/**
+ * Correct a brand's own IDENTITY — the display name and the logo a person sees.
+ *
+ * Both are DERIVED by default and neither could be corrected by the person they
+ * describe: the name comes from a one-off extraction at signup, and the logo is
+ * whatever logo.dev has indexed for the brand's domain. When that third-party
+ * index is stale the brand wears the wrong mark on every surface, with no way
+ * back — which is what this exists to fix.
+ *
+ * PARTIAL by construction. An omitted key is left exactly as stored, so a caller
+ * correcting one field can never overwrite another from a stale copy it read
+ * minutes ago. `logoUrl: null` is a real value and CLEARS the stored logo, which
+ * is how a customer returns to the derived one; that is why the caller's intent is
+ * read off key PRESENCE (`'logoUrl' in patch`) rather than off a truthiness test,
+ * which cannot tell "leave it" from "clear it".
+ *
+ * Nothing here re-derives: `ensureBrandName` and `ensureBrandLogoUrl` both fill
+ * only a NULL, so a stored value survives every later read.
+ */
+export async function updateBrandIdentity(
+  brandId: string,
+  patch: { name?: string; logoUrl?: string | null },
+  callerOrgId: string,
+): Promise<BrandWithLogo> {
+  const set: Record<string, unknown> = { updatedAt: sql`NOW()` };
+  if (patch.name !== undefined) set.name = patch.name;
+  if ('logoUrl' in patch) set.logoUrl = patch.logoUrl;
+
+  const [updated] = await db
+    .update(brands)
+    .set(set)
+    .where(eq(brands.id, brandId))
+    .returning({
+      id: brands.id,
+      url: brands.url,
+      name: brands.name,
+      domain: brands.domain,
+      logoUrl: brands.logoUrl,
+    });
+
+  if (!updated) throw new Error(`Brand not found: ${brandId}`);
+
+  console.log(
+    `[brand-service] Updated brand identity ${brandId} (org ${callerOrgId}): ` +
+      `${patch.name !== undefined ? 'name ' : ''}${'logoUrl' in patch ? (patch.logoUrl === null ? 'logo-cleared ' : 'logo ') : ''}`.trim(),
+  );
+  return updated;
+}
+
 export async function updateBrandWebsite(
   brandId: string,
   url: string,
   callerOrgId: string,
-): Promise<Brand> {
+): Promise<BrandWithLogo> {
   const normalizedUrl = normalizeUrl(url);
   const domain = extractDomain(normalizedUrl);
 
@@ -891,6 +954,7 @@ export async function updateBrandWebsite(
       url: brands.url,
       name: brands.name,
       domain: brands.domain,
+      logoUrl: brands.logoUrl,
     });
 
   if (!updated) throw new Error(`Brand not found: ${brandId}`);

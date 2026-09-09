@@ -269,13 +269,18 @@
           "url": {
             "type": "string",
             "nullable": true
+          },
+          "logoUrl": {
+            "type": "string",
+            "nullable": true
           }
         },
         "required": [
           "brandId",
           "domain",
           "name",
-          "url"
+          "url",
+          "logoUrl"
         ]
       },
       "DomainConflictErrorResponse": {
@@ -317,19 +322,29 @@
           "conflictingBrandId": "0b5f5b1e-2b1a-4a6a-9f1e-0d3a5c7b9e11"
         }
       },
-      "SetBrandWebsiteRequest": {
+      "UpdateBrandRequest": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "logoUrl": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1,
+            "maxLength": 2048,
+            "format": "uri"
           }
         },
-        "required": [
-          "url"
-        ],
-        "description": "Attach a website to an existing brand (e.g. a no-website brand whose user later adds their site). URL may be a bare domain or full URL; normalized server-side. Sets the brand's url + domain. The next post-cache-expiry field extraction re-sources from the site (rides the existing field cache — no new TTL).",
+        "description": "Partially update a brand IDENTITY. Every field is optional and an omitted field is left exactly as it is. `url` attaches a website to a brand that has none (bare domain or full URL, normalized server-side; sets url + domain, and the next post-cache-expiry field extraction re-sources from the site). `name` corrects the display name, which is otherwise derived once at signup and never revisited. `logoUrl` stores a logo the customer chose, as an https URL to an image already hosted on our own storage; sending `logoUrl: null` CLEARS it so the logo this service derives from the brand domain comes back. At least one field is required.",
         "example": {
-          "url": "https://acme.com"
+          "name": "Acme",
+          "logoUrl": "https://cdn.distribute.you/brand-logos/acme.png"
         }
       },
       "BusinessContextResponse": {
@@ -3025,20 +3040,20 @@
     },
     "/orgs/brands/{brandId}": {
       "patch": {
-        "summary": "Attach a website to an existing brand",
-        "description": "Sets brands.url + brands.domain on an existing brand (e.g. a no-website brand whose user later adds their site). The next post-cache-expiry field extraction re-sources from the site automatically (rides the existing field cache — no new TTL). A domain belongs to whoever has CHECKED OUT on it (client-service is the source of truth). If another brand already holds the derived domain but NOBODY ever checked out on it, the domain is moved onto this brand and the abandoned holder is left as a no-website brand (and, when it belongs to the caller's own org, its data is merged in and it is removed from the caller's brand list). Only a holder somebody paid for is a 409, with a distinct `code` per case: `DOMAIN_OWNED_BY_YOUR_PAID_BRAND` (the caller's own org already checked out on it) or `DOMAIN_OWNED_BY_ANOTHER_ORG`.",
+        "summary": "Update a brand identity (website, display name, logo)",
+        "description": "Partially updates a brand IDENTITY — every field is optional and an omitted field is left untouched. `name` corrects the display name (otherwise derived once at signup); `logoUrl` stores a customer-chosen logo as an https URL to an image already on our own storage, and `logoUrl: null` clears it so the domain-derived default comes back. `url` sets brands.url + brands.domain on an existing brand (e.g. a no-website brand whose user later adds their site). The next post-cache-expiry field extraction re-sources from the site automatically (rides the existing field cache — no new TTL). A domain belongs to whoever has CHECKED OUT on it (client-service is the source of truth). If another brand already holds the derived domain but NOBODY ever checked out on it, the domain is moved onto this brand and the abandoned holder is left as a no-website brand (and, when it belongs to the caller's own org, its data is merged in and it is removed from the caller's brand list). Only a holder somebody paid for is a 409, with a distinct `code` per case: `DOMAIN_OWNED_BY_YOUR_PAID_BRAND` (the caller's own org already checked out on it) or `DOMAIN_OWNED_BY_ANOTHER_ORG`.",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SetBrandWebsiteRequest"
+                "$ref": "#/components/schemas/UpdateBrandRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Website attached",
+            "description": "Brand updated",
             "content": {
               "application/json": {
                 "schema": {
