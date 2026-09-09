@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import {
   CreateOfferRequestSchema,
   DeclareSalesFunnelRequestSchema,
+  GenerateOfferImageRequestSchema,
   PutUserFieldsRequestSchema,
   RenameOfferRequestSchema,
   StateSalesFunnelSetRequestSchema,
@@ -16,6 +17,12 @@ import {
   listOffers,
   renameOffer,
 } from '../services/brandOffersService';
+import {
+  buildOfferImagePrompt,
+  generateOfferImage,
+  readOfferImageDescriptors,
+} from '../services/offerImageService';
+import { ChatServiceImageGenerationError } from '../lib/chat-client';
 import { toSalesFunnelKey, SALES_FUNNEL_KEYS, SalesFunnelKey } from '../services/salesFunnelCatalogue';
 import {
   SalesFunnelDestinationNotUsedError,
@@ -213,6 +220,74 @@ orgRouter.patch('/brands/:brandId/offers/:offerId', async (req: Request, res: Re
   } catch (error: any) {
     console.error('[brand-service] Rename offer error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * POST /orgs/brands/:brandId/offers/:offerId/image
+ * (Re)generate the picture standing for this offer and store the hosted URL on
+ * it. Regenerating REPLACES what was there — one image per offer.
+ *
+ * The prompt comes from the offer's OWN descriptors (its name plus the confirmed
+ * `services` / `dreamOutcome` it has stated), and its background colour is
+ * derived from the offer id, so the colour survives every regeneration while the
+ * drawing changes. An optional `prompt` in the body lets a caller steer the
+ * image; omitted, it is derived.
+ *
+ * COST: chat-service is the terminal caller — it owns the image-gen cost AND the
+ * affordability gate, so nothing is declared or pre-authorized here. Its 402
+ * propagates as a 402; every other failure is a loud 502 and NOTHING is stored.
+ */
+orgRouter.post('/brands/:brandId/offers/:offerId/image', async (req: Request, res: Response) => {
+  try {
+    const scope = await resolveOfferParam(req, res);
+    if (!scope) return;
+
+    const parsed = GenerateOfferImageRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    const offer = await assertOfferOnBrand(req.orgId!, scope.brandId, scope.offerId);
+
+    const prompt =
+      parsed.data.prompt
+      ?? buildOfferImagePrompt(
+        offer,
+        await readOfferImageDescriptors(req.orgId!, scope.brandId, scope.offerId),
+      );
+
+    const imageUrl = await generateOfferImage(
+      req.orgId!,
+      scope.brandId,
+      scope.offerId,
+      prompt,
+      {
+        mode: 'org',
+        orgId: req.orgId!,
+        userId: req.userId ?? '',
+        runId: req.runId ?? '',
+        campaignId: req.campaignId,
+        featureSlug: req.featureSlug,
+        brandIdHeader: req.brandIdHeader,
+        workflowSlug: req.workflowSlug,
+        audienceId: req.audienceId,
+      },
+    );
+
+    return res.status(200).json({ offer: { ...offer, imageUrl } });
+  } catch (error: any) {
+    if (rejectOfferProblem(res, error)) return;
+    // The org cannot afford the generation. chat-service is the gate, so its 402
+    // is the answer — surfaced, never masked as a 502 and never a silent no-op.
+    if (error instanceof ChatServiceImageGenerationError && error.status === 402) {
+      return res.status(402).json({ error: 'Insufficient credits' });
+    }
+    if (typeof error?.message === 'string' && error.message.includes('returned 402')) {
+      return res.status(402).json({ error: 'Insufficient credits' });
+    }
+    console.error('[brand-service] Generate offer image error:', error);
+    return res.status(502).json({ error: 'Offer image generation failed', detail: error.message });
   }
 });
 

@@ -30,6 +30,13 @@ export interface BrandOffer {
   offerId: string;
   brandId: string;
   name: string;
+  /**
+   * The hosted URL of the offer's own image, or `null` when it has none — an
+   * offer created today does, and that absence is a first-class answer the
+   * consumer renders its own glyph on. Never a placeholder, never derived.
+   * Written only by `generateOfferImage` (see `offerImageService`).
+   */
+  imageUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -107,6 +114,7 @@ function formatOffer(row: OfferRow): BrandOffer {
     offerId: row.id,
     brandId: row.brandId,
     name: row.name,
+    imageUrl: row.imageUrl ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

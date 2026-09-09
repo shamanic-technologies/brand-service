@@ -2730,6 +2730,10 @@
           "name": {
             "type": "string"
           },
+          "imageUrl": {
+            "type": "string",
+            "nullable": true
+          },
           "createdAt": {
             "type": "string"
           },
@@ -2741,6 +2745,7 @@
           "offerId",
           "brandId",
           "name",
+          "imageUrl",
           "createdAt",
           "updatedAt"
         ]
@@ -2782,6 +2787,15 @@
         "required": [
           "name"
         ]
+      },
+      "GenerateOfferImageRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       },
       "SalesRepPhoneResponse": {
         "type": "object",
@@ -6168,6 +6182,68 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/image": {
+      "post": {
+        "summary": "(Re)generate an offer's image",
+        "description": "Generate the picture that stands for this offer — an OBJECT or EMBLEM symbolising what is being sold, never a face — and store the hosted URL on the offer. Regenerating REPLACES whatever was there: there is one image per offer.\n\nThe prompt is built from the offer’s OWN descriptors (its name, plus the confirmed `services` and `dreamOutcome` it has stated); an offer that has stated none still generates from its name alone. The BACKGROUND COLOUR is picked DETERMINISTICALLY from a fixed palette seeded on the offer id, so an offer keeps the same colour across regenerations and two offers of one brand get different ones. The style matches the audience avatars human-service generates, because the two render side by side.\n\nCOST: chat-service is the terminal caller and owns the image-gen cost AND the affordability gate — brand-service declares none and only forwards the identity headers, so the spend is billed to the requesting ORG. Its 402 (the org cannot afford it) is propagated here as a 402, never swallowed and never a silent no-op.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateOfferImageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The offer, with the freshly generated image on it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand or offer ID format"
+          },
+          "402": {
+            "description": "The org cannot afford the image generation"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "502": {
+            "description": "Image generation failed"
           }
         }
       }
