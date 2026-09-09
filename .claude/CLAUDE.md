@@ -265,6 +265,12 @@ Every one of these is ADDITIVE: omitted, the read is byte-for-byte what it was, 
 
 `NODE_ENV === 'test'` marks migrations ready at import so the exported app is usable; the integration harness (`tests/helpers/test-app.ts`) builds its own app and has no gate. Regression: `tests/unit/bootMigrations.test.ts`, `tests/integration/migrationGate.test.ts`. Issue: #386. Note #386's own "Fix" section proposes `connect_timeout` + `idle_timeout` postgres.js options — PR #389 disproved both (`connect_timeout: 30` is already the postgres.js default; `idle_timeout` defaults to `null` on postgres.js, so setting it makes idle connections close and costs a fresh TCP+TLS handshake — that advice is node-postgres's, mis-transplanted). Do not re-add either.
 
+## The onboarding prefill runs on GPT-6 Astra, and Astra is sent NO sampling params
+
+Every LLM call on the onboarding prefill path — the top-10 URL selection and both extraction branches in `fieldExtractionService`, the cross-brand consolidation in `multiBrandFieldExtractionService`, and the ICP suggestion in `icpSuggestionService` — goes to chat-service with `provider: 'openai', model: 'gpt-pro'` (GPT-6 Astra). These are the values a user reviews and edits during onboarding, so they get the strongest model we serve; the cost is accepted (owner decision 2026-09-09). `geminiAnalysisService` (direct SDK), `imageExtractionService` and `offerMigrationService` are NOT on that path and stay where they are.
+
+**Never send a sampling param on an `openai` call.** Astra rejects `temperature` != 1 and `top_p` with a 400 `unsupported_value`, so `temperature: 0` / `0.1` was dropped at every switched site rather than carried over — those calls stay deterministic through their strict `responseSchema` and their prompts, not through sampling. `disableThinking: true` is fine and is kept where it was (chat-service maps it to `reasoning_effort: low`, Astra's floor), as are `responseSchema`, `responseFormat: 'json'` and `maxTokens`.
+
 ## Code Conventions
 
 - TypeScript strict mode
