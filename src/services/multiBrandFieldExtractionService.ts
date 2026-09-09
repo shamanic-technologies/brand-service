@@ -252,15 +252,14 @@ async function consolidateFields(
         (mode === 'suggest'
           ? ` NEVER return "Unknown", null, or empty values — always produce a best-effort merged value.`
           : ''),
-      provider: 'google',
-      model: 'pro',
+      provider: 'openai',
+      model: 'gpt-pro',
       responseFormat: 'json',
       // Strict schema enforces the output shape server-side so Gemini Pro can't
       // emit malformed/truncated JSON across the consolidated field set (same
       // chat-service 502 class as the per-brand extraction). `thinkingBudget`
       // was dead config — chat-service /complete never honored it.
       responseSchema: buildFieldsResponseSchema(fieldKeys),
-      temperature: 0,
       maxTokens: 24000,
     },
     chatCaller,
