@@ -73,8 +73,13 @@ export interface ChatResult {
   model: string;
 }
 
+/**
+ * What chat-service answers with on `POST /orgs/images/generate`: a HOSTED url,
+ * not bytes. chat-service generates the image AND stores it, so the caller
+ * persists the URL and never handles the image data.
+ */
 export interface GeneratedImageResult {
-  imageBase64: string;
+  url: string;
   mimeType: string;
   model: string;
   tokensInput: number;
@@ -130,6 +135,17 @@ export async function chat(params: ChatParams, caller: Caller): Promise<ChatResu
   return chatPlatform(params);
 }
 
+/**
+ * One-shot image generation via chat-service `POST /orgs/images/generate`.
+ *
+ * chat-service is the TERMINAL caller: it resolves the provider key, creates the
+ * run, and owns the cost end to end (provision → authorize → execute →
+ * actualize) as well as the affordability gate. brand-service declares NO cost
+ * for it — it forwards the prompt and the caller's identity headers, and stores
+ * the hosted URL that comes back. A non-2xx (a 402 when the org cannot afford
+ * the call included) throws `ChatServiceImageGenerationError` carrying the
+ * status, so the route can answer with it rather than mask it.
+ */
 export async function generateImage(prompt: string, caller: OrgCaller): Promise<GeneratedImageResult> {
   const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/orgs/images/generate`, {
     method: 'POST',
@@ -145,7 +161,7 @@ export async function generateImage(prompt: string, caller: OrgCaller): Promise<
 
   const body = await response.json() as Partial<GeneratedImageResult>;
   if (
-    typeof body.imageBase64 !== 'string'
+    typeof body.url !== 'string'
     || typeof body.mimeType !== 'string'
     || typeof body.model !== 'string'
     || typeof body.tokensInput !== 'number'
@@ -158,7 +174,7 @@ export async function generateImage(prompt: string, caller: OrgCaller): Promise<
   }
 
   return {
-    imageBase64: body.imageBase64,
+    url: body.url,
     mimeType: body.mimeType,
     model: body.model,
     tokensInput: body.tokensInput,

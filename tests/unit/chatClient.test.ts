@@ -290,7 +290,7 @@ describe('chat-client', () => {
 
       mockFetch.mockResolvedValueOnce(
         mockResponse({
-          imageBase64: 'iVBORw0KGgo=',
+          url: 'https://cdn.distribute.you/images/offer-emblem.png',
           mimeType: 'image/png',
           model: 'gemini-3.1-flash-image',
           tokensInput: 12,
@@ -313,7 +313,7 @@ describe('chat-client', () => {
       );
 
       expect(result).toMatchObject({
-        imageBase64: 'iVBORw0KGgo=',
+        url: 'https://cdn.distribute.you/images/offer-emblem.png',
         mimeType: 'image/png',
         model: 'gemini-3.1-flash-image',
       });

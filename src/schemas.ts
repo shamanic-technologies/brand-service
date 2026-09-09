@@ -3267,6 +3267,11 @@ export const OfferSchema = z
     offerId: z.string().uuid(),
     brandId: z.string().uuid(),
     name: z.string(),
+    // The hosted URL of the offer's own image — an object or emblem standing for
+    // what this offer sells. `null` means this offer has NO image, which is a
+    // first-class state and not an error: the consumer renders its own glyph.
+    // Nothing here is ever a placeholder image.
+    imageUrl: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -3279,6 +3284,12 @@ export const CreateOfferRequestSchema = z
 export const RenameOfferRequestSchema = z
   .object({ name: OfferNameSchema })
   .openapi('RenameOfferRequest');
+
+export const GenerateOfferImageRequestSchema = z
+  .object({
+    prompt: z.string().min(1).optional(),
+  })
+  .openapi('GenerateOfferImageRequest');
 
 export const OfferResponseSchema = z
   .object({ offer: OfferSchema })
@@ -3364,6 +3375,41 @@ registry.registerPath({
     404: { description: 'No such brand, or no such offer on it' },
     409: { description: 'This brand already has another offer with that name' },
     500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/image',
+  summary: "(Re)generate an offer's image",
+  description:
+    "Generate the picture that stands for this offer — an OBJECT or EMBLEM symbolising what is " +
+    'being sold, never a face — and store the hosted URL on the offer. Regenerating REPLACES ' +
+    'whatever was there: there is one image per offer.\n\n' +
+    'The prompt is built from the offer\u2019s OWN descriptors (its name, plus the confirmed ' +
+    '`services` and `dreamOutcome` it has stated); an offer that has stated none still generates ' +
+    'from its name alone. The BACKGROUND COLOUR is picked DETERMINISTICALLY from a fixed palette ' +
+    'seeded on the offer id, so an offer keeps the same colour across regenerations and two ' +
+    'offers of one brand get different ones. The style matches the audience avatars human-service ' +
+    'generates, because the two render side by side.\n\n' +
+    'COST: chat-service is the terminal caller and owns the image-gen cost AND the affordability ' +
+    'gate — brand-service declares none and only forwards the identity headers, so the spend is ' +
+    "billed to the requesting ORG. Its 402 (the org cannot afford it) is propagated here as a " +
+    '402, never swallowed and never a silent no-op.',
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: GenerateOfferImageRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The offer, with the freshly generated image on it',
+      content: { 'application/json': { schema: OfferResponseSchema } },
+    },
+    400: { description: 'Invalid brand or offer ID format' },
+    402: { description: 'The org cannot afford the image generation' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    502: { description: 'Image generation failed' },
   },
 });
 

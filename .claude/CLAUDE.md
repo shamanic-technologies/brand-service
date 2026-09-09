@@ -234,6 +234,22 @@ Read as a flat table they look exactly like clones of one proposition, and the r
 
 **Every read, write and resolution is org-scoped, and that is what must not regress.** `listOffers`, `getOffer` and therefore `resolveSoleOffer` all filter on `org_id`, so a brand ten orgs claim still resolves to ONE offer per org and a brand-scoped call never 409s `SeveralOffersError` on somebody else's row. `getOfferById` (internal, offer id alone) reads the org OFF the row rather than taking one. Regression: `tests/integration/offersAcrossOrgsClaimingOneBrand.test.ts` (three orgs on one brand, same offer name, independent prices, `404` across orgs, `ORG_REQUIRED` on the org-less internal read), plus `tests/unit/offerMigrationPlan.test.ts` for the per-pair planning and the empty re-run.
 
+## An offer's image is an EMBLEM on a colour it keeps — absence is a state, and chat-service owns the spend
+
+`brand_offers.image_url` (nullable, migration `0062`) holds the hosted URL of the picture standing for ONE offer, served on `imageUrl` by every offer read — the list and the by-id — so a consumer that already renders an offer gets it with no second request. Owner: `src/services/offerImageService.ts`; route: `POST /orgs/brands/:brandId/offers/:offerId/image` (returns the updated offer).
+
+**NULL is the answer, never a placeholder.** An offer created today has none, and the consumer renders its own glyph on it. Nothing here defaults an image, derives one from the brand's logo, or hands back a stock file — a wrong picture for a proposition is worse than no picture. Do not add a fallback.
+
+**The style is human-service's audience-avatar style, because the two render side by side.** Flat vector, thick clean outlines, simple geometric shapes, high contrast, square 1:1, no photorealism / text / letters / logos, on a bold SINGLE solid background from the same 16-colour palette `buildAvatarPrompt` picks from. What DIFFERS is the subject and it is the point: an audience is a PERSON, so human-service draws a character with a gender and an age band; an offer is a PROPOSITION, so its image is an OBJECT or EMBLEM and the prompt forbids people, faces and portraits outright. A face here reads as the audience sitting next to it.
+
+**The colour is seeded on the OFFER ID alone** (`pickOfferImagePalette`, FNV-1a over the uuid), never random per call and never seeded on the name. That is what makes a regeneration recognisable — the customer who dislikes a drawing and asks for another still gets the same colour — and what spreads a brand's offers across the hue wheel. A rename does not move it. Regenerating REPLACES the URL: one image per offer, so there is no second live picture to choose between.
+
+**The prompt is built from the offer's OWN descriptors** — its name, plus the confirmed `services` and `dreamOutcome` it has stated (`readOfferImageDescriptors` → `getConfirmedByOfferId`, offer-scoped like every other reader of those fields). An offer that has stated none still generates, from its name alone. An optional `prompt` in the body steers it.
+
+**chat-service is the terminal caller, so it owns the cost AND the gate.** brand-service declares NO cost and runs NO pre-authorize (Pattern A): it forwards the request's identity headers, so the spend is billed to the requesting ORG, and stores the hosted URL that comes back. A 402 propagates as a 402 with a body the caller can read; any other failure is a loud 502 and NOTHING is stored. Note `generateImage` in `src/lib/chat-client.ts` was stale — it required an `imageBase64` chat-service stopped returning when it moved to hosting the bytes itself; it now requires `url` + `mimeType`, matching the deployed contract.
+
+Regression: `tests/unit/offerImagePrompt.test.ts`, `tests/integration/offerImage.test.ts`.
+
 ## Every reader of the confirmed fields names an OFFER — there is no brand-scoped read of them left
 
 The 7 user-facing fields are ONE proposition's words, so "the brand's confirmed fields" is not a question with an answer once a brand sells two things. `getConfirmedByBrandId` was the compatibility wrapper that resolved the sole offer and it is GONE; the only read is `getConfirmedByOfferId(orgId, brandId, offerId)`, and every caller states which offer it means through **`resolveNamedOffer(orgId, brandId, offerId?)`** (`brandOffersService`):
