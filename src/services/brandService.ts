@@ -22,6 +22,7 @@
 import { eq, and, sql, isNull } from 'drizzle-orm';
 import { db, brands, orgBrands, brandClickDestinations, brandWhatsappLinks, brandColors } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
+import { normalizeLogoUrl } from '../lib/logo-url';
 import { Caller, OrgCaller } from '../lib/chat-client';
 import { buildLogoDevUrl } from '../lib/logo-dev';
 import { searchBrandNameByDomain } from '../lib/logo-dev-search';
@@ -36,6 +37,17 @@ interface Brand {
   url: string | null;
   name: string | null;
   domain: string | null;
+}
+
+/**
+ * A brand row answered by an identity WRITE, which also reports the mark the
+ * brand now wears — the caller just changed it, or just cleared it and wants to
+ * see that the derived default is what comes back.
+ */
+interface BrandIdentity extends Brand {
+  // NULLABLE — the stored replacement, the derived logo.dev URL, or nothing at
+  // all while neither exists (a brand with no domain has no logo to derive).
+  logoUrl: string | null;
 }
 
 export interface BrandDetail {
@@ -266,7 +278,10 @@ async function persistBrandName(brandId: string, name: string): Promise<void> {
   await db
     .update(brands)
     .set({ name, updatedAt: sql`NOW()` })
-    .where(eq(brands.id, brandId));
+    // Never over a name a human corrected: this runs after an await, so the
+    // correction can land between the read that found the name absent and this
+    // write.
+    .where(and(eq(brands.id, brandId), isNull(brands.nameSetByOrgAt)));
 }
 
 /**
@@ -340,9 +355,13 @@ export async function fillBrandNameOnCreate(
  * page and replace the titlecased-domain placeholder in place.
  *
  * The UPDATE is conditioned on the name still BEING that placeholder, so a real
- * name stored meanwhile (user edit, concurrent fill) is never clobbered. A page
- * that yields nothing better resolves to the same placeholder and writes
- * nothing.
+ * name stored meanwhile (concurrent fill) is never clobbered. A page that yields
+ * nothing better resolves to the same placeholder and writes nothing.
+ *
+ * It is ALSO conditioned on `name_set_by_org_at` being absent, which is what the
+ * placeholder comparison cannot do on its own: a customer who corrects the name
+ * to exactly the titlecased domain would otherwise have their correction
+ * replaced by this background write moments later.
  */
 async function upgradeProvisionalBrandName(
   brandId: string,
@@ -356,7 +375,11 @@ async function upgradeProvisionalBrandName(
   const [updated] = await db
     .update(brands)
     .set({ name: derived, updatedAt: sql`NOW()` })
-    .where(and(eq(brands.id, brandId), eq(brands.name, provisional)))
+    .where(and(
+      eq(brands.id, brandId),
+      eq(brands.name, provisional),
+      isNull(brands.nameSetByOrgAt),
+    ))
     .returning({ name: brands.name });
 
   if (updated) {
@@ -853,8 +876,61 @@ export async function updateBrandWebsite(
   brandId: string,
   url: string,
   callerOrgId: string,
-): Promise<Brand> {
-  const normalizedUrl = normalizeUrl(url);
+): Promise<BrandIdentity> {
+  return updateBrandIdentity(brandId, callerOrgId, { url });
+}
+
+/**
+ * What an org can CORRECT about the brand identity it is looking at: the website
+ * (above), the display NAME, and the LOGO.
+ *
+ * Both of the latter are derived by this service today — the name from the
+ * logo.dev company index and the landing page, the logo from whatever logo.dev
+ * has indexed for the domain — and neither could be corrected by the business it
+ * describes. When that index is stale or simply wrong (a rebrand it has not
+ * caught up with), the brand wore the wrong mark on every surface with no way
+ * back. These two fields are that way back.
+ *
+ * PARTIAL: a caller sends only what it is changing and every omitted field is
+ * left exactly as stored. `{ url }` alone is byte-for-byte the website attach
+ * this function has always done, conflict semantics included.
+ *
+ * - `name`   — persisted with `name_set_by_org_at`, which is what makes every
+ *              automatic derivation refuse to touch the row afterwards.
+ * - `logoUrl`— a URL to an image WE do not host: the dashboard uploads the file
+ *              to our object storage and sends back the resulting URL. Passing
+ *              `null` CLEARS it, and the next read re-derives the logo.dev
+ *              default (`getBrandDetail` → `ensureBrandLogoUrl` fills a NULL),
+ *              so a customer who dislikes their upload has a way back that needs
+ *              no support request.
+ */
+export async function updateBrandIdentity(
+  brandId: string,
+  callerOrgId: string,
+  patch: { url?: string; name?: string; logoUrl?: string | null },
+): Promise<BrandIdentity> {
+  const changes: Partial<{
+    url: string;
+    domain: string;
+    name: string;
+    nameSetByOrgAt: string;
+    logoUrl: string | null;
+  }> = {};
+
+  if (patch.name !== undefined) {
+    changes.name = patch.name;
+    changes.nameSetByOrgAt = new Date().toISOString();
+  }
+
+  if (patch.logoUrl !== undefined) {
+    changes.logoUrl = patch.logoUrl === null ? null : normalizeLogoUrl(patch.logoUrl);
+  }
+
+  if (patch.url === undefined) {
+    return applyBrandIdentityChanges(brandId, changes);
+  }
+
+  const normalizedUrl = normalizeUrl(patch.url);
   const domain = extractDomain(normalizedUrl);
 
   // Another brand row may already hold this domain (the unique index would 23505
@@ -882,24 +958,50 @@ export async function updateBrandWebsite(
     await takeOverDomain({ holderBrandId: holder.id, targetBrandId: brandId, callerOrgId, domain });
   }
 
-  const [updated] = await db
-    .update(brands)
-    .set({ url: normalizedUrl, domain, updatedAt: sql`NOW()` })
-    .where(eq(brands.id, brandId))
-    .returning({
-      id: brands.id,
-      url: brands.url,
-      name: brands.name,
-      domain: brands.domain,
-    });
-
-  if (!updated) throw new Error(`Brand not found: ${brandId}`);
+  const updated = await applyBrandIdentityChanges(brandId, {
+    ...changes,
+    url: normalizedUrl,
+    domain,
+  });
 
   // The brand now stands for a DIFFERENT domain, so any palette we hold is
   // another business's colours. Drop it and queue the new domain.
   await resetBrandColorsForNewDomain(brandId);
 
   console.log(`[brand-service] Attached website ${normalizedUrl} (domain ${domain}) to brand ${brandId}`);
+  return updated;
+}
+
+/**
+ * Write the identity columns the caller actually named, and answer with the row
+ * as it now stands. An empty patch is a read: the route refuses a body naming no
+ * field, so this is only reached with something to say.
+ */
+async function applyBrandIdentityChanges(
+  brandId: string,
+  changes: Partial<{
+    url: string;
+    domain: string;
+    name: string;
+    nameSetByOrgAt: string;
+    logoUrl: string | null;
+  }>,
+): Promise<BrandIdentity> {
+  const columns = {
+    id: brands.id,
+    url: brands.url,
+    name: brands.name,
+    domain: brands.domain,
+    logoUrl: brands.logoUrl,
+  };
+
+  const [updated] = await db
+    .update(brands)
+    .set({ ...changes, updatedAt: sql`NOW()` })
+    .where(eq(brands.id, brandId))
+    .returning(columns);
+
+  if (!updated) throw new Error(`Brand not found: ${brandId}`);
   return updated;
 }
 
