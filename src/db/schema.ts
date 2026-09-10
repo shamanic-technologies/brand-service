@@ -356,11 +356,13 @@ export const brandOffers = pgTable("brand_offers", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
-	// AT MOST 2 WORDS, AT MOST 20 CHARACTERS — an owner-fixed limit, enforced here
-	// by a CHECK and at the write path by `offerNameProblem` so the caller gets a
-	// sentence rather than a constraint-violation string. It is the only word
-	// anyone reads for this offer: a longer one is a description and truncates
-	// differently on every surface that renders it. UNIQUE within the (org, brand)
+	// AT MOST 60 CHARACTERS, and NO word limit — the owner's number for a name a
+	// caller SUPPLIED. Enforced here by a CHECK and at the write path by
+	// `offerNameProblem` so the caller gets a sentence rather than a
+	// constraint-violation string. A compound proposition is one name to the
+	// customer who sells it, whatever a word counter says. The narrower 2-word /
+	// 20-character rule survives where this service DERIVES a name for itself
+	// (`derivedOfferNameProblem`), and only there. UNIQUE within the (org, brand)
 	// pair — two offers a reader cannot tell apart are two offers nobody can pick
 	// between.
 	name: text().notNull(),
@@ -391,21 +393,15 @@ export const brandOffers = pgTable("brand_offers", {
 		foreignColumns: [brands.id],
 		name: "brand_offers_brand_id_fkey",
 	}).onDelete("cascade"),
-	// The two limits, in the database as well as in the write path. Belt and
-	// braces on purpose: a name is what four other services will key their
-	// display on, and a script that writes around the service must not be able to
-	// create one no surface can render.
+	// The limit, in the database as well as in the write path. Belt and braces on
+	// purpose: a name is what four other services key their display on, and a
+	// script that writes around the service must not be able to create one no
+	// surface can render. There is NO word check any more — the word rule now
+	// belongs to the DERIVED path alone, which is code, not storage: nothing
+	// generates a name directly into this table.
 	check(
 		"brand_offers_name_length_check",
-		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 20`
-	),
-	// `\\s` and not `\s`: a template literal eats the backslash, so `'\s+'` would
-	// reach Postgres as `'s+'` and split every name on the LETTER s — "User
-	// Fields" becomes three words and a perfectly legal name is refused. Caught
-	// by the integration suite as a 500 on the first user-fields write.
-	check(
-		"brand_offers_name_words_check",
-		sql`array_length(regexp_split_to_array(btrim(${table.name}), '\\s+'), 1) <= 2`
+		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 60`
 	),
 ]);
 

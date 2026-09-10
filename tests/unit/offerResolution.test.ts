@@ -174,12 +174,20 @@ describe('requireValidOfferName', () => {
     expect(requireValidOfferName('  Self   Serve ')).toBe('Self Serve');
   });
 
-  it('throws OfferNameError on a third word', () => {
-    expect(() => requireValidOfferName('Self Serve Plan')).toThrow(OfferNameError);
+  it('takes a three-word name a caller supplied: the word rule is derived-only', () => {
+    expect(requireValidOfferName('Bio Drogerien Schweiz')).toBe('Bio Drogerien Schweiz');
   });
 
-  it('throws OfferNameError past 20 characters', () => {
-    expect(() => requireValidOfferName('Enterprisee Contracts')).toThrow(OfferNameError);
+  it("takes the customer's own compound name, past the old 20-character cap", () => {
+    expect(requireValidOfferName('Psylium-Swiss-Bio-Drogerien')).toBe('Psylium-Swiss-Bio-Drogerien');
+  });
+
+  it('throws OfferNameError past 60 characters', () => {
+    expect(() => requireValidOfferName('x'.repeat(61))).toThrow(OfferNameError);
+  });
+
+  it('throws OfferNameError on a blank name', () => {
+    expect(() => requireValidOfferName('   ')).toThrow(OfferNameError);
   });
 });
 
