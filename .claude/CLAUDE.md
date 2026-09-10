@@ -287,6 +287,20 @@ Every LLM call on the onboarding prefill path — the top-10 URL selection and b
 
 **Never send a sampling param on an `openai` call.** Astra rejects `temperature` != 1 and `top_p` with a 400 `unsupported_value`, so `temperature: 0` / `0.1` was dropped at every switched site rather than carried over — those calls stay deterministic through their strict `responseSchema` and their prompts, not through sampling. `disableThinking: true` is fine and is kept where it was (chat-service maps it to `reasoning_effort: low`, Astra's floor), as are `responseSchema`, `responseFormat: 'json'` and `maxTokens`.
 
+## An offer name has TWO rules, split by who wrote it — and both layers hold each
+
+`src/lib/offer-name.ts` owns the whole vocabulary and is deliberately free of database, express and `@`-aliased imports, so it carries real unit tests rather than source-substring guards. Keep it that way.
+
+**A name a CALLER SUPPLIES (create, rename) takes 60 characters and NO word rule.** Owner-fixed at 60. A customer naming their own proposition knows what it is called: `Psylium-Swiss-Bio-Drogerien` is one word to them and four to a counter, and the old 2-word / 20-character refusal read as the product being broken. `offerNameProblem` answers a SENTENCE or `null` — rendered verbatim by whatever surface collected the name, naming the limit that broke and by how much, because the consumer shows a character counter before the person ever submits.
+
+**A name this service DERIVES for itself keeps at most 2 words and at most 20 characters.** `derivedOfferNameProblem` + `shortenToOfferName` + `offerNameForBrand`, for the implicit offer created on a brand that has none and for anything the one-time migration generates. That narrow shape is what makes a derived name safe to INVENT: the shortening only ever drops trailing words, so it needs a target to cut to, and a brand it cannot name FAILS VISIBLY rather than coining a word. Do not relax it.
+
+**Nothing SUPPLIED is ever truncated.** Over the limit is a refusal, never a silent cut — a name we shorten is a name two surfaces shorten differently. Blank is still refused, and uniqueness within a brand is untouched (`(org_id, brand_id, lower(name))`).
+
+**Both layers agree, and that is the migration's job.** `0064` DROPPED `brand_offers_name_words_check` outright (nothing writes a derived name straight into the table, so the word rule has no business in storage) and WIDENED `brand_offers_name_length_check` to `char_length(btrim(name)) BETWEEN 1 AND 60` — widening only, so no existing row can violate it. A name the write path accepts must never die on a constraint, and a script writing around the service must not be able to store something no surface can render. Verified in production 2026-09-10: the word constraint is gone, the length constraint reads 1..60, and a throwaway copy of the real schema stored a 4-word 25-character name and a 27-character one-word name and refused 61.
+
+Regression: `tests/unit/offerName.test.ts`, `tests/integration/offers.test.ts`. The brand's own display name is a different thing entirely (255 characters, no word rule) and is not governed here.
+
 ## Code Conventions
 
 - TypeScript strict mode
