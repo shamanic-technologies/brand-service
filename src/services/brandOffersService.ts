@@ -1,8 +1,7 @@
 import { and, asc, eq, isNull, SQL } from 'drizzle-orm';
 import { db, brandOffers, brandSalesFunnelArrowRates, brandSalesFunnels, brandUserFields, brands } from '../db';
 import {
-  OFFER_NAME_MAX_CHARS,
-  OFFER_NAME_MAX_WORDS,
+  SUPPLIED_OFFER_NAME_MAX_CHARS,
   OfferNameError,
   normalizeOfferName,
   offerNameForBrand,
@@ -430,4 +429,4 @@ export async function adoptUnmigratedRows(
 }
 
 /** The two limits, re-exported so a caller states them once. */
-export { OFFER_NAME_MAX_CHARS, OFFER_NAME_MAX_WORDS, OfferNameError };
+export { SUPPLIED_OFFER_NAME_MAX_CHARS, OfferNameError };

@@ -12,8 +12,7 @@ import {
   SALES_FUNNEL_START_EVENTS,
 } from './services/salesFunnelCatalogue';
 import {
-  OFFER_NAME_MAX_CHARS,
-  OFFER_NAME_MAX_WORDS,
+  SUPPLIED_OFFER_NAME_MAX_CHARS,
   offerNameProblem,
 } from './lib/offer-name';
 
@@ -3266,15 +3265,17 @@ const OFFER_MODEL_DESCRIPTION =
   'rather than guessing which the caller meant — a wrong guess writes one product\'s economics over ' +
   "another's. A brand-scoped WRITE on a brand with no offer creates its first one.";
 
-// A name is at most 2 words and at most 20 characters, and is unique within the
-// brand. It is the only word anyone reads for the offer: a longer one is a
-// description and truncates differently on every surface that renders it.
+// A name a CALLER supplies: at most 60 characters, and unique within the brand.
+// There is no word limit — a customer naming their own proposition knows what it
+// is called, and a compound name is one word to them and three to us. The
+// tighter 2-word / 20-character rule still governs a name this service GENERATES
+// for itself (see `generatedOfferNameProblem`), which is a different question.
 export const OfferNameSchema = z
   .string()
   .min(1)
-  .max(OFFER_NAME_MAX_CHARS)
+  .max(SUPPLIED_OFFER_NAME_MAX_CHARS)
   .refine((value) => offerNameProblem(value) === null, {
-    message: `At most ${OFFER_NAME_MAX_WORDS} words and at most ${OFFER_NAME_MAX_CHARS} characters.`,
+    message: `At most ${SUPPLIED_OFFER_NAME_MAX_CHARS} characters.`,
   })
   .openapi('OfferName');
 
@@ -3342,8 +3343,8 @@ registry.registerPath({
   description:
     'Create one thing this brand sells. The new offer starts with NOTHING — no funnel, no confirmed ' +
     'field — and is fully independent of every other offer on the brand. ' +
-    `The name is at most ${OFFER_NAME_MAX_WORDS} words and at most ${OFFER_NAME_MAX_CHARS} ` +
-    'characters and is unique within the brand: a name already taken is refused 409 rather than ' +
+    `The name is at most ${SUPPLIED_OFFER_NAME_MAX_CHARS} characters (no word limit) ` +
+    'and is unique within the brand: a name already taken is refused 409 rather than ' +
     'suffixed with a number. ' + OFFER_MODEL_DESCRIPTION,
   request: {
     params: z.object({ brandId: z.string().uuid() }),

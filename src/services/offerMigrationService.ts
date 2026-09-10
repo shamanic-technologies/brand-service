@@ -1,7 +1,13 @@
 import { isNull, sql } from 'drizzle-orm';
 import { db, brandSalesFunnels, brandUserFields } from '../db';
 import { chat } from '../lib/chat-client';
-import { offerNameProblem, normalizeOfferName, DEFAULT_OFFER_NAME, OFFER_NAME_MAX_CHARS, OFFER_NAME_MAX_WORDS } from '../lib/offer-name';
+import {
+  generatedOfferNameProblem,
+  normalizeOfferName,
+  DEFAULT_OFFER_NAME,
+  GENERATED_OFFER_NAME_MAX_CHARS,
+  GENERATED_OFFER_NAME_MAX_WORDS,
+} from '../lib/offer-name';
 import {
   OfferMigrationCandidate,
   OfferMigrationPlan,
@@ -84,7 +90,7 @@ const NAMING_SYSTEM_PROMPT =
   '(its value proposition, who it is for, the business itself) is there to sharpen that name when ' +
   'the services are vague or several, not to replace it. Do not echo a field label back — name ' +
   'the thing, not the category it was filed under. ' +
-  `Answer with a name of AT MOST ${OFFER_NAME_MAX_WORDS} words and AT MOST ${OFFER_NAME_MAX_CHARS} ` +
+  `Answer with a name of AT MOST ${GENERATED_OFFER_NAME_MAX_WORDS} words and AT MOST ${GENERATED_OFFER_NAME_MAX_CHARS} ` +
   'characters, in the language the input is written in. ' +
   'Use the words the business itself used wherever they fit. Do not invent a product it never ' +
   'mentioned, do not add a tier or a price, do not add punctuation, and do not answer with the ' +
@@ -97,7 +103,7 @@ const NAMING_RESPONSE_SCHEMA = {
   properties: {
     name: {
       type: 'string',
-      description: `The offer name. At most ${OFFER_NAME_MAX_WORDS} words, at most ${OFFER_NAME_MAX_CHARS} characters. Empty when the input says too little.`,
+      description: `The offer name. At most ${GENERATED_OFFER_NAME_MAX_WORDS} words, at most ${GENERATED_OFFER_NAME_MAX_CHARS} characters. Empty when the input says too little.`,
     },
   },
   required: ['name'],
@@ -240,7 +246,12 @@ async function askForOfferName(
   // for by name. It is the majority case, not an error.
   if (name === '') return { name: DEFAULT_OFFER_NAME, problem: '' };
 
-  const problem = offerNameProblem(name);
+  // The GENERATED rule, not the supplied one: this name is the model's, not a
+  // person's, so it is held to the tighter 2-word / 20-character limit the
+  // naming prompt above asks for. Reading the supplied rule here would let the
+  // migration mint a sixty-character sentence onto a row four services key
+  // their display on.
+  const problem = generatedOfferNameProblem(name);
   return problem ? { name: null, problem } : { name, problem: '' };
 }
 

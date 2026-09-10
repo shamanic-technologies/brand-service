@@ -2773,7 +2773,7 @@
       "OfferName": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 20
+        "maxLength": 60
       },
       "RenameOfferRequest": {
         "type": "object",
@@ -6024,7 +6024,7 @@
       },
       "post": {
         "summary": "Create an offer",
-        "description": "Create one thing this brand sells. The new offer starts with NOTHING — no funnel, no confirmed field — and is fully independent of every other offer on the brand. The name is at most 2 words and at most 20 characters and is unique within the brand: a name already taken is refused 409 rather than suffixed with a number. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and the sales funnels it is sold through, with their conversion rates, lifetime revenue and destinations — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+        "description": "Create one thing this brand sells. The new offer starts with NOTHING — no funnel, no confirmed field — and is fully independent of every other offer on the brand. The name is at most 60 characters (no word limit) and is unique within the brand: a name already taken is refused 409 rather than suffixed with a number. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and the sales funnels it is sold through, with their conversion rates, lifetime revenue and destinations — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
         "parameters": [
           {
             "schema": {

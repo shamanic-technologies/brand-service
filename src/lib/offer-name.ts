@@ -3,21 +3,48 @@
  *
  * An offer is one distinct thing a brand sells, and its name is the only word a
  * human ever reads for it: it labels a row in a switcher, a column header, a
- * campaign's parentage. So the owner fixed two hard limits — AT MOST 2 WORDS and
- * AT MOST 20 CHARACTERS — and they are not style guidance to be relaxed at a
- * call site. A three-word name reads as a sentence and truncates on every
- * surface that renders it; a name a surface has to shorten is a name two
- * surfaces will shorten differently.
+ * campaign's parentage.
+ *
+ * THERE ARE TWO RULES HERE, AND WHICH ONE APPLIES DEPENDS ON WHO WROTE THE NAME.
+ *
+ * A name a caller SUPPLIES — a customer creating or renaming their own offer —
+ * is theirs. They know what the thing is called, a compound name is one word to
+ * them and three to us, and refusing it reads as the product being broken. So
+ * the supplied rule is a character CEILING and nothing else: no word count, no
+ * shortening, no rewriting. A real customer was refused
+ * `Psylium-Swiss-Bio-Drogerien` — one word, twenty-seven characters — under the
+ * rule this replaces.
+ *
+ * A name this service DERIVES for itself — the offer an implicit brand-scoped
+ * write creates, and the one the migration mints from what a brand sells —
+ * keeps the original limits: AT MOST 2 WORDS and AT MOST 20 CHARACTERS. It is
+ * the tighter rule on purpose. `shortenToOfferName` only ever drops trailing
+ * words, so it needs a target to cut to; and a name nobody chose has no
+ * standing to be long, because a generated sentence truncating differently on
+ * four surfaces is the exact failure the original limit was written against.
+ *
+ * So `offerNameProblem` is the SUPPLIED rule and `generatedOfferNameProblem` is
+ * the DERIVED one. A caller reaching for the wrong one either refuses a name a
+ * customer is entitled to, or lets a machine mint one no surface can render —
+ * the two constants are named for their side so that choice is explicit at
+ * every call site.
  *
  * Deliberately free of any database, express or `@`-aliased import, so these
  * carry real unit tests rather than source-substring guards. Keep it that way.
  */
 
-/** At most two words. A third word is a description, not a name. */
-export const OFFER_NAME_MAX_WORDS = 2;
+/**
+ * The ceiling on a name a CALLER supplied. Owner-picked: long enough for a real
+ * compound proposition, short enough that it is still a name rather than a
+ * description. There is deliberately NO companion word limit — see the header.
+ */
+export const SUPPLIED_OFFER_NAME_MAX_CHARS = 60;
 
-/** At most twenty characters, whitespace included. */
-export const OFFER_NAME_MAX_CHARS = 20;
+/** At most two words, for a name we GENERATE. A third word is a description. */
+export const GENERATED_OFFER_NAME_MAX_WORDS = 2;
+
+/** At most twenty characters, whitespace included, for a name we GENERATE. */
+export const GENERATED_OFFER_NAME_MAX_CHARS = 20;
 
 /**
  * What an offer is called when the brand has not said enough to name it.
@@ -66,14 +93,17 @@ export function offerNameWords(input: string): string[] {
 }
 
 /**
- * The sentence to show a person when the name cannot be stored, or `null` when
- * it can.
+ * The sentence to show a person when a name THEY SUPPLIED cannot be stored, or
+ * `null` when it can.
  *
  * A SENTENCE rather than a boolean, and a sentence rather than a code, because
  * this is rendered verbatim by whatever surface collected the name — the same
  * discipline the funnel routes use for a refused declaration. It states the
- * limit that was broken and what the name currently is, so the person can see
- * which of the two rules they hit.
+ * limit that was broken and what the name currently is.
+ *
+ * Two rules only: a name is required, and it fits the ceiling. There is NO word
+ * count here — that belongs to `generatedOfferNameProblem`, and applying it to
+ * a person's own words is what this replaces.
  */
 export function offerNameProblem(input: string): string | null {
   const normalized = normalizeOfferName(input);
@@ -81,17 +111,44 @@ export function offerNameProblem(input: string): string | null {
   if (normalized === '') {
     return 'An offer needs a name: it is the only word anyone ever reads for what this offer sells.';
   }
-  const words = offerNameWords(normalized);
-  if (words.length > OFFER_NAME_MAX_WORDS) {
-    return (
-      `"${normalized}" is ${words.length} words: an offer name is at most ${OFFER_NAME_MAX_WORDS}. ` +
-      'A longer name is a description, and it truncates on every surface that renders it.'
-    );
-  }
-  if (normalized.length > OFFER_NAME_MAX_CHARS) {
+  if (normalized.length > SUPPLIED_OFFER_NAME_MAX_CHARS) {
     return (
       `"${normalized}" is ${normalized.length} characters: an offer name is at most ` +
-      `${OFFER_NAME_MAX_CHARS}. A name a surface has to shorten is a name two surfaces shorten differently.`
+      `${SUPPLIED_OFFER_NAME_MAX_CHARS}. A name a surface has to shorten is a name two surfaces shorten differently.`
+    );
+  }
+  return null;
+}
+
+/**
+ * The same question for a name this service GENERATED — the migration's LLM
+ * answer, and anything else we mint rather than receive.
+ *
+ * Stricter than the supplied rule and deliberately so: a machine writing a name
+ * for a customer has no standing to write a long one, and the shortening helper
+ * below needs a word target to cut to. The sentence is handed back to the model
+ * verbatim as the correction on its second turn, so it must name the limit that
+ * was broken and by how much — a model counts words badly and corrects well
+ * once told which rule it hit.
+ */
+export function generatedOfferNameProblem(input: string): string | null {
+  const normalized = normalizeOfferName(input);
+
+  if (normalized === '') {
+    return 'An offer needs a name: it is the only word anyone ever reads for what this offer sells.';
+  }
+  const words = offerNameWords(normalized);
+  if (words.length > GENERATED_OFFER_NAME_MAX_WORDS) {
+    return (
+      `"${normalized}" is ${words.length} words: a generated offer name is at most ` +
+      `${GENERATED_OFFER_NAME_MAX_WORDS}. A longer name is a description, and it truncates on every ` +
+      'surface that renders it.'
+    );
+  }
+  if (normalized.length > GENERATED_OFFER_NAME_MAX_CHARS) {
+    return (
+      `"${normalized}" is ${normalized.length} characters: a generated offer name is at most ` +
+      `${GENERATED_OFFER_NAME_MAX_CHARS}. A name a surface has to shorten is a name two surfaces shorten differently.`
     );
   }
   return null;
@@ -124,9 +181,9 @@ export function shortenToOfferName(phrase: string): string | null {
   if (words.length === 0) return null;
 
   const kept: string[] = [];
-  for (const word of words.slice(0, OFFER_NAME_MAX_WORDS)) {
+  for (const word of words.slice(0, GENERATED_OFFER_NAME_MAX_WORDS)) {
     const candidate = [...kept, word].join(' ');
-    if (candidate.length > OFFER_NAME_MAX_CHARS) break;
+    if (candidate.length > GENERATED_OFFER_NAME_MAX_CHARS) break;
     kept.push(word);
   }
   if (kept.length === 0) return null;

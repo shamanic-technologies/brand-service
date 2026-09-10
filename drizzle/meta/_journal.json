@@ -435,6 +435,13 @@
       "when": 1788956862251,
       "tag": "0063_brand_name_set_by_org",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1789043957444,
+      "tag": "0064_relax_supplied_offer_name",
+      "breakpoints": true
     }
   ]
 }

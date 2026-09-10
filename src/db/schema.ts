@@ -356,13 +356,16 @@ export const brandOffers = pgTable("brand_offers", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
-	// AT MOST 2 WORDS, AT MOST 20 CHARACTERS — an owner-fixed limit, enforced here
+	// AT MOST 60 CHARACTERS, NO WORD LIMIT — an owner-fixed ceiling, enforced here
 	// by a CHECK and at the write path by `offerNameProblem` so the caller gets a
-	// sentence rather than a constraint-violation string. It is the only word
-	// anyone reads for this offer: a longer one is a description and truncates
-	// differently on every surface that renders it. UNIQUE within the (org, brand)
-	// pair — two offers a reader cannot tell apart are two offers nobody can pick
-	// between.
+	// sentence rather than a constraint-violation string. The word count that used
+	// to sit beside it is gone for a SUPPLIED name: a customer naming their own
+	// proposition knows what it is called, and a compound name is one word to them
+	// and three to us (a real customer was refused `Psylium-Swiss-Bio-Drogerien`).
+	// A name this service GENERATES is still held to 2 words / 20 characters, in
+	// the write path only — see `generatedOfferNameProblem`. UNIQUE within the
+	// (org, brand) pair — two offers a reader cannot tell apart are two offers
+	// nobody can pick between.
 	name: text().notNull(),
 	// PROVENANCE, for the one-time migration that gave every brand already
 	// selling something the single offer carrying all of it. Set to the moment
@@ -391,21 +394,23 @@ export const brandOffers = pgTable("brand_offers", {
 		foreignColumns: [brands.id],
 		name: "brand_offers_brand_id_fkey",
 	}).onDelete("cascade"),
-	// The two limits, in the database as well as in the write path. Belt and
-	// braces on purpose: a name is what four other services will key their
-	// display on, and a script that writes around the service must not be able to
-	// create one no surface can render.
+	// The ceiling, in the database as well as in the write path. Belt and braces
+	// on purpose: a name is what four other services will key their display on,
+	// and a script that writes around the service must not be able to create one
+	// no surface can render.
+	//
+	// There is NO companion word check any more. It existed, it read
+	// `array_length(regexp_split_to_array(btrim(name), '\\s+'), 1) <= 2`, and
+	// migration 0064 dropped it — a supplied name carries no word limit, and a
+	// generated one is held to two words in the write path, which is the only
+	// place that distinction is knowable. (If it is ever reinstated: `\\s` and not
+	// `\s`, because a template literal eats the backslash and `'\s+'` reaches
+	// Postgres as `'s+'`, splitting every name on the LETTER s — "User Fields"
+	// becomes three words and a legal name is refused. That cost a 500 on the
+	// first user-fields write.)
 	check(
 		"brand_offers_name_length_check",
-		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 20`
-	),
-	// `\\s` and not `\s`: a template literal eats the backslash, so `'\s+'` would
-	// reach Postgres as `'s+'` and split every name on the LETTER s — "User
-	// Fields" becomes three words and a perfectly legal name is refused. Caught
-	// by the integration suite as a 500 on the first user-fields write.
-	check(
-		"brand_offers_name_words_check",
-		sql`array_length(regexp_split_to_array(btrim(${table.name}), '\\s+'), 1) <= 2`
+		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 60`
 	),
 ]);
 

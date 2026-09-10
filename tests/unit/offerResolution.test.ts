@@ -174,12 +174,20 @@ describe('requireValidOfferName', () => {
     expect(requireValidOfferName('  Self   Serve ')).toBe('Self Serve');
   });
 
-  it('throws OfferNameError on a third word', () => {
-    expect(() => requireValidOfferName('Self Serve Plan')).toThrow(OfferNameError);
+  // This is the SUPPLIED path — a name a customer typed — so it carries a
+  // character ceiling and no word rule. The 2-word / 20-character limit still
+  // governs a name this service GENERATES, which is a different validator.
+  it('accepts a third word, and a compound name past twenty characters', () => {
+    expect(requireValidOfferName('Self Serve Plan')).toBe('Self Serve Plan');
+    expect(requireValidOfferName('Psylium-Swiss-Bio-Drogerien')).toBe('Psylium-Swiss-Bio-Drogerien');
   });
 
-  it('throws OfferNameError past 20 characters', () => {
-    expect(() => requireValidOfferName('Enterprisee Contracts')).toThrow(OfferNameError);
+  it('throws OfferNameError past 60 characters', () => {
+    expect(() => requireValidOfferName('a'.repeat(61))).toThrow(OfferNameError);
+  });
+
+  it('throws OfferNameError on a blank name', () => {
+    expect(() => requireValidOfferName('   ')).toThrow(OfferNameError);
   });
 });
 
