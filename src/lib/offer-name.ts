@@ -1,23 +1,39 @@
 /**
  * What an OFFER may be called, as a pure function of the string.
  *
- * An offer is one distinct thing a brand sells, and its name is the only word a
- * human ever reads for it: it labels a row in a switcher, a column header, a
- * campaign's parentage. So the owner fixed two hard limits — AT MOST 2 WORDS and
- * AT MOST 20 CHARACTERS — and they are not style guidance to be relaxed at a
- * call site. A three-word name reads as a sentence and truncates on every
- * surface that renders it; a name a surface has to shorten is a name two
- * surfaces will shorten differently.
+ * There are TWO rules here, and which one applies depends on WHO WROTE THE NAME.
+ *
+ * A name a CALLER SUPPLIED — through create or rename — is the customer's own
+ * word for their own proposition. They know what it is called, a compound name
+ * like "Psylium-Swiss-Bio-Drogerien" is ONE word to them and four to a word
+ * counter, and refusing it reads as the product being broken. So a supplied name
+ * carries NO word limit and is accepted up to 60 characters, an owner-fixed
+ * ceiling. Over it is a REFUSAL, never a silent cut: the surface that collected
+ * the name shows a character counter before anyone submits.
+ *
+ * A name this service DERIVES for itself — the implicit offer a legacy
+ * brand-scoped write creates, and the one the one-time migration generates — is
+ * a name nobody typed, so it must be SHORT and must shorten PREDICTABLY: at most
+ * 2 words and at most 20 characters. The shortening only ever drops trailing
+ * words, so it needs a target to cut to. Nothing about that path is relaxed.
  *
  * Deliberately free of any database, express or `@`-aliased import, so these
  * carry real unit tests rather than source-substring guards. Keep it that way.
  */
 
-/** At most two words. A third word is a description, not a name. */
-export const OFFER_NAME_MAX_WORDS = 2;
+/**
+ * The ceiling on a name a CALLER SUPPLIED. Owner-picked. No word limit goes with
+ * it: a person naming their own offer may hyphenate, may use three words, may
+ * name it in a language whose words are long. 60 characters is what every
+ * surface renders and what the storage CHECK enforces.
+ */
+export const SUPPLIED_OFFER_NAME_MAX_CHARS = 60;
 
-/** At most twenty characters, whitespace included. */
-export const OFFER_NAME_MAX_CHARS = 20;
+/** At most two words for a name we DERIVE. A third word is a description. */
+export const DERIVED_OFFER_NAME_MAX_WORDS = 2;
+
+/** At most twenty characters for a name we DERIVE, whitespace included. */
+export const DERIVED_OFFER_NAME_MAX_CHARS = 20;
 
 /**
  * What an offer is called when the brand has not said enough to name it.
@@ -48,12 +64,12 @@ export const DEFAULT_OFFER_NAME = 'Default Offer';
  * The canonical form of a name: outer whitespace removed and every internal run
  * of whitespace collapsed to ONE space.
  *
- * Collapsing matters because the word count and the character count are both
- * measured on it: `"Self  Serve"` and `"Self Serve"` are the same name, and
- * storing them apart would let one brand hold two offers a reader cannot tell
- * apart. It never changes CASE — `"Enterprise"` and `"enterprise"` are two
- * different names, because deciding they are one means picking which spelling
- * survives, and nobody asked us to pick.
+ * Collapsing matters because the character count — and, for a derived name, the
+ * word count — are both measured on it: `"Self  Serve"` and `"Self Serve"` are
+ * the same name, and storing them apart would let one brand hold two offers a
+ * reader cannot tell apart. It never changes CASE — `"Enterprise"` and
+ * `"enterprise"` are two different names, because deciding they are one means
+ * picking which spelling survives, and nobody asked us to pick.
  */
 export function normalizeOfferName(input: string): string {
   return input.trim().replace(/\s+/g, ' ');
@@ -65,33 +81,66 @@ export function offerNameWords(input: string): string[] {
   return normalized === '' ? [] : normalized.split(' ');
 }
 
+/** The sentence shown when a name is nothing but whitespace, or `null`. */
+function blankNameProblem(normalized: string): string | null {
+  return normalized === ''
+    ? 'An offer needs a name: it is the only word anyone ever reads for what this offer sells.'
+    : null;
+}
+
 /**
- * The sentence to show a person when the name cannot be stored, or `null` when
- * it can.
+ * The sentence to show a person when the name THEY SUPPLIED cannot be stored, or
+ * `null` when it can.
  *
  * A SENTENCE rather than a boolean, and a sentence rather than a code, because
  * this is rendered verbatim by whatever surface collected the name — the same
- * discipline the funnel routes use for a refused declaration. It states the
- * limit that was broken and what the name currently is, so the person can see
- * which of the two rules they hit.
+ * discipline the funnel routes use for a refused declaration. It names the limit
+ * that was broken and what the name currently is, so the person can act on it.
+ *
+ * Two rules only: a name must not be blank, and it must not exceed
+ * `SUPPLIED_OFFER_NAME_MAX_CHARS`. There is NO word rule — the customer's own
+ * word for their own offer is not ours to count.
  */
 export function offerNameProblem(input: string): string | null {
   const normalized = normalizeOfferName(input);
 
-  if (normalized === '') {
-    return 'An offer needs a name: it is the only word anyone ever reads for what this offer sells.';
-  }
-  const words = offerNameWords(normalized);
-  if (words.length > OFFER_NAME_MAX_WORDS) {
-    return (
-      `"${normalized}" is ${words.length} words: an offer name is at most ${OFFER_NAME_MAX_WORDS}. ` +
-      'A longer name is a description, and it truncates on every surface that renders it.'
-    );
-  }
-  if (normalized.length > OFFER_NAME_MAX_CHARS) {
+  const blank = blankNameProblem(normalized);
+  if (blank) return blank;
+
+  if (normalized.length > SUPPLIED_OFFER_NAME_MAX_CHARS) {
     return (
       `"${normalized}" is ${normalized.length} characters: an offer name is at most ` +
-      `${OFFER_NAME_MAX_CHARS}. A name a surface has to shorten is a name two surfaces shorten differently.`
+      `${SUPPLIED_OFFER_NAME_MAX_CHARS}. Shorten it to ${SUPPLIED_OFFER_NAME_MAX_CHARS} characters or fewer.`
+    );
+  }
+  return null;
+}
+
+/**
+ * The same sentence, for a name THIS SERVICE DERIVED — the implicit offer, and
+ * the one the migration generates from what a brand sells.
+ *
+ * Stricter on purpose and unchanged by the relaxation above: a name nobody typed
+ * must be short and must be shortenable, so it keeps both owner-fixed limits.
+ */
+export function derivedOfferNameProblem(input: string): string | null {
+  const normalized = normalizeOfferName(input);
+
+  const blank = blankNameProblem(normalized);
+  if (blank) return blank;
+
+  const words = offerNameWords(normalized);
+  if (words.length > DERIVED_OFFER_NAME_MAX_WORDS) {
+    return (
+      `"${normalized}" is ${words.length} words: a generated offer name is at most ` +
+      `${DERIVED_OFFER_NAME_MAX_WORDS}. A longer name is a description, and it truncates on every ` +
+      'surface that renders it.'
+    );
+  }
+  if (normalized.length > DERIVED_OFFER_NAME_MAX_CHARS) {
+    return (
+      `"${normalized}" is ${normalized.length} characters: a generated offer name is at most ` +
+      `${DERIVED_OFFER_NAME_MAX_CHARS}. A name a surface has to shorten is a name two surfaces shorten differently.`
     );
   }
   return null;
@@ -106,7 +155,8 @@ export class OfferNameError extends Error {
 }
 
 /**
- * Cut a phrase down to something the two limits accept, WITHOUT inventing a word.
+ * Cut a phrase down to something the DERIVED limits accept, WITHOUT inventing a
+ * word.
  *
  * Only ever DROPS: it keeps the leading words that fit, in order, and never
  * substitutes, abbreviates or rewrites. Returns `null` when nothing survives —
@@ -117,16 +167,17 @@ export class OfferNameError extends Error {
  * creates on a brand that has none (see `brandOffersService`). It is NOT for the
  * migration — there, a name is generated from what the brand actually sells and
  * a brand whose name cannot be generated fails visibly rather than falling back
- * here.
+ * here. It is never applied to a name a customer supplied: over the limit is a
+ * refusal there, not a cut.
  */
 export function shortenToOfferName(phrase: string): string | null {
   const words = offerNameWords(phrase);
   if (words.length === 0) return null;
 
   const kept: string[] = [];
-  for (const word of words.slice(0, OFFER_NAME_MAX_WORDS)) {
+  for (const word of words.slice(0, DERIVED_OFFER_NAME_MAX_WORDS)) {
     const candidate = [...kept, word].join(' ');
-    if (candidate.length > OFFER_NAME_MAX_CHARS) break;
+    if (candidate.length > DERIVED_OFFER_NAME_MAX_CHARS) break;
     kept.push(word);
   }
   if (kept.length === 0) return null;
@@ -149,10 +200,11 @@ export interface BrandNameSource {
  * brand that has no offer yet.
  *
  * The brand's OWN words, never a coined one: its name if it has one, else the
- * label of its domain (`acme.com` -> `acme`). Cut to the two limits by dropping
- * trailing words, never by rewriting. `null` when the brand carries neither —
- * the caller then fails loud, because there is nothing here to name the offer
- * after and picking a word for it would put a name in the customer's mouth.
+ * label of its domain (`acme.com` -> `acme`). Cut to the DERIVED limits by
+ * dropping trailing words, never by rewriting. `null` when the brand carries
+ * neither — the caller then fails loud, because there is nothing here to name
+ * the offer after and picking a word for it would put a name in the customer's
+ * mouth.
  *
  * A generated, meaningful name is what the one-time MIGRATION produces for a
  * brand that already sells something. This is the degenerate case underneath it:

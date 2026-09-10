@@ -1,8 +1,7 @@
 import { and, asc, eq, isNull, SQL } from 'drizzle-orm';
 import { db, brandOffers, brandSalesFunnelArrowRates, brandSalesFunnels, brandUserFields, brands } from '../db';
 import {
-  OFFER_NAME_MAX_CHARS,
-  OFFER_NAME_MAX_WORDS,
+  SUPPLIED_OFFER_NAME_MAX_CHARS,
   OfferNameError,
   normalizeOfferName,
   offerNameForBrand,
@@ -182,9 +181,10 @@ export async function assertOfferOnBrand(
 }
 
 /**
- * Validate a name and return its canonical form, or throw `OfferNameError`.
- * Both limits are checked here as well as by the table's CHECKs, so a caller
- * gets a sentence a person can read instead of a constraint-violation string.
+ * Validate a name a CALLER SUPPLIED and return its canonical form, or throw
+ * `OfferNameError`. The limit is checked here as well as by the table's CHECK,
+ * so a caller gets a sentence a person can read instead of a
+ * constraint-violation string.
  */
 export function requireValidOfferName(input: string): string {
   const problem = offerNameProblem(input);
@@ -429,5 +429,5 @@ export async function adoptUnmigratedRows(
   return { funnels: funnels.length, userFields: userFields.length };
 }
 
-/** The two limits, re-exported so a caller states them once. */
-export { OFFER_NAME_MAX_CHARS, OFFER_NAME_MAX_WORDS, OfferNameError };
+/** The supplied-name limit, re-exported so a caller states it once. */
+export { SUPPLIED_OFFER_NAME_MAX_CHARS, OfferNameError };

@@ -26,7 +26,10 @@ describe('Offers', () => {
   const brandId = randomUUID();
   const legacyBrandId = randomUUID(); // exercises the implicit first offer
   const foreignBrandId = randomUUID();
-  const allBrandIds = [brandId, legacyBrandId, foreignBrandId];
+  // The name-limit cases create several offers, so they get their own brand: the
+  // independence cases below read `brandId`'s list by position.
+  const namesBrandId = randomUUID();
+  const allBrandIds = [brandId, legacyBrandId, foreignBrandId, namesBrandId];
 
   const dom = (id: string) => `offers-${id.slice(0, 8)}.com`;
   const offersPath = (id: string) => `/orgs/brands/${id}/offers`;
@@ -46,10 +49,17 @@ describe('Offers', () => {
         domain: dom(foreignBrandId),
         name: 'Foreign Brand',
       },
+      {
+        id: namesBrandId,
+        url: `https://${dom(namesBrandId)}`,
+        domain: dom(namesBrandId),
+        name: 'Names Brand',
+      },
     ]);
     await db.insert(orgBrands).values([
       { orgId, brandId },
       { orgId, brandId: legacyBrandId },
+      { orgId, brandId: namesBrandId },
       { orgId: otherOrgId, brandId: foreignBrandId },
     ]);
   });
@@ -77,19 +87,53 @@ describe('Offers', () => {
       expect(res.body.offer.offerId).toMatch(/^[0-9a-f-]{36}$/);
     });
 
-    it('refuses a third word', async () => {
+    // The name a real customer was refused: one word to them, four to a word
+    // counter, 27 characters. Nothing about a supplied name counts words now.
+    it('accepts a compound name of 27 characters, and reads it back', async () => {
+      const name = 'Psylium-Swiss-Bio-Drogerien';
       const res = await request(app)
-        .post(offersPath(brandId))
+        .post(offersPath(namesBrandId))
         .set(getAuthHeaders(orgId))
-        .send({ name: 'Self Serve Plan' });
-      expect(res.status).toBe(400);
+        .send({ name });
+      expect(res.status).toBe(201);
+      expect(res.body.offer.name).toBe(name);
+
+      // Storage, not just the request validator: a name the write path accepted
+      // must survive the table's CHECK and come back on a read.
+      const back = await request(app).get(offersPath(namesBrandId)).set(getAuthHeaders(orgId));
+      expect(back.body.offers.map((o: { name: string }) => o.name)).toContain(name);
     });
 
-    it('refuses more than twenty characters', async () => {
+    it('accepts three words past twenty characters, and reads them back', async () => {
+      const name = 'Bio Drogerien Schweiz';
+      expect(name.length).toBe(21);
       const res = await request(app)
-        .post(offersPath(brandId))
+        .post(offersPath(namesBrandId))
         .set(getAuthHeaders(orgId))
-        .send({ name: 'Enterprisee Contracts' });
+        .send({ name });
+      expect(res.status).toBe(201);
+      expect(res.body.offer.name).toBe(name);
+
+      const back = await request(app).get(offersPath(namesBrandId)).set(getAuthHeaders(orgId));
+      expect(back.body.offers.map((o: { name: string }) => o.name)).toContain(name);
+    });
+
+    it('accepts exactly sixty characters', async () => {
+      const name = `Sixty ${'a'.repeat(54)}`;
+      expect(name.length).toBe(60);
+      const res = await request(app)
+        .post(offersPath(namesBrandId))
+        .set(getAuthHeaders(orgId))
+        .send({ name });
+      expect(res.status).toBe(201);
+      expect(res.body.offer.name).toBe(name);
+    });
+
+    it('refuses sixty-one characters', async () => {
+      const res = await request(app)
+        .post(offersPath(namesBrandId))
+        .set(getAuthHeaders(orgId))
+        .send({ name: `Toolong ${'b'.repeat(53)}` });
       expect(res.status).toBe(400);
     });
 
@@ -225,6 +269,28 @@ describe('Offers', () => {
         .send({ name: 'Contracts' });
       expect(res.status).toBe(200);
       expect(res.body.offer.name).toBe('Contracts');
+
+      // A rename obeys the same supplied rule as a create: a compound name and a
+      // three-word one both land, and both come back on a read.
+      for (const name of ['Psylium-Swiss-Bio-Drogerien Pro', 'Vertrieb Schweiz Bio']) {
+        const renamed = await request(app)
+          .patch(`${offersPath(brandId)}/${enterpriseId}`)
+          .set(getAuthHeaders(orgId))
+          .send({ name });
+        expect(renamed.status).toBe(200);
+        expect(renamed.body.offer.name).toBe(name);
+
+        const read = await request(app)
+          .get(`${offersPath(brandId)}/${enterpriseId}`)
+          .set(getAuthHeaders(orgId));
+        expect(read.body.offer.name).toBe(name);
+      }
+
+      const back = await request(app)
+        .patch(`${offersPath(brandId)}/${enterpriseId}`)
+        .set(getAuthHeaders(orgId))
+        .send({ name: 'Contracts' });
+      expect(back.status).toBe(200);
 
       const funnels = await request(app)
         .get(`${offersPath(brandId)}/${enterpriseId}/sales-funnels`)

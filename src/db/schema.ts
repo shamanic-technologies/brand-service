@@ -356,13 +356,16 @@ export const brandOffers = pgTable("brand_offers", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
-	// AT MOST 2 WORDS, AT MOST 20 CHARACTERS — an owner-fixed limit, enforced here
-	// by a CHECK and at the write path by `offerNameProblem` so the caller gets a
-	// sentence rather than a constraint-violation string. It is the only word
-	// anyone reads for this offer: a longer one is a description and truncates
-	// differently on every surface that renders it. UNIQUE within the (org, brand)
-	// pair — two offers a reader cannot tell apart are two offers nobody can pick
-	// between.
+	// AT MOST 60 CHARACTERS, and NO WORD LIMIT — the owner's ceiling on a name a
+	// caller supplied, enforced here by a CHECK and at the write path by
+	// `offerNameProblem` so the caller gets a sentence rather than a
+	// constraint-violation string. A customer names their own proposition:
+	// "Psylium-Swiss-Bio-Drogerien" is one word to them and four to a word
+	// counter, so counting words here refused a real name. A name this service
+	// DERIVES stays at 2 words and 20 characters, but that is a code rule
+	// (`derivedOfferNameProblem`) — the column only holds the outer bound every
+	// surface can render. UNIQUE within the (org, brand) pair — two offers a
+	// reader cannot tell apart are two offers nobody can pick between.
 	name: text().notNull(),
 	// PROVENANCE, for the one-time migration that gave every brand already
 	// selling something the single offer carrying all of it. Set to the moment
@@ -391,21 +394,18 @@ export const brandOffers = pgTable("brand_offers", {
 		foreignColumns: [brands.id],
 		name: "brand_offers_brand_id_fkey",
 	}).onDelete("cascade"),
-	// The two limits, in the database as well as in the write path. Belt and
+	// The limit, in the database as well as in the write path. Belt and
 	// braces on purpose: a name is what four other services will key their
 	// display on, and a script that writes around the service must not be able to
 	// create one no surface can render.
+	//
+	// There is NO word CHECK any more: the word rule belongs to names this
+	// service derives for itself, and the derived path never writes around the
+	// service, so keeping it here only refused customers their own compound
+	// names.
 	check(
 		"brand_offers_name_length_check",
-		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 20`
-	),
-	// `\\s` and not `\s`: a template literal eats the backslash, so `'\s+'` would
-	// reach Postgres as `'s+'` and split every name on the LETTER s — "User
-	// Fields" becomes three words and a perfectly legal name is refused. Caught
-	// by the integration suite as a 500 on the first user-fields write.
-	check(
-		"brand_offers_name_words_check",
-		sql`array_length(regexp_split_to_array(btrim(${table.name}), '\\s+'), 1) <= 2`
+		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 60`
 	),
 ]);
 

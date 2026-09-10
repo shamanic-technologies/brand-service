@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_OFFER_NAME,
-  OFFER_NAME_MAX_CHARS,
-  OFFER_NAME_MAX_WORDS,
+  DERIVED_OFFER_NAME_MAX_CHARS,
+  DERIVED_OFFER_NAME_MAX_WORDS,
+  SUPPLIED_OFFER_NAME_MAX_CHARS,
+  derivedOfferNameProblem,
   normalizeOfferName,
   offerNameForBrand,
   offerNameProblem,
@@ -11,16 +13,24 @@ import {
 } from '../../src/lib/offer-name';
 
 /**
- * The two limits are owner-fixed: at most 2 words, at most 20 characters. They
- * are not style guidance — the name is the only word anyone reads for an offer,
- * and a name a surface has to shorten is a name two surfaces shorten
- * differently.
+ * TWO rules, split by WHO WROTE THE NAME.
+ *
+ * A name a CALLER SUPPLIED is the customer's own word for their own
+ * proposition: at most 60 characters, and no word rule at all.
+ *
+ * A name this service DERIVES — the implicit offer, the migration's generated
+ * name — stays at 2 words and 20 characters, because nobody typed it and it has
+ * to shorten predictably.
  */
 
 describe('the limits', () => {
-  it('are 2 words and 20 characters', () => {
-    expect(OFFER_NAME_MAX_WORDS).toBe(2);
-    expect(OFFER_NAME_MAX_CHARS).toBe(20);
+  it('give a supplied name 60 characters and no word rule', () => {
+    expect(SUPPLIED_OFFER_NAME_MAX_CHARS).toBe(60);
+  });
+
+  it('keep a derived name at 2 words and 20 characters', () => {
+    expect(DERIVED_OFFER_NAME_MAX_WORDS).toBe(2);
+    expect(DERIVED_OFFER_NAME_MAX_CHARS).toBe(20);
   });
 });
 
@@ -46,7 +56,7 @@ describe('offerNameWords', () => {
   });
 });
 
-describe('offerNameProblem', () => {
+describe('offerNameProblem — a name the CALLER supplied', () => {
   it('accepts one word and two words', () => {
     expect(offerNameProblem('Enterprise')).toBeNull();
     expect(offerNameProblem('Self Serve')).toBeNull();
@@ -61,27 +71,77 @@ describe('offerNameProblem', () => {
     expect(offerNameProblem('   ')).toMatch(/needs a name/);
   });
 
-  it('refuses a third word', () => {
-    const problem = offerNameProblem('Self Serve Plan');
+  // The name a real customer was refused: one word to them, four to a word
+  // counter, 27 characters.
+  it('accepts a compound name a word counter would call four words', () => {
+    const name = 'Psylium-Swiss-Bio-Drogerien';
+    expect(name.length).toBe(27);
+    expect(offerNameProblem(name)).toBeNull();
+  });
+
+  it('accepts a third word — there is no word rule for a name a person typed', () => {
+    expect(offerNameProblem('Self Serve Plan')).toBeNull();
+    const name = 'Bio Drogerien Schweiz';
+    expect(name.length).toBe(21);
+    expect(offerNameProblem(name)).toBeNull();
+  });
+
+  it('accepts exactly 60 characters', () => {
+    const name = 'a'.repeat(60);
+    expect(offerNameProblem(name)).toBeNull();
+  });
+
+  it('refuses 61 characters, naming the limit that was broken', () => {
+    const name = 'a'.repeat(61);
+    const problem = offerNameProblem(name);
+    expect(problem).toMatch(/61 characters/);
+    expect(problem).toMatch(/at most 60/);
+  });
+
+  it('measures the normalized form, so padding does not push a name over', () => {
+    expect(offerNameProblem(`  ${'a'.repeat(60)}  `)).toBeNull();
+  });
+});
+
+describe('derivedOfferNameProblem — a name this service generated', () => {
+  it('accepts one word and two words', () => {
+    expect(derivedOfferNameProblem('Enterprise')).toBeNull();
+    expect(derivedOfferNameProblem('Self Serve')).toBeNull();
+  });
+
+  it('refuses an empty or whitespace-only name', () => {
+    expect(derivedOfferNameProblem('')).toMatch(/needs a name/);
+    expect(derivedOfferNameProblem('   ')).toMatch(/needs a name/);
+  });
+
+  it('still refuses a third word', () => {
+    const problem = derivedOfferNameProblem('Self Serve Plan');
     expect(problem).toMatch(/3 words/);
     expect(problem).toMatch(/at most 2/);
   });
 
-  it('refuses more than 20 characters even in two words', () => {
+  it('still refuses more than 20 characters even in two words', () => {
     // 21 characters, two words.
     const name = 'Enterprisee Contracts';
     expect(name.length).toBe(21);
-    expect(offerNameProblem(name)).toMatch(/21 characters/);
+    expect(derivedOfferNameProblem(name)).toMatch(/21 characters/);
   });
 
   it('accepts exactly 20 characters', () => {
     const name = 'Enterprise Contracts';
     expect(name.length).toBe(20);
-    expect(offerNameProblem(name)).toBeNull();
+    expect(derivedOfferNameProblem(name)).toBeNull();
   });
 
   it('answers with a sentence a person can read, not a code', () => {
-    expect(offerNameProblem('A B C')).toMatch(/truncates/);
+    expect(derivedOfferNameProblem('A B C')).toMatch(/truncates/);
+  });
+
+  it('is stricter than the supplied rule, never looser', () => {
+    for (const name of ['Psylium-Swiss-Bio-Drogerien', 'Self Serve Plan', 'a'.repeat(21)]) {
+      expect(offerNameProblem(name)).toBeNull();
+      expect(derivedOfferNameProblem(name)).not.toBeNull();
+    }
   });
 });
 
@@ -104,10 +164,10 @@ describe('shortenToOfferName', () => {
     expect(shortenToOfferName('   ')).toBeNull();
   });
 
-  it('always produces something the limits accept', () => {
+  it('always produces something the DERIVED limits accept', () => {
     for (const phrase of ['Acme Corporation International', 'One', 'a b c d e f']) {
       const shortened = shortenToOfferName(phrase);
-      if (shortened !== null) expect(offerNameProblem(shortened)).toBeNull();
+      if (shortened !== null) expect(derivedOfferNameProblem(shortened)).toBeNull();
     }
   });
 });
@@ -132,16 +192,16 @@ describe("offerNameForBrand — the implicit offer a legacy write creates", () =
     expect(offerNameForBrand({ name: '  ', domain: '' })).toBeNull();
   });
 
-  it('never returns a name the limits would refuse', () => {
+  it('never returns a name the derived limits would refuse', () => {
     const name = offerNameForBrand({ name: 'A Very Long Company Name Indeed', domain: null });
     expect(name).not.toBeNull();
-    expect(offerNameProblem(name!)).toBeNull();
+    expect(derivedOfferNameProblem(name!)).toBeNull();
   });
 });
 
 describe('DEFAULT_OFFER_NAME', () => {
-  it('satisfies the two limits it will be stored under', () => {
-    expect(offerNameProblem(DEFAULT_OFFER_NAME)).toBeNull();
+  it('satisfies the derived limits it is generated under', () => {
+    expect(derivedOfferNameProblem(DEFAULT_OFFER_NAME)).toBeNull();
   });
 
   // Most brands never stated a value proposition, so this is what most offers
