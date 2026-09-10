@@ -12,8 +12,7 @@ import {
   SALES_FUNNEL_START_EVENTS,
 } from './services/salesFunnelCatalogue';
 import {
-  OFFER_NAME_MAX_CHARS,
-  OFFER_NAME_MAX_WORDS,
+  SUPPLIED_OFFER_NAME_MAX_CHARS,
   offerNameProblem,
 } from './lib/offer-name';
 
@@ -3266,15 +3265,17 @@ const OFFER_MODEL_DESCRIPTION =
   'rather than guessing which the caller meant — a wrong guess writes one product\'s economics over ' +
   "another's. A brand-scoped WRITE on a brand with no offer creates its first one.";
 
-// A name is at most 2 words and at most 20 characters, and is unique within the
-// brand. It is the only word anyone reads for the offer: a longer one is a
-// description and truncates differently on every surface that renders it.
+// A name a caller supplies is at most 60 characters, carries NO word limit, and
+// is unique within the brand. A compound proposition ("Psylium-Swiss-Bio-Drogerien")
+// is one name to the customer who sells it, whatever a word counter says. It is
+// never shortened for them: over the limit is a refusal, and the surface that
+// collected it shows a character counter before they ever submit.
 export const OfferNameSchema = z
   .string()
   .min(1)
-  .max(OFFER_NAME_MAX_CHARS)
+  .max(SUPPLIED_OFFER_NAME_MAX_CHARS)
   .refine((value) => offerNameProblem(value) === null, {
-    message: `At most ${OFFER_NAME_MAX_WORDS} words and at most ${OFFER_NAME_MAX_CHARS} characters.`,
+    message: `At most ${SUPPLIED_OFFER_NAME_MAX_CHARS} characters.`,
   })
   .openapi('OfferName');
 
@@ -3342,8 +3343,8 @@ registry.registerPath({
   description:
     'Create one thing this brand sells. The new offer starts with NOTHING — no funnel, no confirmed ' +
     'field — and is fully independent of every other offer on the brand. ' +
-    `The name is at most ${OFFER_NAME_MAX_WORDS} words and at most ${OFFER_NAME_MAX_CHARS} ` +
-    'characters and is unique within the brand: a name already taken is refused 409 rather than ' +
+    `The name is at most ${SUPPLIED_OFFER_NAME_MAX_CHARS} characters, carries no word limit, and ` +
+    'is unique within the brand: a name already taken is refused 409 rather than ' +
     'suffixed with a number. ' + OFFER_MODEL_DESCRIPTION,
   request: {
     params: z.object({ brandId: z.string().uuid() }),
@@ -3351,7 +3352,7 @@ registry.registerPath({
   },
   responses: {
     201: { description: 'The offer just created', content: { 'application/json': { schema: OfferResponseSchema } } },
-    400: { description: 'Invalid brand ID, or a name over the word/character limit' },
+    400: { description: 'Invalid brand ID, or a name over the character limit' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     409: { description: 'This brand already has an offer with that name' },
@@ -3379,7 +3380,7 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/offers/{offerId}',
   summary: 'Rename an offer',
   description:
-    'Rename it. The two limits apply exactly as they do on create, and the name stays unique within ' +
+    'Rename it. The character limit applies exactly as it does on create, and the name stays unique within ' +
     'the brand. Nothing else about the offer changes — its funnels, its economics and its value ' +
     'proposition are untouched.',
   request: {
@@ -3388,7 +3389,7 @@ registry.registerPath({
   },
   responses: {
     200: { description: 'The renamed offer', content: { 'application/json': { schema: OfferResponseSchema } } },
-    400: { description: 'Invalid ID, or a name over the word/character limit' },
+    400: { description: 'Invalid ID, or a name over the character limit' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'No such brand, or no such offer on it' },
     409: { description: 'This brand already has another offer with that name' },
