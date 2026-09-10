@@ -26,7 +26,8 @@ describe('Offers', () => {
   const brandId = randomUUID();
   const legacyBrandId = randomUUID(); // exercises the implicit first offer
   const foreignBrandId = randomUUID();
-  const allBrandIds = [brandId, legacyBrandId, foreignBrandId];
+  const namingBrandId = randomUUID(); // exercises the supplied-name limit alone
+  const allBrandIds = [brandId, legacyBrandId, foreignBrandId, namingBrandId];
 
   const dom = (id: string) => `offers-${id.slice(0, 8)}.com`;
   const offersPath = (id: string) => `/orgs/brands/${id}/offers`;
@@ -46,11 +47,18 @@ describe('Offers', () => {
         domain: dom(foreignBrandId),
         name: 'Foreign Brand',
       },
+      {
+        id: namingBrandId,
+        url: `https://${dom(namingBrandId)}`,
+        domain: dom(namingBrandId),
+        name: 'Naming Brand',
+      },
     ]);
     await db.insert(orgBrands).values([
       { orgId, brandId },
       { orgId, brandId: legacyBrandId },
       { orgId: otherOrgId, brandId: foreignBrandId },
+      { orgId, brandId: namingBrandId },
     ]);
   });
 
@@ -77,21 +85,6 @@ describe('Offers', () => {
       expect(res.body.offer.offerId).toMatch(/^[0-9a-f-]{36}$/);
     });
 
-    it('refuses a third word', async () => {
-      const res = await request(app)
-        .post(offersPath(brandId))
-        .set(getAuthHeaders(orgId))
-        .send({ name: 'Self Serve Plan' });
-      expect(res.status).toBe(400);
-    });
-
-    it('refuses more than twenty characters', async () => {
-      const res = await request(app)
-        .post(offersPath(brandId))
-        .set(getAuthHeaders(orgId))
-        .send({ name: 'Enterprisee Contracts' });
-      expect(res.status).toBe(400);
-    });
 
     it('refuses an empty name', async () => {
       const res = await request(app)
@@ -246,6 +239,104 @@ describe('Offers', () => {
         .get(`/internal/offers/${randomUUID()}/sales-funnels`)
         .set(getInternalAuthHeaders());
       expect(res.status).toBe(404);
+    });
+  });
+
+  // ── A name the CUSTOMER wrote ─────────────────────────────────────────────
+
+  /**
+   * The rule is split by WHO WROTE THE NAME. A caller-supplied name is accepted
+   * up to 60 characters with NO word limit; only a name this service DERIVES for
+   * itself stays at 2 words and 20 characters.
+   *
+   * These run against a real database on purpose: the limit lives in the request
+   * schema, in the write path AND in the table's CHECK, and a name the route
+   * accepts that then dies on a constraint is a 500 on the customer's first
+   * rename. Only a real write proves all three agree.
+   */
+  describe('a name the caller supplied', () => {
+    const path = () => offersPath(namingBrandId);
+    let compoundId = '';
+
+    it("takes the customer's own compound name, 27 characters of one word", async () => {
+      const res = await request(app)
+        .post(path())
+        .set(getAuthHeaders(orgId))
+        .send({ name: 'Psylium-Swiss-Bio-Drogerien' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.offer.name).toBe('Psylium-Swiss-Bio-Drogerien');
+      compoundId = res.body.offer.offerId;
+    });
+
+    it('takes three words and reads them back, so storage agrees with the route', async () => {
+      const name = 'Bio Drogerien Schweiz';
+      expect(name.length).toBe(21);
+
+      const created = await request(app)
+        .post(path())
+        .set(getAuthHeaders(orgId))
+        .send({ name });
+      expect(created.status).toBe(201);
+
+      const read = await request(app)
+        .get(`${path()}/${created.body.offer.offerId}`)
+        .set(getAuthHeaders(orgId));
+      expect(read.status).toBe(200);
+      expect(read.body.offer.name).toBe(name);
+    });
+
+    it('takes exactly sixty characters', async () => {
+      const sixty = `Sixty ${'x'.repeat(54)}`;
+      expect(sixty.length).toBe(60);
+
+      const res = await request(app).post(path()).set(getAuthHeaders(orgId)).send({ name: sixty });
+      expect(res.status).toBe(201);
+      expect(res.body.offer.name).toBe(sixty);
+    });
+
+    it('refuses sixty-one, naming the limit that was broken', async () => {
+      const res = await request(app)
+        .post(path())
+        .set(getAuthHeaders(orgId))
+        .send({ name: 'x'.repeat(61) });
+      expect(res.status).toBe(400);
+    });
+
+    it('refuses a whitespace-only name', async () => {
+      const res = await request(app).post(path()).set(getAuthHeaders(orgId)).send({ name: '   ' });
+      expect(res.status).toBe(400);
+    });
+
+    it('refuses a name already taken on this brand, as a conflict', async () => {
+      const res = await request(app)
+        .post(path())
+        .set(getAuthHeaders(orgId))
+        .send({ name: 'Bio Drogerien Schweiz' });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('OFFER_NAME_TAKEN');
+    });
+
+    it('renames to a three-word name, and the read carries it', async () => {
+      const res = await request(app)
+        .patch(`${path()}/${compoundId}`)
+        .set(getAuthHeaders(orgId))
+        .send({ name: 'Psylium Swiss Bio' });
+      expect(res.status).toBe(200);
+
+      const read = await request(app).get(`${path()}/${compoundId}`).set(getAuthHeaders(orgId));
+      expect(read.body.offer.name).toBe('Psylium Swiss Bio');
+    });
+
+    it('refuses a rename past sixty, leaving the stored name alone', async () => {
+      const res = await request(app)
+        .patch(`${path()}/${compoundId}`)
+        .set(getAuthHeaders(orgId))
+        .send({ name: 'y'.repeat(61) });
+      expect(res.status).toBe(400);
+
+      const read = await request(app).get(`${path()}/${compoundId}`).set(getAuthHeaders(orgId));
+      expect(read.body.offer.name).toBe('Psylium Swiss Bio');
     });
   });
 
