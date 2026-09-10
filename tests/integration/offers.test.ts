@@ -26,7 +26,13 @@ describe('Offers', () => {
   const brandId = randomUUID();
   const legacyBrandId = randomUUID(); // exercises the implicit first offer
   const foreignBrandId = randomUUID();
-  const allBrandIds = [brandId, legacyBrandId, foreignBrandId];
+  // The ceiling cases get their OWN brand. The rest of this file shares
+  // `brandId` and asserts its offer LIST exactly, so a name test that now
+  // SUCCEEDS where it used to be refused would otherwise add rows to a list a
+  // later test counts — which is how one relaxation cascades into eight
+  // unrelated failures.
+  const nameBrandId = randomUUID();
+  const allBrandIds = [brandId, legacyBrandId, foreignBrandId, nameBrandId];
 
   const dom = (id: string) => `offers-${id.slice(0, 8)}.com`;
   const offersPath = (id: string) => `/orgs/brands/${id}/offers`;
@@ -46,10 +52,17 @@ describe('Offers', () => {
         domain: dom(foreignBrandId),
         name: 'Foreign Brand',
       },
+      {
+        id: nameBrandId,
+        url: `https://${dom(nameBrandId)}`,
+        domain: dom(nameBrandId),
+        name: 'Name Brand',
+      },
     ]);
     await db.insert(orgBrands).values([
       { orgId, brandId },
       { orgId, brandId: legacyBrandId },
+      { orgId, brandId: nameBrandId },
       { orgId: otherOrgId, brandId: foreignBrandId },
     ]);
   });
@@ -77,20 +90,39 @@ describe('Offers', () => {
       expect(res.body.offer.offerId).toMatch(/^[0-9a-f-]{36}$/);
     });
 
-    it('refuses a third word', async () => {
-      const res = await request(app)
-        .post(offersPath(brandId))
+    // A SUPPLIED name carries no word rule. A customer naming their own
+    // proposition knows what it is called, and a compound name is one word to
+    // them and three to us — this one is the name a real customer was refused.
+    // The tighter 2-word / 20-character rule still governs a name this service
+    // GENERATES for itself, which no route accepts from a caller.
+    it('accepts a third word, and a compound name past twenty characters', async () => {
+      const words = await request(app)
+        .post(offersPath(nameBrandId))
         .set(getAuthHeaders(orgId))
-        .send({ name: 'Self Serve Plan' });
-      expect(res.status).toBe(400);
+        .send({ name: 'Bio Drogerien Schweiz' });
+      expect(words.status).toBe(201);
+      expect(words.body.offer.name).toBe('Bio Drogerien Schweiz');
+
+      const compound = await request(app)
+        .post(offersPath(nameBrandId))
+        .set(getAuthHeaders(orgId))
+        .send({ name: 'Psylium-Swiss-Bio-Drogerien' });
+      expect(compound.status).toBe(201);
+      expect(compound.body.offer.name).toBe('Psylium-Swiss-Bio-Drogerien');
     });
 
-    it('refuses more than twenty characters', async () => {
-      const res = await request(app)
-        .post(offersPath(brandId))
+    it('accepts exactly sixty characters and refuses sixty-one', async () => {
+      const ok = await request(app)
+        .post(offersPath(nameBrandId))
         .set(getAuthHeaders(orgId))
-        .send({ name: 'Enterprisee Contracts' });
-      expect(res.status).toBe(400);
+        .send({ name: 'a'.repeat(60) });
+      expect(ok.status).toBe(201);
+
+      const over = await request(app)
+        .post(offersPath(nameBrandId))
+        .set(getAuthHeaders(orgId))
+        .send({ name: 'a'.repeat(61) });
+      expect(over.status).toBe(400);
     });
 
     it('refuses an empty name', async () => {
