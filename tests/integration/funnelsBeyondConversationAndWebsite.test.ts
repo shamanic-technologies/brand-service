@@ -191,10 +191,10 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     expect(funnel.name).toBe('Website Purchase');
     expect(funnel.steps).toEqual(['Website visit', 'Paid client']);
     expect(funnel.startEvent).toBe('website_visit');
-    // No rung before the sale, so the sale IS the milestone — at index 0, which
-    // is a real position and not a fallback.
+    // No rung between the visit and the sale, so the SALE is the milestone —
+    // the last of its two steps, not a stand-in for a step it does not have.
     expect(funnel.milestoneStep).toBe('Paid client');
-    expect(funnel.milestoneStepIndex).toBe(0);
+    expect(funnel.milestoneStepIndex).toBe(1);
     expect(funnel.rates).toEqual({ visitToClosePct: 2.5 });
     expect(funnel.destinationUrl).toBe(`https://${domain}/shop`);
     expect(funnel.bookingUrl).toBeNull();
