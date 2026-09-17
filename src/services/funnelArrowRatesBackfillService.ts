@@ -40,6 +40,7 @@ const RATE_COLUMN_BY_KEY: Record<SalesFunnelRateKey, string> = {
   adClickToMeetingPct: 'ad_click_to_meeting_pct',
   adClickToLeadFormPct: 'ad_click_to_lead_form_pct',
   leadFormToPaidClientPct: 'lead_form_to_paid_client_pct',
+  visitToClosePct: 'visit_to_close_pct',
 };
 
 /**

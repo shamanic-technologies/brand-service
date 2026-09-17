@@ -71,16 +71,15 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
       .put(one(brandId, 'lead_forms_from_ads'))
       .set(getAuthHeaders(orgId))
       .send({
-        rates: { adClickToLeadFormPct: 9.5, leadFormToPaidClientPct: 6 },
+        rates: { leadFormToPaidClientPct: 6 },
         lifetimeRevenueUsd: 2600,
       });
 
     expect(res.status).toBe(200);
-    expect(res.body.funnel.steps).toEqual(['Ad click', 'Lead form submitted', 'Paid client']);
-    expect(res.body.funnel.rates).toEqual({
-      adClickToLeadFormPct: 9.5,
-      leadFormToPaidClientPct: 6,
-    });
+    // The channel DELIVERS the filled form, so that is the first step: no click
+    // rung before it, because a click is not a step anybody buys.
+    expect(res.body.funnel.steps).toEqual(['Lead form submitted', 'Paid client']);
+    expect(res.body.funnel.rates).toEqual({ leadFormToPaidClientPct: 6 });
   });
 
   it('declares the meeting booked straight from an ad, booking link and all', async () => {
@@ -88,13 +87,14 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
       .put(one(brandId, 'sales_meetings_from_ads'))
       .set(getAuthHeaders(orgId))
       .send({
-        rates: { adClickToMeetingPct: 4, meetingBookedToAttendedPct: 70, meetingToClosePct: 25 },
+        rates: { meetingBookedToAttendedPct: 70, meetingToClosePct: 25 },
         bookingUrl: 'https://cal.com/beyond/30min',
       });
 
     expect(res.status).toBe(200);
+    expect(res.body.funnel.steps).toEqual(['Meeting booked', 'Meeting attended', 'Paid client']);
     expect(res.body.funnel.bookingUrl).toBe('https://cal.com/beyond/30min');
-    expect(res.body.funnel.rates.adClickToMeetingPct).toBe(4);
+    expect(res.body.funnel.rates.meetingBookedToAttendedPct).toBe(70);
   });
 
   it('rejects a rate from another funnel rather than storing it where nothing reads it', async () => {
@@ -127,10 +127,10 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     expect(byKey.sales_from_conversation.startEvent).toBe('conversation_reply');
     expect(byKey.sales_from_conversation.milestoneStep).toBe('Paid client');
 
-    expect(byKey.lead_forms_from_ads.startEvent).toBe('ad_click');
+    expect(byKey.lead_forms_from_ads.startEvent).toBe('lead_form_submitted');
     expect(byKey.lead_forms_from_ads.milestoneStep).toBe('Lead form submitted');
 
-    expect(byKey.sales_meetings_from_ads.startEvent).toBe('ad_click');
+    expect(byKey.sales_meetings_from_ads.startEvent).toBe('meeting_booked');
     expect(byKey.sales_meetings_from_ads.milestoneStep).toBe('Meeting booked');
 
     // The milestone is always a step of the funnel's OWN funnel, so a consumer
@@ -149,7 +149,13 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     expect(res.status).toBe(200);
     expect(res.body.funnels.length).toBeGreaterThan(0);
     for (const funnel of res.body.funnels) {
-      expect(['conversation_reply', 'website_visit', 'ad_click']).toContain(funnel.startEvent);
+      expect([
+        'conversation_reply',
+        'website_visit',
+        'ad_click',
+        'meeting_booked',
+        'lead_form_submitted',
+      ]).toContain(funnel.startEvent);
       expect(funnel.steps).toContain(funnel.milestoneStep);
     }
   });
@@ -167,6 +173,52 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     expect(put.body.funnel.startEvent).toBe('website_visit');
     expect(put.body.funnel.milestoneStep).toBe('Signup');
     expect(put.body.funnel.rates).toEqual({ visitToSignupPct: 30, signupToPaidClientPct: 12 });
+  });
+
+  it('declares the brand whose buyer lands and PAYS, with nothing in between', async () => {
+    const res = await request(app)
+      .put(one(brandId, 'sales_from_website'))
+      .set(getAuthHeaders(orgId))
+      .send({
+        rates: { visitToClosePct: 2.5 },
+        lifetimeRevenueUsd: 180,
+        destinationUrl: `https://${domain}/shop`,
+      });
+
+    expect(res.status).toBe(200);
+    const funnel = res.body.funnel;
+    expect(funnel.funnelKey).toBe('sales_from_website');
+    expect(funnel.name).toBe('Website Purchase');
+    expect(funnel.steps).toEqual(['Website visit', 'Paid client']);
+    expect(funnel.startEvent).toBe('website_visit');
+    // No rung before the sale, so the sale IS the milestone — at index 0, which
+    // is a real position and not a fallback.
+    expect(funnel.milestoneStep).toBe('Paid client');
+    expect(funnel.milestoneStepIndex).toBe(0);
+    expect(funnel.rates).toEqual({ visitToClosePct: 2.5 });
+    expect(funnel.destinationUrl).toBe(`https://${domain}/shop`);
+    expect(funnel.bookingUrl).toBeNull();
+  });
+
+  it('refuses the land-and-pay funnel to a brand with no website', async () => {
+    const res = await request(app)
+      .put(one(noWebsiteBrandId, 'sales_from_website'))
+      .set(getAuthHeaders(orgId))
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it('reads the two renamed funnels the way the owner wrote them', async () => {
+    const res = await request(app).get(list(brandId)).set(getAuthHeaders(orgId));
+    const byKey = Object.fromEntries(res.body.funnels.map((f: any) => [f.funnelKey, f]));
+
+    // The key stays a wire token nobody renders; the NAME is what moved.
+    expect(byKey.website_purchases.name).toBe('Signups');
+    expect(byKey.sales_from_conversation.name).toBe('Sale from Positive Reply');
+    for (const funnel of res.body.funnels) {
+      expect(String(funnel.name).toLowerCase()).not.toContain('conversation');
+    }
   });
 
   it('still accepts a pre-retirement spelling and answers with the canonical key', async () => {

@@ -2028,7 +2028,8 @@
           "form_magnet",
           "sales_from_conversation",
           "sales_meetings_from_ads",
-          "lead_forms_from_ads"
+          "lead_forms_from_ads",
+          "sales_from_website"
         ]
       },
       "SalesFunnelStartEvent": {
@@ -2036,7 +2037,9 @@
         "enum": [
           "conversation_reply",
           "website_visit",
-          "ad_click"
+          "ad_click",
+          "meeting_booked",
+          "lead_form_submitted"
         ]
       },
       "SalesFunnelArrowRate": {
@@ -2097,6 +2100,7 @@
           "sales_from_conversation",
           "sales_meetings_from_ads",
           "lead_forms_from_ads",
+          "sales_from_website",
           "reply_meeting",
           "visit_meeting",
           "visit_signup",
@@ -2217,6 +2221,12 @@
             "maximum": 100
           },
           "leadFormToPaidClientPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "visitToClosePct": {
             "type": "number",
             "nullable": true,
             "minimum": 0,

@@ -487,6 +487,10 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	adClickToMeetingPct: numeric("ad_click_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }),
 	adClickToLeadFormPct: numeric("ad_click_to_lead_form_pct", { precision: 7, scale: 4, mode: "number" }),
 	leadFormToPaidClientPct: numeric("lead_form_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }),
+	// Website visit -> Paid client in ONE step, the only leg of
+	// `sales_from_website`. Shares its name with the `brand_sales_economics`
+	// column of the same name; stored per funnel here and never read from there.
+	visitToClosePct: numeric("visit_to_close_pct", { precision: 7, scale: 4, mode: "number" }),
 	// The page on the brand's own site this funnel's outreach click lands on.
 	// Null = never declared (the brand's own landing page is the fallback the
 	// CONSUMER applies, never a value written here).
@@ -537,7 +541,7 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	// and resolved before they reach this column; they are never stored again.
 	check(
 		"brand_sales_funnels_funnel_key_check",
-		sql`${table.funnelKey} IN ('sales_meetings_from_conversation', 'sales_meetings_from_website', 'website_purchases', 'form_magnet', 'sales_from_conversation', 'sales_meetings_from_ads', 'lead_forms_from_ads')`
+		sql`${table.funnelKey} IN ('sales_meetings_from_conversation', 'sales_meetings_from_website', 'website_purchases', 'form_magnet', 'sales_from_conversation', 'sales_meetings_from_ads', 'lead_forms_from_ads', 'sales_from_website')`
 	),
 	foreignKey({
 		columns: [table.brandId],
