@@ -37,6 +37,8 @@ describe('every funnel states the event that starts it', () => {
       conversation_reply: 'Positive reply',
       website_visit: 'Website visit',
       ad_click: 'Ad click',
+      meeting_booked: 'Meeting booked',
+      lead_form_submitted: 'Lead form submitted',
     };
     for (const def of SALES_FUNNELS) {
       expect(def.steps[0]).toBe(labelForEvent[def.startEvent]);
@@ -49,7 +51,7 @@ describe('every funnel states the event that starts it', () => {
     }
   });
 
-  it('separates the three situations a channel can produce', () => {
+  it('separates the situations a channel can produce', () => {
     const byEvent = (event: string) =>
       SALES_FUNNELS.filter((f) => f.startEvent === event).map((f) => f.key);
 
@@ -61,10 +63,14 @@ describe('every funnel states the event that starts it', () => {
       'sales_meetings_from_website',
       'website_purchases',
       'form_magnet',
+      'sales_from_website',
     ]);
-    // The platform-hosted journeys: the buyer engages with an ad and never
-    // touches the brand's site, which is why neither of these requires one.
-    expect(byEvent('ad_click')).toEqual(['sales_meetings_from_ads', 'lead_forms_from_ads']);
+    // The platform-hosted journeys start on the step the channel DELIVERS. The
+    // buyer never touches the brand's site, and the click that produced the step
+    // is not a rung anybody buys — so no funnel starts on `ad_click` any more.
+    expect(byEvent('meeting_booked')).toEqual(['sales_meetings_from_ads']);
+    expect(byEvent('lead_form_submitted')).toEqual(['lead_forms_from_ads']);
+    expect(byEvent('ad_click')).toEqual([]);
   });
 });
 
@@ -86,9 +92,10 @@ describe('every funnel states the step it is named after', () => {
   it('names the new funnels after the moment that tells the brand they are working', () => {
     expect(salesFunnelByKey('sales_meetings_from_ads').milestoneStep).toBe('Meeting booked');
     expect(salesFunnelByKey('lead_forms_from_ads').milestoneStep).toBe('Lead form submitted');
-    // The one funnel with no stage before the sale names the SALE, because that
-    // genuinely is what it is named after — not a stand-in for a missing step.
+    // The funnels with no stage before the sale name the SALE, because that
+    // genuinely is what they are named after — not a stand-in for a missing step.
     expect(salesFunnelByKey('sales_from_conversation').milestoneStep).toBe('Paid client');
+    expect(salesFunnelByKey('sales_from_website').milestoneStep).toBe('Paid client');
   });
 
   it('refuses a funnel whose milestone is not one of its steps rather than answering 0', () => {
@@ -121,20 +128,50 @@ describe('the new funnels price their own legs, and only their own', () => {
     expect(def.pageDestination).toBe(false);
   });
 
-  it('gives the ad-booked meeting its own first leg and shares the rest of the meeting funnel', () => {
+  it('starts the ad-booked meeting ON the booked meeting, with no click before it', () => {
     const def = salesFunnelByKey('sales_meetings_from_ads');
-    expect(def.legs).toEqual([
-      'adClickToMeetingPct',
-      'meetingBookedToAttendedPct',
-      'meetingToClosePct',
-    ]);
+    expect(def.steps).toEqual(['Meeting booked', 'Meeting attended', 'Paid client']);
+    expect(def.legs).toEqual(['meetingBookedToAttendedPct', 'meetingToClosePct']);
+    expect(def.startEvent).toBe('meeting_booked');
     expect(def.bookingLink).toBe(true);
   });
 
-  it('keeps the platform lead form general rather than naming one use of it', () => {
+  it('keeps the platform lead form general, and starts it on the filled form', () => {
     const def = salesFunnelByKey('lead_forms_from_ads');
-    expect(def.steps).toEqual(['Ad click', 'Lead form submitted', 'Paid client']);
-    expect(def.legs).toEqual(['adClickToLeadFormPct', 'leadFormToPaidClientPct']);
+    expect(def.steps).toEqual(['Lead form submitted', 'Paid client']);
+    expect(def.legs).toEqual(['leadFormToPaidClientPct']);
+    expect(def.startEvent).toBe('lead_form_submitted');
+  });
+
+  it('gives the land-and-pay brand a funnel with nothing between the visit and the sale', () => {
+    const def = salesFunnelByKey('sales_from_website');
+    expect(def.steps).toEqual(['Website visit', 'Paid client']);
+    expect(def.legs).toEqual(['visitToClosePct']);
+    expect(def.startEvent).toBe('website_visit');
+    expect(def.requiresWebsite).toBe(true);
+    expect(def.pageDestination).toBe(true);
+    expect(def.bookingLink).toBe(false);
+  });
+});
+
+/**
+ * The names a customer READS. Keys are wire tokens nobody renders and are frozen
+ * the moment anything declares them; a name is the only half that moves.
+ */
+describe('the catalogue reads the way the owner wrote it', () => {
+  it('names the signup funnel after its signup, and the purchase funnel after its purchase', () => {
+    expect(salesFunnelByKey('website_purchases').name).toBe('Signups');
+    expect(salesFunnelByKey('sales_from_website').name).toBe('Website Purchase');
+  });
+
+  it('never says "conversation" to a customer — that word survives only in wire keys', () => {
+    for (const def of SALES_FUNNELS) {
+      expect(def.name.toLowerCase()).not.toContain('conversation');
+    }
+    expect(salesFunnelByKey('sales_meetings_from_conversation').name).toBe(
+      'Sales Meeting from Positive Reply'
+    );
+    expect(salesFunnelByKey('sales_from_conversation').name).toBe('Sale from Positive Reply');
   });
 });
 
@@ -146,7 +183,7 @@ describe('a declared funnel reads back its start event and its milestone', () =>
     active: true,
     lifetimeRevenueUsd: 900,
     adClickToLeadFormPct: 12,
-    leadFormToPaidClientPct: null,
+    leadFormToPaidClientPct: 6,
     replyToMeetingPct: 11,
     destinationUrl: null,
     bookingUrl: null,
@@ -155,19 +192,18 @@ describe('a declared funnel reads back its start event and its milestone', () =>
 
   it('answers both questions on the wire, beside the funnel itself', () => {
     const funnel = formatDeclaredFunnel(row);
-    expect(funnel.startEvent).toBe('ad_click');
+    expect(funnel.startEvent).toBe('lead_form_submitted');
     expect(funnel.milestoneStep).toBe('Lead form submitted');
-    expect(funnel.milestoneStepIndex).toBe(1);
+    // 0 is a real position — the starting event — and here the milestone IS it.
+    expect(funnel.milestoneStepIndex).toBe(0);
     expect(funnel.steps[funnel.milestoneStepIndex]).toBe(funnel.milestoneStep);
   });
 
   it('still projects only the legs this funnel prices, absent reading null', () => {
     const funnel = formatDeclaredFunnel(row);
-    expect(Object.keys(funnel.rates)).toEqual([
-      'adClickToLeadFormPct',
-      'leadFormToPaidClientPct',
-    ]);
-    expect(funnel.rates.adClickToLeadFormPct).toBe(12);
-    expect(funnel.rates.leadFormToPaidClientPct).toBeNull();
+    // The click leg is no longer a leg of this funnel, so a value stored in its
+    // column is not projected — the funnel prices what it prices.
+    expect(Object.keys(funnel.rates)).toEqual(['leadFormToPaidClientPct']);
+    expect(funnel.rates.leadFormToPaidClientPct).toBe(6);
   });
 });

@@ -207,7 +207,7 @@ describe('Sales Funnels Endpoints', () => {
           expect(funnel.goal).toBeUndefined();
           expect(funnel.currentGoal).toBeUndefined();
         }
-        expect(byKey.sales_meetings_from_conversation.name).toBe('Sales Meeting from Conversation');
+        expect(byKey.sales_meetings_from_conversation.name).toBe('Sales Meeting from Positive Reply');
         expect(byKey.sales_meetings_from_website.name).toBe('Sales Meeting from Website');
         expect(byKey.sales_meetings_from_conversation.steps[0]).toBe('Positive reply');
         expect(byKey.sales_meetings_from_website.steps[0]).toBe('Website visit');

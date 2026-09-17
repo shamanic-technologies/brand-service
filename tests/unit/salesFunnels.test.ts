@@ -46,6 +46,7 @@ describe('sales funnel catalogue', () => {
       'sales_from_conversation',
       'sales_meetings_from_ads',
       'lead_forms_from_ads',
+      'sales_from_website',
     ]);
     expect(SALES_FUNNEL_KEYS).toEqual(SALES_FUNNELS.map((f) => f.key));
   });

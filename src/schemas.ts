@@ -2244,9 +2244,10 @@ export const SalesFunnelKeySchema = z
   .openapi('SalesFunnelKey');
 
 // The event that STARTS a funnel. A consumer reads it to decide which
-// acquisition channels can feed which funnels. `ad_click` covers the journeys
-// that begin on the advertising platform and never touch the brand's own site —
-// a platform-hosted lead form, or a booking taken straight from the ad.
+// acquisition channels can feed which funnels. An ad funnel starts on the step
+// the channel DELIVERS — `meeting_booked`, `lead_form_submitted` — because a
+// click is not a rung anybody buys. `ad_click` stays an accepted token that no
+// funnel starts on any more.
 export const SalesFunnelStartEventSchema = z
   .enum(SALES_FUNNEL_START_EVENTS)
   .openapi('SalesFunnelStartEvent');
@@ -2284,6 +2285,10 @@ export const SalesFunnelRatesSchema = z
     adClickToMeetingPct: PercentSchema.nullable(),
     adClickToLeadFormPct: PercentSchema.nullable(),
     leadFormToPaidClientPct: PercentSchema.nullable(),
+    // Website visit -> Paid client with nothing in between, the only leg of
+    // `sales_from_website`. Stated on the funnel; the brand-wide economics
+    // record DERIVES a column of the same name and is never read into this one.
+    visitToClosePct: PercentSchema.nullable(),
   })
   .partial()
   .openapi('SalesFunnelRates');

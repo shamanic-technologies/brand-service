@@ -37,10 +37,16 @@
  *
  * The first four are the original catalogue, written while cold email was the
  * only channel we ran: every journey began either in a conversation we started
- * or on the brand's own website. The last three describe journeys that begin
- * somewhere else entirely, and exist because roughly thirty acquisition channels
- * are opening. They are ADDED, never renamed over the four: live brands and live
- * budgets reference those keys.
+ * or on the brand's own website. The rest describe journeys the four could not,
+ * and exist because roughly thirty acquisition channels are opening. They are
+ * ADDED, never renamed over the four: live brands and live budgets reference
+ * those keys.
+ *
+ * A KEY IS NEVER RENAMED, A NAME IS. billing-service keys a daily ceiling on
+ * (org, brand, funnel, channel, offer) and brand rows reference these tokens, so
+ * a key is frozen the moment anything declares it — while `name` is the only one
+ * of the two a customer ever reads. `website_purchases` now reads "Signups" and
+ * that mismatch is deliberate, not drift.
  */
 export const SALES_FUNNEL_KEYS = [
   'sales_meetings_from_conversation',
@@ -50,6 +56,7 @@ export const SALES_FUNNEL_KEYS = [
   'sales_from_conversation',
   'sales_meetings_from_ads',
   'lead_forms_from_ads',
+  'sales_from_website',
 ] as const;
 
 export type SalesFunnelKey = (typeof SALES_FUNNEL_KEYS)[number];
@@ -64,17 +71,28 @@ export type SalesFunnelKey = (typeof SALES_FUNNEL_KEYS)[number];
  * - `conversation_reply` — somebody answered a conversation we started.
  * - `website_visit`      — somebody landed on the brand's OWN site.
  * - `ad_click`           — somebody engaged with an ad and stayed on the
- *                          advertising platform: a platform-hosted lead form
- *                          (Meta Lead Ads, LinkedIn Lead Gen Forms, TikTok lead
- *                          forms) or a booking taken straight from the ad (Meta
- *                          "Book Now", Google Local Services). The brand's own
- *                          site is never touched, which is exactly what makes
- *                          this a third starting situation rather than a visit.
+ *                          advertising platform. RETAINED as a wire token (no
+ *                          funnel starts here any more) because it is accepted
+ *                          vocabulary a consumer may still hold.
+ * - `meeting_booked`      — a meeting was booked, and that IS the first thing
+ *                          that happened: an ad that takes a booking straight
+ *                          from the creative (Meta "Book Now", Google Local
+ *                          Services) delivers a booked meeting, not a click.
+ * - `lead_form_submitted` — a platform-hosted form was filled (Meta Lead Ads,
+ *                          LinkedIn Lead Gen Forms, TikTok lead forms). Again
+ *                          the delivered step, not the click before it.
+ *
+ * OWNER DECISION: an ad CLICK is not a rung anybody buys. The channel delivers
+ * the step, so the step the channel produces IS the funnel's first step, with
+ * nothing before it — which is exactly what features-service publishes for the
+ * channels producing them.
  */
 export const SALES_FUNNEL_START_EVENTS = [
   'conversation_reply',
   'website_visit',
   'ad_click',
+  'meeting_booked',
+  'lead_form_submitted',
 ] as const;
 
 export type SalesFunnelStartEvent = (typeof SALES_FUNNEL_START_EVENTS)[number];
@@ -127,6 +145,10 @@ export const SALES_FUNNEL_RATE_KEYS = [
   'adClickToMeetingPct',
   'adClickToLeadFormPct',
   'leadFormToPaidClientPct',
+  // Website visit -> Paid client in one step, for the brand whose buyer lands
+  // and pays. It shares its name with the `brand_sales_economics` column of the
+  // same name, like the first seven, and is stored PER FUNNEL here.
+  'visitToClosePct',
 ] as const;
 
 export type SalesFunnelRateKey = (typeof SALES_FUNNEL_RATE_KEYS)[number];
@@ -174,7 +196,7 @@ export interface SalesFunnelDef {
 export const SALES_FUNNELS: SalesFunnelDef[] = [
   {
     key: 'sales_meetings_from_conversation',
-    name: 'Sales Meeting from Conversation',
+    name: 'Sales Meeting from Positive Reply',
     startEvent: 'conversation_reply',
     steps: ['Positive reply', 'Meeting booked', 'Meeting attended', 'Paid client'],
     legs: ['replyToMeetingPct', 'meetingBookedToAttendedPct', 'meetingToClosePct'],
@@ -196,7 +218,12 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
   },
   {
     key: 'website_purchases',
-    name: 'Website Purchase',
+    // KEY/NAME MISMATCH ON PURPOSE. `website_purchases` is a wire token nobody
+    // renders and 125 live declarations reference it, so it is frozen; the name
+    // is what a customer reads, and this funnel's middle rung is a SIGNUP, so
+    // "Website Purchase" named the wrong thing. That name now belongs to
+    // `sales_from_website`, the funnel that really does go visit -> purchase.
+    name: 'Signups',
     startEvent: 'website_visit',
     steps: ['Website visit', 'Signup', 'Paid client'],
     legs: ['visitToSignupPct', 'signupToPaidClientPct'],
@@ -223,7 +250,7 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     // Its milestone IS the sale, because the funnel has no stage before it; that
     // is the moment the funnel is named after, not a stand-in for a missing one.
     key: 'sales_from_conversation',
-    name: 'Sale from Conversation',
+    name: 'Sale from Positive Reply',
     startEvent: 'conversation_reply',
     steps: ['Positive reply', 'Paid client'],
     legs: ['replyToPaidClientPct'],
@@ -234,15 +261,15 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
   },
   {
     // A meeting booked DIRECTLY from an ad — Meta "Book Now", Google Local
-    // Services — without the buyer ever visiting the brand's site. It shares the
-    // show-up and close legs with the other meeting funnels, because once a
-    // meeting is booked the rest of the journey is the same; only its first leg
-    // is its own.
+    // Services — without the buyer ever visiting the brand's site. What the
+    // channel DELIVERS is a booked meeting, so that is the funnel's first step:
+    // there is no rung before it, and the click that produced it is not a step
+    // anybody buys. From there the journey is the other meeting funnels'.
     key: 'sales_meetings_from_ads',
     name: 'Sales Meeting from Ads',
-    startEvent: 'ad_click',
-    steps: ['Ad click', 'Meeting booked', 'Meeting attended', 'Paid client'],
-    legs: ['adClickToMeetingPct', 'meetingBookedToAttendedPct', 'meetingToClosePct'],
+    startEvent: 'meeting_booked',
+    steps: ['Meeting booked', 'Meeting attended', 'Paid client'],
+    legs: ['meetingBookedToAttendedPct', 'meetingToClosePct'],
     milestoneStep: 'Meeting booked',
     requiresWebsite: false,
     pageDestination: false,
@@ -253,15 +280,36 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     // Gen Forms, TikTok lead forms — which the buyer fills without ever touching
     // the brand's site. Deliberately GENERAL: the same funnel prices a webinar
     // signup, a guide download, a quote request and a demo request, so naming it
-    // after any one of them would exclude the others.
+    // after any one of them would exclude the others. Like the ad meeting
+    // funnel, it starts on the step the channel DELIVERS — a filled form — not
+    // on the click that produced it.
     key: 'lead_forms_from_ads',
     name: 'Lead Form from Ads',
-    startEvent: 'ad_click',
-    steps: ['Ad click', 'Lead form submitted', 'Paid client'],
-    legs: ['adClickToLeadFormPct', 'leadFormToPaidClientPct'],
+    startEvent: 'lead_form_submitted',
+    steps: ['Lead form submitted', 'Paid client'],
+    legs: ['leadFormToPaidClientPct'],
     milestoneStep: 'Lead form submitted',
     requiresWebsite: false,
     pageDestination: false,
+    bookingLink: false,
+  },
+  {
+    // The buyer lands and PAYS. Nothing sits between the visit and the sale —
+    // no signup, no form, no meeting — which is every ecommerce brand and
+    // everyone selling straight off their own site. Every other website funnel
+    // inserts a rung, so until this existed such a brand had nothing it could
+    // declare, while already stating the exact rate that prices it:
+    // `visitToClosePct`, visit -> paid client. Its milestone IS the sale,
+    // for the same reason `sales_from_conversation`'s is: the funnel has no
+    // stage before it, so that genuinely is the moment it is named after.
+    key: 'sales_from_website',
+    name: 'Website Purchase',
+    startEvent: 'website_visit',
+    steps: ['Website visit', 'Paid client'],
+    legs: ['visitToClosePct'],
+    milestoneStep: 'Paid client',
+    requiresWebsite: true,
+    pageDestination: true,
     bookingLink: false,
   },
 ];
