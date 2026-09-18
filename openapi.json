@@ -2231,6 +2231,18 @@
             "nullable": true,
             "minimum": 0,
             "maximum": 100
+          },
+          "visitToPurchasePct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "purchaseToPaidClientPct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
           }
         }
       },

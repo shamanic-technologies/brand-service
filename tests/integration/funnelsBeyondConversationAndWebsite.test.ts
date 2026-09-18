@@ -175,12 +175,12 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     expect(put.body.funnel.rates).toEqual({ visitToSignupPct: 30, signupToPaidClientPct: 12 });
   });
 
-  it('declares the brand whose buyer lands and PAYS, with nothing in between', async () => {
+  it('declares the brand whose buyer lands and BUYS, the purchase its own rung', async () => {
     const res = await request(app)
       .put(one(brandId, 'sales_from_website'))
       .set(getAuthHeaders(orgId))
       .send({
-        rates: { visitToClosePct: 2.5 },
+        rates: { visitToPurchasePct: 2.5, purchaseToPaidClientPct: 100 },
         lifetimeRevenueUsd: 180,
         destinationUrl: `https://${domain}/shop`,
       });
@@ -189,15 +189,49 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     const funnel = res.body.funnel;
     expect(funnel.funnelKey).toBe('sales_from_website');
     expect(funnel.name).toBe('Website Purchase');
-    expect(funnel.steps).toEqual(['Website visit', 'Paid client']);
+    expect(funnel.steps).toEqual(['Website visit', 'Purchase', 'Paid client']);
     expect(funnel.startEvent).toBe('website_visit');
-    // No rung between the visit and the sale, so the SALE is the milestone —
-    // the last of its two steps, not a stand-in for a step it does not have.
-    expect(funnel.milestoneStep).toBe('Paid client');
+    // The PURCHASE is the milestone: it is the moment that tells a DTC brand
+    // the funnel is working, and the funnel does have a stage before its sale.
+    expect(funnel.milestoneStep).toBe('Purchase');
     expect(funnel.milestoneStepIndex).toBe(1);
-    expect(funnel.rates).toEqual({ visitToClosePct: 2.5 });
+    expect(funnel.rates).toEqual({ visitToPurchasePct: 2.5, purchaseToPaidClientPct: 100 });
     expect(funnel.destinationUrl).toBe(`https://${domain}/shop`);
     expect(funnel.bookingUrl).toBeNull();
+  });
+
+  it('draws the purchase funnel as two arrows, in funnel order', async () => {
+    const res = await request(app).get(list(brandId)).set(getAuthHeaders(orgId));
+    const funnel = res.body.funnels.find((f: any) => f.funnelKey === 'sales_from_website');
+
+    expect(funnel.arrows.map((a: any) => [a.fromStep, a.toStep])).toEqual([
+      ['Website visit', 'Purchase'],
+      ['Purchase', 'Paid client'],
+    ]);
+    expect(funnel.arrows[0]).toMatchObject({
+      ratePct: 2.5,
+      provenance: 'named_rate',
+      rateKey: 'visitToPurchasePct',
+    });
+    expect(funnel.arrows[1]).toMatchObject({
+      ratePct: 100,
+      provenance: 'named_rate',
+      rateKey: 'purchaseToPaidClientPct',
+    });
+  });
+
+  it('still accepts the pre-rung spelling and stores it as the visit -> purchase rate', async () => {
+    // A caller written before the purchase became a rung sends the old name for
+    // the arrow that leads to the money. It is accepted forever, resolved to
+    // the leg it names today, and never emitted under the old spelling again.
+    const res = await request(app)
+      .put(one(brandId, 'sales_from_website'))
+      .set(getAuthHeaders(orgId))
+      .send({ rates: { visitToClosePct: 3.75 } });
+
+    expect(res.status).toBe(200);
+    expect(res.body.funnel.rates.visitToPurchasePct).toBe(3.75);
+    expect(res.body.funnel.rates).not.toHaveProperty('visitToClosePct');
   });
 
   it('refuses the land-and-pay funnel to a brand with no website', async () => {

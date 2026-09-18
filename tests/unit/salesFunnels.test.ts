@@ -145,13 +145,15 @@ describe('a patch must describe the funnel it targets', () => {
 
 describe('omitted leaves unchanged, null clears', () => {
   it('names no column the patch did not carry', () => {
-    expect(buildFunnelWrite({ rates: { visitToSignupPct: 30 } })).toEqual({
+    expect(
+      buildFunnelWrite(salesFunnelByKey('website_purchases'), { rates: { visitToSignupPct: 30 } })
+    ).toEqual({
       visitToSignupPct: 30,
     });
   });
 
   it('writes an explicit null so a value can be taken back', () => {
-    const write = buildFunnelWrite({
+    const write = buildFunnelWrite(salesFunnelByKey('website_purchases'), {
       rates: { visitToSignupPct: null },
       lifetimeRevenueUsd: null,
       destinationUrl: null,
@@ -168,7 +170,7 @@ describe('omitted leaves unchanged, null clears', () => {
   });
 
   it('declares a funnel with nothing priced yet', () => {
-    expect(buildFunnelWrite({})).toEqual({});
+    expect(buildFunnelWrite(salesFunnelByKey('website_purchases'), {})).toEqual({});
   });
 });
 

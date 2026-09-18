@@ -15,6 +15,7 @@ import {
   funnelPricesRate,
   funnelRateKeys,
   salesFunnelByKey,
+  toFunnelRateKey,
 } from './salesFunnelCatalogue';
 import {
   SalesFunnelArrowRate,
@@ -219,7 +220,7 @@ export function normalizeBookingUrl(input: string): string {
  */
 export function assertPatchFitsFunnel(def: SalesFunnelDef, patch: SalesFunnelPatch): void {
   const foreign = Object.keys(patch.rates ?? {}).filter(
-    (key) => !funnelPricesRate(def, key as SalesFunnelRateKey)
+    (key) => toFunnelRateKey(def, key) === null
   );
   if (foreign.length > 0) {
     throw new SalesFunnelRateNotInFunnelError(def.key, foreign);
@@ -281,12 +282,20 @@ function byCatalogueOrder(a: DeclaredSalesFunnel, b: DeclaredSalesFunnel): numbe
  * while an explicit `null` is written and clears the value.
  */
 export function buildFunnelWrite(
+  def: SalesFunnelDef,
   patch: SalesFunnelPatch
 ): Partial<Record<string, number | string | boolean | null>> {
   const write: Partial<Record<string, number | string | boolean | null>> = {};
   if (patch.active !== undefined) write.active = patch.active;
   for (const [key, value] of Object.entries(patch.rates ?? {})) {
-    write[key] = value ?? null;
+    // A legacy spelling is written to the leg it names TODAY, never to the
+    // column it used to mean: storing it under the old name would write a rate
+    // this funnel no longer reads, which reads back as "never declared".
+    const column = toFunnelRateKey(def, key);
+    if (column === null) {
+      throw new SalesFunnelRateNotInFunnelError(def.key, [key]);
+    }
+    write[column] = value ?? null;
   }
   if (patch.lifetimeRevenueUsd !== undefined) {
     write.lifetimeRevenueUsd = patch.lifetimeRevenueUsd;
@@ -520,7 +529,7 @@ export class SalesFunnelsService {
       normalized.bookingUrl = normalizeBookingUrl(patch.bookingUrl);
     }
 
-    const write = buildFunnelWrite(normalized);
+    const write = buildFunnelWrite(def, normalized);
 
     const [row] = await db
       .insert(brandSalesFunnels)

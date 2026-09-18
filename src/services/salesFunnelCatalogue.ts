@@ -145,10 +145,23 @@ export const SALES_FUNNEL_RATE_KEYS = [
   'adClickToMeetingPct',
   'adClickToLeadFormPct',
   'leadFormToPaidClientPct',
-  // Website visit -> Paid client in one step, for the brand whose buyer lands
-  // and pays. It shares its name with the `brand_sales_economics` column of the
-  // same name, like the first seven, and is stored PER FUNNEL here.
+  // Website visit -> Paid client in one step. It shares its name with the
+  // `brand_sales_economics` column of the same name, like the first seven, and
+  // is stored PER FUNNEL here.
+  //
+  // It is NO LONGER A LEG of any funnel: `sales_from_website` states a PURCHASE
+  // between the visit and the sale, so the single visit -> paid arrow it used to
+  // price does not exist any more. The rate KEY stays — the column stays, the
+  // wire spelling stays accepted (see `LEGACY_FUNNEL_RATE_KEYS`), and a value
+  // already stored is still readable — because a key is never deleted once a
+  // caller has sent it.
   'visitToClosePct',
+  // The two arrows of `sales_from_website`, now that the purchase is its own
+  // rung: Website visit -> Purchase, and Purchase -> Paid client. Neither has a
+  // counterpart on the brand-wide `brand_sales_economics` record, so both are
+  // stated on the funnel or not at all.
+  'visitToPurchasePct',
+  'purchaseToPaidClientPct',
 ] as const;
 
 export type SalesFunnelRateKey = (typeof SALES_FUNNEL_RATE_KEYS)[number];
@@ -294,20 +307,28 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     bookingLink: false,
   },
   {
-    // The buyer lands and PAYS. Nothing sits between the visit and the sale —
-    // no signup, no form, no meeting — which is every ecommerce brand and
-    // everyone selling straight off their own site. Every other website funnel
-    // inserts a rung, so until this existed such a brand had nothing it could
-    // declare, while already stating the exact rate that prices it:
-    // `visitToClosePct`, visit -> paid client. Its milestone IS the sale,
-    // for the same reason `sales_from_conversation`'s is: the funnel has no
-    // stage before it, so that genuinely is the moment it is named after.
+    // The buyer lands on the site and BUYS — every ecommerce brand and everyone
+    // selling straight off their own site.
+    //
+    // THE PURCHASE IS ITS OWN RUNG (owner decision). It is the same kind of
+    // thing as this catalogue's other middle rungs: a signup, a filled form and
+    // a booked meeting are each a step a customer can see happen and a channel
+    // can be priced against, and so is a purchase. The funnel therefore reads
+    // Website visit -> Purchase -> Paid client rather than collapsing the two
+    // into one arrow, and `Purchase` is the word the customer reads.
+    //
+    // A purchase is NOT a relabelled `Paid client`. The sale is the terminal
+    // step of every funnel in this catalogue and keeps its label everywhere; the
+    // purchase is the moment the money is taken on the site, which is what tells
+    // a DTC brand the funnel is working. That is why the MILESTONE is the
+    // purchase and not the sale: unlike `sales_from_conversation`, this funnel
+    // does have a stage before its sale, so it names it.
     key: 'sales_from_website',
     name: 'Website Purchase',
     startEvent: 'website_visit',
-    steps: ['Website visit', 'Paid client'],
-    legs: ['visitToClosePct'],
-    milestoneStep: 'Paid client',
+    steps: ['Website visit', 'Purchase', 'Paid client'],
+    legs: ['visitToPurchasePct', 'purchaseToPaidClientPct'],
+    milestoneStep: 'Purchase',
     requiresWebsite: true,
     pageDestination: true,
     bookingLink: false,
@@ -359,6 +380,42 @@ export function funnelRateKeys(def: SalesFunnelDef): SalesFunnelRateKey[] {
 /** True when this funnel's funnel converts at `rate`. */
 export function funnelPricesRate(def: SalesFunnelDef, rate: SalesFunnelRateKey): boolean {
   return def.legs.includes(rate);
+}
+
+/**
+ * Rate spellings a caller may still send FOR ONE FUNNEL, and the leg each names
+ * today. ACCEPTED FOREVER, never emitted — the same tolerance
+ * `LEGACY_SALES_FUNNEL_KEYS` gives a funnel key, applied to a rate name.
+ *
+ * `sales_from_website` is the only entry and the reason the mechanism exists:
+ * the funnel shipped as a single Website visit -> Paid client arrow priced by
+ * `visitToClosePct`, and it now states a PURCHASE in the middle. A caller still
+ * sending the old name is describing the arrow that leads to the purchase — the
+ * rate at which a visit becomes money on the site — so it resolves to
+ * `visitToPurchasePct` rather than being rejected as a foreign rate.
+ *
+ * Never map a legacy name onto a leg that means something else, and never add
+ * an entry to spare a caller from learning a genuinely new number.
+ */
+export const LEGACY_FUNNEL_RATE_KEYS: Partial<
+  Record<SalesFunnelKey, Record<string, SalesFunnelRateKey>>
+> = {
+  sales_from_website: { visitToClosePct: 'visitToPurchasePct' },
+};
+
+/**
+ * The leg this funnel prices under `key`, whatever spelling the caller used.
+ * Returns null for a name that is not a leg of this funnel under any spelling —
+ * the caller answers 400 rather than storing a rate nothing would ever read.
+ */
+export function toFunnelRateKey(
+  def: SalesFunnelDef,
+  key: string
+): SalesFunnelRateKey | null {
+  if (funnelPricesRate(def, key as SalesFunnelRateKey)) return key as SalesFunnelRateKey;
+  const resolved = LEGACY_FUNNEL_RATE_KEYS[def.key]?.[key];
+  if (resolved && funnelPricesRate(def, resolved)) return resolved;
+  return null;
 }
 
 /**

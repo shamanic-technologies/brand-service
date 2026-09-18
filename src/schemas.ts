@@ -2285,10 +2285,21 @@ export const SalesFunnelRatesSchema = z
     adClickToMeetingPct: PercentSchema.nullable(),
     adClickToLeadFormPct: PercentSchema.nullable(),
     leadFormToPaidClientPct: PercentSchema.nullable(),
-    // Website visit -> Paid client with nothing in between, the only leg of
-    // `sales_from_website`. Stated on the funnel; the brand-wide economics
-    // record DERIVES a column of the same name and is never read into this one.
+    // Website visit -> Paid client with nothing in between. Stated on the
+    // funnel; the brand-wide economics record DERIVES a column of the same name
+    // and is never read into this one.
+    //
+    // No longer a leg of any funnel — `sales_from_website` states a PURCHASE in
+    // the middle — but still ACCEPTED on a write to that funnel, where it names
+    // the arrow that leads to the purchase and is stored as
+    // `visitToPurchasePct`. Never emitted for that funnel again.
     visitToClosePct: PercentSchema.nullable(),
+    // The two arrows of `sales_from_website`: the share of visitors who BUY on
+    // the site, and the share of those purchases that become a paid client.
+    // Stated on the funnel or not at all — the brand-wide economics record has
+    // no column for either.
+    visitToPurchasePct: PercentSchema.nullable(),
+    purchaseToPaidClientPct: PercentSchema.nullable(),
   })
   .partial()
   .openapi('SalesFunnelRates');
