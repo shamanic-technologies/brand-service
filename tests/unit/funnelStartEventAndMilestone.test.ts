@@ -92,10 +92,14 @@ describe('every funnel states the step it is named after', () => {
   it('names the new funnels after the moment that tells the brand they are working', () => {
     expect(salesFunnelByKey('sales_meetings_from_ads').milestoneStep).toBe('Meeting booked');
     expect(salesFunnelByKey('lead_forms_from_ads').milestoneStep).toBe('Lead form submitted');
-    // The funnels with no stage before the sale name the SALE, because that
-    // genuinely is what they are named after — not a stand-in for a missing step.
+    // The funnel with no stage before the sale names the SALE, because that
+    // genuinely is what it is named after — not a stand-in for a missing step.
     expect(salesFunnelByKey('sales_from_conversation').milestoneStep).toBe('Paid client');
-    expect(salesFunnelByKey('sales_from_website').milestoneStep).toBe('Paid client');
+    // The DTC funnel names the PURCHASE: its own rung since 2026-09-18, the
+    // moment a buyer bought on the site, before we count them a paid client.
+    expect(salesFunnelByKey('sales_from_website').milestoneStep).toBe('Purchase');
+    expect(salesFunnelByKey('sales_from_website').steps).toEqual(['Website visit', 'Purchase', 'Paid client']);
+    expect(salesFunnelByKey('sales_from_website').legs).toEqual(['visitToPurchasePct', 'purchaseToPaidClientPct']);
   });
 
   it('refuses a funnel whose milestone is not one of its steps rather than answering 0', () => {
@@ -143,10 +147,10 @@ describe('the new funnels price their own legs, and only their own', () => {
     expect(def.startEvent).toBe('lead_form_submitted');
   });
 
-  it('gives the land-and-pay brand a funnel with nothing between the visit and the sale', () => {
+  it('gives the DTC brand a funnel whose middle rung is the PURCHASE on the site', () => {
     const def = salesFunnelByKey('sales_from_website');
-    expect(def.steps).toEqual(['Website visit', 'Paid client']);
-    expect(def.legs).toEqual(['visitToClosePct']);
+    expect(def.steps).toEqual(['Website visit', 'Purchase', 'Paid client']);
+    expect(def.legs).toEqual(['visitToPurchasePct', 'purchaseToPaidClientPct']);
     expect(def.startEvent).toBe('website_visit');
     expect(def.requiresWebsite).toBe(true);
     expect(def.pageDestination).toBe(true);
