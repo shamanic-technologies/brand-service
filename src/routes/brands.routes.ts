@@ -6,10 +6,11 @@ import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandIdentity, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
 import { rewriteBrandReferences } from '../services/brandMergeService';
 import { getBrandIdentitiesByOrgIds } from '../services/orgBrandIdentityService';
+import { isDomainClaimed } from '../services/brandClaimService';
 import { CheckoutStatusUnavailableError } from '../lib/client-client';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { InvalidLogoUrlError, parseLogoUrlIssue } from '../lib/logo-url';
-import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, UpdateBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema } from '../schemas';
+import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, UpdateBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema, DomainClaimRequestSchema } from '../schemas';
 import { resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 
 /** Max brand ids accepted per batch request. ~3.7KB query string at 36-char UUIDs. */
@@ -342,6 +343,64 @@ internalRouter.post('/brands/identity-by-org', async (req: Request, res: Respons
   } catch (error: unknown) {
     console.error('[brand-service] identity-by-org error:', error);
     const message = error instanceof Error ? error.message : 'Failed to resolve brand identities by org';
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /internal/brands/domain-claimed
+ *
+ * Does any organisation already claim the brand behind this website?
+ *
+ * The dashboard's signed-out onboarding asks this before it starts: a visitor
+ * types a website and then walks a whole setup that spends real money against a
+ * throwaway org and reads the brand's scraped site and extracted fields. Those
+ * are keyed on the brand with no org column, and a brand is deliberately
+ * shareable, so nothing on the create path refuses a domain an existing paying
+ * customer owns. This is what lets the caller refuse it BEFORE anything is read.
+ *
+ * **A boolean is the whole answer.** Not the org id, not the org name, not a
+ * count, not a claim date — the caller is acting for somebody with no account,
+ * so nothing identifying the claimant may cross. Do not widen this response.
+ *
+ * **It creates nothing**: no brand row, no claim, no scrape, no LLM call, no
+ * cost. A stranger typing a URL into a landing page must not be able to make us
+ * do work, which is why this does not reuse `resolveBrandByDomain` (it mints the
+ * brand row) or `getOrCreateBrand` (it also claims it).
+ *
+ * Internal only (shared API key), org-less by design. The domain rides in the
+ * BODY so it does not land in access logs and proxy traces.
+ *
+ * Returns { domain, claimed }.
+ */
+internalRouter.post('/brands/domain-claimed', async (req: Request, res: Response) => {
+  try {
+    const parsed = DomainClaimRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const { code, message } = parseZodIssueCode(issue?.message);
+      return res.status(400).json({
+        error: 'Invalid request',
+        code,
+        field: issue?.path?.join('.') ?? 'domain',
+        message,
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const result = await isDomainClaimed(parsed.data.domain);
+    res.json(result);
+  } catch (error: unknown) {
+    if (error instanceof InvalidUrlError || error instanceof UrlRequiredError) {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code,
+        field: 'domain',
+        message: error.message,
+      });
+    }
+    console.error('[brand-service] domain-claimed error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to resolve domain claim status';
     res.status(500).json({ error: message });
   }
 });
