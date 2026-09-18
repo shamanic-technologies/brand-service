@@ -375,6 +375,49 @@ export function funnelPricesRate(def: SalesFunnelDef, rate: SalesFunnelRateKey):
 }
 
 /**
+ * Rate spellings a caller may still send FOR ONE FUNNEL, and the leg each names
+ * today. ACCEPTED FOREVER, never emitted — the same tolerance
+ * `LEGACY_SALES_FUNNEL_KEYS` gives a funnel KEY, applied to a rate NAME.
+ *
+ * `sales_from_website` is the only entry and it is the reason the mechanism
+ * exists. That funnel shipped as a single `Website visit -> Paid client` arrow
+ * priced by `visitToClosePct`, and it now states a PURCHASE in the middle. A
+ * caller still sending the old name is describing the arrow that leads to the
+ * purchase — the rate at which a visit becomes money on the site — so it
+ * resolves to `visitToPurchasePct` rather than being rejected as a foreign rate.
+ * Without this, the first customer to declare that funnel from a consumer built
+ * against the previous shape is answered 400 on a write that is not wrong.
+ *
+ * SCOPED PER FUNNEL on purpose. `visitToClosePct` sent against `website_purchases`
+ * names no arrow that funnel prices, and is still refused: an alias resolves a
+ * word onto the leg it is genuinely about, and never onto a column the funnel
+ * would not read back.
+ *
+ * Never map a legacy name onto a leg that means something else, and never add an
+ * entry to spare a caller from learning a genuinely new number.
+ */
+export const LEGACY_FUNNEL_RATE_KEYS: Partial<
+  Record<SalesFunnelKey, Record<string, SalesFunnelRateKey>>
+> = {
+  sales_from_website: { visitToClosePct: 'visitToPurchasePct' },
+};
+
+/**
+ * The leg of THIS funnel a rate spelling names — canonical or legacy — or null
+ * for a word that names none of them.
+ *
+ * Null is the caller's signal to answer 400. It is deliberately not a throw: the
+ * write path collects every foreign rate in one error rather than failing on the
+ * first.
+ */
+export function toFunnelRateKey(def: SalesFunnelDef, key: string): SalesFunnelRateKey | null {
+  if (funnelPricesRate(def, key as SalesFunnelRateKey)) return key as SalesFunnelRateKey;
+  const resolved = LEGACY_FUNNEL_RATE_KEYS[def.key]?.[key];
+  if (resolved && funnelPricesRate(def, resolved)) return resolved;
+  return null;
+}
+
+/**
  * Where the MILESTONE sits in the funnel. Throws when the funnel names a step it
  * does not have — a consumer pricing a channel's minimum budget against a step
  * that is not in the funnel would be pricing nothing, so this fails loud rather
