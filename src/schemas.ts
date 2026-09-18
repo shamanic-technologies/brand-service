@@ -260,6 +260,58 @@ export const ResolveByDomainResponseSchema = z
   })
   .openapi('ResolveByDomainResponse');
 
+export const DomainClaimRequestSchema = z
+  .object({
+    domain: z.string().min(1).openapi({
+      description:
+        'The website a visitor typed. A bare domain or a full URL; normalized server-side ' +
+        '(scheme and www stripped). Carried in the BODY so it does not land in access logs ' +
+        'and proxy traces.',
+    }),
+  })
+  .openapi('DomainClaimRequest', {
+    description:
+      'Is the brand behind this website already claimed by an organisation? Read-only: ' +
+      'creates no brand row, no claim, no scrape, no LLM call and no cost.',
+    example: { domain: 'acme.com' },
+  });
+
+export const DomainClaimResponseSchema = z
+  .object({
+    domain: z.string().openapi({ description: 'The normalized domain the answer is about (www stripped).' }),
+    claimed: z.boolean().openapi({
+      description:
+        'True when at least one organisation already claims the brand behind this domain. ' +
+        'A yes/no and nothing else — never which org, how many, or anything identifying them. ' +
+        'A domain nobody has ever sent us answers false, as does a brand row no org claims.',
+    }),
+  })
+  .openapi('DomainClaimResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/brands/domain-claimed',
+  summary: 'Is the brand behind this website already claimed by an organisation?',
+  description:
+    'Answers yes/no for one website domain, and nothing more: never the org id, the org name, a ' +
+    'count, or a claim date. The caller is a server-to-server consumer acting for somebody with NO ' +
+    'account (a signed-out onboarding that spends real money against a throwaway org), so the ' +
+    'boolean is the only thing that may cross. It exists because a brand identity and its extracted ' +
+    'fields carry no org column and a brand is deliberately shareable, so nothing on the create path ' +
+    'refuses a claimed domain on its own. READ-ONLY and cheap by construction: no brand row is ' +
+    'created, nothing is claimed, no page is scraped and no model is called, so a stranger typing a ' +
+    'URL into a landing page cannot make us do work. An unknown domain is the COMMON case and ' +
+    'answers false. A brand row that exists but which no org claims also answers false — it is ' +
+    'genuinely unclaimed. Internal service-to-service only (shared API key), org-less by design. ' +
+    'The answer is stable across repeated calls.',
+  request: { body: { content: { 'application/json': { schema: DomainClaimRequestSchema } } } },
+  responses: {
+    200: { description: 'The claim answer for the normalized domain', content: { 'application/json': { schema: DomainClaimResponseSchema } } },
+    400: { description: 'Missing body field, or a domain that is not a parseable public website' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 export const OrgBrandIdentityRequestSchema = z
   .object({
     orgIds: z.array(z.string()).min(1).openapi({

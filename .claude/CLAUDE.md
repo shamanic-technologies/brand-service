@@ -32,6 +32,18 @@
 
 **Internal only.** Service auth, org-less, deliberately not on `publicRouter` and not org-scopable by a customer — the caller legitimately holds org ids that are not its own. The batch rides in the BODY, not a query string, so org ids do not land in access logs and proxy traces. Regression: `tests/integration/orgBrandIdentity.test.ts`, `tests/unit/orgBrandIdentity.test.ts`.
 
+## "Is this website already somebody's?" is a BOOLEAN, and asking it must cost nothing
+
+`POST /internal/brands/domain-claimed` (`src/services/brandClaimService.ts` → `isDomainClaimed`) answers one question about one website: does any organisation already claim the brand behind it? Body `{ domain }` → `{ domain, claimed }`.
+
+**The caller acts for somebody with NO account, so the boolean is the only thing that may cross.** The dashboard moved its signup wall to the END of onboarding: a visitor types a website and walks a whole setup — services, funnels, audiences, rates, offer — against a throwaway org before being asked for a card. A brand's identity and its extracted fields are keyed on the BRAND with no org column, and a brand is deliberately shareable across orgs, so nothing on the create path refuses a domain an existing paying customer owns. Without this read, a stranger could start a session on a claimed domain and read that customer's scraped site and extracted offer. Never widen the response with the org id, the org name, a count, a claim date, the brand id or the brand name — any of those identifies the claimant to somebody with no relationship to them.
+
+**It creates nothing, and that is load-bearing rather than incidental.** No brand row, no `org_brands` claim, no scrape, no LLM call, no cost: a stranger typing a URL into a landing page must not be able to make us do work. So it deliberately does NOT reuse `resolveBrandByDomain` (which mints the global brand row as a side effect) or `getOrCreateBrand` (which additionally claims it) — it is one indexed lookup on the unique `domain` index joined to `org_brands`, `LIMIT 1`. A rewrite that "just reuses the existing resolver" reintroduces exactly the problem the endpoint exists to prevent.
+
+**Two different absences both answer `false`, and both are correct.** A domain nobody has ever sent us has no brand row at all — the COMMON case, a brand-new visitor, and not an error. A brand row that EXISTS but which no org claims is genuinely unclaimed (the takeover path's never-paid holder), and must not lock a stranger out of onboarding. Input that is not a parseable public website is a 400, never a guessed answer.
+
+Internal only (service auth), org-less by design — the caller has no org identity of its own. The domain rides in the BODY so it does not land in access logs and proxy traces. Regression: `tests/unit/domainClaim.test.ts`, `tests/integration/domainClaimed.test.ts`.
+
 ## A domain belongs to whoever CHECKED OUT on it — brand-service never computes checkout itself
 
 Owner decision (Kevin, 2026-07-29). `brands.domain` is globally unique, so attaching a website to a brand can collide with an existing holder row. The collision is NOT automatically a refusal:
