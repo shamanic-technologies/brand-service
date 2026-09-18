@@ -175,12 +175,12 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     expect(put.body.funnel.rates).toEqual({ visitToSignupPct: 30, signupToPaidClientPct: 12 });
   });
 
-  it('declares the brand whose buyer lands and PAYS, with nothing in between', async () => {
+  it('declares the brand whose buyer lands and BUYS on the site', async () => {
     const res = await request(app)
       .put(one(brandId, 'sales_from_website'))
       .set(getAuthHeaders(orgId))
       .send({
-        rates: { visitToClosePct: 2.5 },
+        rates: { visitToPurchasePct: 2.5, purchaseToPaidClientPct: 90 },
         lifetimeRevenueUsd: 180,
         destinationUrl: `https://${domain}/shop`,
       });
@@ -189,13 +189,13 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     const funnel = res.body.funnel;
     expect(funnel.funnelKey).toBe('sales_from_website');
     expect(funnel.name).toBe('Website Purchase');
-    expect(funnel.steps).toEqual(['Website visit', 'Paid client']);
+    expect(funnel.steps).toEqual(['Website visit', 'Purchase', 'Paid client']);
     expect(funnel.startEvent).toBe('website_visit');
-    // No rung between the visit and the sale, so the SALE is the milestone —
-    // the last of its two steps, not a stand-in for a step it does not have.
-    expect(funnel.milestoneStep).toBe('Paid client');
+    // The PURCHASE is the milestone: its own rung between the visit and the
+    // paid client, the moment that tells the brand the funnel is working.
+    expect(funnel.milestoneStep).toBe('Purchase');
     expect(funnel.milestoneStepIndex).toBe(1);
-    expect(funnel.rates).toEqual({ visitToClosePct: 2.5 });
+    expect(funnel.rates).toEqual({ visitToPurchasePct: 2.5, purchaseToPaidClientPct: 90 });
     expect(funnel.destinationUrl).toBe(`https://${domain}/shop`);
     expect(funnel.bookingUrl).toBeNull();
   });

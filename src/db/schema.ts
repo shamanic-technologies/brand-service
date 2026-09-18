@@ -491,6 +491,10 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	// `sales_from_website`. Shares its name with the `brand_sales_economics`
 	// column of the same name; stored per funnel here and never read from there.
 	visitToClosePct: numeric("visit_to_close_pct", { precision: 7, scale: 4, mode: "number" }),
+	// Website visit -> Purchase -> Paid client, the two legs of `sales_from_website`
+	// since the purchase became its own rung. Stated on the funnel or not at all.
+	visitToPurchasePct: numeric("visit_to_purchase_pct", { precision: 7, scale: 4, mode: "number" }),
+	purchaseToPaidClientPct: numeric("purchase_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }),
 	// The page on the brand's own site this funnel's outreach click lands on.
 	// Null = never declared (the brand's own landing page is the fallback the
 	// CONSUMER applies, never a value written here).

@@ -2289,6 +2289,10 @@ export const SalesFunnelRatesSchema = z
     // `sales_from_website`. Stated on the funnel; the brand-wide economics
     // record DERIVES a column of the same name and is never read into this one.
     visitToClosePct: PercentSchema.nullable(),
+    // Website visit -> Purchase -> Paid client, the two legs of
+    // `sales_from_website` since the purchase became its own rung.
+    visitToPurchasePct: PercentSchema.nullable(),
+    purchaseToPaidClientPct: PercentSchema.nullable(),
   })
   .partial()
   .openapi('SalesFunnelRates');
