@@ -18,6 +18,7 @@ import {
   funnelRateKeys,
   isSalesFunnelKey,
   salesFunnelByKey,
+  toFunnelRateKey,
   toSalesFunnelKey,
 } from '../../src/services/salesFunnelCatalogue';
 import {
@@ -145,13 +146,15 @@ describe('a patch must describe the funnel it targets', () => {
 
 describe('omitted leaves unchanged, null clears', () => {
   it('names no column the patch did not carry', () => {
-    expect(buildFunnelWrite({ rates: { visitToSignupPct: 30 } })).toEqual({
+    expect(
+      buildFunnelWrite(salesFunnelByKey('website_purchases'), { rates: { visitToSignupPct: 30 } })
+    ).toEqual({
       visitToSignupPct: 30,
     });
   });
 
   it('writes an explicit null so a value can be taken back', () => {
-    const write = buildFunnelWrite({
+    const write = buildFunnelWrite(salesFunnelByKey('website_purchases'), {
       rates: { visitToSignupPct: null },
       lifetimeRevenueUsd: null,
       destinationUrl: null,
@@ -168,7 +171,50 @@ describe('omitted leaves unchanged, null clears', () => {
   });
 
   it('declares a funnel with nothing priced yet', () => {
-    expect(buildFunnelWrite({})).toEqual({});
+    expect(buildFunnelWrite(salesFunnelByKey('website_purchases'), {})).toEqual({});
+  });
+});
+
+describe('a rate spelling that named the arrow before the purchase became a rung', () => {
+  const website = salesFunnelByKey('sales_from_website');
+
+  it('resolves the old word onto the leg it is genuinely about', () => {
+    expect(toFunnelRateKey(website, 'visitToClosePct')).toBe('visitToPurchasePct');
+  });
+
+  it('leaves a canonical word alone', () => {
+    expect(toFunnelRateKey(website, 'visitToPurchasePct')).toBe('visitToPurchasePct');
+    expect(toFunnelRateKey(website, 'purchaseToPaidClientPct')).toBe('purchaseToPaidClientPct');
+  });
+
+  it('accepts a patch a consumer built against the funnel\'s previous shape', () => {
+    expect(() =>
+      assertPatchFitsFunnel(website, { rates: { visitToClosePct: 2.5 } })
+    ).not.toThrow();
+    expect(
+      buildFunnelWrite(website, { rates: { visitToClosePct: 2.5 } })
+    ).toEqual({ visitToPurchasePct: 2.5 });
+  });
+
+  it('writes the legacy word to the leg it names today, never to the column it used to mean', () => {
+    const write = buildFunnelWrite(website, { rates: { visitToClosePct: null } });
+    expect(write).toEqual({ visitToPurchasePct: null });
+    expect('visitToClosePct' in write).toBe(false);
+  });
+
+  it('is scoped to the funnel the arrow belongs to — another funnel still refuses it', () => {
+    const signups = salesFunnelByKey('website_purchases');
+    expect(toFunnelRateKey(signups, 'visitToClosePct')).toBeNull();
+    expect(() =>
+      assertPatchFitsFunnel(signups, { rates: { visitToClosePct: 2.5 } })
+    ).toThrow(SalesFunnelRateNotInFunnelError);
+  });
+
+  it('still refuses a word that names no leg of this funnel', () => {
+    expect(toFunnelRateKey(website, 'replyToMeetingPct')).toBeNull();
+    expect(() =>
+      assertPatchFitsFunnel(website, { rates: { replyToMeetingPct: 10 } })
+    ).toThrow(SalesFunnelRateNotInFunnelError);
   });
 });
 
