@@ -41,6 +41,8 @@ const RATE_COLUMN_BY_KEY: Record<SalesFunnelRateKey, string> = {
   adClickToLeadFormPct: 'ad_click_to_lead_form_pct',
   leadFormToPaidClientPct: 'lead_form_to_paid_client_pct',
   visitToClosePct: 'visit_to_close_pct',
+  visitToPurchasePct: 'visit_to_purchase_pct',
+  purchaseToPaidClientPct: 'purchase_to_paid_client_pct',
 };
 
 /**
@@ -66,7 +68,14 @@ export async function readArrowRatesBackfillCandidates(): Promise<ArrowRatesBack
            reply_to_paid_client_pct,
            ad_click_to_meeting_pct,
            ad_click_to_lead_form_pct,
-           lead_form_to_paid_client_pct
+           lead_form_to_paid_client_pct,
+           -- The legs of sales_from_website. The loop below reads a column per
+           -- key in SALES_FUNNEL_RATE_KEYS, so a key this SELECT omits reads
+           -- null and the declaration is backfilled with no arrows at all,
+           -- which is why this list and RATE_COLUMN_BY_KEY move together.
+           visit_to_close_pct,
+           visit_to_purchase_pct,
+           purchase_to_paid_client_pct
       FROM brand_sales_funnels
      WHERE arrow_rates_backfilled_at IS NULL
      ORDER BY brand_id, funnel_key

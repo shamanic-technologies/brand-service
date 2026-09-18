@@ -13,6 +13,7 @@ vi.mock('../../src/db', () => ({
 import {
   SALES_FUNNELS,
   SALES_FUNNEL_START_EVENTS,
+  funnelArrows,
   funnelMilestoneStepIndex,
   salesFunnelByKey,
   type SalesFunnelDef,
@@ -92,10 +93,14 @@ describe('every funnel states the step it is named after', () => {
   it('names the new funnels after the moment that tells the brand they are working', () => {
     expect(salesFunnelByKey('sales_meetings_from_ads').milestoneStep).toBe('Meeting booked');
     expect(salesFunnelByKey('lead_forms_from_ads').milestoneStep).toBe('Lead form submitted');
-    // The funnels with no stage before the sale name the SALE, because that
-    // genuinely is what they are named after — not a stand-in for a missing step.
+    // The funnel with no stage before the sale names the SALE, because that
+    // genuinely is what it is named after — not a stand-in for a missing step.
     expect(salesFunnelByKey('sales_from_conversation').milestoneStep).toBe('Paid client');
-    expect(salesFunnelByKey('sales_from_website').milestoneStep).toBe('Paid client');
+    // The land-and-buy funnel DOES have a stage before the sale — the purchase —
+    // so it names that, exactly as the signup funnel names its signup. The sale
+    // is what the brand keeps; the purchase is the moment that tells them the
+    // funnel is working.
+    expect(salesFunnelByKey('sales_from_website').milestoneStep).toBe('Purchase');
   });
 
   it('refuses a funnel whose milestone is not one of its steps rather than answering 0', () => {
@@ -143,14 +148,39 @@ describe('the new funnels price their own legs, and only their own', () => {
     expect(def.startEvent).toBe('lead_form_submitted');
   });
 
-  it('gives the land-and-pay brand a funnel with nothing between the visit and the sale', () => {
+  it('gives the land-and-buy brand a PURCHASE between the visit and the sale', () => {
     const def = salesFunnelByKey('sales_from_website');
-    expect(def.steps).toEqual(['Website visit', 'Paid client']);
-    expect(def.legs).toEqual(['visitToClosePct']);
+    expect(def.steps).toEqual(['Website visit', 'Purchase', 'Paid client']);
+    expect(def.legs).toEqual(['visitToPurchasePct', 'purchaseToPaidClientPct']);
     expect(def.startEvent).toBe('website_visit');
     expect(def.requiresWebsite).toBe(true);
     expect(def.pageDestination).toBe(true);
     expect(def.bookingLink).toBe(false);
+  });
+
+  it('draws the purchase funnel as two arrows, named by the steps they connect', () => {
+    // A consumer draws the chain from these, so the middle rung has to be a
+    // rung: two arrows, not one arrow and a label.
+    const arrows = funnelArrows(salesFunnelByKey('sales_from_website'));
+    expect(arrows).toEqual([
+      { fromStep: 'Website visit', toStep: 'Purchase', rateKey: 'visitToPurchasePct' },
+      { fromStep: 'Purchase', toStep: 'Paid client', rateKey: 'purchaseToPaidClientPct' },
+    ]);
+  });
+
+  it('prices the purchase rung the way its sibling website funnels price theirs', () => {
+    // The shape is the point: a signup, a filled form and a purchase are the
+    // same KIND of thing — the rung a website funnel converts through — so the
+    // three funnels have to read as one model rather than two.
+    for (const key of ['website_purchases', 'form_magnet', 'sales_from_website'] as const) {
+      const def = salesFunnelByKey(key);
+      expect(def.steps).toHaveLength(3);
+      expect(def.legs).toHaveLength(2);
+      expect(def.steps[0]).toBe('Website visit');
+      expect(def.steps[2]).toBe('Paid client');
+      expect(def.milestoneStep).toBe(def.steps[1]);
+      expect(funnelMilestoneStepIndex(def)).toBe(1);
+    }
   });
 });
 

@@ -12,13 +12,17 @@ vi.mock('../../src/db', () => ({
 import {
   ACCEPTED_SALES_FUNNEL_KEYS,
   LEGACY_SALES_FUNNEL_KEYS,
+  LEGACY_SALES_FUNNEL_RATE_KEYS,
   SALES_FUNNELS,
   SALES_FUNNEL_KEYS,
+  SALES_FUNNEL_RATE_KEYS,
+  canonicaliseFunnelRates,
   funnelPricesRate,
   funnelRateKeys,
   isSalesFunnelKey,
   salesFunnelByKey,
   toSalesFunnelKey,
+  toSalesFunnelRateKey,
 } from '../../src/services/salesFunnelCatalogue';
 import {
   SalesFunnelDestinationNotUsedError,
@@ -140,6 +144,61 @@ describe('a patch must describe the funnel it targets', () => {
         bookingUrl: 'https://cal.com/team/30min',
       })
     ).toThrow(SalesFunnelDestinationNotUsedError);
+  });
+});
+
+/**
+ * A funnel gaining a rung renames the arrow a caller was already pricing. The
+ * word they send keeps working — the same discipline as the legacy funnel KEYS,
+ * for the same reason: nothing downstream had to change in lockstep.
+ */
+describe('a rate spelling that predates a reshape still names its arrow', () => {
+  it('resolves visitToClosePct onto the arrow the purchase funnel prices it with', () => {
+    const def = salesFunnelByKey('sales_from_website');
+    expect(toSalesFunnelRateKey(def, 'visitToClosePct')).toBe('visitToPurchasePct');
+  });
+
+  it('leaves a canonical rate exactly as sent', () => {
+    const def = salesFunnelByKey('sales_from_website');
+    expect(toSalesFunnelRateKey(def, 'visitToPurchasePct')).toBe('visitToPurchasePct');
+    expect(toSalesFunnelRateKey(def, 'purchaseToPaidClientPct')).toBe('purchaseToPaidClientPct');
+  });
+
+  it('never lands a legacy word on a funnel that prices no such arrow', () => {
+    // `website_purchases` converts a visit through a SIGNUP. Aliasing
+    // `visitToClosePct` onto its first leg would store one brand's purchase rate
+    // in another funnel's signup column, so it is left as sent and rejected.
+    const def = salesFunnelByKey('website_purchases');
+    expect(toSalesFunnelRateKey(def, 'visitToClosePct')).toBe('visitToClosePct');
+    expect(() =>
+      assertPatchFitsFunnel(def, { rates: canonicaliseFunnelRates(def, { visitToClosePct: 3 }) })
+    ).toThrow(SalesFunnelRateNotInFunnelError);
+  });
+
+  it('accepts the pre-reshape patch a live caller still sends', () => {
+    const def = salesFunnelByKey('sales_from_website');
+    const rates = canonicaliseFunnelRates(def, { visitToClosePct: 2.5 });
+    expect(rates).toEqual({ visitToPurchasePct: 2.5 });
+    expect(() => assertPatchFitsFunnel(def, { rates })).not.toThrow();
+    // And it lands in the column that prices the arrow, never the retired one.
+    expect(buildFunnelWrite({ rates })).toEqual({ visitToPurchasePct: 2.5 });
+  });
+
+  it('lets the canonical word win when a caller sends both spellings of one arrow', () => {
+    const def = salesFunnelByKey('sales_from_website');
+    expect(
+      canonicaliseFunnelRates(def, { visitToClosePct: 2.5, visitToPurchasePct: 4 })
+    ).toEqual({ visitToPurchasePct: 4 });
+  });
+
+  it('keeps the retired rate a known word, so a caller is never told it is nonsense', () => {
+    expect(SALES_FUNNEL_RATE_KEYS).toContain('visitToClosePct');
+    expect(LEGACY_SALES_FUNNEL_RATE_KEYS.visitToClosePct).toBe('visitToPurchasePct');
+    // It prices no leg of any funnel now — the alias is the whole of what is
+    // left of it.
+    for (const def of SALES_FUNNELS) {
+      expect(funnelPricesRate(def, 'visitToClosePct')).toBe(false);
+    }
   });
 });
 

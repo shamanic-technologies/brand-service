@@ -487,10 +487,21 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	adClickToMeetingPct: numeric("ad_click_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }),
 	adClickToLeadFormPct: numeric("ad_click_to_lead_form_pct", { precision: 7, scale: 4, mode: "number" }),
 	leadFormToPaidClientPct: numeric("lead_form_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }),
-	// Website visit -> Paid client in ONE step, the only leg of
-	// `sales_from_website`. Shares its name with the `brand_sales_economics`
-	// column of the same name; stored per funnel here and never read from there.
+	// Website visit -> Paid client in ONE step. It was the only leg of
+	// `sales_from_website` until that funnel gained its PURCHASE rung, and now
+	// prices no leg of any funnel; the column is KEPT because it holds the
+	// numbers those declarations were made with, and because a caller still
+	// sending the word must keep working. Shares its name with the
+	// `brand_sales_economics` column of the same name; stored per funnel here
+	// and never read from there.
 	visitToClosePct: numeric("visit_to_close_pct", { precision: 7, scale: 4, mode: "number" }),
+	// The two legs of `sales_from_website` once the purchase became its own rung:
+	// the share of visitors who BUY, and the share of those purchases that STAND
+	// (a refunded order is a purchase that never became a paid client). Neither
+	// has a counterpart on the brand-wide `brand_sales_economics` record, so both
+	// are stated on the funnel or not at all.
+	visitToPurchasePct: numeric("visit_to_purchase_pct", { precision: 7, scale: 4, mode: "number" }),
+	purchaseToPaidClientPct: numeric("purchase_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }),
 	// The page on the brand's own site this funnel's outreach click lands on.
 	// Null = never declared (the brand's own landing page is the fallback the
 	// CONSUMER applies, never a value written here).

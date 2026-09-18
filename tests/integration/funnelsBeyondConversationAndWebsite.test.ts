@@ -175,12 +175,12 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     expect(put.body.funnel.rates).toEqual({ visitToSignupPct: 30, signupToPaidClientPct: 12 });
   });
 
-  it('declares the brand whose buyer lands and PAYS, with nothing in between', async () => {
+  it('declares the brand whose buyer lands and BUYS, with the PURCHASE as its own rung', async () => {
     const res = await request(app)
       .put(one(brandId, 'sales_from_website'))
       .set(getAuthHeaders(orgId))
       .send({
-        rates: { visitToClosePct: 2.5 },
+        rates: { visitToPurchasePct: 2.5, purchaseToPaidClientPct: 96 },
         lifetimeRevenueUsd: 180,
         destinationUrl: `https://${domain}/shop`,
       });
@@ -189,15 +189,44 @@ describe('Funnels that start neither in a conversation-with-a-meeting nor on the
     const funnel = res.body.funnel;
     expect(funnel.funnelKey).toBe('sales_from_website');
     expect(funnel.name).toBe('Website Purchase');
-    expect(funnel.steps).toEqual(['Website visit', 'Paid client']);
+    expect(funnel.steps).toEqual(['Website visit', 'Purchase', 'Paid client']);
     expect(funnel.startEvent).toBe('website_visit');
-    // No rung between the visit and the sale, so the SALE is the milestone —
-    // the last of its two steps, not a stand-in for a step it does not have.
-    expect(funnel.milestoneStep).toBe('Paid client');
+    // The purchase is what tells the brand the funnel is working, exactly as a
+    // signup does on the signup funnel — the sale is what they keep afterwards.
+    expect(funnel.milestoneStep).toBe('Purchase');
     expect(funnel.milestoneStepIndex).toBe(1);
-    expect(funnel.rates).toEqual({ visitToClosePct: 2.5 });
+    expect(funnel.rates).toEqual({ visitToPurchasePct: 2.5, purchaseToPaidClientPct: 96 });
     expect(funnel.destinationUrl).toBe(`https://${domain}/shop`);
     expect(funnel.bookingUrl).toBeNull();
+  });
+
+  it('draws the purchase funnel as two arrows a consumer can render', async () => {
+    const res = await request(app).get(list(brandId)).set(getAuthHeaders(orgId));
+    expect(res.status).toBe(200);
+    const funnel = res.body.funnels.find((f: any) => f.funnelKey === 'sales_from_website');
+    expect(funnel.arrows.map((a: any) => [a.fromStep, a.toStep, a.ratePct])).toEqual([
+      ['Website visit', 'Purchase', 2.5],
+      ['Purchase', 'Paid client', 96],
+    ]);
+  });
+
+  it('still takes the pre-reshape rate word, onto the arrow it was always about', async () => {
+    // This funnel shipped one release earlier priced by a single
+    // `visitToClosePct`. A caller still sending it must not be told the funnel
+    // does not price the arrow they are looking at.
+    const res = await request(app)
+      .put(one(brandId, 'sales_from_website'))
+      .set(getAuthHeaders(orgId))
+      .send({ rates: { visitToClosePct: 3.25 } });
+
+    expect(res.status).toBe(200);
+    // Resolved, stored and read back under the key that prices the arrow — the
+    // retired word is accepted on write and never emitted again.
+    expect(res.body.funnel.rates.visitToPurchasePct).toBe(3.25);
+    expect(res.body.funnel.rates.visitToClosePct).toBeUndefined();
+    // The second arrow is untouched: a caller sending the old word stated one
+    // number, and nothing invents the other.
+    expect(res.body.funnel.rates.purchaseToPaidClientPct).toBe(96);
   });
 
   it('refuses the land-and-pay funnel to a brand with no website', async () => {

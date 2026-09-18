@@ -12,6 +12,7 @@ import {
   SalesFunnelRateKey,
   SalesFunnelStartEvent,
   funnelMilestoneStepIndex,
+  canonicaliseFunnelRates,
   funnelPricesRate,
   funnelRateKeys,
   salesFunnelByKey,
@@ -498,7 +499,17 @@ export class SalesFunnelsService {
     if (patch.active !== false && def.requiresWebsite && !brandDomain) {
       throw new SalesFunnelRequiresWebsiteError(funnelKey);
     }
-    assertPatchFitsFunnel(def, patch);
+    // A rate spelling that named an arrow this funnel still prices, under the key
+    // it was priced by BEFORE a reshape, is resolved onto the key that prices it
+    // now. Done FIRST, so the fit check below judges the canonical patch and a
+    // caller sending yesterday's word is never told this funnel does not price
+    // the arrow they are looking at. A word that names no leg of this funnel is
+    // left exactly as sent and rejected — never guessed onto a column.
+    const canonical: SalesFunnelPatch = {
+      ...patch,
+      ...(patch.rates ? { rates: canonicaliseFunnelRates(def, patch.rates) as FunnelRates } : {}),
+    };
+    assertPatchFitsFunnel(def, canonical);
     // An arrow is accepted whatever steps it names — brand-service does not have
     // to know it in advance — but a shape that could never name one is refused.
     for (const arrow of patch.arrowRates ?? []) assertArrowIdentifiable(arrow);
@@ -510,7 +521,7 @@ export class SalesFunnelsService {
       }
     }
 
-    const normalized: SalesFunnelPatch = { ...patch };
+    const normalized: SalesFunnelPatch = { ...canonical };
     if (typeof patch.destinationUrl === 'string') {
       const url = normalizeClickDestinationUrl(patch.destinationUrl);
       if (brandDomain) assertClickDestinationOnBrandDomain(url, brandDomain);

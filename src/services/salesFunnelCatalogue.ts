@@ -145,10 +145,22 @@ export const SALES_FUNNEL_RATE_KEYS = [
   'adClickToMeetingPct',
   'adClickToLeadFormPct',
   'leadFormToPaidClientPct',
-  // Website visit -> Paid client in one step, for the brand whose buyer lands
-  // and pays. It shares its name with the `brand_sales_economics` column of the
-  // same name, like the first seven, and is stored PER FUNNEL here.
+  // Website visit -> Paid client in one step. It shares its name with the
+  // `brand_sales_economics` column of the same name, like the first seven, and
+  // is stored PER FUNNEL here. It priced the whole of `sales_from_website`
+  // until that funnel gained its PURCHASE rung; it now prices no leg of any
+  // funnel, and is KEPT because the column holds numbers and because a caller
+  // still sending it must keep working — `LEGACY_SALES_FUNNEL_RATE_KEYS`
+  // resolves it onto the arrow it is about.
   'visitToClosePct',
+  // The two arrows of `sales_from_website` once the purchase became its own
+  // rung. `visitToPurchasePct` is the share of visitors who BUY;
+  // `purchaseToPaidClientPct` is the share of those purchases that stand — a
+  // refunded order is a purchase that never became a paid client. Neither has a
+  // counterpart on the brand-wide `brand_sales_economics` record, so they are
+  // stated on the funnel or not at all.
+  'visitToPurchasePct',
+  'purchaseToPaidClientPct',
 ] as const;
 
 export type SalesFunnelRateKey = (typeof SALES_FUNNEL_RATE_KEYS)[number];
@@ -294,20 +306,25 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     bookingLink: false,
   },
   {
-    // The buyer lands and PAYS. Nothing sits between the visit and the sale —
-    // no signup, no form, no meeting — which is every ecommerce brand and
-    // everyone selling straight off their own site. Every other website funnel
-    // inserts a rung, so until this existed such a brand had nothing it could
-    // declare, while already stating the exact rate that prices it:
-    // `visitToClosePct`, visit -> paid client. Its milestone IS the sale,
-    // for the same reason `sales_from_conversation`'s is: the funnel has no
-    // stage before it, so that genuinely is the moment it is named after.
+    // The buyer lands and BUYS: every ecommerce brand and everyone selling
+    // straight off their own site. The PURCHASE is its own rung, exactly as a
+    // signup is on `website_purchases` and a filled form is on `form_magnet` —
+    // owner-decided, and it is what makes the purchase a step a channel can be
+    // priced against and a consumer can draw, rather than a moment folded into
+    // the sale. The two are genuinely different: the purchase is the order
+    // placed, the sale is the money kept, and the arrow between them is where a
+    // refund lives.
+    //
+    // This funnel shipped one release earlier as Website visit -> Paid client,
+    // priced by the single `visitToClosePct`. That word is still accepted on
+    // write forever and resolves onto `visitToPurchasePct` — the arrow a caller
+    // sending it is stating.
     key: 'sales_from_website',
     name: 'Website Purchase',
     startEvent: 'website_visit',
-    steps: ['Website visit', 'Paid client'],
-    legs: ['visitToClosePct'],
-    milestoneStep: 'Paid client',
+    steps: ['Website visit', 'Purchase', 'Paid client'],
+    legs: ['visitToPurchasePct', 'purchaseToPaidClientPct'],
+    milestoneStep: 'Purchase',
     requiresWebsite: true,
     pageDestination: true,
     bookingLink: false,
@@ -335,6 +352,74 @@ export function toSalesFunnelKey(value: string): SalesFunnelKey | null {
   if (isSalesFunnelKey(value)) return value;
   if (isLegacySalesFunnelKey(value)) return LEGACY_SALES_FUNNEL_KEYS[value];
   return null;
+}
+
+/**
+ * Every rate spelling a caller may still send that names an arrow the catalogue
+ * now prices under a different key, mapped onto the key that prices it.
+ *
+ * ACCEPTED FOREVER, exactly like `LEGACY_SALES_FUNNEL_KEYS`, and for the same
+ * reason: a caller sending yesterday's word keeps working, so a reshape of a
+ * funnel needs no consumer to change in lockstep. A legacy rate is resolved
+ * before anything is stored and is never emitted back.
+ *
+ * `visitToClosePct` is the whole of it. It was the single leg of
+ * `sales_from_website` (Website visit -> Paid client) until the purchase became
+ * its own rung; the arrow a caller sending it means is the FIRST one, Website
+ * visit -> Purchase, which is the number they were stating. The second arrow —
+ * whether a purchase stands — is a statement they never made, so nothing here
+ * invents one; the migration that reshaped the funnel is what gave the
+ * declarations that already existed their 100%.
+ */
+export const LEGACY_SALES_FUNNEL_RATE_KEYS = {
+  visitToClosePct: 'visitToPurchasePct',
+} as const satisfies Record<string, SalesFunnelRateKey>;
+
+export type LegacySalesFunnelRateKey = keyof typeof LEGACY_SALES_FUNNEL_RATE_KEYS;
+
+export function isSalesFunnelRateKey(value: string): value is SalesFunnelRateKey {
+  return (SALES_FUNNEL_RATE_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * Resolve a rate spelling onto the key that prices the arrow it names, FOR THIS
+ * FUNNEL. The alias applies only where the funnel actually prices the arrow the
+ * legacy word was about: `visitToClosePct` sent against `website_purchases`
+ * (which prices no such arrow) is left alone and rejected by the caller, rather
+ * than silently landing in a column that funnel does not read.
+ *
+ * Returns the value unchanged when no alias applies — including for a word that
+ * names no rate at all, which the caller answers 400 on rather than guessing.
+ */
+export function toSalesFunnelRateKey(def: SalesFunnelDef, value: string): string {
+  if (funnelPricesRateName(def, value)) return value;
+  const aliased = (LEGACY_SALES_FUNNEL_RATE_KEYS as Record<string, SalesFunnelRateKey>)[value];
+  if (aliased && funnelPricesRateName(def, aliased)) return aliased;
+  return value;
+}
+
+function funnelPricesRateName(def: SalesFunnelDef, value: string): boolean {
+  return (def.legs as readonly string[]).includes(value);
+}
+
+/**
+ * Rewrite every legacy rate spelling in a patch onto the key that prices its
+ * arrow on THIS funnel. The canonical key WINS where a caller sends both — a
+ * patch carrying `visitToClosePct` and `visitToPurchasePct` states one arrow
+ * twice, and the canonical word is the one it means.
+ */
+export function canonicaliseFunnelRates<T>(
+  def: SalesFunnelDef,
+  rates: Record<string, T> | undefined
+): Record<string, T> | undefined {
+  if (!rates) return rates;
+  const out: Record<string, T> = {};
+  for (const [key, value] of Object.entries(rates)) {
+    const canonical = toSalesFunnelRateKey(def, key);
+    if (canonical !== key && Object.prototype.hasOwnProperty.call(rates, canonical)) continue;
+    out[canonical] = value;
+  }
+  return out;
 }
 
 /** The definition for a key. Throws on an unknown key — never guesses one. */
