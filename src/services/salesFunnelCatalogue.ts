@@ -149,6 +149,14 @@ export const SALES_FUNNEL_RATE_KEYS = [
   // and pays. It shares its name with the `brand_sales_economics` column of the
   // same name, like the first seven, and is stored PER FUNNEL here.
   'visitToClosePct',
+  // Website visit -> Purchase -> Paid client, the two legs of `sales_from_website`
+  // once the PURCHASE became its own rung (owner-decided 2026-09-18: a DTC buyer
+  // buying on the site is a step a customer names, the way a signup or a filled
+  // form is on the sibling website funnels). `visitToClosePct` above stays a
+  // named rate — the brand-wide economics record derives a column of that name
+  // and consumers read it — but no funnel's leg is priced on it any more.
+  'visitToPurchasePct',
+  'purchaseToPaidClientPct',
 ] as const;
 
 export type SalesFunnelRateKey = (typeof SALES_FUNNEL_RATE_KEYS)[number];
@@ -294,20 +302,25 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
     bookingLink: false,
   },
   {
-    // The buyer lands and PAYS. Nothing sits between the visit and the sale —
-    // no signup, no form, no meeting — which is every ecommerce brand and
-    // everyone selling straight off their own site. Every other website funnel
-    // inserts a rung, so until this existed such a brand had nothing it could
-    // declare, while already stating the exact rate that prices it:
-    // `visitToClosePct`, visit -> paid client. Its milestone IS the sale,
-    // for the same reason `sales_from_conversation`'s is: the funnel has no
-    // stage before it, so that genuinely is the moment it is named after.
+    // The buyer lands and BUYS on the site — every ecommerce / DTC brand and
+    // everyone selling straight off their own pages. No signup, no form, no
+    // meeting: the PURCHASE is the rung between the visit and the paid client,
+    // and it is the funnel's milestone, the moment that tells the brand the
+    // funnel is working. Owner-decided 2026-09-18 that the purchase is its own
+    // step (Website visit -> Purchase -> Paid client), not folded into the
+    // sale: it is what a visitor picks as the outcome they want us to get them,
+    // beside a signup, a submitted form and a booked meeting.
+    //
+    // It shipped one day earlier as `Website visit -> Paid client` on the single
+    // leg `visitToClosePct`; no brand had declared it by the time the rung was
+    // added, so nothing was migrated and that rate is no longer a leg of any
+    // funnel.
     key: 'sales_from_website',
     name: 'Website Purchase',
     startEvent: 'website_visit',
-    steps: ['Website visit', 'Paid client'],
-    legs: ['visitToClosePct'],
-    milestoneStep: 'Paid client',
+    steps: ['Website visit', 'Purchase', 'Paid client'],
+    legs: ['visitToPurchasePct', 'purchaseToPaidClientPct'],
+    milestoneStep: 'Purchase',
     requiresWebsite: true,
     pageDestination: true,
     bookingLink: false,
