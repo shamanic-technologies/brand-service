@@ -252,10 +252,10 @@ async function consolidateFields(
         (mode === 'suggest'
           ? ` NEVER return "Unknown", null, or empty values — always produce a best-effort merged value.`
           : ''),
-      provider: 'openai',
-      model: 'gpt-pro',
+      provider: 'google',
+      model: 'flash-pro',
       responseFormat: 'json',
-      // Strict schema enforces the output shape server-side so Gemini Pro can't
+      // Strict schema enforces the output shape server-side so the model can't
       // emit malformed/truncated JSON across the consolidated field set (same
       // chat-service 502 class as the per-brand extraction). `thinkingBudget`
       // was dead config — chat-service /complete never honored it.

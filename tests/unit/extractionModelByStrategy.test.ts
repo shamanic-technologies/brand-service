@@ -30,29 +30,31 @@ describe('extractFieldsFromContent — model selection by urlStrategy', () => {
     mockChat.mockResolvedValue({ json: { services: 'widgets' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
   });
 
-  it('landing strategy → openai/gpt-pro, disableThinking floors reasoning, no sampling params', async () => {
+  it('landing strategy → google/flash-pro, disableThinking floors reasoning, no sampling params', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
-    // GPT-6 Astra — the onboarding prefill path runs on the strongest model we
-    // serve; disableThinking floors its reasoning to `low` (fast).
-    expect(params.provider).toBe('openai');
-    expect(params.model).toBe('gpt-pro');
+    // flash-pro (Gemini 3.8 Flash) — the onboarding prefill runs on the cheap
+    // tier: chat-service provisions the caller's worst case before the call, and
+    // an anonymous org's $5 trial seed cannot cover a frontier hold on 24k output
+    // tokens. disableThinking floors reasoning to `low` (fast).
+    expect(params.provider).toBe('google');
+    expect(params.model).toBe('flash-pro');
     expect(params.disableThinking).toBe(true);
-    // Astra 400s on any sampling param (`unsupported_value`).
+    // No sampling params are sent on this call.
     expect(params.temperature).toBeUndefined();
     // thinkingBudget was dead config — chat-service /complete never honored it.
     expect(params.thinkingBudget).toBeUndefined();
   });
 
-  it('url_map strategy → openai/gpt-pro, default reasoning, no sampling params', async () => {
+  it('url_map strategy → google/flash-pro, default reasoning, no sampling params', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'url_map');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
-    expect(params.provider).toBe('openai');
-    expect(params.model).toBe('gpt-pro');
+    expect(params.provider).toBe('google');
+    expect(params.model).toBe('flash-pro');
     // url_map keeps chat-service's default bounded reasoning for depth.
     expect(params.disableThinking).toBeUndefined();
     expect(params.temperature).toBeUndefined();
