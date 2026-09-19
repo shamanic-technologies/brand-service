@@ -2567,7 +2567,7 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/UserFieldView"
             },
-            "description": "Map keyed by user-facing field key (services, dreamOutcome, perceivedLikelihood, socialProof, riskReversal, urgency, scarcity). Each value carries the resolved value and its provenance (`confirmed` = user-validated; `suggested` = auto-extract prefill)."
+            "description": "Map keyed by user-facing field key (services, dreamOutcome, perceivedLikelihood, socialProof, riskReversal, urgency, scarcity, targetAudience). Each value carries the resolved value and its provenance (`confirmed` = user-validated; `suggested` = auto-extract prefill)."
           }
         },
         "required": [

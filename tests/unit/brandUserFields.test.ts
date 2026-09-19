@@ -33,7 +33,7 @@ import {
 } from '../../src/services/brandUserFieldsService';
 
 describe('USER_FACING_FIELD_KEYS', () => {
-  it('is exactly the 7 confirmed keys, with dreamOutcome replacing valueProposition', () => {
+  it('is exactly the 8 confirmed keys: the seven levers plus targetAudience', () => {
     expect(USER_FACING_FIELD_KEYS).toEqual([
       'services',
       'dreamOutcome',
@@ -42,13 +42,18 @@ describe('USER_FACING_FIELD_KEYS', () => {
       'riskReversal',
       'urgency',
       'scarcity',
+      'targetAudience',
     ]);
     expect(USER_FACING_FIELD_KEYS).not.toContain('valueProposition');
   });
 
-  it('isUserFacingFieldKey recognises only the 7 keys', () => {
+  it('isUserFacingFieldKey recognises only the 8 keys', () => {
     expect(isUserFacingFieldKey('services')).toBe(true);
     expect(isUserFacingFieldKey('dreamOutcome')).toBe(true);
+    // The onboarding "Who do you sell to?" answer (distribute.you#4294): refused
+    // with a 400 for every new signup until it was admitted here.
+    expect(isUserFacingFieldKey('targetAudience')).toBe(true);
+    expect(new UnknownUserFieldKeyError('industry').message).toContain('targetAudience');
     expect(isUserFacingFieldKey('valueProposition')).toBe(false);
     expect(isUserFacingFieldKey('industry')).toBe(false);
   });
@@ -57,7 +62,7 @@ describe('USER_FACING_FIELD_KEYS', () => {
 describe('buildUserFieldsView', () => {
   const confirmed = (v: unknown): ConfirmedUserField => ({ value: v, confirmedAt: '2026-01-01T00:00:00.000Z' });
 
-  it('returns all 7 keys, confirmed value winning over suggested', () => {
+  it('returns all 8 keys, confirmed value winning over suggested', () => {
     const view = buildUserFieldsView(
       new Map([['services', confirmed(['A', 'B'])]]),
       new Map<string, unknown>([['services', 'ignored suggestion'], ['urgency', 'Limited time']]),
