@@ -39,11 +39,19 @@ export async function fetchWithRetry(
 
       if (response.ok) return response;
 
-      // 4xx — client error, won't change on retry
+      // 4xx — client error, won't change on retry. The BODY carries why (a
+      // chat-service 402 names the credit shortfall), so it rides the message
+      // exactly as it does on the 5xx path below. Without it the reason reached
+      // no log at all: p-retry's AbortError overwrites `.stack` with a
+      // message-less one, so a downstream `console.error(err)` — which prints
+      // the stack, not the message — shows a bare `Error` and nothing else.
+      // Callers match on the `returned <status>` PREFIX (scraping-client,
+      // icp.routes, offers.routes), which appending the body preserves.
       if (response.status >= 400 && response.status < 500) {
         if (returnClientError) return response;
+        const clientErrorText = await response.text().catch(() => '');
         throw new AbortError(
-          `${label ?? url} returned ${response.status}`,
+          `${label ?? url} returned ${response.status}: ${clientErrorText}`,
         );
       }
 

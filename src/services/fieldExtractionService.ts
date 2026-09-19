@@ -286,8 +286,8 @@ async function selectRelevantUrls(
       systemPrompt:
         'You are a URL selection assistant. Given a list of website URLs and a description of fields to extract, select the TOP 10 most relevant pages. Return ONLY a JSON object with a "urls" key containing an array of URL strings. If no URL is relevant to the requested fields, return {"urls":[]}.',
       message: `Select the 10 most relevant URLs for extracting these fields:\n${fieldsDescription}${contextBlock}\n\nURLs:\n${allUrls.slice(0, 100).map((u, i) => `${i + 1}. ${u}`).join('\n')}\n\nReturn a JSON object: {"urls": ["url1", "url2", ...]}. If none are relevant, return {"urls":[]}.`,
-      provider: 'openai',
-      model: 'gpt-pro',
+      provider: 'google',
+      model: 'flash-pro',
       responseFormat: 'json',
       maxTokens: 4096,
     },
@@ -390,13 +390,19 @@ export async function extractFieldsFromContent(
     ? `\n\nCampaign context (HIGHEST PRIORITY — overrides both the brand profile and the website content; use it to guide and refine your extraction):\n${campaignContext}\n`
     : '';
 
-  // Both strategies run on gpt-pro (GPT-6 Astra): this is the onboarding
-  // prefill path, so it gets the strongest model we serve. The single landing
-  // page (onboarding "what services do you offer", name fill) keeps
-  // `disableThinking: true`, which floors Astra's reasoning to `low` — the
-  // sellable-services vs internal-steps discrimination needs judgment, not a
-  // long deliberation. The url_map full-profile extraction keeps chat-service's
-  // default bounded reasoning for depth.
+  // Both strategies run on flash-pro (Gemini 3.8 Flash, chat-service's cheap
+  // tier). This is the onboarding prefill path, and an anonymous org is seeded
+  // with $5 of trial credit; chat-service PROVISIONS the caller's worst case
+  // before the call (maxTokens x the output price) and billing refuses the
+  // authorize when the hold exceeds the balance. gpt-pro (GPT-6 Astra) held
+  // $6.14 on this 24k budget, so every anonymous signup failed deterministically
+  // — the same budget on flash-pro holds $0.90, well under the seed. Measured
+  // in prod over 14 days, flash-pro is also 3.4x faster at p50 (2.8s vs 9.5s),
+  // which matters on a synchronous path. The single landing page (onboarding
+  // "what services do you offer", name fill) keeps `disableThinking: true`,
+  // which floors reasoning to `low` — the sellable-services vs internal-steps
+  // discrimination needs judgment, not a long deliberation. The url_map
+  // full-profile extraction keeps chat-service's default bounded reasoning.
   //
   // A strict responseSchema is sent on BOTH paths so the provider enforces the
   // output shape server-side — this is what stops the model from emitting
@@ -405,8 +411,8 @@ export async function extractFieldsFromContent(
   // dead config — chat-service /complete never honored it (only `disableThinking`).
   const modelParams =
     urlStrategy === 'landing'
-      ? { model: 'gpt-pro' as const, maxTokens: 24000, disableThinking: true }
-      : { model: 'gpt-pro' as const, maxTokens: 24000 };
+      ? { model: 'flash-pro' as const, maxTokens: 24000, disableThinking: true }
+      : { model: 'flash-pro' as const, maxTokens: 24000 };
 
   const responseSchema = buildFieldsResponseSchema(fields.map((f) => f.key));
 
@@ -465,7 +471,7 @@ export async function extractFieldsFromContent(
     {
       systemPrompt,
       message,
-      provider: 'openai',
+      provider: 'google',
       responseFormat: 'json',
       responseSchema,
       ...modelParams,

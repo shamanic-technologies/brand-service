@@ -93,14 +93,17 @@ describe('Suggest ICP Endpoint', () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
   });
 
-  it('calls chat-service with openai/gpt-pro and sends NO sampling params', async () => {
+  it('calls chat-service with google/flash-pro and sends NO sampling params', async () => {
     const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
 
     expect(res.status).toBe(200);
     const params = mockChat.mock.calls[0][0];
-    expect(params.provider).toBe('openai');
-    expect(params.model).toBe('gpt-pro');
-    // GPT-6 Astra 400s on `temperature` != 1 and on `top_p`.
+    // flash-pro (Gemini 3.8 Flash): the prefill runs on the cheap tier because
+    // chat-service provisions the caller's worst case and an anonymous org holds
+    // $5 of trial credit — a frontier hold on this budget is refused by billing.
+    expect(params.provider).toBe('google');
+    expect(params.model).toBe('flash-pro');
+    // No sampling params are sent on this call.
     expect(params.temperature).toBeUndefined();
     expect(params.disableThinking).toBe(true);
   });

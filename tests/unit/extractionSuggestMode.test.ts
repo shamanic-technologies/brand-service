@@ -88,11 +88,11 @@ describe('extractFieldsFromContent — mode selects the prompt persona', () => {
     expect(params.message).not.toContain('return the string "Unknown"');
   });
 
-  it('suggest mode keeps the same model selection as extract (landing → gpt-pro, disableThinking)', async () => {
+  it('suggest mode keeps the same model selection as extract (landing → flash-pro, disableThinking)', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'suggest');
     const params = mockChat.mock.calls[0][0];
-    expect(params.provider).toBe('openai');
-    expect(params.model).toBe('gpt-pro');
+    expect(params.provider).toBe('google');
+    expect(params.model).toBe('flash-pro');
     expect(params.disableThinking).toBe(true);
     expect(params.responseSchema).toBeDefined();
   });

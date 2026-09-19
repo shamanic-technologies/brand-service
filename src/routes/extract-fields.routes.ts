@@ -85,7 +85,11 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
 
     return res.json(result);
   } catch (error: any) {
-    console.error('[brand-service] Extract fields (multi-brand) error:', error);
+    // `error?.message` explicitly: p-retry's AbortError overwrites `.stack`
+    // with a message-less one, so logging the object alone prints a bare
+    // `Error` and the cause (a chat-service 402 naming the credit shortfall)
+    // is invisible.
+    console.error('[brand-service] Extract fields (multi-brand) error:', error?.message, error);
     // A named offer that does not exist (404), and the deliberate 409 for a
     // brand holding several offers when the caller named none. Neither is
     // something to clean up and proceed with: the confirmed fields ground the
@@ -159,7 +163,8 @@ internalRouter.post('/brands/extract-fields', async (req: Request, res: Response
 
     return res.json(result);
   } catch (error: any) {
-    console.error('[brand-service] Extract fields (internal multi-brand) error:', error);
+    // `error?.message` explicitly — see the org-scoped handler above.
+    console.error('[brand-service] Extract fields (internal multi-brand) error:', error?.message, error);
     // A named offer that does not exist (404), and the deliberate 409 for a
     // brand holding several offers when the caller named none. Neither is
     // something to clean up and proceed with: the confirmed fields ground the

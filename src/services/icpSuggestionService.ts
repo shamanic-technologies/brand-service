@@ -347,17 +347,18 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
       {
         systemPrompt: SYSTEM_PROMPT,
         message: buildMessage(profileFields, audienceSignals, economics, existingIcps),
-        provider: 'openai',
-        // gpt-pro (GPT-6 Astra) — the onboarding prefill path runs on the
-        // strongest model we serve; the user reviews and edits every ICP.
-        model: 'gpt-pro',
+        provider: 'google',
+        // flash-pro (Gemini 3.8 Flash) — the onboarding prefill path, where an
+        // anonymous org holds $5 of trial credit and chat-service provisions the
+        // caller's worst case before the call. A frontier-tier hold starves that
+        // seed and billing refuses the authorize, so the prefill runs cheap.
+        model: 'flash-pro',
         responseFormat: 'json',
-        // No `temperature`: Astra rejects any sampling param with a 400
-        // `unsupported_value`. The "DISTINCT from existingIcps" instruction (not
+        // No `temperature`: the "DISTINCT from existingIcps" instruction (not
         // sampling noise) is what drives a complementary segment on follow-ups.
         maxTokens: 512,
-        // Short one-line JSON ICP — no funnel-of-thought needed. Floors Astra's
-        // reasoning to `low` for a faster reply.
+        // Short one-line JSON ICP — no funnel-of-thought needed. Floors the
+        // model's reasoning to `low` for a faster reply.
         disableThinking: true,
       },
       chatCaller,
