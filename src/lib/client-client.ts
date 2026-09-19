@@ -101,3 +101,83 @@ export async function getBrandCheckoutStatus(
 
   return { checkedOut: parsed.checkedOut, orgIds };
 }
+
+/**
+ * Thrown when client-service cannot say which organisations are real.
+ */
+export class OrgRealityUnavailableError extends Error {
+  readonly code = 'ORG_REALITY_UNAVAILABLE';
+  constructor(cause: string) {
+    super(`Could not resolve which organisations are real: ${cause}`);
+    this.name = 'OrgRealityUnavailableError';
+  }
+}
+
+interface OrgRealityWire {
+  realOrgIds?: unknown;
+}
+
+/**
+ * Which of these organisations are REAL?
+ *
+ * REAL = anything that is not an anonymous org still awaiting a claim. An org
+ * that was never anonymous is real; an anonymous one that has SINCE been
+ * claimed is real (somebody signed up and it is theirs); an anonymous one with
+ * no claim is an abandoned signed-out walk and is not.
+ *
+ * Both halves of that are columns client-service WRITES (`anonymous_at` at
+ * creation, `claimed_at` at the claim), which is why this is a question and not
+ * a local test: nothing here may read the shape of an external org id, and
+ * brand-service keeps no copy of who is anonymous.
+ *
+ * Conformed to the deployed contract of `POST /internal/orgs/real` — body
+ * `{ orgIds }` (uuids, at most 500 per call), answer `{ realOrgIds }`, which is
+ * the SUBSET of the ids that are real. An id naming no org is simply absent,
+ * which is the same verdict.
+ *
+ * Fails LOUD, exactly like the checkout question above: a network error, a
+ * non-2xx, or an unparseable body throws and the caller must 502. A defaulted
+ * "none of them are real" would hand a paying customer's domain to a stranger.
+ *
+ * An empty list is answered here, with no call: there is nobody to ask about.
+ */
+export async function getRealOrgIds(orgIds: string[]): Promise<string[]> {
+  const unique = [...new Set(orgIds)];
+  if (unique.length === 0) return [];
+
+  const url = `${CLIENT_SERVICE_URL}/internal/orgs/real`;
+  const label = 'client-service POST /internal/orgs/real';
+
+  let response: Response;
+  try {
+    response = await fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': CLIENT_SERVICE_API_KEY,
+      },
+      body: JSON.stringify({ orgIds: unique }),
+      label,
+      returnClientError: true,
+    });
+  } catch (err) {
+    throw new OrgRealityUnavailableError(err instanceof Error ? err.message : String(err));
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new OrgRealityUnavailableError(`${label} returned ${response.status}: ${body}`);
+  }
+
+  const parsed = (await response.json().catch(() => null)) as OrgRealityWire | null;
+
+  if (
+    !parsed ||
+    !Array.isArray(parsed.realOrgIds) ||
+    parsed.realOrgIds.some((id) => typeof id !== 'string')
+  ) {
+    throw new OrgRealityUnavailableError(`${label} returned an unexpected body shape`);
+  }
+
+  return parsed.realOrgIds as string[];
+}
