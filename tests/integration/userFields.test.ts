@@ -62,13 +62,13 @@ describe('User fields endpoints', () => {
     }
   });
 
-  it('GET returns all 7 keys: suggested prefill, expired ignored, unconfirmed null', async () => {
+  it('GET returns all 8 keys: suggested prefill, expired ignored, unconfirmed null', async () => {
     const res = await request(app).get(ufPath(brandId)).set(getAuthHeaders(ownerOrgId));
 
     expect(res.status).toBe(200);
     const fields = res.body.fields;
     expect(Object.keys(fields).sort()).toEqual(
-      ['dreamOutcome', 'perceivedLikelihood', 'riskReversal', 'scarcity', 'services', 'socialProof', 'urgency'].sort(),
+      ['dreamOutcome', 'perceivedLikelihood', 'riskReversal', 'scarcity', 'services', 'socialProof', 'urgency', 'targetAudience'].sort(),
     );
     // Non-expired prefill → suggested.
     expect(fields.urgency).toEqual({ value: 'Ends Friday', provenance: 'suggested' });

@@ -3024,13 +3024,13 @@ export const UserFieldViewSchema = z
   })
   .openapi('UserFieldView');
 
-// GET/PUT response: all 7 user-facing keys, each with value + provenance.
+// GET/PUT response: all 8 user-facing keys, each with value + provenance.
 export const UserFieldsResponseSchema = z
   .object({
     fields: z.record(z.string(), UserFieldViewSchema).openapi({
       description:
         'Map keyed by user-facing field key (services, dreamOutcome, perceivedLikelihood, ' +
-        'socialProof, riskReversal, urgency, scarcity). Each value carries the resolved value ' +
+        'socialProof, riskReversal, urgency, scarcity, targetAudience). Each value carries the resolved value ' +
         'and its provenance (`confirmed` = user-validated; `suggested` = auto-extract prefill).',
     }),
   })

@@ -708,7 +708,7 @@ export const brandUserFields = pgTable("brand_user_fields", {
 		foreignColumns: [brandOffers.id],
 		name: "brand_user_fields_offer_id_fkey",
 	}).onDelete("cascade"),
-	check("brand_user_fields_field_key_check", sql`${table.fieldKey} IN ('services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity')`),
+	check("brand_user_fields_field_key_check", sql`${table.fieldKey} IN ('services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity', 'targetAudience')`),
 ]);
 
 /**
