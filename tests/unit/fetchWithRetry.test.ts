@@ -73,6 +73,35 @@ describe('fetchWithRetry', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('4xx carries the response BODY on the thrown message, not just the status', async () => {
+    // The body is the ONLY place the reason lives — a chat-service 402 names the
+    // credit shortfall there. Without it the cause reached no log at all:
+    // p-retry's AbortError overwrites `.stack` with a message-less one, so a
+    // downstream `console.error(err)` prints a bare `Error`.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Insufficient credits', required_cents: 613.885 }), {
+        status: 402,
+      }),
+    );
+
+    await expect(
+      fetchWithRetry('https://example.com/api', { retries: 2, minTimeout: 10, label: 'chat' }),
+    ).rejects.toThrow('required_cents');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the `returned <status>` PREFIX that callers match on', async () => {
+    // scraping-client, icp.routes and offers.routes all branch on
+    // `error.message.includes('returned 4' | 'returned 402')`.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('{"error":"Insufficient credits"}', { status: 402 }),
+    );
+
+    await expect(
+      fetchWithRetry('https://example.com/api', { retries: 2, minTimeout: 10, label: 'chat' }),
+    ).rejects.toThrow('returned 402');
+  });
+
   it('does NOT retry on 401', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response('unauthorized', { status: 401 }),
