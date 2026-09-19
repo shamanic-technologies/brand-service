@@ -3,10 +3,16 @@ import { db, brandUserFields, brandExtractedFields } from '../db';
 import { offerScope, resolveOfferForWrite, resolveSoleOffer } from './brandOffersService';
 
 /**
- * The 7 user-facing "confirmed" field keys. A value the user validates in the
+ * The 8 user-facing "confirmed" field keys. A value the user validates in the
  * dashboard is stored durably (no TTL) in `brand_user_fields`. `dreamOutcome`
  * REPLACES the old `valueProposition` in the user-facing set — `valueProposition`
  * is NOT user-facing anymore (it stays a pure backend-extract field).
+ *
+ * `targetAudience` joined on 2026-09-19: the dashboard's onboarding asks "Who do
+ * you sell to?" and saves the answer here (distribute.you#4294), so a person's
+ * own words outrank the extracted guess the way the seven levers do. Until it
+ * was admitted, every new signup's write was refused with a 400 and the visitor
+ * could not pass the step.
  */
 export const USER_FACING_FIELD_KEYS = [
   'services',
@@ -16,6 +22,7 @@ export const USER_FACING_FIELD_KEYS = [
   'riskReversal',
   'urgency',
   'scarcity',
+  'targetAudience',
 ] as const;
 
 export type UserFacingFieldKey = (typeof USER_FACING_FIELD_KEYS)[number];
@@ -26,7 +33,7 @@ export function isUserFacingFieldKey(key: string): key is UserFacingFieldKey {
   return USER_FACING_KEY_SET.has(key);
 }
 
-/** Thrown when an upsert carries a key outside the 7 user-facing keys → 400 upstream. */
+/** Thrown when an upsert carries a key outside the user-facing keys → 400 upstream. */
 export class UnknownUserFieldKeyError extends Error {
   constructor(public readonly key: string) {
     super(`Unknown user field key: "${key}". Allowed keys: ${USER_FACING_FIELD_KEYS.join(', ')}`);
