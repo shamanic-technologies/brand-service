@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
@@ -7,11 +7,38 @@ import { db } from '../../src/db';
 import { brands, orgBrands } from '../../src/db/schema';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
 
+/**
+ * client-service owns which organisations are REAL (an anonymous org still
+ * awaiting a claim is not), and it lives in another repo with another database
+ * — so the org ids this suite inserts name nothing there. The HTTP boundary is
+ * stubbed; what is exercised here is the route, the join, and what the verdict
+ * does with each possible answer. The client itself has its own unit tests.
+ *
+ * The default is "every owner is real", which is what an ordinary customer's
+ * org is, so the pre-existing cases keep asserting what they always asserted.
+ */
+const realityMock = vi.hoisted(() => ({ getRealOrgIds: vi.fn() }));
+
+vi.mock('../../src/lib/client-client', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/client-client')>(
+    '../../src/lib/client-client',
+  );
+  return { ...actual, getRealOrgIds: realityMock.getRealOrgIds };
+});
+
+const { OrgRealityUnavailableError } = await import('../../src/lib/client-client');
+
 const app = createTestApp();
 
 describe('POST /internal/brands/domain-claimed', () => {
   const createdOrgIds: string[] = [];
   const createdBrandIds: string[] = [];
+
+  beforeEach(() => {
+    realityMock.getRealOrgIds.mockReset();
+    // Every owner is a real organisation unless a test says otherwise.
+    realityMock.getRealOrgIds.mockImplementation(async (orgIds: string[]) => orgIds);
+  });
 
   afterEach(async () => {
     await deleteBrandsByOrgIds(createdOrgIds);
@@ -115,6 +142,60 @@ describe('POST /internal/brands/domain-claimed', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ domain, claimed: true });
+  }, 20000);
+
+  it('answers FALSE when the only owner is a GHOST — an abandoned anonymous walk claims nothing', async () => {
+    const orgId = newOrg();
+    const domain = `ghost-${Date.now()}.example.com`;
+    const brandId = await insertBrand(domain);
+    await db.insert(orgBrands).values({ orgId, brandId });
+    realityMock.getRealOrgIds.mockResolvedValue([]);
+
+    const res = await post({ domain });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ domain, claimed: false });
+  }, 20000);
+
+  it('answers TRUE when ONE of several owners is real, and asks about every owner', async () => {
+    const ghost = newOrg();
+    const real = newOrg();
+    const domain = `mixed-${Date.now()}.example.com`;
+    const brandId = await insertBrand(domain);
+    await db.insert(orgBrands).values([{ orgId: ghost, brandId }, { orgId: real, brandId }]);
+    realityMock.getRealOrgIds.mockResolvedValue([real]);
+
+    const res = await post({ domain });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ domain, claimed: true });
+    const asked = realityMock.getRealOrgIds.mock.calls[0][0] as string[];
+    expect([...asked].sort()).toEqual([ghost, real].sort());
+  }, 20000);
+
+  it('502s when the reality of the owners cannot be established — never a defaulted verdict', async () => {
+    const orgId = newOrg();
+    const domain = `unavailable-${Date.now()}.example.com`;
+    const brandId = await insertBrand(domain);
+    await db.insert(orgBrands).values({ orgId, brandId });
+    realityMock.getRealOrgIds.mockRejectedValue(new OrgRealityUnavailableError('client-service is down'));
+
+    const res = await post({ domain });
+
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('ORG_REALITY_UNAVAILABLE');
+    expect(res.body).not.toHaveProperty('claimed');
+  }, 20000);
+
+  it('asks nobody about a domain no org owns', async () => {
+    const domain = `no-owner-${randomUUID()}.example.com`;
+    await insertBrand(domain);
+
+    const res = await post({ domain });
+
+    expect(res.status).toBe(200);
+    expect(res.body.claimed).toBe(false);
+    expect(realityMock.getRealOrgIds).not.toHaveBeenCalled();
   }, 20000);
 
   it('400s on a domain that is not a parseable public website', async () => {
