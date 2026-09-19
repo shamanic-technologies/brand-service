@@ -2961,7 +2961,7 @@
     "/internal/brands/domain-claimed": {
       "post": {
         "summary": "Is the brand behind this website already claimed by an organisation?",
-        "description": "Answers yes/no for one website domain, and nothing more: never the org id, the org name, a count, or a claim date. The caller is a server-to-server consumer acting for somebody with NO account (a signed-out onboarding that spends real money against a throwaway org), so the boolean is the only thing that may cross. It exists because a brand identity and its extracted fields carry no org column and a brand is deliberately shareable, so nothing on the create path refuses a claimed domain on its own. READ-ONLY and cheap by construction: no brand row is created, nothing is claimed, no page is scraped and no model is called, so a stranger typing a URL into a landing page cannot make us do work. An unknown domain is the COMMON case and answers false. A brand row that exists but which no org claims also answers false — it is genuinely unclaimed. Internal service-to-service only (shared API key), org-less by design. The answer is stable across repeated calls.",
+        "description": "Answers yes/no for one website domain, and nothing more: never the org id, the org name, a count, or a claim date. The caller is a server-to-server consumer acting for somebody with NO account (a signed-out onboarding that spends real money against a throwaway org), so the boolean is the only thing that may cross. It exists because a brand identity and its extracted fields carry no org column and a brand is deliberately shareable, so nothing on the create path refuses a claimed domain on its own. READ-ONLY and cheap by construction: no brand row is created, nothing is claimed, no page is scraped and no model is called, so a stranger typing a URL into a landing page cannot make us do work. An unknown domain is the COMMON case and answers false. A brand row that exists but which no org claims also answers false — it is genuinely unclaimed. Only a REAL organisation counts as a claimant: the signed-out flow mints an anonymous org before anything else exists and creates the brand against it, and nearly every such walk is abandoned, so a brand whose every owner is an unclaimed anonymous org is NOT claimed and its domain is free. client-service owns that fact and is asked for it; an anonymous org that has since been claimed is real and still locks the domain. If that answer cannot be obtained this fails loud with 502 — never a defaulted verdict either way. Internal service-to-service only (shared API key), org-less by design. The answer is stable across repeated calls.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2987,6 +2987,9 @@
           },
           "500": {
             "description": "Internal server error"
+          },
+          "502": {
+            "description": "client-service could not say which of the owning organisations are real. Fail loud — never a defaulted verdict."
           }
         }
       }

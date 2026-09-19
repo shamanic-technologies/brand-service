@@ -7,7 +7,7 @@ import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandIdentity, Brand
 import { rewriteBrandReferences } from '../services/brandMergeService';
 import { getBrandIdentitiesByOrgIds } from '../services/orgBrandIdentityService';
 import { isDomainClaimed } from '../services/brandClaimService';
-import { CheckoutStatusUnavailableError } from '../lib/client-client';
+import { CheckoutStatusUnavailableError, OrgRealityUnavailableError } from '../lib/client-client';
 import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { InvalidLogoUrlError, parseLogoUrlIssue } from '../lib/logo-url';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, UpdateBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema, DomainClaimRequestSchema } from '../schemas';
@@ -359,6 +359,14 @@ internalRouter.post('/brands/identity-by-org', async (req: Request, res: Respons
  * shareable, so nothing on the create path refuses a domain an existing paying
  * customer owns. This is what lets the caller refuse it BEFORE anything is read.
  *
+ * **Only a REAL organisation counts as a claimant.** The signed-out flow mints
+ * an anonymous org before anything else exists and creates the brand against
+ * it, and nearly every such walk is abandoned — so counting any owner locked a
+ * domain out of the flow on behalf of a ghost with no person, no signup and no
+ * payment behind it. client-service owns who is anonymous and whether they
+ * ever claimed; a brand whose every owner is an unclaimed anonymous org is NOT
+ * claimed and its domain is free.
+ *
  * **A boolean is the whole answer.** Not the org id, not the org name, not a
  * count, not a claim date — the caller is acting for somebody with no account,
  * so nothing identifying the claimant may cross. Do not widen this response.
@@ -398,6 +406,14 @@ internalRouter.post('/brands/domain-claimed', async (req: Request, res: Response
         field: 'domain',
         message: error.message,
       });
+    }
+    if (error instanceof OrgRealityUnavailableError) {
+      // client-service owns which organisations are real; without it we cannot
+      // tell a paying customer's domain from an abandoned anonymous walk's.
+      // Fail loud rather than guess — either default hands somebody's domain
+      // away or refuses a stranger on behalf of nobody.
+      console.error('[brand-service] domain-claimed: org reality unavailable:', error);
+      return res.status(502).json({ error: error.message, code: error.code });
     }
     console.error('[brand-service] domain-claimed error:', error);
     const message = error instanceof Error ? error.message : 'Failed to resolve domain claim status';

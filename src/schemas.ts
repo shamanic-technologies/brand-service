@@ -302,13 +302,20 @@ registry.registerPath({
     'created, nothing is claimed, no page is scraped and no model is called, so a stranger typing a ' +
     'URL into a landing page cannot make us do work. An unknown domain is the COMMON case and ' +
     'answers false. A brand row that exists but which no org claims also answers false — it is ' +
-    'genuinely unclaimed. Internal service-to-service only (shared API key), org-less by design. ' +
+    'genuinely unclaimed. Only a REAL organisation counts as a claimant: the signed-out flow mints ' +
+    'an anonymous org before anything else exists and creates the brand against it, and nearly ' +
+    'every such walk is abandoned, so a brand whose every owner is an unclaimed anonymous org is ' +
+    'NOT claimed and its domain is free. client-service owns that fact and is asked for it; an ' +
+    'anonymous org that has since been claimed is real and still locks the domain. If that answer ' +
+    'cannot be obtained this fails loud with 502 — never a defaulted verdict either way. Internal ' +
+    'service-to-service only (shared API key), org-less by design. ' +
     'The answer is stable across repeated calls.',
   request: { body: { content: { 'application/json': { schema: DomainClaimRequestSchema } } } },
   responses: {
     200: { description: 'The claim answer for the normalized domain', content: { 'application/json': { schema: DomainClaimResponseSchema } } },
     400: { description: 'Missing body field, or a domain that is not a parseable public website' },
     500: { description: 'Internal server error' },
+    502: { description: 'client-service could not say which of the owning organisations are real. Fail loud — never a defaulted verdict.' },
   },
 });
 
