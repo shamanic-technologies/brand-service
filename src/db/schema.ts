@@ -1704,3 +1704,78 @@ export const logoDevBrandCalls = pgTable("logo_dev_brand_calls", {
 }, (table) => [
 	index("logo_dev_brand_calls_called_at_idx").on(table.calledAt),
 ]);
+
+/**
+ * OFFER ANSWERS — the answers a customer states to the questions a buyer asks
+ * about one offer, in their own words, so an AI responder can answer instead of
+ * writing around the question.
+ *
+ * WHY QUESTION-AND-ANSWER PAIRS RATHER THAN A NAMED SET OF FACTS. brand-service
+ * already has the named-set model, one table over: `brand_user_fields` is a
+ * closed vocabulary of eight keys held by a CHECK constraint. Its history is the
+ * argument against using that shape here — `targetAudience` needed a change to
+ * the code list AND migration `0067`, and until that shipped every new signup's
+ * write was refused with a 400. Buyer questions are unbounded and specific to a
+ * trade ("do you take dogs?", "is there a minimum term?", "do you travel?"), so
+ * a named set would need a deploy every time a customer has an answer nobody
+ * thought to name, and would leave a hole they cannot fill themselves. The known
+ * weakness of pairs — they are only as good as the questions the customer
+ * thought of — is one the customer closes by adding a row.
+ *
+ * WHY THE OFFER AND NOT THE BRAND. The question that motivated this is "how much
+ * are they?", and a price is a property of the PROPOSITION, not of the company.
+ * This repo already says so where offers are defined: a brand selling a $200
+ * self-serve plan and a $20k contract prices each one for what it is. Everything
+ * else that answers a buyer — what is included, the commitment, who it is not
+ * for — splits the same way.
+ *
+ * `offer_id` is NOT NULL, unlike `brand_user_fields.offer_id`. That column is
+ * nullable because rows predating offers exist and a script has to name their
+ * offer; this table is born after offers, so no un-migrated row can exist and
+ * the honest constraint is the strict one.
+ *
+ * An answer is never stored empty: the write refuses a blank question or a blank
+ * answer, and clearing the set DELETES the rows. So the row's presence is the
+ * only "stated" signal, exactly as it is for the sales-rep phone — there is no
+ * second way to say unset, and a reader can never mistake a stored blank for an
+ * answer the brand gave.
+ */
+export const brandOfferAnswers = pgTable("brand_offer_answers", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	offerId: uuid("offer_id").notNull(),
+	// The question as a buyer would ask it, in the customer's words. Free text:
+	// the consumer is an LLM folding this into a prompt, and a rigid shape would
+	// cost more than it buys.
+	question: text().notNull(),
+	// The answer the customer wants given. Free text, deliberately unbounded in
+	// length (same reasoning as `brand_business_context`): truncating what a
+	// customer wrote would put a half-answer in front of a buyer. A consumer that
+	// has a prompt budget bounds its own read.
+	answer: text().notNull(),
+	// The order the customer chose, 0-based and contiguous. Assigned by the write,
+	// which replaces the whole set, so there is no reorder operation that can
+	// leave a gap or a tie.
+	position: integer().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	// The natural key: one answer per rank, per offer. No reader can ever see two
+	// answers at the same position and have to pick.
+	uniqueIndex("brand_offer_answers_offer_id_position_key").on(table.offerId, table.position),
+	index("brand_offer_answers_offer_id_idx").on(table.offerId),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_offer_answers_brand_id_fkey",
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_offer_answers_offer_id_fkey",
+	}).onDelete("cascade"),
+	check("brand_offer_answers_question_not_blank", sql`btrim(${table.question}) <> ''`),
+	check("brand_offer_answers_answer_not_blank", sql`btrim(${table.answer}) <> ''`),
+	check("brand_offer_answers_position_non_negative", sql`${table.position} >= 0`),
+]);

@@ -3784,3 +3784,121 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
+
+// ============================================================
+// Offer answers — what a customer has stated about one offer,
+// so a responder can answer a buyer instead of dodging them
+// ============================================================
+
+export const OfferAnswerSchema = z
+  .object({
+    question: z.string().openapi({
+      description:
+        'The question as a buyer would ask it, in the customer\'s own words. Free text, ' +
+        'trimmed on write; a blank question is refused.',
+      example: 'How much is it?',
+    }),
+    answer: z.string().openapi({
+      description:
+        'The answer the customer wants given. Free text, trimmed on write, deliberately ' +
+        'unbounded in length; a blank answer is refused (an answer stated as nothing is ' +
+        'indistinguishable from one never stated). A consumer with a prompt budget bounds ' +
+        'its own read rather than having the answer truncated here.',
+      example: '£45 per person for the set menu, wine not included.',
+    }),
+  })
+  .openapi('OfferAnswer');
+
+export const OfferAnswersResponseSchema = z
+  .object({
+    stated: z.boolean().openapi({
+      description:
+        'Whether this offer\'s customer has stated anything at all. `false` with an empty ' +
+        '`answers` is the honest "nothing stated" — a responder should say it will find out ' +
+        'rather than invent an answer. Nothing here is defaulted, inferred or borrowed from ' +
+        'another offer.',
+    }),
+    statedAt: z.string().nullable().openapi({
+      description: 'When the set was last written, or null when nothing is stated.',
+    }),
+    answers: z.array(OfferAnswerSchema).openapi({
+      description:
+        'Every answer this offer carries, in the order the customer chose. A stored answer is ' +
+        'never blank, so an empty array means one thing only: nothing has ever been stated.',
+    }),
+  })
+  .openapi('OfferAnswersResponse');
+
+export const PutOfferAnswersRequestSchema = z
+  .object({
+    answers: z.array(OfferAnswerSchema).openapi({
+      description:
+        'The WHOLE set, replacing whatever was there. Editing, reordering and removing an ' +
+        'answer are all this one operation. An empty array clears the set and the offer goes ' +
+        'back to having stated nothing.',
+    }),
+  })
+  .openapi('PutOfferAnswersRequest');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/answers',
+  summary: 'Read what a customer has stated about one offer',
+  description:
+    'The answers this offer\'s customer has written to the questions a buyer asks — the price, ' +
+    'what is included, the commitment, who it is not for — so a service drafting a reply can ' +
+    'answer rather than write around the question.\n\n' +
+    'Question-and-answer pairs rather than a fixed set of named facts: buyer questions are ' +
+    'unbounded and specific to a trade, so a closed vocabulary would leave a hole only a deploy ' +
+    'could fill. On the OFFER rather than the brand because a price is a property of a ' +
+    'proposition — a brand selling a $200 plan and a $20k contract answers "how much" ' +
+    'differently for each.\n\n' +
+    'NOTHING IS INVENTED OR DEFAULTED. An offer whose customer has stated nothing answers ' +
+    '`{ stated: false, statedAt: null, answers: [] }`, and a stored answer is never blank — so ' +
+    '"nothing stated" and "stated as empty" cannot be confused. A read that fails is a 500, ' +
+    'never an empty set, because "we could not look" and "they said nothing" call for opposite ' +
+    'behaviour from a responder.',
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+  },
+  responses: {
+    200: {
+      description: 'What this offer has stated (possibly nothing)',
+      content: { 'application/json': { schema: OfferAnswersResponseSchema } },
+    },
+    400: { description: 'Invalid brand or offer ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/answers',
+  summary: 'State what this offer answers',
+  description:
+    'Write the WHOLE set, replacing whatever was there, in one transaction — so editing, ' +
+    'reordering and removing an answer are the same operation and no half-written set is ever ' +
+    'readable. Idempotent.\n\n' +
+    'Refused with a 400, nothing stored: a blank question, a blank answer, the same question ' +
+    'twice, or more than 100 answers. A blank answer is refused rather than trimmed away ' +
+    'because an empty string would be a second way of saying "not stated" and the read must ' +
+    'have exactly one.\n\n' +
+    '`{ "answers": [] }` clears the set: the rows are deleted and the offer goes back to having ' +
+    'stated nothing. Returns the same shape as the GET.',
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PutOfferAnswersRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The stated set, as it now reads',
+      content: { 'application/json': { schema: OfferAnswersResponseSchema } },
+    },
+    400: { description: 'Invalid ID, a blank question or answer, a repeated question, or too many answers' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
