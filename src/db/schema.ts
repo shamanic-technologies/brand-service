@@ -235,10 +235,20 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
 ]);
 
 /**
- * Brand-level SALES REP PHONE — the one number to ring when a sales interest
- * lands on this brand. When a prospect replies to one of the brand's cold-email
- * campaigns saying they are interested, the rep on this number is phoned within
- * the minute; without a row there is nobody to ring.
+ * Brand-level SALES REP — the ONE person to reach when a sales interest lands
+ * on this brand, and the two facts we hold about them: an email address to copy
+ * them on the prospect's own thread, and (optionally) a number to ring. When a
+ * prospect replies to one of the brand's cold-email campaigns saying they are
+ * interested, the rep is copied on the forwarded thread at the moment the reply
+ * lands and phoned within the minute; without a row there is nobody to reach.
+ *
+ * ⚠️ THE TABLE NAME IS HISTORICAL. It was born holding a phone and nothing else
+ * (migration 0060); `email` arrived in 0069 and the row has meant "the rep"
+ * ever since. It is NOT renamed because `brandMergeService` addresses it by
+ * literal string and every drizzle snapshot carries the old name — a rename
+ * buys a reader nothing and costs a migration that can go wrong. One rep, one
+ * row, both facts: do NOT add a second table or a second write path for the
+ * same person.
  *
  * BRAND grain, keyed on (org_id, brand_id) like every other per-brand config
  * (never on the `brands` identity row, which several orgs share). Deliberately
@@ -247,11 +257,25 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
  * from the first edit, and a brand with no campaign yet could declare nothing at
  * all. The rep answers for the brand.
  *
- * `phone` is NOT NULL — the row's presence IS the "set" signal. Absence is a
- * first-class answer ("nobody to ring") and reads as `salesRepPhone: null` on
- * the brand read: never an empty string, never an error, and never defaulted or
- * inferred from any other phone field (the user row's phone answers a different
- * question, and the WhatsApp link is a click destination, not a number to dial).
+ * BOTH columns are nullable and at least one must be set (`sales_rep_has_a_fact`
+ * below) — a row carrying neither is not a rep, and clearing the rep DELETES the
+ * row. The row's presence is the "set" signal for the PERSON; each column's
+ * presence is the "set" signal for its own fact. Absence is first-class at both
+ * levels ("nobody to reach", "we were never told their number") and reads as
+ * `null` on the brand read: never an empty string, never an error, and never
+ * defaulted or inferred from any other field (the user row's phone answers a
+ * different question, the WhatsApp link is a click destination rather than a
+ * number to dial, and the org owner's account email is a guess about who the
+ * rep is — being wrong there sends a client's prospect thread to the wrong
+ * person).
+ *
+ * ⚠️ A PHONE-ONLY ROW IS A LEGITIMATE STORED STATE, and the database says so by
+ * NOT checking the product rule. Three production rows predate `email`; we were
+ * never told those reps' addresses and nothing may invent one, so they keep
+ * being rung and are simply never copied. The rule "a phone requires an email"
+ * is enforced at the WRITE, in `salesRepService`, where it can refuse with a
+ * sentence a person can act on — a CHECK would instead make those three rows
+ * unwritable and turn a true record into a constraint violation.
  *
  * Stored in strict E.164 (`+<country><subscriber>`), normalized on write: the
  * consumer hands the value straight to a telephony provider, and a value that
@@ -264,11 +288,13 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
 export const brandSalesRepPhones = pgTable("brand_sales_rep_phones", {
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
-	phone: text("phone").notNull(),
+	phone: text("phone"),
+	email: text("email"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	primaryKey({ columns: [table.orgId, table.brandId] }),
+	check("sales_rep_has_a_fact", sql`${table.phone} IS NOT NULL OR ${table.email} IS NOT NULL`),
 	foreignKey({
 		columns: [table.brandId],
 		foreignColumns: [brands.id],

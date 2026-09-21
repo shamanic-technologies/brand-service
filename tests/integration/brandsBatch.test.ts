@@ -48,7 +48,7 @@ describe('GET /internal/brands and /public/brands — batch by ids', () => {
       // `salesRepPhone` is served on the INTERNAL read only — it is per-org
       // contact data and the public variant below deliberately omits it.
       expect(Object.keys(brand).sort()).toEqual(
-        ['clickDestinationUrl', 'colors', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'salesRepPhone', 'updatedAt', 'url', 'whatsAppLink'],
+        ['clickDestinationUrl', 'colors', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'salesRepEmail', 'salesRepPhone', 'updatedAt', 'url', 'whatsAppLink'],
       );
     }
   }, 15000);
@@ -158,9 +158,10 @@ describe('GET /internal/brands and /public/brands — batch by ids', () => {
     const sortedPublic = [...publicRes.body.brands].sort((x, y) => x.id.localeCompare(y.id));
     for (const brand of sortedPublic) {
       expect(brand).not.toHaveProperty('salesRepPhone');
+      expect(brand).not.toHaveProperty('salesRepEmail');
     }
     expect(sortedPublic).toEqual(
-      sortedInternal.map(({ salesRepPhone, ...rest }: any) => rest),
+      sortedInternal.map(({ salesRepPhone, salesRepEmail, ...rest }: any) => rest),
     );
   }, 15000);
 
