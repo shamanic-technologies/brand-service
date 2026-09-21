@@ -3,6 +3,7 @@ import {
   CreateOfferRequestSchema,
   DeclareSalesFunnelRequestSchema,
   GenerateOfferImageRequestSchema,
+  PutOfferAnswersRequestSchema,
   PutUserFieldsRequestSchema,
   RenameOfferRequestSchema,
   StateSalesFunnelSetRequestSchema,
@@ -22,6 +23,11 @@ import {
   generateOfferImage,
   readOfferImageDescriptors,
 } from '../services/offerImageService';
+import {
+  brandOfferAnswersService,
+  normalizeOfferAnswers,
+  OfferAnswersValidationError,
+} from '../services/brandOfferAnswersService';
 import { ChatServiceImageGenerationError } from '../lib/chat-client';
 import { toSalesFunnelKey, SALES_FUNNEL_KEYS, SalesFunnelKey } from '../services/salesFunnelCatalogue';
 import {
@@ -288,6 +294,97 @@ orgRouter.post('/brands/:brandId/offers/:offerId/image', async (req: Request, re
     }
     console.error('[brand-service] Generate offer image error:', error);
     return res.status(502).json({ error: 'Offer image generation failed', detail: error.message });
+  }
+});
+
+// ── One offer's answers ──────────────────────────────────────
+
+/**
+ * GET /orgs/brands/:brandId/offers/:offerId/answers
+ *
+ * What this offer's customer has stated, in their own words, to the questions a
+ * buyer asks before they buy — the price above all, then what is included, the
+ * commitment, who it is not for. One call; a service drafting a reply reads it
+ * and folds it into its prompt.
+ *
+ * `{ stated: false, statedAt: null, answers: [] }` is the honest answer for an
+ * offer whose customer has stated nothing, and it is the ONLY meaning an empty
+ * array carries: a stored answer is never blank, so "nothing stated" and
+ * "stated as empty" cannot be confused. Nothing is invented, inferred, borrowed
+ * from a sibling offer or defaulted — a responder holding this can say it will
+ * find out, which is the whole point.
+ *
+ * A failure is a loud 500, never an empty set. "We could not look" and "they
+ * said nothing" call for opposite behaviour from a responder, so they must not
+ * arrive looking alike.
+ */
+orgRouter.get('/brands/:brandId/offers/:offerId/answers', async (req: Request, res: Response) => {
+  try {
+    const scope = await resolveOfferParam(req, res);
+    if (!scope) return;
+
+    const view = await brandOfferAnswersService.readByOfferId(
+      req.orgId!,
+      scope.brandId,
+      scope.offerId
+    );
+    return res.status(200).json(view);
+  } catch (error: any) {
+    if (rejectOfferProblem(res, error)) return;
+    console.error('[brand-service] Get offer answers error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * PUT /orgs/brands/:brandId/offers/:offerId/answers
+ *
+ * State the WHOLE set, replacing whatever was there. Editing one answer,
+ * reordering them and removing one are all this single operation, so there is no
+ * reorder that can leave two answers at the same rank and no window in which
+ * half a set is readable.
+ *
+ * Refused with a 400 and NOTHING stored: a blank question, a blank answer, the
+ * same question twice, or more than 100 answers. The blank-answer refusal is
+ * load-bearing rather than fussy — an empty string would be a second way of
+ * saying "not stated", and then the read could no longer tell a responder which
+ * of the two it was looking at.
+ *
+ * `{ answers: [] }` clears the set: the rows are deleted and the offer goes back
+ * to having stated nothing, the same posture as clearing the sales-rep phone.
+ * Idempotent.
+ */
+orgRouter.put('/brands/:brandId/offers/:offerId/answers', async (req: Request, res: Response) => {
+  try {
+    const scope = await resolveOfferParam(req, res);
+    if (!scope) return;
+
+    const parsed = PutOfferAnswersRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    let answers;
+    try {
+      answers = normalizeOfferAnswers(parsed.data.answers);
+    } catch (error) {
+      if (error instanceof OfferAnswersValidationError) {
+        return res.status(400).json({ error: error.message });
+      }
+      throw error;
+    }
+
+    const view = await brandOfferAnswersService.replaceByOfferId(
+      req.orgId!,
+      scope.brandId,
+      scope.offerId,
+      answers
+    );
+    return res.status(200).json(view);
+  } catch (error: any) {
+    if (rejectOfferProblem(res, error)) return;
+    console.error('[brand-service] Put offer answers error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
