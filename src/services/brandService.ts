@@ -29,7 +29,7 @@ import { searchBrandNameByDomain } from '../lib/logo-dev-search';
 import { getBrandCheckoutStatus } from '../lib/client-client';
 import { rewriteBrandReferences } from './brandMergeService';
 import { enqueueBrandColors, forgetBrandColors, resetBrandColorsForNewDomain } from './brandColorsService';
-import { salesRepPhoneService } from './salesRepPhoneService';
+import { salesRepService } from './salesRepService';
 
 interface Brand {
   id: string;
@@ -86,16 +86,27 @@ export interface BrandDetail {
   // name, or the domain. Retrieval is a decoupled cadence, never a read — see
   // services/brandColorsService.ts.
   colors: string[] | null;
-  // The one number to ring when a sales interest lands on this brand — a
-  // prospect replies to a campaign saying they are interested and the rep on
-  // this number is phoned within the minute. `null` is a first-class answer
-  // ("nobody to ring"): most brands never state one, and nothing is ever
-  // defaulted, inferred, or borrowed from another phone field. Strict E.164, so
-  // a consumer can hand it straight to a telephony provider.
+  // The ONE person to reach when a sales interest lands on this brand, as two
+  // facts about them. A prospect replies to a campaign saying they are
+  // interested; the rep is COPIED on the forwarded thread at that moment and
+  // RUNG within the minute.
   //
-  // ABSENT (not null) on reads that do not ask for it — the public brand read
-  // and the share-token resolve, which reach a broader audience than the org.
-  // Per-brand config, org-scoped: see `salesRepPhoneService.resolveForBrandRead`.
+  // `null` is a first-class answer on each field independently: most brands
+  // never state a rep at all ("nobody to reach"), a rep stated before the email
+  // existed carries a phone and no address, and a rep meant to be copied but
+  // never rung carries an address and no number. Nothing is ever defaulted,
+  // inferred or borrowed — not from another phone field (the user row's phone
+  // answers a different question, the WhatsApp link is a click destination) and
+  // not from the org owner's account email, which is a guess about who the rep
+  // is: being wrong there mails a client's prospect thread to the wrong person.
+  //
+  // Strict E.164 on the phone, so a consumer can hand it straight to a
+  // telephony provider.
+  //
+  // BOTH ABSENT (not null) on reads that do not ask for them — the public brand
+  // read and the share-token resolve, which reach a broader audience than the
+  // org. Per-brand config, org-scoped: see `salesRepService.resolveForBrandRead`.
+  salesRepEmail?: string | null;
   salesRepPhone?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -129,15 +140,18 @@ export async function getBrand(brandId: string): Promise<Brand | null> {
 
 export interface BrandDetailOptions {
   /**
-   * Serve `salesRepPhone` on the returned brand. Off by default: the field is
-   * per-org contact data and the same shape is served by the PUBLIC brand read
-   * and the share-token resolve, which are deliberately not widened.
+   * Serve `salesRepEmail` + `salesRepPhone` on the returned brand. Off by
+   * default: the rep is per-org CONTACT data about a named person, and the same
+   * shape is served by the PUBLIC brand read and the share-token resolve, which
+   * are deliberately not widened. The email is held to exactly the access the
+   * phone already was — one flag, so the two facts can never diverge into one
+   * being reachable where the other is not.
    */
-  includeSalesRepPhone?: boolean;
+  includeSalesRep?: boolean;
   /**
    * The org the read is about, when the caller knows it (`x-org-id`). Used only
    * to scope the org-keyed config above; when absent, the resolution answers
-   * only where a single org has stated a number (see `resolveForBrandRead`).
+   * only where a single org has stated a rep (see `resolveForBrandRead`).
    */
   orgId?: string | null;
 }
@@ -202,9 +216,14 @@ export async function getBrandDetail(
     // which is correct: in all three cases we have no colours to serve.
     colors: row.colors ?? null,
     // Only served when the caller asked for it (internal reads); absent
-    // otherwise, so the public payload gained nothing.
-    ...(options.includeSalesRepPhone
-      ? { salesRepPhone: await salesRepPhoneService.resolveForBrandRead(row.id, options.orgId) }
+    // otherwise, so the public payload gained nothing. Both facts ride ONE flag
+    // and ONE resolution — two reads would be two chances to disagree about who
+    // this brand's rep is.
+    ...(options.includeSalesRep
+      ? await (async () => {
+          const rep = await salesRepService.resolveForBrandRead(row.id, options.orgId);
+          return { salesRepEmail: rep.email, salesRepPhone: rep.phone };
+        })()
       : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
