@@ -93,3 +93,63 @@ other offer route; service-to-service callers read it with the service key plus
   `src/services/brandOfferAnswersService.ts`; the routes sit with the other
   offer-scoped ones in `src/routes/offers.routes.ts` and resolve their scope
   through the same `resolveOfferParam`. Guard: `tests/integration/offerAnswers.test.ts`.
+
+## The sales rep — ONE person per brand, TWO facts, and a phone requires an email
+
+`brand_sales_rep_phones` stopped being "a phone number" and became "the one
+person to reach when a sales interest lands on this brand". Two consumers need
+the address and nowhere in the fleet held one: the service that forwards a
+positive reply's whole thread to the agency inbox must COPY the rep at the
+moment the reply lands, just before their phone rings, and the AI
+meeting-booking channel must copy them on the one-to-one reply it sends into the
+prospect's thread. That second channel has no use for a phone at all.
+
+- **⚠️ ONE REP, ONE ROW, BOTH FACTS.** `email` and `phone` are two columns of the
+  same row, keyed `(org_id, brand_id)` like every other per-brand config. Do NOT
+  add a second table, a second row or a second narrowing for the same person —
+  two homes for one rep is how the two come to disagree about who to copy.
+  `salesRepService` is the one module; the routes are `src/routes/sales-rep.routes.ts`.
+- **⚠️ THE TABLE NAME IS HISTORICAL.** Born holding a phone (migration `0060`),
+  `email` arrived in `0069`. Not renamed: `brandMergeService` addresses it by
+  literal string and every drizzle snapshot carries the old name, so a rename
+  costs a migration that can go wrong and buys a reader nothing.
+- **⚠️ THE PRODUCT RULE LIVES AT THE WRITE, NEVER IN THE DATABASE.** A write
+  stating a phone with no email is refused 400 with a sentence a person can act
+  on (`assertSalesRepWritable`); an email with NO phone is legal and useful. The
+  database only CHECKs that a row carries at least one fact
+  (`sales_rep_has_a_fact`) — because **3 production rows carry a phone and no
+  email**. We were never told those reps' addresses and nothing may invent one,
+  so a CHECK enforcing the product rule would make them unwritable and recast a
+  true record of a fact we do not have as a constraint violation. They keep
+  being rung and are simply never copied.
+- **The refusal's WORDING is this service's job.** The dashboard renders it
+  verbatim and deliberately implements no validation of its own, which is also
+  why `salesRepEmail` is OPTIONAL in the request schema: a required field would
+  make a phone-only body fail the zod parse and answer with a field-error blob
+  rather than a sentence.
+- **NOTHING IS INVENTED, INFERRED, DEFAULTED OR BORROWED.** Not from the user
+  row's phone (a different question), not from the WhatsApp link (a click
+  destination), and above all not from the org owner's account email — that is a
+  guess about who the rep is, and being wrong mails a client's prospect
+  conversation to the wrong person. `null` on either field is a first-class
+  answer; a brand with no rep at all reads both null, never a 404.
+- **The write replaces the WHOLE rep**, so omitting `salesRepPhone` clears a
+  number that was there — two facts about one person, never two half-writes.
+  Clearing the rep DELETES the row, so "unset" stays one state.
+- **Both facts ride ONE flag and ONE resolution on the brand read**
+  (`includeSalesRep`, internal only). The email is held to exactly the access the
+  phone already was; the PUBLIC brand read and the share-token resolve carry
+  neither. An email reachable where the phone is not would be a widening nobody
+  asked for.
+- **⚠️ The `/sales-rep-phone` routes are TRANSITIONAL and deliberately
+  unchanged.** They are the path the dashboard is on today, so nothing has to
+  deploy in a particular order; their PUT is the one place a phone may be
+  written without an email and it PRESERVES any stored email, their DELETE
+  removes the NUMBER only (a rep who still has an email keeps their row), and
+  their GET additively carries `salesRepEmail` so instantly-service reads the
+  address on the route it already calls. Retire them once that consumer has
+  moved — and when you do, the phone-only writer (`upsertPhoneByBrandId`) and
+  the phone-only deleter (`deletePhoneByBrandId`) go with them.
+- Guards: `tests/unit/salesRep.test.ts` (the normalizers + the rule),
+  `tests/integration/salesRep.test.ts` (every AC, including a phone-only row
+  written straight to the table standing in for the 3 production ones).

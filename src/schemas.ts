@@ -3692,31 +3692,93 @@ export const UpsertSalesRepPhoneRequestSchema = z
   })
   .openapi('UpsertSalesRepPhoneRequest');
 
-// WRITE response: the saved, normalized value (never null — you just wrote it).
-export const UpsertSalesRepPhoneResponseSchema = z
-  .object({
-    salesRepPhone: z.string().openapi({ description: 'The saved number, in strict E.164.' }),
-  })
-  .openapi('UpsertSalesRepPhoneResponse');
+// ── Sales rep (per-brand config) ────────────────────────────────────────────
+// ONE person per brand, TWO facts about them: an email address to copy them on
+// the prospect's own thread, and (optionally) a number to ring. Every response
+// below is this same flat pair, byte-equal to the fields the internal brand
+// read serves, so a consumer spells the rep one way wherever it reads it.
 
-// READ / DELETE response: `null` when the brand has no number to ring.
-export const SalesRepPhoneResponseSchema = z
+export const SalesRepResponseSchema = z
   .object({
+    salesRepEmail: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          'The address to copy the rep on when a prospect replies, or `null` when we hold no ' +
+          'address for them. `null` is a first-class answer — reps stated before this field ' +
+          'existed carry a phone and no email, and nothing is ever inferred from the org ' +
+          "owner's account.",
+        example: 'kevin@acme.com',
+      }),
     salesRepPhone: z
       .string()
       .nullable()
-      .openapi({ description: 'The number to ring, in strict E.164, or `null` when unset.' }),
+      .openapi({
+        description:
+          'The number to ring, in strict E.164, or `null` when the rep should be copied but ' +
+          'never rung (what the AI meeting-booking channel needs).',
+        example: '+33770657585',
+      }),
   })
-  .openapi('SalesRepPhoneResponse');
+  .openapi('SalesRepResponse');
+
+// WRITE request for the WHOLE rep. `salesRepEmail` is OPTIONAL in the schema and
+// REQUIRED by the rule — deliberately: a required field would make a phone-only
+// body fail the parse and answer with a zod field-error blob, where the rule
+// answers with a sentence a person can act on ("a sales rep needs an email
+// address: the rep is copied on the prospect's own reply…"). The dashboard
+// renders that refusal verbatim.
+export const UpsertSalesRepRequestSchema = z
+  .object({
+    salesRepEmail: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          'The address to copy the rep on when a prospect replies. Required in practice: a write ' +
+          'carrying a phone and no email is refused 400. Trimmed; otherwise stored exactly as ' +
+          'typed. One bare address — the `Name <address>` form, several addresses, or anything ' +
+          'that is not a plain address is refused.',
+        example: 'kevin@acme.com',
+      }),
+    salesRepPhone: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          'The number to ring, optional. Accepts any typed format (spaces, dashes, parentheses, ' +
+          'dots) as long as it carries a country code — a leading `+` or the international `00` ' +
+          'prefix — and is 8-15 digits; stored in strict E.164. Omitted or `null` means this rep ' +
+          'is copied and never rung, and CLEARS a number that was there (the write replaces the ' +
+          'whole rep). A national number with no country code is refused: no country is ' +
+          'inferred, because a guess dials a different person.',
+        example: '+33770657585',
+      }),
+  })
+  .openapi('UpsertSalesRepRequest');
+
+// WRITE response: the saved rep. `salesRepPhone` may be null (email-only rep);
+// `salesRepEmail` is non-null on anything written through `PUT /sales-rep`, and
+// may be null on a rep whose phone was written through the transitional route.
+export const UpsertSalesRepPhoneResponseSchema = SalesRepResponseSchema;
+
+// READ / DELETE response: both fields, each `null` when we hold no such fact.
+export const SalesRepPhoneResponseSchema = SalesRepResponseSchema;
 
 registry.registerPath({
   method: 'get',
   path: '/orgs/brands/{brandId}/sales-rep-phone',
-  summary: "Read a brand's sales rep phone",
+  summary: "Read a brand's sales rep phone (transitional)",
   description:
     'The one number to ring when a sales interest lands on this brand, or `null` when the brand ' +
-    'never stated one ("nobody to ring" — a first-class answer, not an error). Per-brand config ' +
-    "keyed on (org, brand). The brand must belong to the caller's org (x-org-id).",
+    'has no number ("nobody to ring" — a first-class answer, not an error). Per-brand config ' +
+    "keyed on (org, brand). The brand must belong to the caller's org (x-org-id). " +
+    'The response ALSO carries `salesRepEmail`, additively, so a service already calling this ' +
+    'route reads the address without a new call or a deploy-ordering gate. `GET /sales-rep` is ' +
+    'the same answer under the rep name; this route is retired once its consumers have moved.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
   responses: {
     200: {
@@ -3777,6 +3839,86 @@ registry.registerPath({
     200: {
       description: 'Removed — the brand now has no number to ring',
       content: { 'application/json': { schema: SalesRepPhoneResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ── The rep: one person, two facts ──────────────────────────────────────────
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/sales-rep',
+  summary: "Read a brand's sales rep",
+  description:
+    'The one person to reach when a sales interest lands on this brand: the address to copy them ' +
+    'on the prospect\'s own thread, and the number to ring. A brand that never stated a rep reads ' +
+    '`{ salesRepEmail: null, salesRepPhone: null }` — "nobody to reach", a first-class answer ' +
+    'rather than a 404 (3 of 188 brands have a rep, so absence is the ordinary case). Either ' +
+    'field is independently null. Per-brand config keyed on (org, brand); the brand must belong ' +
+    "to the caller's org (x-org-id).",
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'The saved rep, with either fact null when we hold no such fact',
+      content: { 'application/json': { schema: SalesRepResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/sales-rep',
+  summary: "Set a brand's sales rep",
+  description:
+    'State (or change) the whole rep in one write. A PHONE REQUIRES AN EMAIL: a body carrying a ' +
+    'number and no address is refused 400 with a sentence a person can act on, because the rep ' +
+    'is copied on the prospect\'s reply and a phone alone cannot do that. An EMAIL WITH NO PHONE ' +
+    'is legal and useful — that rep is copied and never rung, which is what the AI ' +
+    'meeting-booking channel needs. The write replaces the WHOLE rep, so omitting salesRepPhone ' +
+    '(or sending it null) clears a number that was there: two facts about one person, never two ' +
+    'half-writes. The phone is normalized to strict E.164; the email is trimmed and otherwise ' +
+    'stored exactly as typed. Idempotent upsert, one row per (org, brand).',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: UpsertSalesRepRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The saved rep',
+      content: { 'application/json': { schema: SalesRepResponseSchema } },
+    },
+    400: {
+      description:
+        'Invalid brand ID format; a phone with no email; an unparseable address or a ' +
+        'country-code-less number; or a body stating neither fact (use DELETE to remove the rep)',
+    },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/sales-rep',
+  summary: "Remove a brand's sales rep",
+  description:
+    'Remove the rep: the row is deleted and the brand goes back to "nobody to reach". Both facts ' +
+    'go at once — they describe one person, and there is no such thing as half a rep. Idempotent: ' +
+    'removing a rep that was never stated is a 200 with both fields null, not a 404.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'Removed — the brand now has nobody to reach',
+      content: { 'application/json': { schema: SalesRepResponseSchema } },
     },
     400: { description: 'Invalid brand ID format' },
     403: { description: "Brand does not belong to the caller's org" },

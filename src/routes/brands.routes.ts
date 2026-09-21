@@ -442,8 +442,8 @@ function orgIdFromHeader(req: Request): string | null {
  * Shared handler for GET /internal/brands/:id and GET /public/brands/:id.
  * Returns the canonical minimal brand shape with lazy fills.
  *
- * `internal` widens the payload with the org-scoped `salesRepPhone`; the public
- * route (no auth) deliberately never carries it.
+ * `internal` widens the payload with the org-scoped sales rep (`salesRepEmail` +
+ * `salesRepPhone`); the public route (no auth) deliberately never carries it.
  */
 async function handleGetBrand(req: Request, res: Response, internal = false) {
   try {
@@ -457,7 +457,7 @@ async function handleGetBrand(req: Request, res: Response, internal = false) {
     }
 
     const brand = await getBrandDetail(id, { mode: 'platform' }, {
-      includeSalesRepPhone: internal,
+      includeSalesRep: internal,
       orgId: internal ? orgIdFromHeader(req) : null,
     });
     if (!brand) {
@@ -549,7 +549,7 @@ async function handleGetBrandsBatch(req: Request, res: Response, internal = fals
     const orgId = internal ? orgIdFromHeader(req) : null;
     const loaded = await Promise.all(
       uniqueIds.map((id) =>
-        getBrandDetail(id, { mode: 'platform' }, { includeSalesRepPhone: internal, orgId })
+        getBrandDetail(id, { mode: 'platform' }, { includeSalesRep: internal, orgId })
       )
     );
     const brandsResponse = loaded.filter((b) => b !== null);
