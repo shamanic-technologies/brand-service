@@ -659,6 +659,61 @@ export const brandSalesFunnelArrowRates = pgTable("brand_sales_funnel_arrow_rate
 ]);
 
 /**
+ * A conversion rate a BRAND states for ONE ARROW of one of its sales funnels.
+ *
+ * WHY THE BRAND AND NOT THE OFFER. Owner-decided 2026-09-25: a conversion rate
+ * describes how a brand SELLS (how often its positive replies book a meeting,
+ * how often its meetings close), so there is ONE set per (brand, funnel, arrow),
+ * shared by every offer of the brand selling that funnel. What stays per offer
+ * is what differs per proposition: the lifetime revenue and the booking link on
+ * `brand_sales_funnels`.
+ *
+ * ORG-SCOPED like every other per-brand config here: `brands` is the global
+ * identity several orgs legitimately share, and each configures it on its own.
+ *
+ * The per-offer rates (`brand_sales_funnels` named columns and
+ * `brand_sales_funnel_arrow_rates`) are NOT touched by this table and keep
+ * answering every current reader; they retire once those readers have moved.
+ *
+ * ABSENCE IS THE ANSWER: no row means the brand has not stated this arrow. The
+ * rate is NOT NULL with NO default, and clearing it deletes the row.
+ */
+export const brandFunnelArrowRates = pgTable("brand_funnel_arrow_rates", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	// Canonical funnel key. Resolved at the write (a pre-retirement spelling is
+	// accepted on the wire and never stored), deliberately NOT a CHECK: the
+	// catalogue grows, and this table must not need a migration when it does.
+	funnelKey: text("funnel_key").notNull(),
+	// The two steps the arrow connects, as LABELS, exactly like the per-offer
+	// arrow table: an arrow this service does not know yet is still statable.
+	fromStep: text("from_step").notNull(),
+	toStep: text("to_step").notNull(),
+	ratePct: numeric("rate_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
+	// PROVENANCE of the one-time move from the per-offer grain: the offer whose
+	// statement won, and when it was copied. NULL on every rate a caller wrote at
+	// the brand grain directly, and cleared when a caller restates the rate. Read
+	// by nothing; it makes the move reversible by an exact predicate.
+	migratedFromOfferId: uuid("migrated_from_offer_id"),
+	migratedAt: timestamp("migrated_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	// The natural key: one rate per arrow, per funnel, per (org, brand).
+	uniqueIndex("brand_funnel_arrow_rates_brand_key")
+		.on(table.orgId, table.brandId, table.funnelKey, table.fromStep, table.toStep),
+	index("brand_funnel_arrow_rates_brand_id_idx").on(table.brandId),
+	check("brand_funnel_arrow_rates_steps_not_blank", sql`btrim(${table.fromStep}) <> '' AND btrim(${table.toStep}) <> ''`),
+	check("brand_funnel_arrow_rates_rate_range", sql`${table.ratePct} >= 0 AND ${table.ratePct} <= 100`),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_funnel_arrow_rates_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * Brand business context — the free-form text a user pastes when their brand
  * has NO website. It is the ALTERNATIVE field-extraction SOURCE to a scraped
  * site: when a brand has no `url`, `fieldExtractionService.extractFields` reads
