@@ -4044,3 +4044,129 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
+
+// ---------------------------------------------------------------------------
+// BRAND-GRAIN FUNNEL RATES — one conversion rate per (org, brand, funnel,
+// arrow), shared by every offer of the brand selling that funnel. Lifetime
+// revenue and the booking link stay per offer on the sales-funnels routes.
+// ---------------------------------------------------------------------------
+
+const BRAND_FUNNEL_RATES_MODEL_DESCRIPTION =
+  "A conversion rate describes how a BRAND sells, so there is ONE stated rate per (brand, funnel, " +
+  'arrow), shared by every offer of the brand selling that funnel. An arrow is named by the two ' +
+  'STEPS it connects. Every funnel of the catalogue is listed, each with every arrow the catalogue ' +
+  'gives it, in funnel order, followed by any arrow the brand stated that the catalogue does not ' +
+  'name. An arrow the brand has not stated reads `stated: false` with `ratePct` and `statedAt` ' +
+  'null — never a number, never a default, never a value borrowed from an offer. Independent of ' +
+  'the per-offer rates on `/sales-funnels`, which keep answering exactly as before.';
+
+export const BrandFunnelArrowRateSchema = z
+  .object({
+    fromStep: z.string(),
+    toStep: z.string(),
+    ratePct: z.number().nullable(),
+    stated: z.boolean(),
+    statedAt: z.string().nullable(),
+  })
+  .openapi('BrandFunnelArrowRate');
+
+export const BrandFunnelRatesSchema = z
+  .object({
+    funnelKey: SalesFunnelKeySchema,
+    name: z.string(),
+    steps: z.array(z.string()),
+    arrows: z.array(BrandFunnelArrowRateSchema),
+  })
+  .openapi('BrandFunnelRates');
+
+export const GetBrandFunnelRatesResponseSchema = z
+  .object({ funnels: z.array(BrandFunnelRatesSchema) })
+  .openapi('GetBrandFunnelRatesResponse');
+
+export const PutBrandFunnelRatesRequestSchema = z
+  .object({
+    // PARTIAL: an arrow omitted is untouched; `ratePct: null` clears it.
+    arrowRates: z.array(SalesFunnelArrowRatePatchSchema).min(1),
+  })
+  .openapi('PutBrandFunnelRatesRequest');
+
+export const PutBrandFunnelRatesResponseSchema = z
+  .object({ funnel: BrandFunnelRatesSchema })
+  .openapi('PutBrandFunnelRatesResponse');
+
+const BrandFunnelRatesQuerySchema = z.object({
+  funnelKey: AcceptedSalesFunnelKeySchema.optional().openapi({
+    description: 'Narrow the read to one funnel. Omit for every funnel of the catalogue.',
+  }),
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/funnel-rates',
+  summary: "Read the brand's stated conversion rates, per funnel and arrow",
+  description: BRAND_FUNNEL_RATES_MODEL_DESCRIPTION,
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    query: BrandFunnelRatesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: 'Every funnel (or the one asked for), each arrow stated or not',
+      content: { 'application/json': { schema: GetBrandFunnelRatesResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID or unknown funnel key' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/funnel-rates/{funnelKey}',
+  summary: 'State or clear conversion rates for arrows of one funnel, at the brand grain',
+  description:
+    BRAND_FUNNEL_RATES_MODEL_DESCRIPTION + ' ' +
+    'PARTIAL: an arrow the body omits is left exactly as stored; `ratePct: null` CLEARS the ' +
+    'statement (the arrow then reads `stated: false`). An arrow the catalogue does not name is ' +
+    'accepted and stored. Refused (400) with nothing written: an empty step, a step pointing at ' +
+    'itself, or the same arrow twice in one body. Applies to every offer of the brand.',
+  request: {
+    params: z.object({ brandId: z.string().uuid(), funnelKey: AcceptedSalesFunnelKeySchema }),
+    body: { content: { 'application/json': { schema: PutBrandFunnelRatesRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The funnel, as read after the write',
+      content: { 'application/json': { schema: PutBrandFunnelRatesResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID, unknown funnel key, or an arrow that names nothing' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/funnel-rates',
+  summary: "Service read of a brand's stated conversion rates, per funnel and arrow",
+  description:
+    BRAND_FUNNEL_RATES_MODEL_DESCRIPTION + ' ' +
+    'Service auth only; NO user identity needed. `x-org-id` is optional: sent, it scopes the read ' +
+    'to that org; omitted, the single org claiming the brand answers, and a brand claimed by ' +
+    'several orgs is a 400 ORG_REQUIRED rather than one org\'s numbers. An unclaimed brand answers ' +
+    'every arrow unstated.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    query: BrandFunnelRatesQuerySchema,
+  },
+  responses: {
+    200: {
+      description: 'Every funnel (or the one asked for), each arrow stated or not',
+      content: { 'application/json': { schema: GetBrandFunnelRatesResponseSchema } },
+    },
+    400: { description: 'Invalid brand ID, unknown funnel key, or ORG_REQUIRED' },
+    500: { description: 'Internal server error' },
+  },
+});

@@ -26,6 +26,41 @@ Microservice for managing brand information, media assets, organizations, and AI
 - `tests/` — Test files (unit + integration, `*.test.ts`)
 - `openapi.json` — Auto-generated from Zod schemas, do NOT edit manually
 
+## Conversion rates live on the BRAND — `brand_funnel_arrow_rates`
+
+Owner-decided 2026-09-25: a conversion rate describes how a brand SELLS, so there
+is ONE stated rate per (org, brand, funnel, arrow), shared by every offer of the
+brand selling that funnel. Lifetime revenue and the booking link STAY per offer on
+`brand_sales_funnels` (an offer is what is sold; two offers are worth different
+amounts). Routes in `src/routes/brand-funnel-rates.routes.ts`, service
+`brandFunnelRatesService`, pure halves in `src/lib/brand-funnel-rates.ts`.
+
+- `GET /orgs/brands/:brandId/funnel-rates[?funnelKey=]` and
+  `GET /internal/brands/:brandId/funnel-rates[?funnelKey=]` (service key only, NO
+  user; `x-org-id` optional, resolved like every internal read — a brand claimed
+  by several orgs is 400 `ORG_REQUIRED`) → `{ funnels: [{ funnelKey, name, steps,
+  arrows: [{ fromStep, toStep, ratePct, stated, statedAt }] }] }`. Every catalogue
+  funnel, every catalogue arrow in funnel order, then any arrow stated outside the
+  catalogue.
+- `PUT /orgs/brands/:brandId/funnel-rates/:funnelKey` `{ arrowRates: [{ fromStep,
+  toStep, ratePct | null }] }` → `{ funnel }`. PARTIAL; `null` DELETES the row.
+  One transaction; an empty step, a self-arrow or the same arrow twice is a 400
+  with nothing written.
+- **⚠️ An unstated arrow reads `stated: false`, `ratePct: null`.** No default, no
+  zero, no fallback to an offer's rate or the per-offer read. The consumer
+  (features-service) owns the cascade measured → brand-stated → cross-org median.
+- **⚠️ Independent of the per-offer rates.** `brand_sales_funnels` named columns and
+  `brand_sales_funnel_arrow_rates` are untouched and keep answering every current
+  reader. They retire once features-service and the dashboard have moved.
+- **The one-time move** is `scripts/migrate-funnel-rates-to-brand.ts [--dry-run]`:
+  per (org, brand, funnel, arrow) the most recently stated non-null per-offer value
+  wins (per-offer precedence: arrow row over named column), conflicts are printed,
+  `ON CONFLICT DO NOTHING` so it never overwrites and a re-run is a no-op. A value
+  equal to a `brand_sales_economics` NOT NULL server default (25/20/25/20) on an
+  economics-backfilled row is NOT a statement and is set aside
+  (`LEGACY_SERVER_DEFAULTS`). Undo: `DELETE ... WHERE migrated_at IS NOT NULL`.
+- Guards: `tests/unit/brandFunnelRates.test.ts`, `tests/integration/brandFunnelRates.test.ts`.
+
 ## Offer answers — what a customer states so a responder does not have to guess
 
 A cold-email prospect replied "I've been to them before. How much are they?" and
