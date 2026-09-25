@@ -410,6 +410,18 @@ export const brandOffers = pgTable("brand_offers", {
 	// proposition is worse than no picture. The bytes are chat-service's (it
 	// generates AND hosts them); we store the URL it hands back and nothing else.
 	imageUrl: text("image_url"),
+	// What a paying client of THIS offer is worth, in USD. A property of what the
+	// offer sells, so it is stated once per offer, never once per funnel. NULL =
+	// never stated: nothing defaults, averages or borrows one. Migration 0071
+	// carried it over from `brand_sales_funnels` (most recently stated value per
+	// offer wins); `brand_sales_funnels.lifetime_revenue_usd` keeps answering the
+	// funnel-keyed reads unchanged until they retire.
+	lifetimeRevenueUsd: integer("lifetime_revenue_usd"),
+	// When the value above was stated (NULL with it). For a carried-over value,
+	// the moment it was stated on the funnel row it came from.
+	lifetimeRevenueStatedAt: timestamp("lifetime_revenue_stated_at", { withTimezone: true, mode: 'string' }),
+	// PROVENANCE of the carry-over; cleared when a caller restates. Read by nothing.
+	lifetimeRevenueCarriedOverAt: timestamp("lifetime_revenue_carried_over_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
@@ -429,6 +441,7 @@ export const brandOffers = pgTable("brand_offers", {
 		"brand_offers_name_length_check",
 		sql`char_length(btrim(${table.name})) BETWEEN 1 AND 60`
 	),
+	check("brand_offers_lifetime_revenue_non_negative", sql`${table.lifetimeRevenueUsd} IS NULL OR ${table.lifetimeRevenueUsd} >= 0`),
 ]);
 
 /**
@@ -710,6 +723,43 @@ export const brandFunnelArrowRates = pgTable("brand_funnel_arrow_rates", {
 		columns: [table.brandId],
 		foreignColumns: [brands.id],
 		name: "brand_funnel_arrow_rates_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
+ * LEG-GRAIN conversion rates — one stated rate per (org, brand, LEG). A leg is the
+ * move of a lead from one step to another (Positive reply -> Meeting booked); the
+ * sales funnel is NOT part of the key, because the same leg sits in several
+ * funnels and is one real-world fact. Shared by every offer of the brand (the
+ * owner's brand-grain decision of 2026-09-25). See `brandLegRatesService`.
+ *
+ * ABSENCE IS THE ANSWER: no row = not stated; clearing deletes the row.
+ */
+export const brandLegRates = pgTable("brand_leg_rates", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	// The two steps the leg connects, as LABELS (the catalogue's wording), exactly
+	// like the funnel-keyed tables: a leg this service does not know yet is still
+	// statable.
+	fromStep: text("from_step").notNull(),
+	toStep: text("to_step").notNull(),
+	ratePct: numeric("rate_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
+	// PROVENANCE of the carry-over from `brand_funnel_arrow_rates` (migration
+	// 0071). NULL on every rate a caller stated; cleared on restatement.
+	carriedOverAt: timestamp("carried_over_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("brand_leg_rates_brand_key").on(table.orgId, table.brandId, table.fromStep, table.toStep),
+	index("brand_leg_rates_brand_id_idx").on(table.brandId),
+	check("brand_leg_rates_steps_not_blank", sql`btrim(${table.fromStep}) <> '' AND btrim(${table.toStep}) <> ''`),
+	check("brand_leg_rates_distinct_steps", sql`${table.fromStep} <> ${table.toStep}`),
+	check("brand_leg_rates_rate_range", sql`${table.ratePct} >= 0 AND ${table.ratePct} <= 100`),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_leg_rates_brand_id_fkey",
 	}).onDelete("cascade"),
 ]);
 

@@ -3060,6 +3060,186 @@
         "required": [
           "arrowRates"
         ]
+      },
+      "GetLegRatesResponse": {
+        "type": "object",
+        "properties": {
+          "legRates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegRate"
+            }
+          }
+        },
+        "required": [
+          "legRates"
+        ]
+      },
+      "LegRate": {
+        "type": "object",
+        "properties": {
+          "fromStep": {
+            "type": "string"
+          },
+          "toStep": {
+            "type": "string"
+          },
+          "ratePct": {
+            "type": "number",
+            "nullable": true
+          },
+          "stated": {
+            "type": "boolean"
+          },
+          "statedAt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "fromStep",
+          "toStep",
+          "ratePct",
+          "stated",
+          "statedAt"
+        ]
+      },
+      "PutLegRatesRequest": {
+        "type": "object",
+        "properties": {
+          "legRates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegRatePatch"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "legRates"
+        ]
+      },
+      "LegRatePatch": {
+        "type": "object",
+        "properties": {
+          "fromStep": {
+            "type": "string",
+            "minLength": 1
+          },
+          "toStep": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ratePct": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "fromStep",
+          "toStep",
+          "ratePct"
+        ]
+      },
+      "OfferEconomics": {
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "lifetimeRevenueUsd": {
+            "type": "integer",
+            "nullable": true,
+            "description": "What a paying client of this offer is worth, USD. `null` = never stated."
+          },
+          "lifetimeRevenueStatedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "legRates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegRate"
+            },
+            "description": "The brand's leg rates — the same for every offer of the brand."
+          }
+        },
+        "required": [
+          "offerId",
+          "name",
+          "lifetimeRevenueUsd",
+          "lifetimeRevenueStatedAt",
+          "legRates"
+        ]
+      },
+      "PutOfferEconomicsRequest": {
+        "type": "object",
+        "properties": {
+          "lifetimeRevenueUsd": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 0
+          },
+          "legRates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegRatePatch"
+            }
+          }
+        }
+      },
+      "GetBrandOfferEconomicsResponse": {
+        "type": "object",
+        "properties": {
+          "legRates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegRate"
+            }
+          },
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OfferLifetimeRevenue"
+            }
+          }
+        },
+        "required": [
+          "legRates",
+          "offers"
+        ]
+      },
+      "OfferLifetimeRevenue": {
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "lifetimeRevenueUsd": {
+            "type": "integer",
+            "nullable": true
+          },
+          "lifetimeRevenueStatedAt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "offerId",
+          "name",
+          "lifetimeRevenueUsd",
+          "lifetimeRevenueStatedAt"
+        ]
       }
     },
     "parameters": {
@@ -7455,6 +7635,319 @@
           },
           "400": {
             "description": "Invalid brand ID, unknown funnel key, or ORG_REQUIRED"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/leg-rates": {
+      "get": {
+        "summary": "Read the brand's stated conversion rate for every leg",
+        "description": "A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every leg, stated or not",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetLegRatesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "State conversion rates for legs of the brand (partial)",
+        "description": "A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read. PARTIAL: a leg omitted is untouched; `ratePct: null` clears it. One transaction — a blank step, a leg pointing at itself or the same leg twice is a 400 with nothing written.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutLegRatesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Every leg, as read after the write",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetLegRatesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or a leg that names nothing"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/economics": {
+      "get": {
+        "summary": "Read an offer's lifetime revenue and the brand's leg rates",
+        "description": "The lifetime revenue is stated per OFFER, no funnel involved. A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offer economics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferEconomics"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "State an offer's lifetime revenue and/or the brand's leg rates",
+        "description": "Omitted = untouched; `lifetimeRevenueUsd: null` clears it. `legRates` is a PARTIAL leg patch and applies to the BRAND (every offer shares it). One transaction. A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutOfferEconomicsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The offer economics, as read after the write",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferEconomics"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID, empty body, negative revenue, or a leg that names nothing"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/leg-rates": {
+      "get": {
+        "summary": "Service read of the brand's leg rates",
+        "description": "A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read. Service auth only; NO user identity needed. `x-org-id` is optional: omitted, the single org claiming the brand answers, and a brand claimed by several orgs is a 400 ORG_REQUIRED. An unclaimed brand answers every leg unstated.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every leg, stated or not",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetLegRatesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or ORG_REQUIRED"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/offer-economics": {
+      "get": {
+        "summary": "Service read of the brand's leg rates and every offer's lifetime revenue",
+        "description": "A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read. Service auth only; NO user identity needed. `x-org-id` is optional: omitted, the single org claiming the brand answers, and a brand claimed by several orgs is a 400 ORG_REQUIRED. An unclaimed brand answers every leg unstated and no offer.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Leg rates + offers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBrandOfferEconomicsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or ORG_REQUIRED"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/offers/{offerId}/economics": {
+      "get": {
+        "summary": "Service read of one offer's lifetime revenue and the brand's leg rates",
+        "description": "A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read. Service auth only; NO user identity needed. `x-org-id` is optional: omitted, the single org claiming the brand answers, and a brand claimed by several orgs is a 400 ORG_REQUIRED.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offer economics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferEconomics"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID or ORG_REQUIRED"
+          },
+          "404": {
+            "description": "No such offer on this brand"
           },
           "500": {
             "description": "Internal server error"
