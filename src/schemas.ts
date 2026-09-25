@@ -4170,3 +4170,201 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
+
+// ---------------------------------------------------------------------------
+// LEG-GRAIN RATES + PER-OFFER LIFETIME REVENUE — the economics a brand states
+// with no sales funnel involved (the funnel is being retired). A rate per (org,
+// brand, leg), shared by every offer; a lifetime revenue per offer.
+// ---------------------------------------------------------------------------
+
+const LEG_RATES_MODEL_DESCRIPTION =
+  'A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), ' +
+  'named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every ' +
+  'offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, ' +
+  'each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg ' +
+  'reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the ' +
+  "funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for " +
+  'it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null ' +
+  'arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read.';
+
+export const LegRateSchema = z
+  .object({
+    fromStep: z.string(),
+    toStep: z.string(),
+    ratePct: z.number().nullable(),
+    stated: z.boolean(),
+    statedAt: z.string().nullable(),
+  })
+  .openapi('LegRate');
+
+export const GetLegRatesResponseSchema = z
+  .object({ legRates: z.array(LegRateSchema) })
+  .openapi('GetLegRatesResponse');
+
+export const LegRatePatchSchema = z
+  .object({
+    fromStep: z.string().min(1),
+    toStep: z.string().min(1),
+    ratePct: PercentSchema.nullable(),
+  })
+  .openapi('LegRatePatch');
+
+export const PutLegRatesRequestSchema = z
+  .object({
+    // PARTIAL: a leg omitted is untouched; `ratePct: null` clears it.
+    legRates: z.array(LegRatePatchSchema).min(1),
+  })
+  .openapi('PutLegRatesRequest');
+
+export const OfferEconomicsSchema = z
+  .object({
+    offerId: z.string().uuid(),
+    name: z.string(),
+    lifetimeRevenueUsd: z.number().int().nullable().openapi({
+      description: 'What a paying client of this offer is worth, USD. `null` = never stated.',
+    }),
+    lifetimeRevenueStatedAt: z.string().nullable(),
+    legRates: z.array(LegRateSchema).openapi({
+      description: "The brand's leg rates — the same for every offer of the brand.",
+    }),
+  })
+  .openapi('OfferEconomics');
+
+export const PutOfferEconomicsRequestSchema = z
+  .object({
+    // Omitted = untouched; `null` clears.
+    lifetimeRevenueUsd: z.number().int().min(0).nullable().optional(),
+    // PARTIAL leg patch, the same as PUT /leg-rates.
+    legRates: z.array(LegRatePatchSchema).optional(),
+  })
+  .refine((b) => b.lifetimeRevenueUsd !== undefined || (b.legRates !== undefined && b.legRates.length > 0), {
+    message: 'State lifetimeRevenueUsd, legRates, or both.',
+  })
+  .openapi('PutOfferEconomicsRequest');
+
+export const OfferLifetimeRevenueSchema = z
+  .object({
+    offerId: z.string().uuid(),
+    name: z.string(),
+    lifetimeRevenueUsd: z.number().int().nullable(),
+    lifetimeRevenueStatedAt: z.string().nullable(),
+  })
+  .openapi('OfferLifetimeRevenue');
+
+export const GetBrandOfferEconomicsResponseSchema = z
+  .object({ legRates: z.array(LegRateSchema), offers: z.array(OfferLifetimeRevenueSchema) })
+  .openapi('GetBrandOfferEconomicsResponse');
+
+const INTERNAL_SCOPE_NOTE =
+  ' Service auth only; NO user identity needed. `x-org-id` is optional: omitted, the single org ' +
+  'claiming the brand answers, and a brand claimed by several orgs is a 400 ORG_REQUIRED.';
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/leg-rates',
+  summary: "Read the brand's stated conversion rate for every leg",
+  description: LEG_RATES_MODEL_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Every leg, stated or not', content: { 'application/json': { schema: GetLegRatesResponseSchema } } },
+    400: { description: 'Invalid brand ID' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/leg-rates',
+  summary: 'State conversion rates for legs of the brand (partial)',
+  description:
+    LEG_RATES_MODEL_DESCRIPTION + ' PARTIAL: a leg omitted is untouched; `ratePct: null` clears it. ' +
+    'One transaction — a blank step, a leg pointing at itself or the same leg twice is a 400 with nothing written.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PutLegRatesRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Every leg, as read after the write', content: { 'application/json': { schema: GetLegRatesResponseSchema } } },
+    400: { description: 'Invalid brand ID or a leg that names nothing' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/economics',
+  summary: "Read an offer's lifetime revenue and the brand's leg rates",
+  description: 'The lifetime revenue is stated per OFFER, no funnel involved. ' + LEG_RATES_MODEL_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The offer economics', content: { 'application/json': { schema: OfferEconomicsSchema } } },
+    400: { description: 'Invalid ID' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/economics',
+  summary: "State an offer's lifetime revenue and/or the brand's leg rates",
+  description:
+    'Omitted = untouched; `lifetimeRevenueUsd: null` clears it. `legRates` is a PARTIAL leg patch and ' +
+    'applies to the BRAND (every offer shares it). One transaction. ' + LEG_RATES_MODEL_DESCRIPTION,
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PutOfferEconomicsRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The offer economics, as read after the write', content: { 'application/json': { schema: OfferEconomicsSchema } } },
+    400: { description: 'Invalid ID, empty body, negative revenue, or a leg that names nothing' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/leg-rates',
+  summary: "Service read of the brand's leg rates",
+  description: LEG_RATES_MODEL_DESCRIPTION + INTERNAL_SCOPE_NOTE + ' An unclaimed brand answers every leg unstated.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Every leg, stated or not', content: { 'application/json': { schema: GetLegRatesResponseSchema } } },
+    400: { description: 'Invalid brand ID or ORG_REQUIRED' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/offer-economics',
+  summary: "Service read of the brand's leg rates and every offer's lifetime revenue",
+  description: LEG_RATES_MODEL_DESCRIPTION + INTERNAL_SCOPE_NOTE + ' An unclaimed brand answers every leg unstated and no offer.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Leg rates + offers', content: { 'application/json': { schema: GetBrandOfferEconomicsResponseSchema } } },
+    400: { description: 'Invalid brand ID or ORG_REQUIRED' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/offers/{offerId}/economics',
+  summary: "Service read of one offer's lifetime revenue and the brand's leg rates",
+  description: LEG_RATES_MODEL_DESCRIPTION + INTERNAL_SCOPE_NOTE,
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The offer economics', content: { 'application/json': { schema: OfferEconomicsSchema } } },
+    400: { description: 'Invalid ID or ORG_REQUIRED' },
+    404: { description: 'No such offer on this brand' },
+    500: { description: 'Internal server error' },
+  },
+});

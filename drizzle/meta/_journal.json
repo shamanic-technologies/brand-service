@@ -484,6 +484,13 @@
       "when": 1789713129558,
       "tag": "0070_brand_funnel_arrow_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1789713130558,
+      "tag": "0071_leg_rates_and_offer_lifetime_revenue",
+      "breakpoints": true
     }
   ]
 }
