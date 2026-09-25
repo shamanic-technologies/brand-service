@@ -61,6 +61,37 @@ amounts). Routes in `src/routes/brand-funnel-rates.routes.ts`, service
   (`LEGACY_SERVER_DEFAULTS`). Undo: `DELETE ... WHERE migrated_at IS NOT NULL`.
 - Guards: `tests/unit/brandFunnelRates.test.ts`, `tests/integration/brandFunnelRates.test.ts`.
 
+## The funnel is being retired — rates per (org, brand, LEG), lifetime revenue per OFFER
+
+A LEG is the move of a lead from one step to another (Positive reply -> Meeting
+booked). The same leg sits in several funnels and is ONE fact, so the funnel is
+not part of the key. Storage: `brand_leg_rates` (org, brand, from_step, to_step)
+and `brand_offers.lifetime_revenue_usd` (+ `_stated_at`). Migration `0071`.
+Service `brandLegRatesService`, pure halves `src/lib/brand-leg-rates.ts`, routes
+`src/routes/leg-rates.routes.ts`:
+
+- `GET|PUT /orgs/brands/:brandId/leg-rates` (`{ legRates: [{ fromStep, toStep,
+  ratePct | null }] }`, PARTIAL, `null` deletes) and `GET|PUT
+  /orgs/brands/:brandId/offers/:offerId/economics` (`{ lifetimeRevenueUsd?,
+  legRates? }` → `{ offerId, name, lifetimeRevenueUsd, lifetimeRevenueStatedAt,
+  legRates }`). Internal, no user, `x-org-id` optional: `GET
+  /internal/brands/:brandId/leg-rates`, `/offer-economics` (legs + every offer),
+  `/offers/:offerId/economics`.
+- **Rates stay at the BRAND grain** (owner decision of 2026-09-25, #538): the offer
+  route serves the brand's legs, a leg written there applies to every offer.
+- **⚠️ PRECEDENCE, one rule: a leg / an offer's lifetime revenue reads the MOST
+  RECENT value stated for it, whichever door stated it.** Implemented as a
+  ONE-WAY mirror: `writeBrandFunnelRates` also states its non-null arrows on the
+  leg, and a per-offer funnel write carrying `lifetimeRevenueUsd` also states it
+  on the offer. The leg doors never write back, so every funnel-keyed read stays
+  byte-identical until it retires. A funnel-door `null` clears only the funnel
+  copy. Per-offer funnel RATE writes are NOT mirrored (they were already
+  superseded by the brand grain in #538).
+- **Carry-over (0071, run at boot):** most recently stated value wins, per leg and
+  per offer; only NULL targets are filled. Prod at ship: 0 conflicting legs,
+  1 conflicting offer lifetime revenue (500 over 175).
+- Guards: `tests/unit/brandLegRates.test.ts`, `tests/integration/legRates.test.ts`.
+
 ## Offer answers — what a customer states so a responder does not have to guess
 
 A cold-email prospect replied "I've been to them before. How much are they?" and

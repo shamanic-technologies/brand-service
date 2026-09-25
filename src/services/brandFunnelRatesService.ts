@@ -25,6 +25,7 @@ import {
   SalesFunnelArrowRatePatch,
   assertArrowIdentifiable,
 } from './salesFunnelArrowRatesService';
+import { mirrorFunnelArrowsOntoLegs } from './brandLegRatesService';
 
 /**
  * The conversion rates a BRAND states for the arrows of its sales funnels — one
@@ -131,6 +132,9 @@ export async function writeBrandFunnelRates(
           set: { ratePct: patch.ratePct, migratedFromOfferId: null, migratedAt: null, updatedAt: now },
         });
     }
+    // The funnel is being retired: the same statement is the leg's most recent
+    // one too. One-way — see the precedence note in brandLegRatesService.
+    await mirrorFunnelArrowsOntoLegs(tx, orgId, brandId, normalized, now);
   });
 
   const stored = await readStored(orgId, brandId, funnelKey);

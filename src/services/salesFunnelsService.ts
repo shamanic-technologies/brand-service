@@ -1,5 +1,6 @@
 import { and, eq, notInArray } from 'drizzle-orm';
 import { db, brandSalesFunnels, brandSalesFunnelArrowRates } from '../db';
+import { setOfferLifetimeRevenue } from './brandLegRatesService';
 import {
   offerScope,
   resolveOfferForWrite,
@@ -547,6 +548,13 @@ export class SalesFunnelsService {
 
     if (patch.arrowRates && patch.arrowRates.length > 0) {
       await writeArrowRates(orgId, brandId, offerId, funnelKey, patch.arrowRates);
+    }
+
+    // The funnel is being retired and a lifetime revenue is a property of the
+    // OFFER: a value stated here is the offer's most recent statement too. A null
+    // clears only this funnel's copy. See brandLegRatesService (precedence).
+    if (typeof patch.lifetimeRevenueUsd === 'number') {
+      await setOfferLifetimeRevenue(db, orgId, brandId, offerId, patch.lifetimeRevenueUsd, new Date().toISOString());
     }
 
     const arrowRows = await readArrowRates(orgId, brandId, offerId, [funnelKey]);
