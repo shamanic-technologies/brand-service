@@ -1,12 +1,10 @@
 import { Router, Request, Response } from 'express';
 import {
   CreateOfferRequestSchema,
-  DeclareSalesFunnelRequestSchema,
   GenerateOfferImageRequestSchema,
   PutOfferAnswersRequestSchema,
   PutUserFieldsRequestSchema,
   RenameOfferRequestSchema,
-  StateSalesFunnelSetRequestSchema,
 } from '../schemas';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { rejectOfferProblem } from '../lib/offer-scope';
@@ -29,23 +27,12 @@ import {
   OfferAnswersValidationError,
 } from '../services/brandOfferAnswersService';
 import { ChatServiceImageGenerationError } from '../lib/chat-client';
-import { toSalesFunnelKey, SALES_FUNNEL_KEYS, SalesFunnelKey } from '../services/salesFunnelCatalogue';
-import {
-  SalesFunnelDestinationNotUsedError,
-  SalesFunnelRateNotInFunnelError,
-  SalesFunnelRequiresWebsiteError,
-  LastActiveSalesFunnelError,
-  RetiredGoalNamesNoFunnelError,
-  salesFunnelsService,
-} from '../services/salesFunnelsService';
-import { SalesFunnelArrowInvalidError } from '../services/salesFunnelArrowRatesService';
-import { ClickDestinationValidationError } from '../services/clickDestinationService';
+import { readActiveFunnelsByOfferId } from '../services/retainedOfferFunnelsRead';
 import {
   getUserFieldsViewByOfferId,
   upsertUserFieldsByOfferId,
   UnknownUserFieldKeyError,
 } from '../services/brandUserFieldsService';
-import { parseEraseFlag } from './sales-funnels.routes';
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 
 export const orgRouter = Router();
@@ -55,9 +42,9 @@ export const internalRouter = Router();
  * OFFERS — the things a brand sells, and everything scoped to one of them.
  *
  * A brand is an IDENTITY; an offer is a PROPOSITION. Its value (the 7 Hormozi
- * user-fields) and the funnels it is sold through, with their rates, lifetime
- * revenue and destinations, all hang off the offer — so a brand selling a $200
- * self-serve plan and a $20k contract prices each one for what it is.
+ * user-fields), its lifetime revenue and its buyer answers hang off the offer —
+ * so a brand selling a $200 self-serve plan and a $20k contract prices each one
+ * for what it is.
  *
  * These routes are the SAME operations the brand-scoped ones expose, with the
  * offer named instead of guessed. The brand-scoped routes are unchanged and
@@ -94,38 +81,6 @@ async function resolveOfferParam(
   return { brandId, offerId };
 }
 
-/** Resolve a funnel key from the path, accepting the pre-retirement spellings. */
-function parseFunnelKey(req: Request, res: Response): SalesFunnelKey | null {
-  const resolved = toSalesFunnelKey(req.params.funnelKey);
-  if (!resolved) {
-    res.status(400).json({
-      error:
-        `Unknown sales funnel "${req.params.funnelKey}": expected one of ` +
-        SALES_FUNNEL_KEYS.join(', '),
-    });
-    return null;
-  }
-  return resolved;
-}
-
-/** Every declaration failure is the caller describing a funnel that is not there. */
-function rejectDeclaration(res: Response, error: unknown): boolean {
-  if (rejectOfferProblem(res, error)) return true;
-  if (
-    error instanceof SalesFunnelRateNotInFunnelError ||
-    error instanceof SalesFunnelArrowInvalidError ||
-    error instanceof SalesFunnelDestinationNotUsedError ||
-    error instanceof SalesFunnelRequiresWebsiteError ||
-    error instanceof LastActiveSalesFunnelError ||
-    error instanceof RetiredGoalNamesNoFunnelError ||
-    error instanceof ClickDestinationValidationError
-  ) {
-    res.status(400).json({ error: (error as Error).message });
-    return true;
-  }
-  return false;
-}
-
 // ── The offers themselves ───────────────────────────────────────────────────
 
 /**
@@ -155,8 +110,8 @@ orgRouter.get('/brands/:brandId/offers', async (req: Request, res: Response) => 
  * POST /orgs/brands/:brandId/offers
  * Create an offer. The name is at most 2 words and at most 20 characters, and
  * is unique within the brand — a name already taken is a 409, never a name we
- * suffix a number onto. The new offer starts with NOTHING: no funnel, no
- * confirmed field. It is independent of every other offer on the brand.
+ * suffix a number onto. The new offer starts with NOTHING: no lifetime
+ * revenue, no confirmed field. It is independent of every other offer on the brand.
  */
 orgRouter.post('/brands/:brandId/offers', async (req: Request, res: Response) => {
   try {
@@ -388,139 +343,6 @@ orgRouter.put('/brands/:brandId/offers/:offerId/answers', async (req: Request, r
   }
 });
 
-// ── One offer's sales funnels ───────────────────────────────────────────────
-
-/** GET /orgs/brands/:brandId/offers/:offerId/sales-funnels */
-orgRouter.get('/brands/:brandId/offers/:offerId/sales-funnels', async (req: Request, res: Response) => {
-  try {
-    const scope = await resolveOfferParam(req, res);
-    if (!scope) return;
-
-    const set = await salesFunnelsService.readByOfferId(req.orgId!, scope.brandId, scope.offerId);
-    return res.status(200).json(set);
-  } catch (error: any) {
-    console.error('[brand-service] Get offer sales funnels error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-/** PUT /orgs/brands/:brandId/offers/:offerId/sales-funnels — state the whole set. */
-orgRouter.put('/brands/:brandId/offers/:offerId/sales-funnels', async (req: Request, res: Response) => {
-  try {
-    const scope = await resolveOfferParam(req, res);
-    if (!scope) return;
-
-    const parsed = StateSalesFunnelSetRequestSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
-    }
-
-    const brand = await getBrand(scope.brandId);
-    if (!brand) return res.status(404).json({ error: 'Brand not found' });
-
-    const funnelKeys = parsed.data.funnelKeys.map((key) => toSalesFunnelKey(key) as SalesFunnelKey);
-
-    try {
-      const set = await salesFunnelsService.statesetByOfferId(
-        req.orgId!,
-        scope.brandId,
-        scope.offerId,
-        funnelKeys,
-        brand.domain ?? null
-      );
-      return res.status(200).json(set);
-    } catch (error) {
-      if (rejectDeclaration(res, error)) return;
-      throw error;
-    }
-  } catch (error: any) {
-    console.error('[brand-service] State offer sales funnel set error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-/** PUT /orgs/brands/:brandId/offers/:offerId/sales-funnels/:funnelKey */
-orgRouter.put(
-  '/brands/:brandId/offers/:offerId/sales-funnels/:funnelKey',
-  async (req: Request, res: Response) => {
-    try {
-      const scope = await resolveOfferParam(req, res);
-      if (!scope) return;
-
-      const funnelKey = parseFunnelKey(req, res);
-      if (!funnelKey) return;
-
-      const parsed = DeclareSalesFunnelRequestSchema.safeParse(req.body ?? {});
-      if (!parsed.success) {
-        return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
-      }
-
-      const brand = await getBrand(scope.brandId);
-      if (!brand) return res.status(404).json({ error: 'Brand not found' });
-
-      try {
-        const funnel = await salesFunnelsService.declareByOfferId(
-          req.orgId!,
-          scope.brandId,
-          scope.offerId,
-          funnelKey,
-          parsed.data,
-          brand.domain ?? null
-        );
-        return res.status(200).json({ funnel });
-      } catch (error) {
-        if (rejectDeclaration(res, error)) return;
-        throw error;
-      }
-    } catch (error: any) {
-      console.error('[brand-service] Declare offer sales funnel error:', error);
-      return res.status(500).json({ error: error.message || 'Internal server error' });
-    }
-  }
-);
-
-/**
- * DELETE /orgs/brands/:brandId/offers/:offerId/sales-funnels/:funnelKey
- * Switch it off, keeping every number on it. `?erase=true` forgets it outright.
- */
-orgRouter.delete(
-  '/brands/:brandId/offers/:offerId/sales-funnels/:funnelKey',
-  async (req: Request, res: Response) => {
-    try {
-      const scope = await resolveOfferParam(req, res);
-      if (!scope) return;
-
-      const funnelKey = parseFunnelKey(req, res);
-      if (!funnelKey) return;
-
-      const erase = parseEraseFlag(req, res);
-      if (erase === null) return;
-
-      try {
-        if (erase) {
-          await salesFunnelsService.eraseByOfferId(req.orgId!, scope.brandId, scope.offerId, funnelKey);
-        } else {
-          await salesFunnelsService.deactivateByOfferId(
-            req.orgId!,
-            scope.brandId,
-            scope.offerId,
-            funnelKey
-          );
-        }
-      } catch (error) {
-        if (rejectDeclaration(res, error)) return;
-        throw error;
-      }
-
-      const set = await salesFunnelsService.readByOfferId(req.orgId!, scope.brandId, scope.offerId);
-      return res.status(200).json(set);
-    } catch (error: any) {
-      console.error('[brand-service] Undeclare offer sales funnel error:', error);
-      return res.status(500).json({ error: error.message || 'Internal server error' });
-    }
-  }
-);
-
 // ── One offer's value proposition ───────────────────────────────────────────
 
 /**
@@ -601,11 +423,10 @@ internalRouter.get('/brands/:brandId/offers', async (req: Request, res: Response
 
 /**
  * GET /internal/offers/:offerId/sales-funnels
- * The ACTIVE funnels of ONE offer, keyed by the offer alone — what a scheduler
- * ranks over once it holds an offer id. A funnel switched off is never listed:
- * it must never be ranked. An unknown offer is a 404, unlike the brand-keyed
- * read, because an offer id that names nothing is a caller error rather than an
- * unconfigured brand.
+ * RETAINED after the funnel retirement (wave C2) because two services still
+ * call it in production: client-service reward-tasks and workflow-service's AI
+ * meeting-booking DAG. Read-only over frozen rows; see
+ * `retainedOfferFunnelsRead.ts`. Unknown offer = 404.
  */
 internalRouter.get('/offers/:offerId/sales-funnels', async (req: Request, res: Response) => {
   try {
@@ -617,7 +438,7 @@ internalRouter.get('/offers/:offerId/sales-funnels', async (req: Request, res: R
     const offer = await getOfferById(offerId);
     if (!offer) return res.status(404).json({ error: 'Offer not found' });
 
-    const set = await salesFunnelsService.readActiveByOfferId(offer.orgId, offer.brandId, offerId);
+    const set = await readActiveFunnelsByOfferId(offer.orgId, offer.brandId, offerId);
     return res.status(200).json(set);
   } catch (error: any) {
     console.error('[brand-service] Internal get offer sales funnels error:', error);

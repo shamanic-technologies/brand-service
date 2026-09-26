@@ -4,13 +4,13 @@ import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 import { rejectOfferProblem } from '../lib/offer-scope';
 import { OfferNotFoundError } from '../services/brandOffersService';
-import { SalesFunnelArrowInvalidError } from '../services/salesFunnelArrowRatesService';
 import {
   readLegRates,
   readOfferEconomics,
   readOffersLifetimeRevenue,
   writeLegRates,
   writeOfferEconomics,
+  LegRateInvalidError,
 } from '../services/brandLegRatesService';
 
 export const orgRouter = Router();
@@ -18,8 +18,7 @@ export const internalRouter = Router();
 
 /**
  * LEG-GRAIN rates (per org, brand, leg) and PER-OFFER lifetime revenue — the
- * economics a brand states with no sales funnel involved. See
- * `brandLegRatesService` for the precedence with the funnel-keyed routes.
+ * economics a brand states. See `brandLegRatesService`.
  */
 
 function badBrand(res: Response, brandId: string): boolean {
@@ -62,7 +61,7 @@ orgRouter.put('/brands/:brandId/leg-rates', async (req: Request, res: Response) 
       const legRates = await writeLegRates(req.orgId!, brandId, parsed.data.legRates);
       return res.status(200).json({ legRates });
     } catch (error) {
-      if (error instanceof SalesFunnelArrowInvalidError) return res.status(400).json({ error: error.message });
+      if (error instanceof LegRateInvalidError) return res.status(400).json({ error: error.message });
       throw error;
     }
   } catch (error: any) {
@@ -103,7 +102,7 @@ orgRouter.put('/brands/:brandId/offers/:offerId/economics', async (req: Request,
     try {
       return res.status(200).json(await writeOfferEconomics(req.orgId!, brandId, offerId, parsed.data));
     } catch (error) {
-      if (error instanceof SalesFunnelArrowInvalidError) return res.status(400).json({ error: error.message });
+      if (error instanceof LegRateInvalidError) return res.status(400).json({ error: error.message });
       if (rejectOfferProblem(res, error)) return;
       throw error;
     }

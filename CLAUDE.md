@@ -26,77 +26,46 @@ Microservice for managing brand information, media assets, organizations, and AI
 - `tests/` — Test files (unit + integration, `*.test.ts`)
 - `openapi.json` — Auto-generated from Zod schemas, do NOT edit manually
 
-## Conversion rates live on the BRAND — `brand_funnel_arrow_rates`
-
-Owner-decided 2026-09-25: a conversion rate describes how a brand SELLS, so there
-is ONE stated rate per (org, brand, funnel, arrow), shared by every offer of the
-brand selling that funnel. Lifetime revenue and the booking link STAY per offer on
-`brand_sales_funnels` (an offer is what is sold; two offers are worth different
-amounts). Routes in `src/routes/brand-funnel-rates.routes.ts`, service
-`brandFunnelRatesService`, pure halves in `src/lib/brand-funnel-rates.ts`.
-
-- `GET /orgs/brands/:brandId/funnel-rates[?funnelKey=]` and
-  `GET /internal/brands/:brandId/funnel-rates[?funnelKey=]` (service key only, NO
-  user; `x-org-id` optional, resolved like every internal read — a brand claimed
-  by several orgs is 400 `ORG_REQUIRED`) → `{ funnels: [{ funnelKey, name, steps,
-  arrows: [{ fromStep, toStep, ratePct, stated, statedAt }] }] }`. Every catalogue
-  funnel, every catalogue arrow in funnel order, then any arrow stated outside the
-  catalogue.
-- `PUT /orgs/brands/:brandId/funnel-rates/:funnelKey` `{ arrowRates: [{ fromStep,
-  toStep, ratePct | null }] }` → `{ funnel }`. PARTIAL; `null` DELETES the row.
-  One transaction; an empty step, a self-arrow or the same arrow twice is a 400
-  with nothing written.
-- **⚠️ An unstated arrow reads `stated: false`, `ratePct: null`.** No default, no
-  zero, no fallback to an offer's rate or the per-offer read. The consumer
-  (features-service) owns the cascade measured → brand-stated → cross-org median.
-- **⚠️ Independent of the per-offer rates.** `brand_sales_funnels` named columns and
-  `brand_sales_funnel_arrow_rates` are untouched and keep answering every current
-  reader. They retire once features-service and the dashboard have moved.
-- **The one-time move** is `scripts/migrate-funnel-rates-to-brand.ts [--dry-run]`:
-  per (org, brand, funnel, arrow) the most recently stated non-null per-offer value
-  wins (per-offer precedence: arrow row over named column), conflicts are printed,
-  `ON CONFLICT DO NOTHING` so it never overwrites and a re-run is a no-op. A value
-  equal to a `brand_sales_economics` NOT NULL server default (25/20/25/20) on an
-  economics-backfilled row is NOT a statement and is set aside
-  (`LEGACY_SERVER_DEFAULTS`). Undo: `DELETE ... WHERE migrated_at IS NOT NULL`.
-- Guards: `tests/unit/brandFunnelRates.test.ts`, `tests/integration/brandFunnelRates.test.ts`.
-
-## The funnel is being retired — rates per (org, brand, LEG), lifetime revenue per OFFER
+## The sales funnel is retired — rates per (org, brand, LEG), lifetime revenue per OFFER
 
 A LEG is the move of a lead from one step to another (Positive reply -> Meeting
-booked). The same leg sits in several funnels and is ONE fact, so the funnel is
-not part of the key. Storage: `brand_leg_rates` (org, brand, from_step, to_step)
-and `brand_offers.lifetime_revenue_usd` (+ `_stated_at`). Migration `0071`.
-Service `brandLegRatesService`, pure halves `src/lib/brand-leg-rates.ts`, routes
-`src/routes/leg-rates.routes.ts`:
+booked). Storage: `brand_leg_rates` (org, brand, from_step, to_step) and
+`brand_offers.lifetime_revenue_usd` (+ `_stated_at`). Service
+`brandLegRatesService`, pure halves `src/lib/brand-leg-rates.ts` (the known leg
+list is `KNOWN_LEGS` there), routes `src/routes/leg-rates.routes.ts`:
 
 - `GET|PUT /orgs/brands/:brandId/leg-rates` (`{ legRates: [{ fromStep, toStep,
   ratePct | null }] }`, PARTIAL, `null` deletes) and `GET|PUT
   /orgs/brands/:brandId/offers/:offerId/economics` (`{ lifetimeRevenueUsd?,
-  legRates? }` → `{ offerId, name, lifetimeRevenueUsd, lifetimeRevenueStatedAt,
-  legRates }`). Internal, no user, `x-org-id` optional: `GET
-  /internal/brands/:brandId/leg-rates`, `/offer-economics` (legs + every offer),
+  legRates? }`). Internal, no user, `x-org-id` optional: `GET
+  /internal/brands/:brandId/leg-rates`, `/offer-economics`,
   `/offers/:offerId/economics`.
-- **Rates stay at the BRAND grain** (owner decision of 2026-09-25, #538): the offer
-  route serves the brand's legs, a leg written there applies to every offer.
-- **⚠️ PRECEDENCE, one rule: a leg / an offer's lifetime revenue reads the MOST
-  RECENT value stated for it, whichever door stated it.** Implemented as a
-  ONE-WAY mirror: `writeBrandFunnelRates` also states its non-null arrows on the
-  leg, and a per-offer funnel write carrying `lifetimeRevenueUsd` also states it
-  on the offer. The leg doors never write back, so every funnel-keyed read stays
-  byte-identical until it retires. A funnel-door `null` clears only the funnel
-  copy. Per-offer funnel RATE writes are NOT mirrored (they were already
-  superseded by the brand grain in #538).
-- **Carry-over (0071, run at boot):** most recently stated value wins, per leg and
-  per offer; only NULL targets are filled. Prod at ship: 0 conflicting legs,
-  1 conflicting offer lifetime revenue (500 over 175).
+- **⚠️ An unstated leg reads `stated: false`, `ratePct: null`.** No default. The
+  consumer (features-service) owns measured → stated → cross-org median.
 - Guards: `tests/unit/brandLegRates.test.ts`, `tests/integration/legRates.test.ts`.
+
+**Wave C2 (distribute.you#4413) deleted every other funnel surface**: the
+`/sales-funnels` and `/funnel-rates` routes (brand- and offer-scoped),
+`PUT /orgs/brands/:brandId/current-goal`, the goal→funnel declaration on the
+sales-economics PUT (a goal is now only mirrored into the retired columns), the
+backfill scripts, table `brand_funnel_arrow_rates` and column
+`brand_sales_economics.funnel_stages` (migration `0072`, which snapshots both into
+`*_funnel_snapshot_20260926` tables in the same transaction and refuses to drop on
+a count mismatch).
+
+**⚠️ ONE funnel read is RETAINED: `GET /internal/offers/:offerId/sales-funnels`**
+(`src/services/retainedOfferFunnelsRead.ts` + a trimmed `salesFunnelCatalogue.ts`),
+because client-service reward-tasks and workflow-service's AI meeting-booking DAG
+still call it in production. It reads `brand_sales_funnels` +
+`brand_sales_funnel_arrow_rates`, which NOTHING writes any more (frozen). Do not
+add a writer. Delete the route, the module, the catalogue and both tables once
+those two callers have moved to the leg / offer reads.
 
 ## Offer answers — what a customer states so a responder does not have to guess
 
 A cold-email prospect replied "I've been to them before. How much are they?" and
 nothing in the fleet could answer it: the AI drafting the reply holds the brand,
-the offer, the funnel, the booking link and the conversation, and no price. So it
+the offer, the booking link and the conversation, and no price. So it
 answered what it could and asked for a call, which visibly dodges the question a
 buyer just asked. The customer knows the answer; they had nowhere to put it.
 
@@ -121,9 +90,9 @@ other offer route; service-to-service callers read it with the service key plus
 - **⚠️ ON THE OFFER, NEVER THE BRAND AND NEVER THE CAMPAIGN.** The question that
   motivated it is a PRICE, and a price is a property of a proposition — this repo
   already says so where offers are defined ("a brand selling a $200 self-serve
-  plan and a $20k contract prices each one for what it is"), which is why funnels,
-  rates, lifetime revenue and the seven value levers all hang off the offer. A
-  campaign is bought per funnel leg and a brand holds dozens of stored rows, none
+  plan and a $20k contract prices each one for what it is"), which is why lifetime
+  revenue and the seven value levers hang off the offer. A
+  campaign is bought per leg and a brand holds dozens of stored rows, none
   of which changes what the thing costs.
 - **⚠️ NOTHING IS INVENTED, INFERRED, DEFAULTED OR BORROWED.** An offer whose
   customer has stated nothing answers `{ stated: false, statedAt: null, answers: [] }`

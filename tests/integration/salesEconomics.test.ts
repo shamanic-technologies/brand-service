@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandSalesEconomics } from '../../src/db';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 /**
@@ -19,8 +19,8 @@ describe('Sales Economics Endpoints', () => {
   const foreignBrandId = randomUUID(); // owned by otherOrgId
   const unknownBrandId = randomUUID(); // not in brands at all
   const bmBrandId = randomUUID(); // owned by ownerOrgId, business-model lifecycle
-  const funnelBrandId = randomUUID(); // owned by ownerOrgId, funnel-fields lifecycle
-  const funnelUnsetBrandId = randomUUID(); // owned by ownerOrgId, never written
+  const goalBrandId = randomUUID(); // owned by ownerOrgId, retired-goal mirror lifecycle
+  const goalUnsetBrandId = randomUUID(); // owned by ownerOrgId, never sent a goal
   const defaultsBrandId = randomUUID(); // owned by ownerOrgId, row written WITHOUT the two sub-rates (DB defaults)
   const singleStepBrandId = randomUUID(); // owned by ownerOrgId, single-step goals + rates lifecycle
   const singleStepUnsetBrandId = randomUUID(); // owned by ownerOrgId, reads single-step rate defaults
@@ -45,8 +45,8 @@ describe('Sales Economics Endpoints', () => {
   // Every brand this suite owns. Kept as ONE list so setup/teardown stay in
   // lockstep as brands are added.
   const allBrandIds = [
-    brandId, unsetBrandId, foreignBrandId, bmBrandId, funnelBrandId,
-    funnelUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId,
+    brandId, unsetBrandId, foreignBrandId, bmBrandId, goalBrandId,
+    goalUnsetBrandId, defaultsBrandId, singleStepBrandId, singleStepUnsetBrandId,
     formSubBrandId, formSubUnsetBrandId, combinedGoalBrandId,
     partialLtvBrandId, partialRateBrandId, partialFullSetBrandId, partialUnsetBrandId,
   ];
@@ -78,6 +78,22 @@ describe('Sales Economics Endpoints', () => {
   });
 
   const path = (id: string) => `/orgs/brands/${id}/sales-economics`;
+
+  // The two retired goal columns an optimizationGoal on PUT is mirrored into.
+  const storedGoals = async (id: string) => {
+    const [membership] = await db
+      .select({ currentGoal: orgBrands.currentGoal })
+      .from(orgBrands)
+      .where(and(eq(orgBrands.orgId, ownerOrgId), eq(orgBrands.brandId, id)));
+    const [economics] = await db
+      .select({ optimizationGoal: brandSalesEconomics.optimizationGoal })
+      .from(brandSalesEconomics)
+      .where(and(eq(brandSalesEconomics.orgId, ownerOrgId), eq(brandSalesEconomics.brandId, id)));
+    return {
+      currentGoal: membership?.currentGoal ?? null,
+      optimizationGoal: economics?.optimizationGoal ?? null,
+    };
+  };
 
   // AC2 — unset returns null, not an error
   it('GET an owned brand with nothing saved returns { salesEconomics: null }, 200', async () => {
@@ -331,37 +347,35 @@ describe('Sales Economics Endpoints', () => {
     expect(res.status).toBe(400);
   });
 
-  // ── funnelStages + the retired optimizationGoal ───────────────────
+  // ── the retired optimizationGoal ──────────────────────────────────
   //
-  // A goal is still ACCEPTED on write, in every spelling, and it declares the
-  // funnel(s) it meant. It is never READ BACK: what a brand sells through is
-  // its declared funnel set, and that is the only vocabulary any read emits.
-  // These assertions therefore say `toBeUndefined()` where they used to name a
-  // token — that absence IS the retirement.
-  // Lifecycle runs IN ORDER on funnelBrandId: set → preserve → clear-to-[].
+  // A goal is still ACCEPTED on write, in every spelling. It is only MIRRORED
+  // into the two retired columns (org_brands.current_goal +
+  // brand_sales_economics.optimization_goal), canonical either way, and it
+  // declares no funnel. It is never READ BACK here: the only read left is
+  // runtime-context. `funnelStages` is gone — sending it is ignored.
+  // Lifecycle runs IN ORDER on goalBrandId: set → preserve.
 
-  // AC2 — a brand that never set these reads [] + "sales" (server defaults)
-  it('GET a brand that never set funnel fields → funnelStages [] and no goal on the wire', async () => {
+  it('GET a brand that never sent a goal → no goal and no funnelStages on the wire', async () => {
     const putRes = await request(app)
-      .put(path(funnelUnsetBrandId))
+      .put(path(goalUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send(validMetrics);
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.funnelStages).toEqual([]);
+    expect(putRes.body.salesEconomics.funnelStages).toBeUndefined();
     expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const getRes = await request(app)
-      .get(path(funnelUnsetBrandId))
+      .get(path(goalUnsetBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.funnelStages).toEqual([]);
+    expect(getRes.body.salesEconomics.funnelStages).toBeUndefined();
     expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
-  // AC1 — PUT both fields then GET round-trips exactly
-  it('PUT funnelStages + optimizationGoal → GET returns them exactly', async () => {
+  it('PUT optimizationGoal → mirrored canonical into both retired columns, never on the wire; a sent funnelStages is ignored', async () => {
     const putRes = await request(app)
-      .put(path(funnelBrandId))
+      .put(path(goalBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({
         ...validMetrics,
@@ -370,72 +384,41 @@ describe('Sales Economics Endpoints', () => {
       });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.funnelStages).toEqual([
-      'website_purchase',
-      'sales_meeting',
-    ]);
+    expect(putRes.body.salesEconomics.funnelStages).toBeUndefined();
     expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
+    expect(putRes.body.funnels).toBeUndefined();
+
+    expect(await storedGoals(goalBrandId)).toEqual({
+      currentGoal: 'meetingBooked',
+      optimizationGoal: 'meetingBooked',
+    });
 
     const getRes = await request(app)
-      .get(path(funnelBrandId))
+      .get(path(goalBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.salesEconomics.funnelStages).toEqual([
-      'website_purchase',
-      'sales_meeting',
-    ]);
+    expect(getRes.body.salesEconomics.funnelStages).toBeUndefined();
     expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
-  // AC3 — omitting both keys leaves prior values unchanged (idempotent)
-  it('PUT 5 metrics with no funnel fields preserves stored funnelStages + optimizationGoal', async () => {
+  // Omitting the goal leaves the mirrored value unchanged.
+  it('PUT 5 metrics with no goal preserves the stored optimizationGoal', async () => {
     const putRes = await request(app)
-      .put(path(funnelBrandId))
+      .put(path(goalBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send(validMetrics);
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.funnelStages).toEqual([
-      'website_purchase',
-      'sales_meeting',
-    ]);
     expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
-  });
-
-  // Sending [] explicitly clears funnelStages (distinct from omitting)
-  it('PUT funnelStages [] sets it to empty (not unchanged)', async () => {
-    const putRes = await request(app)
-      .put(path(funnelBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, funnelStages: [] });
-
-    expect(putRes.status).toBe(200);
-    expect(putRes.body.salesEconomics.funnelStages).toEqual([]);
-    // optimizationGoal omitted → preserved
-    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
-  });
-
-  // AC4 — invalid funnelStages value fails loud, no write
-  it('PUT with an unknown funnelStages value returns 400', async () => {
-    const res = await request(app)
-      .put(path(funnelBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, funnelStages: ['website_purchase', 'bogus_stage'] });
-    expect(res.status).toBe(400);
-  });
-
-  // AC4 — funnelStages must be an array
-  it('PUT with funnelStages as a non-array returns 400', async () => {
-    const res = await request(app)
-      .put(path(funnelBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, funnelStages: 'website_purchase' });
-    expect(res.status).toBe(400);
+    expect(await storedGoals(goalBrandId)).toEqual({
+      currentGoal: 'meetingBooked',
+      optimizationGoal: 'meetingBooked',
+    });
   });
 
   // AC4 — invalid optimizationGoal fails loud
   it('PUT with an unknown optimizationGoal returns 400', async () => {
     const res = await request(app)
-      .put(path(funnelBrandId))
+      .put(path(goalBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...validMetrics, optimizationGoal: 'revenue' });
     expect(res.status).toBe(400);
@@ -498,24 +481,6 @@ describe('Sales Economics Endpoints', () => {
   });
 
   // ── split self-serve close (visit→signup, signup→paid) ───────────
-
-  // AC5 — funnelStages 'website_signup' (dropped) is rejected; valid values accepted
-  it('PUT funnelStages "website_signup" (dropped) returns 400', async () => {
-    const res = await request(app)
-      .put(path(funnelBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, funnelStages: ['website_signup'] });
-    expect(res.status).toBe(400);
-  });
-
-  it('PUT funnelStages [website_purchase, sales_meeting] is accepted', async () => {
-    const res = await request(app)
-      .put(path(funnelBrandId))
-      .set(getAuthHeaders(ownerOrgId))
-      .send({ ...validMetrics, funnelStages: ['website_purchase', 'sales_meeting'] });
-    expect(res.status).toBe(200);
-    expect(res.body.salesEconomics.funnelStages).toEqual(['website_purchase', 'sales_meeting']);
-  });
 
   // AC2 — a legacy PUT still sending visitToClosePct does not corrupt state;
   // the two sub-rates are the source of truth, visitToClosePct is derived.
@@ -620,30 +585,28 @@ describe('Sales Economics Endpoints', () => {
     expect(getRes.body.salesEconomics.optimizationGoal).toBeUndefined();
   });
 
-  // `whatsappConversation` is the one retired goal that names no funnel — the
-  // catalogue has no whatsapp funnel. It is refused rather than accepted into
-  // silence, and the refusal must leave the metrics EXACTLY as they were: a
-  // write that half-applies and then fails is worse than either outcome alone.
-  it('PUT optimizationGoal "whatsapp_conversations" → 400, and nothing is written', async () => {
-    const before = await request(app)
-      .get(path(singleStepBrandId))
-      .set(getAuthHeaders(ownerOrgId));
-
+  // `whatsappConversation` used to be refused because the catalogue had no
+  // whatsapp funnel. With no funnel mapping left, it is accepted like every
+  // other retired spelling: the metrics are written and the goal is mirrored.
+  it('PUT optimizationGoal "whatsapp_conversations" → accepted, written and mirrored', async () => {
     const putRes = await request(app)
       .put(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId))
       .send({ ...validMetrics, lifetimeRevenueUsd: 987654, optimizationGoal: 'whatsapp_conversations' });
 
-    expect(putRes.status).toBe(400);
-    expect(putRes.body.error).toMatch(/names no sales funnel/);
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.salesEconomics.lifetimeRevenueUsd).toBe(987654);
+    expect(putRes.body.salesEconomics.optimizationGoal).toBeUndefined();
 
     const after = await request(app)
       .get(path(singleStepBrandId))
       .set(getAuthHeaders(ownerOrgId));
-    expect(after.body.salesEconomics.lifetimeRevenueUsd).toBe(
-      before.body.salesEconomics.lifetimeRevenueUsd
-    );
-    expect(after.body.salesEconomics.lifetimeRevenueUsd).not.toBe(987654);
+    expect(after.body.salesEconomics.lifetimeRevenueUsd).toBe(987654);
+
+    expect(await storedGoals(singleStepBrandId)).toEqual({
+      currentGoal: 'whatsappConversation',
+      optimizationGoal: 'whatsappConversation',
+    });
   });
 
   // Omitting the single-step rates leaves prior values unchanged (partial update).
@@ -770,7 +733,6 @@ describe('Sales Economics Endpoints', () => {
       visitToFormSubmissionPct: 18,
       formSubmissionToPaidClientPct: 22,
       businessModel: 'b2b',
-      funnelStages: ['sales_meeting'],
     };
     const seeded = await request(app)
       .put(path(partialLtvBrandId))

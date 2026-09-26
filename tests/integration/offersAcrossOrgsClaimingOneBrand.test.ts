@@ -3,7 +3,7 @@ import request from 'supertest';
 import { randomUUID } from 'crypto';
 import { inArray } from 'drizzle-orm';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
-import { db, brands, orgBrands, brandOffers, brandSalesFunnels, brandUserFields } from '../../src/db';
+import { db, brands, orgBrands, brandOffers, brandUserFields } from '../../src/db';
 
 /**
  * SEVERAL ORGS CLAIMING ONE BRAND EACH HOLD THEIR OWN OFFER — and those rows are
@@ -57,7 +57,6 @@ describe('offers on a brand several orgs claim', () => {
 
   afterAll(async () => {
     await db.delete(brandUserFields).where(inArray(brandUserFields.brandId, [brandId]));
-    await db.delete(brandSalesFunnels).where(inArray(brandSalesFunnels.brandId, [brandId]));
     await db.delete(brandOffers).where(inArray(brandOffers.brandId, [brandId]));
     await db.delete(orgBrands).where(inArray(orgBrands.brandId, [brandId]));
     await db.delete(brands).where(inArray(brands.id, [brandId]));
@@ -95,10 +94,11 @@ describe('offers on a brand several orgs claim', () => {
     // alone, every org on a multi-claimed brand would get a 409 telling it to
     // name an offer it never created.
     const res = await request(app)
-      .get(`/orgs/brands/${brandId}/sales-funnels`)
+      .get(`/orgs/brands/${brandId}/user-fields`)
       .set(getAuthHeaders(orgA));
 
     expect(res.status).toBe(200);
+    expect(res.body.code).toBeUndefined();
   });
 
   it("404s another org's offer id, so no org can read or write the row beside its own", async () => {
@@ -110,30 +110,32 @@ describe('offers on a brand several orgs claim', () => {
   });
 
   it('prices one org\'s offer without touching the row beside it', async () => {
-    const declare = (orgId: string, lifetimeRevenueUsd: number) =>
+    const economicsPath = (orgId: string) => `${offersPath}/${offerIds[orgId]}/economics`;
+    const state = (orgId: string, lifetimeRevenueUsd: number) =>
       request(app)
-        .put(
-          `${offersPath}/${offerIds[orgId]}/sales-funnels/sales_meetings_from_conversation`
-        )
+        .put(economicsPath(orgId))
         .set(getAuthHeaders(orgId))
         .send({ lifetimeRevenueUsd });
 
-    expect((await declare(orgA, 1000)).status).toBe(200);
-    expect((await declare(orgB, 9000)).status).toBe(200);
+    expect((await state(orgA, 1000)).status).toBe(200);
+    expect((await state(orgB, 9000)).status).toBe(200);
 
-    const a = await request(app)
-      .get(`${offersPath}/${offerIds[orgA]}/sales-funnels`)
-      .set(getAuthHeaders(orgA));
-    const b = await request(app)
-      .get(`${offersPath}/${offerIds[orgB]}/sales-funnels`)
-      .set(getAuthHeaders(orgB));
+    const a = await request(app).get(economicsPath(orgA)).set(getAuthHeaders(orgA));
+    const b = await request(app).get(economicsPath(orgB)).set(getAuthHeaders(orgB));
 
-    expect(a.body.funnels).toHaveLength(1);
-    expect(b.body.funnels).toHaveLength(1);
-    expect(a.body.funnels[0].lifetimeRevenueUsd).toBe(1000);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(a.body.lifetimeRevenueUsd).toBe(1000);
     // What a merge onto one survivor would destroy: two orgs, two prices, one
     // brand, and no way to tell afterwards which number belonged to whom.
-    expect(b.body.funnels[0].lifetimeRevenueUsd).toBe(9000);
+    expect(b.body.lifetimeRevenueUsd).toBe(9000);
+
+    // And one org cannot price the row beside its own.
+    const crossed = await request(app)
+      .put(economicsPath(orgB))
+      .set(getAuthHeaders(orgA))
+      .send({ lifetimeRevenueUsd: 1 });
+    expect(crossed.status).toBe(404);
   });
 
   it('refuses the internal brand-keyed read without an org rather than answering with one org\'s offer', async () => {

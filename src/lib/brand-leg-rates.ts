@@ -1,14 +1,11 @@
 /**
- * The pure halves of the LEG-GRAIN rates: the catalogue's legs and the read view.
+ * The pure halves of the LEG-GRAIN rates: the known legs and the read view.
  * No database import, so both carry real unit tests (`tests/unit/brandLegRates.test.ts`).
  *
- * A LEG is the move of a lead from one step to another. The same leg sits inside
- * several sales funnels (Meeting booked -> Meeting attended is in three of them),
- * and it is ONE real-world fact about how a brand sells, so it is stated once per
- * (org, brand, leg) — the funnel is not part of the key.
+ * A LEG is the move of a lead from one step to another (Positive reply ->
+ * Meeting booked). It is ONE real-world fact about how a brand sells, so it is
+ * stated once per (org, brand, leg).
  */
-
-import { SALES_FUNNELS, funnelArrows } from '../services/salesFunnelCatalogue';
 
 /** One leg as the catalogue knows it: the two steps it connects. */
 export interface CatalogueLeg {
@@ -27,7 +24,7 @@ export interface StoredLegRate {
 /**
  * One leg as read. `stated: false` means the brand has not given us this number,
  * and then `ratePct` and `statedAt` are null — never a zero, never a default,
- * never borrowed from a funnel, an offer or another brand.
+ * never borrowed from an offer or another brand.
  */
 export interface LegRateView {
   fromStep: string;
@@ -42,28 +39,33 @@ export function legIdentity(fromStep: string, toStep: string): string {
 }
 
 /**
- * Every leg the catalogue's funnels contain, each ONCE, in the order they first
- * appear walking the funnels in catalogue order and each funnel in step order.
- * Only legs between two steps carry a rate: the entry leg (nothing -> first step)
- * is bought, not converted, so it has none.
+ * Every leg a read lists even when the brand stated nothing for it, in display
+ * order. Only legs between two steps carry a rate: the entry leg (nothing ->
+ * first step) is bought, not converted, so it has none. A leg outside this list
+ * is still accepted and stored; it is simply listed after these.
  */
+export const KNOWN_LEGS: readonly CatalogueLeg[] = [
+  { fromStep: 'Positive reply', toStep: 'Meeting booked' },
+  { fromStep: 'Meeting booked', toStep: 'Meeting attended' },
+  { fromStep: 'Meeting attended', toStep: 'Paid client' },
+  { fromStep: 'Website visit', toStep: 'Meeting booked' },
+  { fromStep: 'Website visit', toStep: 'Signup' },
+  { fromStep: 'Signup', toStep: 'Paid client' },
+  { fromStep: 'Website visit', toStep: 'Form filled' },
+  { fromStep: 'Form filled', toStep: 'Paid client' },
+  { fromStep: 'Positive reply', toStep: 'Paid client' },
+  { fromStep: 'Lead form submitted', toStep: 'Paid client' },
+  { fromStep: 'Website visit', toStep: 'Purchase' },
+  { fromStep: 'Purchase', toStep: 'Paid client' },
+];
+
 export function catalogueLegs(): CatalogueLeg[] {
-  const seen = new Set<string>();
-  const out: CatalogueLeg[] = [];
-  for (const def of SALES_FUNNELS) {
-    for (const arrow of funnelArrows(def)) {
-      const id = legIdentity(arrow.fromStep, arrow.toStep);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push({ fromStep: arrow.fromStep, toStep: arrow.toStep });
-    }
-  }
-  return out;
+  return KNOWN_LEGS.map((leg) => ({ ...leg }));
 }
 
 /**
- * Every catalogue leg, each stated or not, then any leg the brand stated that the
- * catalogue does not name (a step this service has not learned yet), sorted, so
+ * Every known leg, each stated or not, then any leg the brand stated that the
+ * list does not name (a step this service has not learned yet), sorted, so
  * the catalogue's own order is never disturbed.
  */
 export function buildLegRatesView(stored: StoredLegRate[]): LegRateView[] {
