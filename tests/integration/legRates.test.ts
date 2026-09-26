@@ -165,7 +165,7 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
     const foreign = await request(app).get(`${offersPath}/${offerA}/economics`).set(getAuthHeaders(otherOrg));
     expect(foreign.status).toBe(403);
   });
-<<<<<<< HEAD
+
   it('an offer states its booking link and click destination, read back by offer id alone', async () => {
     const put = await request(app).put(`${offersPath}/${offerB}/economics`).set(getAuthHeaders(orgId))
       .send({ bookingUrl: 'https://calendly.com/acme/intro', destinationUrl: 'https://legs.example/pricing' });
@@ -197,11 +197,11 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
 
     const missing = await request(app).get(`/internal/offers/${randomUUID()}/economics`).set(getInternalAuthHeaders());
     expect(missing.status).toBe(404);
-=======
+  });
+
   it('the retired per-offer funnel read is gone (wave C3)', async () => {
     const res = await request(app).get(`/internal/offers/${offerA}/sales-funnels`).set(getInternalAuthHeaders());
     expect(res.status).toBe(404);
     expect(res.body.error).not.toBe('Offer not found');
->>>>>>> 6592717 (feat!: wave C3 — delete the last sales-funnel read from brand-service)
   });
 });
