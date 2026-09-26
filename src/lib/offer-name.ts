@@ -52,10 +52,9 @@ export const DERIVED_OFFER_NAME_MAX_CHARS = 20;
  * model — several run at once and none outranks another — and a default label is
  * the one place a customer would read that claim.
  *
- * A name derived from the offer's SALES FUNNEL ("Website Sales" for
- * `website_purchases`) names how the offer is SOLD, not what it IS. A funnel is
- * the mechanism; an offer is the proposition. Conflating them is exactly the
- * confusion this whole level was introduced to remove.
+ * A name derived from HOW the offer is sold ("Website Sales") names the
+ * mechanism, not the proposition. Conflating them is exactly the confusion this
+ * whole level was introduced to remove.
  *
  * It is a NAME like any other, not a sentinel: nothing keys on it, a customer
  * renames it through the ordinary rename route, and a brand that later states
@@ -90,7 +89,7 @@ export function offerNameWords(input: string): string[] {
  *
  * A SENTENCE rather than a boolean, and a sentence rather than a code, because
  * this is rendered verbatim by whatever surface collected the name — the same
- * discipline the funnel routes use for a refused declaration. It names the limit
+ * discipline every refused write here follows. It names the limit
  * that was broken and how far past it the name is, so the person can act on it.
  *
  * Two rules only: a name is needed at all, and it fits in
@@ -204,7 +203,7 @@ export interface BrandNameSource {
  *
  * A generated, meaningful name is what the one-time MIGRATION produces for a
  * brand that already sells something. This is the degenerate case underneath it:
- * a brand stating its first funnel through the legacy route, which has no
+ * a brand's first brand-scoped write, which has no
  * offer to speak of yet and nothing to describe.
  */
 export function offerNameForBrand(brand: BrandNameSource): string | null {

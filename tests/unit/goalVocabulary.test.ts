@@ -3,26 +3,17 @@ import {
   ACCEPTED_OPTIMIZATION_GOALS,
   RETIRED_GOALS,
   LEGACY_OPTIMIZATION_GOALS,
-  funnelKeysForRetiredGoal,
   isRetiredGoal,
   toRetiredGoal,
   type AcceptedOptimizationGoal,
   type RetiredGoal,
 } from '../../src/lib/goal-vocabulary';
-import { SALES_FUNNEL_KEYS } from '../../src/services/salesFunnelCatalogue';
 import { OptimizationGoalSchema } from '../../src/schemas';
 
 /**
- * THE GOAL VOCABULARY IS RETIRED. It used to be the fleet's second answer to
- * "what does this brand sell through?", pinned byte-equal across three repos;
- * this file used to be the alarm that stopped it moving in a single-repo PR.
- *
- * It moved. The funnel is strictly the richer word — both meeting funnels
- * collapsed onto one `meetingBooked`, so no consumer could price a meeting won
- * from a reply apart from one won on the website — so the goal is no longer
- * emitted anywhere. What these tests now pin is the ONE thing that survives:
- * every spelling still WRITES, forever, and each one resolves to the funnel(s)
- * it meant.
+ * THE GOAL VOCABULARY IS RETIRED and emitted nowhere. What these tests pin is
+ * the one thing that survives: every spelling still WRITES, forever, and is
+ * mirrored into the retired columns.
  */
 describe('the retired goal vocabulary is input-only', () => {
   it('still names the eight tokens, so an old caller is still understood', () => {
@@ -98,71 +89,5 @@ describe('every legacy spelling still writes, and lands on the right goal', () =
   it('recognises a retired token and rejects a legacy spelling of one', () => {
     expect(isRetiredGoal('websitePurchase')).toBe(true);
     expect(isRetiredGoal('sales')).toBe(false);
-  });
-});
-
-describe('what a retired goal MEANT, as funnels', () => {
-  const withoutClickDestination = { hasClickDestination: false };
-  const withClickDestination = { hasClickDestination: true };
-
-  it('names only funnels that exist in the catalogue', () => {
-    for (const goal of RETIRED_GOALS) {
-      for (const context of [withClickDestination, withoutClickDestination]) {
-        for (const key of funnelKeysForRetiredGoal(goal, context)) {
-          expect(SALES_FUNNEL_KEYS).toContain(key);
-        }
-      }
-    }
-  });
-
-  it('tells the two meeting funnels apart, which the goal alone could not', () => {
-    // The whole reason the goal is retired: one word, two funnels. A brand that
-    // set a click destination is sending outreach onto its own site, so its
-    // meetings come from the website.
-    expect(funnelKeysForRetiredGoal('meetingBooked', withClickDestination)).toEqual([
-      'sales_meetings_from_website',
-    ]);
-    expect(funnelKeysForRetiredGoal('meetingBooked', withoutClickDestination)).toEqual([
-      'sales_meetings_from_conversation',
-    ]);
-  });
-
-  it('turns the combined goal into TWO declarations rather than a lossy pick', () => {
-    expect(funnelKeysForRetiredGoal('combinedSales', withoutClickDestination)).toEqual([
-      'sales_meetings_from_conversation',
-      'website_purchases',
-    ]);
-  });
-
-  it('maps every remaining goal to the funnel the owner named', () => {
-    expect(funnelKeysForRetiredGoal('websitePurchase', withoutClickDestination)).toEqual([
-      'website_purchases',
-    ]);
-    expect(funnelKeysForRetiredGoal('signup', withoutClickDestination)).toEqual([
-      'website_purchases',
-    ]);
-    expect(funnelKeysForRetiredGoal('websiteVisit', withoutClickDestination)).toEqual([
-      'website_purchases',
-    ]);
-    expect(funnelKeysForRetiredGoal('positiveReply', withoutClickDestination)).toEqual([
-      'sales_meetings_from_conversation',
-    ]);
-    expect(funnelKeysForRetiredGoal('formSubmission', withoutClickDestination)).toEqual([
-      'form_magnet',
-    ]);
-  });
-
-  it('answers NOTHING for whatsappConversation, which names no funnel', () => {
-    // Not a substitute funnel and not the click funnel: the catalogue has no
-    // whatsapp funnel, so the empty list is the honest answer and the caller
-    // fails loud on it.
-    expect(funnelKeysForRetiredGoal('whatsappConversation', withClickDestination)).toEqual([]);
-    expect(funnelKeysForRetiredGoal('whatsappConversation', withoutClickDestination)).toEqual([]);
-  });
-
-  it('is total — every retired goal is answered without a default branch', () => {
-    for (const goal of RETIRED_GOALS) {
-      expect(Array.isArray(funnelKeysForRetiredGoal(goal, withoutClickDestination))).toBe(true);
-    }
   });
 });

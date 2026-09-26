@@ -1,34 +1,49 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { db, brandLegRates, brandOffers } from '../db';
 import { LegRateView, StoredLegRate, buildLegRatesView, legIdentity } from '../lib/brand-leg-rates';
-import {
-  SalesFunnelArrowInvalidError,
-  SalesFunnelArrowRatePatch,
-  assertArrowIdentifiable,
-} from './salesFunnelArrowRatesService';
 import { assertOfferOnBrand } from './brandOffersService';
 
 /**
- * LEG-GRAIN rates and PER-OFFER lifetime revenue — the two economics a brand
- * states once the sales funnel is retired.
+ * LEG-GRAIN rates and PER-OFFER lifetime revenue — the economics a brand states.
  *
  * - A rate is stated per (org, brand, leg): `brand_leg_rates`. Shared by every
  *   offer of the brand (the owner's brand-grain decision of 2026-09-25).
  * - A lifetime revenue is stated per offer: `brand_offers.lifetime_revenue_usd`.
  *
- * PRECEDENCE with the funnel-keyed doors, which keep working unchanged during the
- * transition: a leg (or an offer's lifetime revenue) reads the MOST RECENT value
- * stated for it, whichever door stated it. Implemented by mirroring: a
- * brand-grain funnel-rate write (`PUT /brands/:id/funnel-rates/:funnelKey`) also
- * states each of its non-null arrows on the leg, and a per-offer funnel write
- * carrying a lifetime revenue also states it on the offer. The mirror is ONE-WAY:
- * a leg-door write never changes what a funnel-keyed read answers, so those reads
- * stay byte-identical until they retire. A `null` sent through a funnel door
- * clears only the funnel-keyed copy (the leg may still be stated through another
- * funnel); a leg is cleared through the leg door.
+ * These are the only doors: the funnel-keyed ones that used to mirror onto them
+ * were deleted with the sales funnel (wave C2, distribute.you#4413).
  */
 
-export type LegRatePatch = SalesFunnelArrowRatePatch;
+/** A rate stated for one leg. `ratePct` null CLEARS the statement. */
+export interface LegRatePatch {
+  fromStep: string;
+  toStep: string;
+  ratePct: number | null;
+}
+
+/** Thrown when a leg names nothing a leg can be, or is stated twice (→ 400). */
+export class LegRateInvalidError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LegRateInvalidError';
+  }
+}
+
+/**
+ * Reject a leg that cannot identify one. Deliberately NOT checked against a
+ * known list: a leg this service has not learned yet is accepted and stored.
+ * Only an empty step or a step pointing at itself is refused.
+ */
+function assertLegIdentifiable(patch: LegRatePatch): void {
+  const from = patch.fromStep.trim();
+  const to = patch.toStep.trim();
+  if (from === '' || to === '') {
+    throw new LegRateInvalidError('A leg is identified by the two steps it connects, so neither step may be empty.');
+  }
+  if (from === to) {
+    throw new LegRateInvalidError(`A leg connects two DIFFERENT steps: "${from}" points at itself.`);
+  }
+}
 
 async function readStored(orgId: string, brandId: string): Promise<StoredLegRate[]> {
   return db
@@ -51,12 +66,12 @@ export async function readLegRates(orgId: string | null, brandId: string): Promi
 export function normalizeLegPatches(patches: LegRatePatch[]): LegRatePatch[] {
   const seen = new Set<string>();
   return patches.map((patch) => {
-    assertArrowIdentifiable(patch);
+    assertLegIdentifiable(patch);
     const fromStep = patch.fromStep.trim();
     const toStep = patch.toStep.trim();
     const id = legIdentity(fromStep, toStep);
     if (seen.has(id)) {
-      throw new SalesFunnelArrowInvalidError(
+      throw new LegRateInvalidError(
         `The leg "${fromStep}" -> "${toStep}" is stated twice in one write; state it once.`
       );
     }
@@ -109,22 +124,6 @@ export async function writeLegRates(
   const now = new Date().toISOString();
   await db.transaction(async (tx) => applyLegPatches(tx, orgId, brandId, normalized, now));
   return readLegRates(orgId, brandId);
-}
-
-/**
- * The mirror a brand-grain funnel-rate write makes onto the legs: every NON-NULL
- * arrow it states becomes the leg's most recent statement. Runs inside the
- * caller's transaction so the two stores never disagree about a write that half
- * happened.
- */
-export async function mirrorFunnelArrowsOntoLegs(
-  tx: Tx,
-  orgId: string,
-  brandId: string,
-  patches: LegRatePatch[],
-  now: string
-): Promise<void> {
-  await applyLegPatches(tx, orgId, brandId, patches.filter((p) => p.ratePct !== null), now);
 }
 
 // ---------------------------------------------------------------------------
@@ -211,11 +210,8 @@ export async function writeOfferEconomics(
   return readOfferEconomics(orgId, brandId, offerId);
 }
 
-/**
- * Set the offer's lifetime revenue. Also the mirror a per-offer funnel write
- * carrying a lifetime revenue makes (see the precedence note above).
- */
-export async function setOfferLifetimeRevenue(
+/** Set the offer's lifetime revenue. `null` clears it. */
+async function setOfferLifetimeRevenue(
   tx: Tx | typeof db,
   orgId: string,
   brandId: string,

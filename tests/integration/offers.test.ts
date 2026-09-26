@@ -3,14 +3,14 @@ import request from 'supertest';
 import { randomUUID } from 'crypto';
 import { inArray } from 'drizzle-orm';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
-import { db, brands, orgBrands, brandOffers, brandSalesFunnels, brandUserFields } from '../../src/db';
+import { db, brands, orgBrands, brandOffers, brandUserFields } from '../../src/db';
 
 /**
  * OFFERS — the level between a brand and a campaign.
  *
  * Three properties carry the whole design and are what these tests pin:
- *   - a second offer is FULLY INDEPENDENT: its own funnels, its own rates, its
- *     own lifetime revenue, its own value proposition, on the same brand;
+ *   - a second offer is FULLY INDEPENDENT: its own lifetime revenue and its own
+ *     value proposition, on the same brand;
  *   - every BRAND-scoped route keeps working unchanged while a brand holds one
  *     offer, and REFUSES 409 rather than guessing once it holds several;
  *   - a brand-scoped WRITE on a brand with no offer creates its first one, which
@@ -64,7 +64,6 @@ describe('Offers', () => {
 
   afterAll(async () => {
     await db.delete(brandUserFields).where(inArray(brandUserFields.brandId, allBrandIds));
-    await db.delete(brandSalesFunnels).where(inArray(brandSalesFunnels.brandId, allBrandIds));
     await db.delete(brandOffers).where(inArray(brandOffers.brandId, allBrandIds));
     await db.delete(orgBrands).where(inArray(orgBrands.brandId, allBrandIds));
     await db.delete(brands).where(inArray(brands.id, allBrandIds));
@@ -133,33 +132,25 @@ describe('Offers', () => {
       enterpriseId = res.body.offers[1].offerId;
     });
 
-    it('prices the SAME funnel completely differently on each offer', async () => {
-      const declare = (offerId: string, lifetimeRevenueUsd: number, rate: number) =>
+    const economicsPath = (offerId: string) => `${offersPath(brandId)}/${offerId}/economics`;
+
+    it('prices each offer with its OWN lifetime revenue', async () => {
+      const state = (offerId: string, lifetimeRevenueUsd: number) =>
         request(app)
-          .put(`${offersPath(brandId)}/${offerId}/sales-funnels/website_purchases`)
+          .put(economicsPath(offerId))
           .set(getAuthHeaders(orgId))
-          .send({
-            lifetimeRevenueUsd,
-            rates: { visitToSignupPct: rate },
-          });
+          .send({ lifetimeRevenueUsd });
 
-      expect((await declare(selfServeId, 200, 8.4)).status).toBe(200);
-      expect((await declare(enterpriseId, 20000, 0.4)).status).toBe(200);
+      expect((await state(selfServeId, 200)).status).toBe(200);
+      expect((await state(enterpriseId, 20000)).status).toBe(200);
 
-      const selfServe = await request(app)
-        .get(`${offersPath(brandId)}/${selfServeId}/sales-funnels`)
-        .set(getAuthHeaders(orgId));
-      const enterprise = await request(app)
-        .get(`${offersPath(brandId)}/${enterpriseId}/sales-funnels`)
-        .set(getAuthHeaders(orgId));
+      const selfServe = await request(app).get(economicsPath(selfServeId)).set(getAuthHeaders(orgId));
+      const enterprise = await request(app).get(economicsPath(enterpriseId)).set(getAuthHeaders(orgId));
 
-      expect(selfServe.body.funnels).toHaveLength(1);
-      expect(selfServe.body.funnels[0].lifetimeRevenueUsd).toBe(200);
-      expect(selfServe.body.funnels[0].rates.visitToSignupPct).toBe(8.4);
-
-      expect(enterprise.body.funnels).toHaveLength(1);
-      expect(enterprise.body.funnels[0].lifetimeRevenueUsd).toBe(20000);
-      expect(enterprise.body.funnels[0].rates.visitToSignupPct).toBe(0.4);
+      expect(selfServe.status).toBe(200);
+      expect(selfServe.body.lifetimeRevenueUsd).toBe(200);
+      expect(enterprise.status).toBe(200);
+      expect(enterprise.body.lifetimeRevenueUsd).toBe(20000);
     });
 
     it('carries its OWN value proposition under the same key', async () => {
@@ -189,26 +180,16 @@ describe('Offers', () => {
       });
     });
 
-    it('switches a funnel off on one offer without touching the other', async () => {
-      // Declaring a second funnel first: the last active one cannot be switched off.
-      await request(app)
-        .put(`${offersPath(brandId)}/${selfServeId}/sales-funnels/form_magnet`)
+    it("clears one offer's lifetime revenue without touching the other", async () => {
+      const cleared = await request(app)
+        .put(economicsPath(selfServeId))
         .set(getAuthHeaders(orgId))
-        .send({});
+        .send({ lifetimeRevenueUsd: null });
+      expect(cleared.status).toBe(200);
+      expect(cleared.body.lifetimeRevenueUsd).toBeNull();
 
-      const off = await request(app)
-        .delete(`${offersPath(brandId)}/${selfServeId}/sales-funnels/website_purchases`)
-        .set(getAuthHeaders(orgId));
-      expect(off.status).toBe(200);
-      expect(
-        off.body.funnels.find((f: { funnelKey: string }) => f.funnelKey === 'website_purchases').active
-      ).toBe(false);
-
-      const enterprise = await request(app)
-        .get(`${offersPath(brandId)}/${enterpriseId}/sales-funnels`)
-        .set(getAuthHeaders(orgId));
-      expect(enterprise.body.funnels[0].active).toBe(true);
-      expect(enterprise.body.funnels[0].lifetimeRevenueUsd).toBe(20000);
+      const enterprise = await request(app).get(economicsPath(enterpriseId)).set(getAuthHeaders(orgId));
+      expect(enterprise.body.lifetimeRevenueUsd).toBe(20000);
     });
 
     it('renames one without changing anything else about it', async () => {
@@ -219,19 +200,9 @@ describe('Offers', () => {
       expect(res.status).toBe(200);
       expect(res.body.offer.name).toBe('Contracts');
 
-      const funnels = await request(app)
-        .get(`${offersPath(brandId)}/${enterpriseId}/sales-funnels`)
-        .set(getAuthHeaders(orgId));
-      expect(funnels.body.funnels[0].lifetimeRevenueUsd).toBe(20000);
-    });
-
-    it('serves one offer\'s ACTIVE funnels to a service that holds only the offer id', async () => {
-      const res = await request(app)
-        .get(`/internal/offers/${enterpriseId}/sales-funnels`)
-        .set(getInternalAuthHeaders());
-      expect(res.status).toBe(200);
-      expect(res.body.funnels).toHaveLength(1);
-      expect(res.body.funnels[0].funnelKey).toBe('website_purchases');
+      const economics = await request(app).get(economicsPath(enterpriseId)).set(getAuthHeaders(orgId));
+      expect(economics.body.name).toBe('Contracts');
+      expect(economics.body.lifetimeRevenueUsd).toBe(20000);
     });
 
     it('404s an offer id that names nothing', async () => {
@@ -345,7 +316,7 @@ describe('Offers', () => {
   describe('a BRAND-scoped call against a brand selling several offers', () => {
     it('REFUSES the read 409 rather than answering for one of them', async () => {
       const res = await request(app)
-        .get(`/orgs/brands/${brandId}/sales-funnels`)
+        .get(`/orgs/brands/${brandId}/user-fields`)
         .set(getAuthHeaders(orgId));
       expect(res.status).toBe(409);
       expect(res.body.code).toBe('SEVERAL_OFFERS');
@@ -353,15 +324,6 @@ describe('Offers', () => {
     });
 
     it('REFUSES the write 409 rather than writing over one of them', async () => {
-      const res = await request(app)
-        .put(`/orgs/brands/${brandId}/sales-funnels/form_magnet`)
-        .set(getAuthHeaders(orgId))
-        .send({ lifetimeRevenueUsd: 999 });
-      expect(res.status).toBe(409);
-      expect(res.body.code).toBe('SEVERAL_OFFERS');
-    });
-
-    it('REFUSES the user-fields write 409 too', async () => {
       const res = await request(app)
         .put(`/orgs/brands/${brandId}/user-fields`)
         .set(getAuthHeaders(orgId))
@@ -372,7 +334,7 @@ describe('Offers', () => {
 
     it('names the offers and the route to use, so the caller can act on the refusal', async () => {
       const res = await request(app)
-        .get(`/orgs/brands/${brandId}/sales-funnels`)
+        .get(`/orgs/brands/${brandId}/user-fields`)
         .set(getAuthHeaders(orgId));
       expect(res.body.error).toContain('/orgs/brands/{brandId}/offers/{offerId}');
       expect(res.body.offers.map((o: { name: string }) => o.name).sort()).toEqual([
@@ -383,19 +345,24 @@ describe('Offers', () => {
   });
 
   describe('a brand that has never heard of offers', () => {
-    it('reads its funnels exactly as it always did — an empty set, not an error', async () => {
+    it('reads its user fields exactly as it always did — nothing confirmed, not an error', async () => {
       const res = await request(app)
-        .get(`/orgs/brands/${legacyBrandId}/sales-funnels`)
+        .get(`/orgs/brands/${legacyBrandId}/user-fields`)
         .set(getAuthHeaders(orgId));
       expect(res.status).toBe(200);
-      expect(res.body.funnels).toEqual([]);
+      for (const field of Object.values(res.body.fields) as Array<{ provenance: string }>) {
+        expect(field.provenance).not.toBe('confirmed');
+      }
+
+      const offers = await request(app).get(offersPath(legacyBrandId)).set(getAuthHeaders(orgId));
+      expect(offers.body.offers).toEqual([]);
     });
 
     it("creates its FIRST offer on a brand-scoped write, named after the brand's own words", async () => {
       const res = await request(app)
-        .put(`/orgs/brands/${legacyBrandId}/sales-funnels/website_purchases`)
+        .put(`/orgs/brands/${legacyBrandId}/user-fields`)
         .set(getAuthHeaders(orgId))
-        .send({ lifetimeRevenueUsd: 1200 });
+        .send({ fields: { dreamOutcome: 'Never miss a renewal' } });
       expect(res.status).toBe(200);
 
       const offers = await request(app).get(offersPath(legacyBrandId)).set(getAuthHeaders(orgId));
@@ -405,11 +372,13 @@ describe('Offers', () => {
 
     it('keeps reading through the brand-scoped route while it holds one offer', async () => {
       const res = await request(app)
-        .get(`/orgs/brands/${legacyBrandId}/sales-funnels`)
+        .get(`/orgs/brands/${legacyBrandId}/user-fields`)
         .set(getAuthHeaders(orgId));
       expect(res.status).toBe(200);
-      expect(res.body.funnels).toHaveLength(1);
-      expect(res.body.funnels[0].lifetimeRevenueUsd).toBe(1200);
+      expect(res.body.fields.dreamOutcome).toEqual({
+        value: 'Never miss a renewal',
+        provenance: 'confirmed',
+      });
     });
 
     it('does NOT create a second offer on the next brand-scoped write', async () => {

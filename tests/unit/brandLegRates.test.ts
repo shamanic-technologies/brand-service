@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildLegRatesView, catalogueLegs } from '../../src/lib/brand-leg-rates';
 
 describe('leg-grain rates (pure)', () => {
-  it('lists each catalogue leg once, even when it sits in several funnels', () => {
+  it('lists each known leg once', () => {
     const legs = catalogueLegs().map((l) => `${l.fromStep}>${l.toStep}`);
     expect(new Set(legs).size).toBe(legs.length);
     expect(legs).toContain('Positive reply>Meeting booked');

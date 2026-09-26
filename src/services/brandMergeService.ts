@@ -66,9 +66,9 @@ export async function rewriteBrandReferences(
      )`,
     [sourceBrandId, targetBrandId],
   );
-  // brand_sales_funnels: PK(org_id, brand_id, funnel_key) — the declared funnels
-  // and their economics, including the ones switched off (their numbers are the
-  // memory a user gets back).
+  // brand_sales_funnels + brand_sales_funnel_arrow_rates: frozen since the
+  // funnel retirement (wave C2), still served by the one retained read
+  // (`retainedOfferFunnelsRead.ts`), so they still follow the brand.
   await query(
     `DELETE FROM brand_sales_funnels s WHERE s.brand_id = $1
      AND EXISTS (
@@ -77,10 +77,6 @@ export async function rewriteBrandReferences(
      )`,
     [sourceBrandId, targetBrandId],
   );
-  // brand_sales_funnel_arrow_rates: unique(org_id, brand_id, funnel_key,
-  // from_step, to_step) — the rates a brand states for the ARROWS of its
-  // funnels. Same shape as the funnel rows above and moved with them: leaving
-  // them behind would strand user-stated numbers on the abandoned row.
   await query(
     `DELETE FROM brand_sales_funnel_arrow_rates s WHERE s.brand_id = $1
      AND EXISTS (
@@ -90,17 +86,8 @@ export async function rewriteBrandReferences(
      )`,
     [sourceBrandId, targetBrandId],
   );
-  // brand_funnel_arrow_rates / brand_leg_rates: the BRAND-grain rates, keyed
-  // (org, brand, [funnel,] from_step, to_step). The target's statement wins.
-  await query(
-    `DELETE FROM brand_funnel_arrow_rates s WHERE s.brand_id = $1
-     AND EXISTS (
-       SELECT 1 FROM brand_funnel_arrow_rates t
-        WHERE t.brand_id = $2 AND t.org_id = s.org_id AND t.funnel_key = s.funnel_key
-          AND t.from_step = s.from_step AND t.to_step = s.to_step
-     )`,
-    [sourceBrandId, targetBrandId],
-  );
+  // brand_leg_rates: the BRAND-grain rates, keyed (org, brand, from_step,
+  // to_step). The target's statement wins.
   await query(
     `DELETE FROM brand_leg_rates s WHERE s.brand_id = $1
      AND EXISTS (
@@ -141,7 +128,6 @@ export async function rewriteBrandReferences(
     'brand_sales_economics',
     'brand_sales_funnels',
     'brand_sales_funnel_arrow_rates',
-    'brand_funnel_arrow_rates',
     'brand_leg_rates',
     'brand_click_destinations',
     'brand_whatsapp_links',

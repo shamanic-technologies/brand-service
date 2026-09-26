@@ -491,6 +491,13 @@
       "when": 1789713130558,
       "tag": "0071_leg_rates_and_offer_lifetime_revenue",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1789713131558,
+      "tag": "0072_drop_funnel_remnants",
+      "breakpoints": true
     }
   ]
 }
