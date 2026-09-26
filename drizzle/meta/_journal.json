@@ -505,6 +505,13 @@
       "when": 1789713132558,
       "tag": "0073_offer_booking_and_destination_urls",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1789713133558,
+      "tag": "0074_drop_offer_sales_funnels",
+      "breakpoints": true
     }
   ]
 }

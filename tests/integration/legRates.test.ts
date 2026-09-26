@@ -13,9 +13,9 @@ import { randomUUID } from 'crypto';
 
 /**
  * The funnel is retired: a brand states a conversion rate per (org, brand, LEG)
- * and a lifetime revenue per OFFER, with no funnel in the request. The one
- * funnel-keyed read that survives (`GET /internal/offers/:offerId/sales-funnels`)
- * reads frozen rows and is never moved by a leg or offer write.
+ * and a lifetime revenue per OFFER, with no funnel in the request. The last
+ * funnel-keyed read (`GET /internal/offers/:offerId/sales-funnels`) was deleted
+ * in wave C3 with the frozen tables it read, so it is gone (404).
  */
 describe('Leg-grain rates and per-offer lifetime revenue', () => {
   const app = createTestApp();
@@ -28,8 +28,6 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
   const offersPath = `/orgs/brands/${brandId}/offers`;
   let offerA = '';
   let offerB = '';
-  const retainedFunnels = (offerId: string) =>
-    request(app).get(`/internal/offers/${offerId}/sales-funnels`).set(getInternalAuthHeaders());
   const leg = (body: any, from: string, to: string) =>
     body.legRates.find((l: any) => l.fromStep === from && l.toStep === to);
 
@@ -69,10 +67,7 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
     });
   });
 
-  it('AC: a leg rate written for an offer reads back with no funnel involved, and moves no funnel-keyed read', async () => {
-    const offerFunnelsBefore = await retainedFunnels(offerA);
-    expect(offerFunnelsBefore.status).toBe(200);
-
+  it('AC: a leg rate written for an offer reads back with no funnel involved', async () => {
     const put = await request(app)
       .put(`${offersPath}/${offerA}/economics`)
       .set(getAuthHeaders(orgId))
@@ -89,9 +84,6 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
     const brandRead = await request(app).get(legs).set(getAuthHeaders(orgId));
     expect(leg(brandRead.body, 'Positive reply', 'Meeting booked').ratePct).toBe(20);
 
-    const offerFunnelsAfter = await retainedFunnels(offerA);
-    expect(offerFunnelsAfter.status).toBe(offerFunnelsBefore.status);
-    expect(offerFunnelsAfter.body).toEqual(offerFunnelsBefore.body);
   });
 
   it('writes and clears through the brand leg route', async () => {
@@ -130,9 +122,7 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
     expect(rows.filter((r) => r.brandId === brandId)).toHaveLength(0);
   });
 
-  it('a lifetime revenue is stated per OFFER and moves no funnel-keyed read', async () => {
-    const before = await retainedFunnels(offerB);
-    expect(before.status).toBe(200);
+  it('a lifetime revenue is stated per OFFER', async () => {
     const put = await request(app).put(`${offersPath}/${offerB}/economics`).set(getAuthHeaders(orgId))
       .send({ lifetimeRevenueUsd: 20000 });
     expect(put.status).toBe(200);
@@ -142,9 +132,6 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
     const a = await request(app).get(`${offersPath}/${offerA}/economics`).set(getAuthHeaders(orgId));
     expect(a.body.lifetimeRevenueUsd).toBeNull();
     expect(a.body.lifetimeRevenueStatedAt).toBeNull();
-
-    const after = await retainedFunnels(offerB);
-    expect(after.body).toEqual(before.body);
 
     const clear = await request(app).put(`${offersPath}/${offerB}/economics`).set(getAuthHeaders(orgId))
       .send({ lifetimeRevenueUsd: null });
@@ -178,6 +165,7 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
     const foreign = await request(app).get(`${offersPath}/${offerA}/economics`).set(getAuthHeaders(otherOrg));
     expect(foreign.status).toBe(403);
   });
+
   it('an offer states its booking link and click destination, read back by offer id alone', async () => {
     const put = await request(app).put(`${offersPath}/${offerB}/economics`).set(getAuthHeaders(orgId))
       .send({ bookingUrl: 'https://calendly.com/acme/intro', destinationUrl: 'https://legs.example/pricing' });
@@ -209,5 +197,11 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
 
     const missing = await request(app).get(`/internal/offers/${randomUUID()}/economics`).set(getInternalAuthHeaders());
     expect(missing.status).toBe(404);
+  });
+
+  it('the retired per-offer funnel read is gone (wave C3)', async () => {
+    const res = await request(app).get(`/internal/offers/${offerA}/sales-funnels`).set(getInternalAuthHeaders());
+    expect(res.status).toBe(404);
+    expect(res.body.error).not.toBe('Offer not found');
   });
 });
