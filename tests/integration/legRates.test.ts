@@ -178,4 +178,36 @@ describe('Leg-grain rates and per-offer lifetime revenue', () => {
     const foreign = await request(app).get(`${offersPath}/${offerA}/economics`).set(getAuthHeaders(otherOrg));
     expect(foreign.status).toBe(403);
   });
+  it('an offer states its booking link and click destination, read back by offer id alone', async () => {
+    const put = await request(app).put(`${offersPath}/${offerB}/economics`).set(getAuthHeaders(orgId))
+      .send({ bookingUrl: 'https://calendly.com/acme/intro', destinationUrl: 'https://legs.example/pricing' });
+    expect(put.status).toBe(200);
+    expect(put.body).toMatchObject({
+      offerId: offerB, bookingUrl: 'https://calendly.com/acme/intro', destinationUrl: 'https://legs.example/pricing',
+    });
+
+    // The other offer of the same brand is untouched.
+    const a = await request(app).get(`${offersPath}/${offerA}/economics`).set(getAuthHeaders(orgId));
+    expect(a.body).toMatchObject({ bookingUrl: null, destinationUrl: null });
+
+    const byOffer = await request(app).get(`/internal/offers/${offerB}/economics`).set(getInternalAuthHeaders());
+    expect(byOffer.status).toBe(200);
+    expect(byOffer.body).toMatchObject({ offerId: offerB, bookingUrl: 'https://calendly.com/acme/intro' });
+    expect(Array.isArray(byOffer.body.legRates)).toBe(true);
+
+    const listed = await request(app).get(`/internal/brands/${brandId}/offer-economics`).set(getInternalAuthHeaders());
+    const row = listed.body.offers.find((o: any) => o.offerId === offerB);
+    expect(row).toMatchObject({ bookingUrl: 'https://calendly.com/acme/intro', destinationUrl: 'https://legs.example/pricing' });
+
+    const bad = await request(app).put(`${offersPath}/${offerB}/economics`).set(getAuthHeaders(orgId))
+      .send({ bookingUrl: 'ftp://nope' });
+    expect(bad.status).toBe(400);
+
+    const clear = await request(app).put(`${offersPath}/${offerB}/economics`).set(getAuthHeaders(orgId))
+      .send({ bookingUrl: null });
+    expect(clear.body).toMatchObject({ bookingUrl: null, destinationUrl: 'https://legs.example/pricing' });
+
+    const missing = await request(app).get(`/internal/offers/${randomUUID()}/economics`).set(getInternalAuthHeaders());
+    expect(missing.status).toBe(404);
+  });
 });

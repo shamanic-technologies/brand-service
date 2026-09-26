@@ -2809,6 +2809,16 @@
             "type": "string",
             "nullable": true
           },
+          "bookingUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "The scheduling page a prospect of this offer books a meeting on. `null` = never stated."
+          },
+          "destinationUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "The page on the brand's site this offer's outreach click lands on. `null` = never stated."
+          },
           "legRates": {
             "type": "array",
             "items": {
@@ -2822,6 +2832,8 @@
           "name",
           "lifetimeRevenueUsd",
           "lifetimeRevenueStatedAt",
+          "bookingUrl",
+          "destinationUrl",
           "legRates"
         ]
       },
@@ -2832,6 +2844,16 @@
             "type": "integer",
             "nullable": true,
             "minimum": 0
+          },
+          "bookingUrl": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri"
+          },
+          "destinationUrl": {
+            "type": "string",
+            "nullable": true,
+            "format": "uri"
           },
           "legRates": {
             "type": "array",
@@ -2879,13 +2901,23 @@
           "lifetimeRevenueStatedAt": {
             "type": "string",
             "nullable": true
+          },
+          "bookingUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "destinationUrl": {
+            "type": "string",
+            "nullable": true
           }
         },
         "required": [
           "offerId",
           "name",
           "lifetimeRevenueUsd",
-          "lifetimeRevenueStatedAt"
+          "lifetimeRevenueStatedAt",
+          "bookingUrl",
+          "destinationUrl"
         ]
       }
     },
@@ -6828,6 +6860,44 @@
           },
           "400": {
             "description": "Invalid brand ID or ORG_REQUIRED"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/offers/{offerId}/economics": {
+      "get": {
+        "summary": "Service read of one offer's economics, keyed by the offer alone",
+        "description": "The same body as `/internal/brands/{brandId}/offers/{offerId}/economics`, for a caller that holds only the offer id (the AI meeting-booking DAG reads `bookingUrl`). The org and brand are the offer's own. Unknown offer = 404.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offer economics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferEconomics"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID format"
+          },
+          "404": {
+            "description": "Offer not found"
           },
           "500": {
             "description": "Internal server error"

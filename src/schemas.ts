@@ -3550,6 +3550,12 @@ export const PutLegRatesRequestSchema = z
   })
   .openapi('PutLegRatesRequest');
 
+const HttpUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .refine((u) => /^https?:\/\//i.test(u), { message: 'Must be an absolute http(s) URL' });
+
 export const OfferEconomicsSchema = z
   .object({
     offerId: z.string().uuid(),
@@ -3558,6 +3564,12 @@ export const OfferEconomicsSchema = z
       description: 'What a paying client of this offer is worth, USD. `null` = never stated.',
     }),
     lifetimeRevenueStatedAt: z.string().nullable(),
+    bookingUrl: z.string().nullable().openapi({
+      description: 'The scheduling page a prospect of this offer books a meeting on. `null` = never stated.',
+    }),
+    destinationUrl: z.string().nullable().openapi({
+      description: "The page on the brand's site this offer's outreach click lands on. `null` = never stated.",
+    }),
     legRates: z.array(LegRateSchema).openapi({
       description: "The brand's leg rates — the same for every offer of the brand.",
     }),
@@ -3568,12 +3580,20 @@ export const PutOfferEconomicsRequestSchema = z
   .object({
     // Omitted = untouched; `null` clears.
     lifetimeRevenueUsd: z.number().int().min(0).nullable().optional(),
+    // Omitted = untouched; `null` clears. Absolute http(s) URLs.
+    bookingUrl: HttpUrlSchema.nullable().optional(),
+    destinationUrl: HttpUrlSchema.nullable().optional(),
     // PARTIAL leg patch, the same as PUT /leg-rates.
     legRates: z.array(LegRatePatchSchema).optional(),
   })
-  .refine((b) => b.lifetimeRevenueUsd !== undefined || (b.legRates !== undefined && b.legRates.length > 0), {
-    message: 'State lifetimeRevenueUsd, legRates, or both.',
-  })
+  .refine(
+    (b) =>
+      b.lifetimeRevenueUsd !== undefined ||
+      b.bookingUrl !== undefined ||
+      b.destinationUrl !== undefined ||
+      (b.legRates !== undefined && b.legRates.length > 0),
+    { message: 'State at least one of lifetimeRevenueUsd, bookingUrl, destinationUrl, legRates.' }
+  )
   .openapi('PutOfferEconomicsRequest');
 
 export const OfferLifetimeRevenueSchema = z
@@ -3582,6 +3602,8 @@ export const OfferLifetimeRevenueSchema = z
     name: z.string(),
     lifetimeRevenueUsd: z.number().int().nullable(),
     lifetimeRevenueStatedAt: z.string().nullable(),
+    bookingUrl: z.string().nullable(),
+    destinationUrl: z.string().nullable(),
   })
   .openapi('OfferLifetimeRevenue');
 
@@ -3685,6 +3707,22 @@ registry.registerPath({
   responses: {
     200: { description: 'Leg rates + offers', content: { 'application/json': { schema: GetBrandOfferEconomicsResponseSchema } } },
     400: { description: 'Invalid brand ID or ORG_REQUIRED' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/offers/{offerId}/economics',
+  summary: "Service read of one offer's economics, keyed by the offer alone",
+  description:
+    'The same body as `/internal/brands/{brandId}/offers/{offerId}/economics`, for a caller that holds only the ' +
+    "offer id (the AI meeting-booking DAG reads `bookingUrl`). The org and brand are the offer's own. Unknown offer = 404.",
+  request: { params: z.object({ offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The offer economics', content: { 'application/json': { schema: OfferEconomicsSchema } } },
+    400: { description: 'Invalid offer ID format' },
+    404: { description: 'Offer not found' },
     500: { description: 'Internal server error' },
   },
 });

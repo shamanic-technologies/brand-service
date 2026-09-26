@@ -412,6 +412,13 @@ export const brandOffers = pgTable("brand_offers", {
 	lifetimeRevenueStatedAt: timestamp("lifetime_revenue_stated_at", { withTimezone: true, mode: 'string' }),
 	// PROVENANCE of the carry-over; cleared when a caller restates. Read by nothing.
 	lifetimeRevenueCarriedOverAt: timestamp("lifetime_revenue_carried_over_at", { withTimezone: true, mode: 'string' }),
+	// The scheduling page a prospect of THIS offer books a meeting on (the AI
+	// meeting-booking channel reads it to propose slots). NULL = never stated.
+	// Migration 0073 carried it over from the per-offer funnel rows it lived on.
+	bookingUrl: text("booking_url"),
+	// The page on the brand's own site this offer's outreach click lands on.
+	// NULL = never stated. Carried over by 0073 like the booking link.
+	destinationUrl: text("destination_url"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
