@@ -1,5 +1,5 @@
 import { and, asc, eq, isNull, SQL } from 'drizzle-orm';
-import { db, brandOffers, brandSalesFunnelArrowRates, brandSalesFunnels, brandUserFields, brands } from '../db';
+import { db, brandOffers, brandUserFields, brands } from '../db';
 import {
   SUPPLIED_OFFER_NAME_MAX_CHARS,
   OfferNameError,
@@ -14,8 +14,7 @@ import {
  *
  * An offer exists because someone said so: a row, a name, and nothing derived.
  * There is deliberately no defaulting layer and NO PRIMARY OFFER — several run
- * at once and none outranks another, the same rule the sales-funnel model
- * settled on, for the same reason. Ranking them is a question for whoever is
+ * at once and none outranks another. Ranking them is a question for whoever is
  * spending money, not for the record of what exists.
  *
  * This file also owns the BACK-COMPAT resolution the brand-scoped routes run:
@@ -70,8 +69,7 @@ export class OfferNotFoundError extends Error {
  * which would write one offer's numbers over another's the first time it guessed
  * wrong. It refuses instead, and says what to send.
  *
- * This mirrors billing-service refusing to move money when a funnel is split
- * across several channels, and `resolveInternalOrgScope` refusing to answer for
+ * This mirrors `resolveInternalOrgScope` refusing to answer for
  * a brand several orgs claim. Same shape, same reason: no defensible default.
  */
 export class SeveralOffersError extends Error {
@@ -277,8 +275,8 @@ export async function renameOffer(
  *                          another's.
  *   - NO offer           → `null`. A brand with no offer has stated nothing, so
  *                          every brand-scoped READ answers exactly what it
- *                          answered before: an empty funnel set, user-fields
- *                          with nothing confirmed. A WRITE takes the other path
+ *                          answered before: user-fields with nothing
+ *                          confirmed. A WRITE takes the other path
  *                          below and creates the brand's first offer.
  */
 export async function resolveSoleOffer(
@@ -322,9 +320,8 @@ export async function resolveNamedOffer(
  * The offer a BRAND-scoped WRITE is about, creating the brand's first one when
  * it has none.
  *
- * Creating is what preserves the existing contract exactly: onboarding declares
- * a funnel on a brand-new brand, and that call used to need nothing but the
- * brand. Refusing it would break the one path every new customer walks. There is
+ * Creating is what preserves the existing contract exactly: onboarding writes
+ * to a brand-new brand, and that call used to need nothing but the brand. Refusing it would break the one path every new customer walks. There is
  * nothing to guess at either — a brand with no offer has exactly one possible
  * offer for the write to land on.
  *
@@ -368,7 +365,7 @@ export async function resolveOfferForWrite(orgId: string, brandId: string): Prom
 }
 
 /**
- * The predicate that selects ONE offer's rows on the two re-scoped tables.
+ * The predicate that selects ONE offer's rows on `brand_user_fields`.
  *
  * `null` selects the rows the migration has not reached (`offer_id IS NULL`),
  * which — scoped by org and brand as every caller already scopes them — is
@@ -378,10 +375,7 @@ export async function resolveOfferForWrite(orgId: string, brandId: string): Prom
  * exactly what it read yesterday, rather than reading empty.
  */
 export function offerScope(
-  column:
-    | typeof brandSalesFunnels.offerId
-    | typeof brandUserFields.offerId
-    | typeof brandSalesFunnelArrowRates.offerId,
+  column: typeof brandUserFields.offerId,
   offerId: string | null
 ): SQL {
   return offerId === null ? isNull(column) : eq(column, offerId);
@@ -402,19 +396,7 @@ export async function adoptUnmigratedRows(
   orgId: string,
   brandId: string,
   offerId: string
-): Promise<{ funnels: number; userFields: number }> {
-  const funnels = await db
-    .update(brandSalesFunnels)
-    .set({ offerId })
-    .where(
-      and(
-        eq(brandSalesFunnels.orgId, orgId),
-        eq(brandSalesFunnels.brandId, brandId),
-        isNull(brandSalesFunnels.offerId)
-      )
-    )
-    .returning({ id: brandSalesFunnels.id });
-
+): Promise<{ userFields: number }> {
   const userFields = await db
     .update(brandUserFields)
     .set({ offerId })
@@ -427,7 +409,7 @@ export async function adoptUnmigratedRows(
     )
     .returning({ id: brandUserFields.id });
 
-  return { funnels: funnels.length, userFields: userFields.length };
+  return { userFields: userFields.length };
 }
 
 /** The supplied-name limit, re-exported so a caller states it once. */

@@ -3,24 +3,17 @@ import { db, orgBrands, brandSalesEconomics } from '../db';
 import {
   AcceptedOptimizationGoal,
   getCurrentGoalByBrandId,
-  hasClickDestination,
   toRetiredGoal,
   updateCurrentGoalByBrandId,
 } from './brandGoalService';
-import { getBrand } from './brandService';
-import { assertRetiredGoalDeclarable, salesFunnelsService } from './salesFunnelsService';
 
 /** Brand-level B2C vs B2B classification. */
 export type BusinessModel = 'b2c' | 'b2b';
 
-/** Sales-funnel stage a brand has (multi-select, 0..2). */
-export type FunnelStage = 'website_purchase' | 'sales_meeting';
-
 /**
  * A goal AS ACCEPTED ON WRITE: the retired eight plus every legacy spelling,
- * kept working forever. NO READ USES THIS TYPE — the goal vocabulary is retired,
- * and what a brand sells through is answered by its declared sales funnels.
- * Sending one here declares the funnel(s) that goal meant.
+ * kept working forever. NO READ USES THIS TYPE — the goal vocabulary is retired.
+ * Sending one here only mirrors it into the retired columns.
  */
 export type OptimizationGoal = AcceptedOptimizationGoal;
 
@@ -49,9 +42,8 @@ export function deriveVisitToClosePct(
  * `businessModel` is optional on write: omitted (`undefined`) = leave the
  * stored value unchanged; `null` = clear it.
  *
- * `funnelStages` / `optimizationGoal` are optional on write: omitted
- * (`undefined`) = leave unchanged; sending sets. Neither is nullable — there is
- * no "clear to null" (funnelStages clears via `[]`, optimizationGoal via a value).
+ * `optimizationGoal` is optional on write: omitted (`undefined`) = leave
+ * unchanged; sending sets. Not nullable.
  */
 export interface SalesEconomicsMetrics {
   lifetimeRevenueUsd: number;
@@ -75,7 +67,6 @@ export interface SalesEconomicsMetrics {
   visitToFormSubmissionPct?: number;
   formSubmissionToPaidClientPct?: number;
   businessModel?: BusinessModel | null;
-  funnelStages?: FunnelStage[];
   optimizationGoal?: OptimizationGoal;
 }
 
@@ -177,20 +168,14 @@ export interface SavedSalesEconomics extends SalesEconomicsMetrics {
   formSubmissionToPaidClientPct: number;
   // Always present on read; `null` = never set.
   businessModel: BusinessModel | null;
-  // Always an array on read; `[]` = never set.
-  funnelStages: FunnelStage[];
-  // NO `optimizationGoal`. It answered "what does this brand sell through?" a
-  // second time, in the retired goal vocabulary — the poorer word, which could
-  // not tell the two meeting funnels apart. The declared funnel set is the
-  // answer. A goal is still accepted on WRITE and declares the funnels it meant.
+  // NO `optimizationGoal`: the goal vocabulary is retired. It is still
+  // accepted on WRITE and mirrored into the retired column, read by nothing.
   updatedAt: string;
 }
 
 /**
- * The saved economics as read. NO GOAL: this row carries a brand's numbers, not
- * what it sells through — that is the declared funnel set, and it is the only
- * vocabulary any read emits. `brand_sales_economics.optimization_goal` is still
- * WRITTEN as a mirror of what a legacy caller sent, and is read by nothing.
+ * The saved economics as read. NO GOAL: `brand_sales_economics.optimization_goal`
+ * is still WRITTEN as a mirror of what a legacy caller sent, and is read by nothing.
  */
 function formatSalesEconomics(
   row: typeof brandSalesEconomics.$inferSelect
@@ -213,7 +198,6 @@ function formatSalesEconomics(
     visitToFormSubmissionPct: row.visitToFormSubmissionPct,
     formSubmissionToPaidClientPct: row.formSubmissionToPaidClientPct,
     businessModel: row.businessModel as BusinessModel | null,
-    funnelStages: (row.funnelStages ?? []) as FunnelStage[],
     updatedAt: row.updatedAt,
   };
 }
@@ -487,24 +471,11 @@ export class SalesEconomicsService {
     const core = mergeCoreMetrics(storedCore, metrics);
 
     // RETIRED-GOAL WRITE TOLERANCE. A caller may still send a goal here, in any
-    // spelling the fleet has ever used. It no longer means anything on its own:
-    // it is resolved to the funnel(s) it named and DECLARED below, and mirrored
-    // into the retired columns so a caller reading them back is not lied to.
+    // spelling the fleet has ever used. It is mirrored into the retired columns
+    // so a caller reading them back is not lied to, and declares nothing.
     const retiredGoal = metrics.optimizationGoal !== undefined
       ? toRetiredGoal(metrics.optimizationGoal)
       : null;
-
-    // Resolved and validated BEFORE anything is written. A goal we cannot turn
-    // into a declaration rejects the whole call, so the metrics are not stored
-    // under a word that says nothing — half-applying the write and then failing
-    // is worse than either outcome on its own.
-    const goalContext = retiredGoal
-      ? { hasClickDestination: await hasClickDestination(orgId, brandId) }
-      : null;
-    if (retiredGoal && goalContext) {
-      const brand = await getBrand(brandId);
-      assertRetiredGoalDeclarable(retiredGoal, goalContext, brand?.domain ?? null);
-    }
 
     const currentGoal = retiredGoal
       ? await updateCurrentGoalByBrandId(orgId, brandId, retiredGoal)
@@ -551,9 +522,7 @@ export class SalesEconomicsService {
           : {}),
         // Fresh row: undefined (omitted) stores as null (never set).
         businessModel: metrics.businessModel ?? null,
-        // Fresh row: omitted funnelStages defaults to []; optimization_goal
-        // mirrors brands.current_goal, canonical either way.
-        funnelStages: metrics.funnelStages ?? [],
+        // optimization_goal mirrors brands.current_goal, canonical either way.
         optimizationGoal: currentGoal,
       })
       .onConflictDoUpdate({
@@ -604,11 +573,6 @@ export class SalesEconomicsService {
           ...(metrics.businessModel !== undefined
             ? { businessModel: metrics.businessModel }
             : {}),
-          // Only touch funnel_stages when supplied (including `[]` to clear).
-          // Omitted = preserve the stored value.
-          ...(metrics.funnelStages !== undefined
-            ? { funnelStages: metrics.funnelStages }
-            : {}),
           // Only touch optimization_goal when the caller supplied one — store the
           // CANONICAL token, not the spelling that arrived. Omitted = preserve
           // the stored column (leave-unchanged contract), which is also what
@@ -620,21 +584,6 @@ export class SalesEconomicsService {
         },
       })
       .returning();
-
-    // A goal the caller sent DECLARES the funnel(s) it named — the same mapping
-    // the dedicated acceptor and the one-time backfill apply, so a brand reaches
-    // the same declaration whichever way its goal arrived. Additive: it never
-    // switches off a funnel the org stated through the funnel routes.
-    if (retiredGoal && goalContext) {
-      const brand = await getBrand(brandId);
-      await salesFunnelsService.declareFromRetiredGoal(
-        orgId,
-        brandId,
-        retiredGoal,
-        goalContext,
-        brand?.domain ?? null
-      );
-    }
 
     return formatSalesEconomics(result[0]);
   }

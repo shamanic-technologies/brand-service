@@ -121,9 +121,8 @@ export const orgBrands = pgTable("org_brands", {
 
 /**
  * Brand-level sales conversion economics. One row per brand (PK = brand_id),
- * reused across every sales-cold-email campaign for that brand. The funnel
- * semantics are sales-cold-email's; the metrics are brand-scoped persisted
- * config (analogous to `intake_forms`). Unset simply means no row.
+ * reused across every sales-cold-email campaign for that brand. The metrics
+ * are brand-scoped persisted config (analogous to `intake_forms`). Unset simply means no row.
  *
  * This row is the brand-level bag of economic facts the revenue-overview
  * pipeline reads. New facts are added as typed nullable columns (one per fact).
@@ -135,9 +134,9 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	replyToMeetingPct: numeric("reply_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
 	visitToMeetingPct: numeric("visit_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
 	meetingToClosePct: numeric("meeting_to_close_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
-	// Self-serve funnel split into two sub-rates. NOT NULL with DB defaults
+	// Self-serve close split into two sub-rates. NOT NULL with DB defaults
 	// (25 / 20) — a row inserted without them reads those, mirroring the
-	// funnelStages/optimizationGoal default convention below.
+	// optimizationGoal default convention below.
 	visitToSignupPct: numeric("visit_to_signup_pct", { precision: 7, scale: 4, mode: "number" }).default(25).notNull(),
 	signupToPaidClientPct: numeric("signup_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(20).notNull(),
 	// Single-step conversion rates for the beta goals website_visits / positive_replies:
@@ -161,9 +160,6 @@ export const brandSalesEconomics = pgTable("brand_sales_economics", {
 	// Brand-level B2C vs B2B classification. Nullable: null = never set.
 	// Additive field — older callers omit it; see salesEconomicsService upsert.
 	businessModel: text("business_model"),
-	// Sales-funnel stages the brand has (subset of website_purchase | sales_meeting).
-	// NOT NULL default [] — a never-set brand reads []; see upsert.
-	funnelStages: jsonb("funnel_stages").$type<string[]>().default([]).notNull(),
 	// A MIRROR of org_brands.current_goal, in the same canonical vocabulary.
 	// Nothing reads it: it existed to record the raw wire spelling back when two
 	// wire values (form_submissions, website_purchase) shared one runtime goal,
@@ -252,7 +248,7 @@ export const brandWhatsappLinks = pgTable("brand_whatsapp_links", {
  *
  * BRAND grain, keyed on (org_id, brand_id) like every other per-brand config
  * (never on the `brands` identity row, which several orgs share). Deliberately
- * NOT campaign grain: a campaign is (offer x funnel x channel), so a brand
+ * NOT campaign grain: a campaign is (offer x leg x channel), so a brand
  * running four channels on one offer would retype one fact four times and drift
  * from the first edit, and a brand with no campaign yet could declare nothing at
  * all. The rep answers for the brand.
@@ -358,20 +354,16 @@ export const brandShareTokens = pgTable("brand_share_tokens", {
  *
  * The level between a brand and a campaign. A brand is an IDENTITY (a name, a
  * domain, a logo); an offer is a PROPOSITION: the value it promises (the 7
- * Hormozi user-fields) and the sales funnels it is sold through, with their
- * conversion rates, their lifetime revenue and their destinations. All of that
+ * Hormozi user-fields), its lifetime revenue and its buyer answers. All of that
  * used to hang off the brand, which forced a brand selling a $200 self-serve
- * plan and a $20k contract to describe both as one thing — one set of rates, one
- * lifetime revenue, one value proposition. `brand_user_fields` and
- * `brand_sales_funnels` now hang off a row here instead.
+ * plan and a $20k contract to describe both as one thing.
  *
  * ORG-SCOPED like every other config table: `brands` is the global silver
  * identity several orgs legitimately share, so what an org sells under a brand
  * is the data of an (org, brand) pair and never a property of the brand.
  *
- * THERE IS NO PRIMARY OFFER. Several run at once and none outranks another —
- * the same rule the sales-funnel model settled on, for the same reason: ranking
- * them is a question for whoever is spending money, not for the record of what
+ * THERE IS NO PRIMARY OFFER. Several run at once and none outranks another:
+ * ranking them is a question for whoever is spending money, not for the record of what
  * exists.
  *
  * The brand's IDENTITY stays on the brand, deliberately: the name, the domain,
@@ -413,12 +405,10 @@ export const brandOffers = pgTable("brand_offers", {
 	// What a paying client of THIS offer is worth, in USD. A property of what the
 	// offer sells, so it is stated once per offer, never once per funnel. NULL =
 	// never stated: nothing defaults, averages or borrows one. Migration 0071
-	// carried it over from `brand_sales_funnels` (most recently stated value per
-	// offer wins); `brand_sales_funnels.lifetime_revenue_usd` keeps answering the
-	// funnel-keyed reads unchanged until they retire.
+	// carried it over from `brand_sales_funnels`.
 	lifetimeRevenueUsd: integer("lifetime_revenue_usd"),
 	// When the value above was stated (NULL with it). For a carried-over value,
-	// the moment it was stated on the funnel row it came from.
+	// the moment it was stated on the row it came from.
 	lifetimeRevenueStatedAt: timestamp("lifetime_revenue_stated_at", { withTimezone: true, mode: 'string' }),
 	// PROVENANCE of the carry-over; cleared when a caller restates. Read by nothing.
 	lifetimeRevenueCarriedOverAt: timestamp("lifetime_revenue_carried_over_at", { withTimezone: true, mode: 'string' }),
@@ -445,35 +435,12 @@ export const brandOffers = pgTable("brand_offers", {
 ]);
 
 /**
- * The sales funnels an org sells a brand through, and what each one is worth.
- *
- * One row per (org, brand, funnel). `active` says whether the org currently
- * sells through that funnel; the ROW itself is the MEMORY and is not deleted
- * when a funnel is switched off, so the rates, lifetime revenue and
- * destinations a user entered are still there when they switch it back on.
- *
- * ORG-SCOPED for the same reason as every other config table here: `brands` is
- * the global silver identity that several orgs legitimately share, so what an
- * org sells through — and what it earns — is the data of an (org, brand) pair,
- * never a property of the brand.
- *
- * Nothing is inferred from the values: every value column is NULLABLE with NO
- * server default, so `null` means "the org never gave us this number" and never
- * "0". `brand_sales_economics` cannot express that (every rate there is NOT
- * NULL with a default, so absence signals nothing) — which is exactly why the
- * set of funnels can only be declared, never derived from it.
- *
- * INVARIANT: an org that has answered always has at least ONE active funnel.
- * "All inactive" is only the initial state, and the initial state is NO ROWS at
- * all — so zero rows means "never answered" and is the only way to say it.
- * Switching off the last active funnel is refused.
- *
- * Which rate columns a funnel may fill is NOT free-form: `salesFunnelCatalogue`
- * owns the funnel of each funnel, and a write naming a rate outside that funnel is
- * rejected 400 rather than silently dropped.
- *
- * `meeting_booked_to_attended_pct` and `booking_url` exist ONLY here — they are
- * the two values the funnel model needs that had no home anywhere in the fleet.
+ * RETAINED, READ-ONLY, FROZEN (wave C2, distribute.you#4413). The sales funnel
+ * is retired: rates live on `brand_leg_rates`, lifetime revenue on
+ * `brand_offers`. Nothing writes this table any more. It stays only because
+ * `GET /internal/offers/:offerId/sales-funnels` still has two production
+ * callers (client-service reward-tasks, workflow-service AI meeting-booking);
+ * see `src/services/retainedOfferFunnelsRead.ts`. Drop it with that route.
  */
 export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 	// Surrogate key. The natural key USED to be (org_id, brand_id, funnel_key) and
@@ -601,33 +568,8 @@ export const brandSalesFunnels = pgTable("brand_sales_funnels", {
 ]);
 
 /**
- * A rate a brand states for ONE ARROW of one of its sales funnels, identified
- * by the two STEPS the arrow connects.
- *
- * WHY A ROW AND NOT A COLUMN. The rates on `brand_sales_funnels` are a CLOSED
- * set: one column per arrow the catalogue happens to contain, so a funnel
- * gaining a step (a phone call placed between a positive reply and a booked
- * meeting) costs a migration here plus a rename wave through every consumer
- * that reads the name. Keyed on the two step labels instead, a brand can price
- * an arrow this service has never heard of, and adding a step to a funnel adds
- * no schema at all.
- *
- * NOT a replacement. The named columns stay, keep being written and keep being
- * read exactly as they are; a later, separate ship retires them once every
- * consumer has moved. Where an arrow-level rate and a named column describe the
- * SAME arrow, the STATED ARROW WINS and the named column is the fallback — one
- * precedence, stated once, applied on every read.
- *
- * Scoped like the funnel it prices: per (offer, funnel), because a rate
- * describes ONE thing a brand sells. `offer_id` is NOT NULL here, unlike on
- * `brand_sales_funnels` — that column is nullable only for rows predating the
- * offer migration, and this table has none: it is new, and every write resolves
- * an offer before it stores anything. One unique index is therefore the whole
- * natural key, with no partial index guarding a legacy shape that cannot exist.
- *
- * ABSENCE IS THE ANSWER: no row means the brand has not stated this arrow. A
- * rate is never defaulted, never zero-filled and never derived from a
- * neighbouring arrow.
+ * RETAINED, READ-ONLY, FROZEN with `brand_sales_funnels` above, for the same
+ * single read. Drop it with that route.
  */
 export const brandSalesFunnelArrowRates = pgTable("brand_sales_funnel_arrow_rates", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
@@ -672,65 +614,9 @@ export const brandSalesFunnelArrowRates = pgTable("brand_sales_funnel_arrow_rate
 ]);
 
 /**
- * A conversion rate a BRAND states for ONE ARROW of one of its sales funnels.
- *
- * WHY THE BRAND AND NOT THE OFFER. Owner-decided 2026-09-25: a conversion rate
- * describes how a brand SELLS (how often its positive replies book a meeting,
- * how often its meetings close), so there is ONE set per (brand, funnel, arrow),
- * shared by every offer of the brand selling that funnel. What stays per offer
- * is what differs per proposition: the lifetime revenue and the booking link on
- * `brand_sales_funnels`.
- *
- * ORG-SCOPED like every other per-brand config here: `brands` is the global
- * identity several orgs legitimately share, and each configures it on its own.
- *
- * The per-offer rates (`brand_sales_funnels` named columns and
- * `brand_sales_funnel_arrow_rates`) are NOT touched by this table and keep
- * answering every current reader; they retire once those readers have moved.
- *
- * ABSENCE IS THE ANSWER: no row means the brand has not stated this arrow. The
- * rate is NOT NULL with NO default, and clearing it deletes the row.
- */
-export const brandFunnelArrowRates = pgTable("brand_funnel_arrow_rates", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	orgId: uuid("org_id").notNull(),
-	brandId: uuid("brand_id").notNull(),
-	// Canonical funnel key. Resolved at the write (a pre-retirement spelling is
-	// accepted on the wire and never stored), deliberately NOT a CHECK: the
-	// catalogue grows, and this table must not need a migration when it does.
-	funnelKey: text("funnel_key").notNull(),
-	// The two steps the arrow connects, as LABELS, exactly like the per-offer
-	// arrow table: an arrow this service does not know yet is still statable.
-	fromStep: text("from_step").notNull(),
-	toStep: text("to_step").notNull(),
-	ratePct: numeric("rate_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
-	// PROVENANCE of the one-time move from the per-offer grain: the offer whose
-	// statement won, and when it was copied. NULL on every rate a caller wrote at
-	// the brand grain directly, and cleared when a caller restates the rate. Read
-	// by nothing; it makes the move reversible by an exact predicate.
-	migratedFromOfferId: uuid("migrated_from_offer_id"),
-	migratedAt: timestamp("migrated_at", { withTimezone: true, mode: 'string' }),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	// The natural key: one rate per arrow, per funnel, per (org, brand).
-	uniqueIndex("brand_funnel_arrow_rates_brand_key")
-		.on(table.orgId, table.brandId, table.funnelKey, table.fromStep, table.toStep),
-	index("brand_funnel_arrow_rates_brand_id_idx").on(table.brandId),
-	check("brand_funnel_arrow_rates_steps_not_blank", sql`btrim(${table.fromStep}) <> '' AND btrim(${table.toStep}) <> ''`),
-	check("brand_funnel_arrow_rates_rate_range", sql`${table.ratePct} >= 0 AND ${table.ratePct} <= 100`),
-	foreignKey({
-		columns: [table.brandId],
-		foreignColumns: [brands.id],
-		name: "brand_funnel_arrow_rates_brand_id_fkey",
-	}).onDelete("cascade"),
-]);
-
-/**
  * LEG-GRAIN conversion rates — one stated rate per (org, brand, LEG). A leg is the
- * move of a lead from one step to another (Positive reply -> Meeting booked); the
- * sales funnel is NOT part of the key, because the same leg sits in several
- * funnels and is one real-world fact. Shared by every offer of the brand (the
+ * move of a lead from one step to another (Positive reply -> Meeting booked), one
+ * real-world fact about how a brand sells. Shared by every offer of the brand (the
  * owner's brand-grain decision of 2026-09-25). See `brandLegRatesService`.
  *
  * ABSENCE IS THE ANSWER: no row = not stated; clearing deletes the row.
@@ -740,8 +626,7 @@ export const brandLegRates = pgTable("brand_leg_rates", {
 	orgId: uuid("org_id").notNull(),
 	brandId: uuid("brand_id").notNull(),
 	// The two steps the leg connects, as LABELS (the catalogue's wording), exactly
-	// like the funnel-keyed tables: a leg this service does not know yet is still
-	// statable.
+	// so a leg this service does not know yet is still statable.
 	fromStep: text("from_step").notNull(),
 	toStep: text("to_step").notNull(),
 	ratePct: numeric("rate_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
@@ -808,9 +693,8 @@ export const brandUserFields = pgTable("brand_user_fields", {
 	// scarcity are claims about an offer, not about a company — so they hang off
 	// the offer rather than the brand.
 	//
-	// NULLABLE at the database and NOT NULL at the write path, for the same
-	// reason as `brand_sales_funnels.offer_id`: the offer a pre-offer brand gets
-	// is NAMED from what that brand sells, which is a script and not DDL. A row
+	// NULLABLE at the database and NOT NULL at the write path: the offer a
+	// pre-offer brand gets is NAMED from what that brand sells, which is a script and not DDL. A row
 	// still holding NULL is one the migration has not reached.
 	offerId: uuid("offer_id"),
 	fieldKey: text("field_key").notNull(),

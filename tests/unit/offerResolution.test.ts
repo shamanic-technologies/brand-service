@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * judgement call we refuse to make.
  */
 
-// A funnelable, thenable stand-in for drizzle's query builders: every builder
+// A chainable, thenable stand-in for drizzle's query builders: every builder
 // method returns the same object, and awaiting it yields the next queued result.
 // That covers `.from().where().orderBy()`, `.where().limit()`,
 // `.values().onConflictDoNothing().returning()` and `.set().where().returning()`
@@ -46,7 +46,6 @@ const { queue, dbSpy } = vi.hoisted(() => {
 vi.mock('../../src/db', () => ({
   db: dbSpy,
   brandOffers: { id: 'o.id', orgId: 'o.orgId', brandId: 'o.brandId', name: 'o.name', createdAt: 'o.createdAt' },
-  brandSalesFunnels: { id: 'f.id', orgId: 'f.orgId', brandId: 'f.brandId', offerId: 'f.offerId' },
   brandUserFields: { id: 'u.id', orgId: 'u.orgId', brandId: 'u.brandId', offerId: 'u.offerId' },
   brands: { id: 'b.id', name: 'b.name', domain: 'b.domain' },
 }));
@@ -124,7 +123,6 @@ describe('resolveOfferForWrite — what a brand-scoped WRITE is about', () => {
     queue.push([]);                                            // no offers
     queue.push([{ name: 'Acme Widgets', domain: 'acme.com' }]); // the brand
     queue.push([offerRow('offer-new', 'Acme Widgets')]);        // the insert
-    queue.push([]);                                            // adopt funnels
     queue.push([]);                                            // adopt user fields
 
     await expect(resolveOfferForWrite('org-1', 'brand-1')).resolves.toBe('offer-new');
@@ -135,13 +133,12 @@ describe('resolveOfferForWrite — what a brand-scoped WRITE is about', () => {
     queue.push([]);
     queue.push([{ name: 'Acme', domain: 'acme.com' }]);
     queue.push([offerRow('offer-new', 'Acme')]);
-    queue.push([{ id: 'f1' }, { id: 'f2' }]);
     queue.push([{ id: 'u1' }]);
 
     await resolveOfferForWrite('org-1', 'brand-1');
-    // One update per re-scoped table: the brand's old economics cannot be left
-    // stranded under `offer_id IS NULL` while new writes land beside them.
-    expect(dbSpy.update).toHaveBeenCalledTimes(2);
+    // The brand's old user-fields cannot be left stranded under
+    // `offer_id IS NULL` while new writes land beside them.
+    expect(dbSpy.update).toHaveBeenCalledTimes(1);
   });
 
   it('REFUSES rather than guessing when the brand sells several', async () => {

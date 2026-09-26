@@ -7,11 +7,6 @@ import { BrandUrlSchema, OptionalBrandUrlSchema } from './lib/url-utils';
 import { LogoUrlSchema } from './lib/logo-url';
 import { ACCEPTED_OPTIMIZATION_GOALS, RETIRED_GOALS } from './lib/goal-vocabulary';
 import {
-  ACCEPTED_SALES_FUNNEL_KEYS,
-  SALES_FUNNEL_KEYS,
-  SALES_FUNNEL_START_EVENTS,
-} from './services/salesFunnelCatalogue';
-import {
   SUPPLIED_OFFER_NAME_MAX_CHARS,
   offerNameProblem,
 } from './lib/offer-name';
@@ -2056,32 +2051,12 @@ export const SalesEconomicsMetricsSchema = z
 // `nullable` to a bare `$ref` (same reason SavedSalesEconomicsSchema is unnamed).
 export const BusinessModelSchema = z.enum(['b2c', 'b2b']);
 
-// Sales-funnel stages a brand has. Multi-select (0..2). Wire enum values are
-// consumed byte-stable by the dashboard — do NOT rename. `website_signup` was
-// dropped when the self-serve close metric was split into two sub-rates.
-export const FunnelStageSchema = z
-  .enum(['website_purchase', 'sales_meeting'])
-  .openapi('FunnelStage');
-
-// THE RETIRED GOAL VOCABULARY — accepted on WRITE, never emitted.
-//
-// brand-service answers "what does this brand sell through?" with a SALES FUNNEL
-// and nothing else. The goal was the poorer of the two words it used to answer
-// with (both meeting funnels collapsed onto one `meetingBooked`, so no consumer
-// could price them apart), so it is retired. Every spelling the fleet has ever
-// sent still WRITES — forever, so no caller had to change in lockstep with the
-// switch — and each one resolves to the funnel(s) it meant.
+// THE RETIRED GOAL VOCABULARY — accepted on WRITE, never emitted. Every
+// spelling the fleet has ever sent still writes (mirrored into the retired
+// columns, declaring nothing), so no caller has to change in lockstep.
 export const OptimizationGoalSchema = z
   .enum(ACCEPTED_OPTIMIZATION_GOALS)
   .openapi('OptimizationGoal');
-
-// Accepts every spelling (incl. the pre-rename `purchase` this route used to
-// require). The response is the FUNNEL SET the goal declared.
-export const UpdateCurrentGoalRequestSchema = z
-  .object({
-    currentGoal: OptimizationGoalSchema,
-  })
-  .openapi('UpdateCurrentGoalRequest');
 
 // UPSERT request body — a PARTIAL patch: EVERY field is optional and an omitted
 // field is left unchanged. That is the same leave-unchanged contract the optional
@@ -2097,8 +2072,6 @@ export const UpdateCurrentGoalRequestSchema = z
 // That requirement is enforced in salesEconomicsService.upsertByBrandId, not here,
 // because only the service knows whether a row exists.
 // businessModel: omitted = leave unchanged, `null` = clear it explicitly.
-// funnelStages: omitted = leave unchanged; sending the array (including `[]`)
-// sets it. NOT nullable — there is no "clear to null", only "set to []".
 // optimizationGoal: omitted = leave unchanged; sending sets it. NOT nullable.
 // visitToPaidClientPct / replyToPaidClientPct: single-step rates for the
 // website_visits / positive_replies goals. Optional — omitted = leave unchanged.
@@ -2110,7 +2083,6 @@ export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.par
   visitToFormSubmissionPct: PercentSchema.optional(),
   formSubmissionToPaidClientPct: PercentSchema.optional(),
   businessModel: BusinessModelSchema.nullable().optional(),
-  funnelStages: z.array(FunnelStageSchema).optional(),
   optimizationGoal: OptimizationGoalSchema.optional(),
 }).openapi('UpsertSalesEconomicsRequest');
 
@@ -2133,12 +2105,8 @@ export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
   formSubmissionToPaidClientPct: PercentSchema,
   // Always present on read; `null` = never set.
   businessModel: BusinessModelSchema.nullable(),
-  // Always an array on read; `[]` = never set (never null).
-  funnelStages: z.array(FunnelStageSchema),
-  // NO `optimizationGoal`. It was the retired goal vocabulary answering "what
-  // does this brand sell through?" a second time, in the poorer word. The answer
-  // is the declared funnel set (`GET /orgs|internal/brands/{brandId}/sales-funnels`).
-  // The goal is still ACCEPTED on write here and declares the funnels it meant.
+  // NO `optimizationGoal`: the retired goal vocabulary. Still ACCEPTED on
+  // write and mirrored into the retired column, read by nothing.
   updatedAt: z.string(),
 });
 
@@ -2196,11 +2164,9 @@ registry.registerPath({
   description:
     'Returns the saved economics for the brand (conversion metrics incl. the two self-serve sub-rates ' +
     '`visitToSignupPct` + `signupToPaidClientPct`, plus the DERIVED `visitToClosePct` = ' +
-    'visitToSignupPct * signupToPaidClientPct / 100, + `businessModel` + ' +
-    '`funnelStages` + `optimizationGoal`), or `{ salesEconomics: null }` when nothing has been saved ' +
-    'yet. `businessModel` is `b2c`, `b2b`, or `null` (never set). `funnelStages` is always an array ' +
-    '(`[]` when never set), `optimizationGoal` always a CANONICAL goal token (`"websitePurchase"` when ' +
-    'never set). Unset is NOT ' +
+    'visitToSignupPct * signupToPaidClientPct / 100, + `businessModel`), or ' +
+    '`{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, ' +
+    'or `null` (never set). Unset is NOT ' +
     'a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller\'s org ' +
     '(x-org-id); a brand outside the org is rejected with 403.',
   request: { params: z.object({ brandId: z.string().uuid() }) },
@@ -2253,19 +2219,17 @@ registry.registerPath({
     'Percents are 0..100, decimals allowed. `visitToClosePct` is NOT accepted on the request — it is DERIVED on ' +
     'the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent ' +
     'is ignored. Optional `businessModel` ' +
-    '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `funnelStages` (array ' +
-    'of `website_purchase` | `sales_meeting`): omitting leaves it unchanged, ' +
-    'sending the array (including `[]`) sets it. Optional `optimizationGoal` — any canonical token ' +
+    '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `optimizationGoal` — any canonical token ' +
     '(`signup` | `meetingBooked` | `websitePurchase` | `combinedSales` | `websiteVisit` | ' +
     '`positiveReply` | `formSubmission` | `whatsappConversation`) OR any legacy spelling ' +
     '(`signups`, `booked_meetings`, `sales_meetings`, `sales`, `website_purchase`, `combined_sales`, ' +
     '`website_visits`, `positive_replies`, `form_submissions`, `whatsapp_conversations`, `purchase`), ' +
-    'which is resolved to its canonical token and echoed back canonical: ' +
+    'which is mirrored into the retired goal column and never echoed: ' +
     'omitting leaves it unchanged, sending sets it. Optional `visitToFormSubmissionPct` + ' +
     '`formSubmissionToPaidClientPct` (form_submissions two-step rates): omitting leaves them unchanged. ' +
     'Invalid enum values ' +
     'are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with ' +
-    "the derived `visitToClosePct` + `businessModel` + `funnelStages` + `optimizationGoal` + `updatedAt`. The brand must belong to " +
+    "the derived `visitToClosePct` + `businessModel` + `updatedAt`. The brand must belong to " +
     "the caller's org (x-org-id); a brand outside the org is rejected with 403.",
   request: {
     params: z.object({ brandId: z.string().uuid() }),
@@ -2287,94 +2251,13 @@ registry.registerPath({
   },
 });
 
-// ── Sales funnels (the set a brand declares + each one's own economics) ──────
-// The funnels a brand sells through. A brand declares a SET, and each declared
-// funnel owns its own conversion rates, its own lifetime revenue, its own
-// landing page and — when its funnel contains a meeting — its own booking link.
-// Nothing here has a server default: an absent value reads back `null`, which
-// means the brand never declared it and never means zero.
-
-// THE funnel vocabulary — the only tokens brand-service emits for what a brand
-// sells through. It replaced a second, poorer vocabulary (the goal set), which
-// could not tell the two meeting funnels apart; see src/lib/goal-vocabulary.ts
-// for what survives of that, which is write tolerance and nothing else.
-export const SalesFunnelKeySchema = z
-  .enum(SALES_FUNNEL_KEYS)
-  .openapi('SalesFunnelKey');
-
-// The event that STARTS a funnel. A consumer reads it to decide which
-// acquisition channels can feed which funnels. An ad funnel starts on the step
-// the channel DELIVERS — `meeting_booked`, `lead_form_submitted` — because a
-// click is not a rung anybody buys. `ad_click` stays an accepted token that no
-// funnel starts on any more.
-export const SalesFunnelStartEventSchema = z
-  .enum(SALES_FUNNEL_START_EVENTS)
-  .openapi('SalesFunnelStartEvent');
-
-// Every funnel spelling accepted on WRITE: every canonical key plus the
-// pre-retirement ones (`reply_meeting`, `visit_meeting`, `visit_signup`,
-// `visit_form`), kept working FOREVER so no caller had to change in lockstep
-// with the rename. A legacy spelling is resolved before anything is stored and
-// is never emitted back.
-export const AcceptedSalesFunnelKeySchema = z
-  .enum(ACCEPTED_SALES_FUNNEL_KEYS)
-  .openapi('AcceptedSalesFunnelKey');
-
-// Every rate a funnel can price. A write may only carry the rates of the
-// funnel's OWN funnel — the route rejects a foreign rate 400 rather than
-// dropping it (a silently-ignored write reads back as "never declared").
-// `null` clears a rate; omitting it leaves the stored value unchanged.
-export const SalesFunnelRatesSchema = z
-  .object({
-    replyToMeetingPct: PercentSchema.nullable(),
-    visitToMeetingPct: PercentSchema.nullable(),
-    // The meeting show-up rate. Stored ONLY on a funnel — no other table in the
-    // fleet has a column for it.
-    meetingBookedToAttendedPct: PercentSchema.nullable(),
-    meetingToClosePct: PercentSchema.nullable(),
-    visitToSignupPct: PercentSchema.nullable(),
-    signupToPaidClientPct: PercentSchema.nullable(),
-    visitToFormSubmissionPct: PercentSchema.nullable(),
-    formSubmissionToPaidClientPct: PercentSchema.nullable(),
-    // The legs of the funnels that start neither in a conversation leading to a
-    // meeting nor on the brand's own site. Stored ONLY on a funnel — the
-    // brand-wide economics record predates them and has no column for any of
-    // them, so they are stated here or not at all.
-    replyToPaidClientPct: PercentSchema.nullable(),
-    adClickToMeetingPct: PercentSchema.nullable(),
-    adClickToLeadFormPct: PercentSchema.nullable(),
-    leadFormToPaidClientPct: PercentSchema.nullable(),
-    // Website visit -> Paid client with nothing in between, the only leg of
-    // `sales_from_website`. Stated on the funnel; the brand-wide economics
-    // record DERIVES a column of the same name and is never read into this one.
-    visitToClosePct: PercentSchema.nullable(),
-    // Website visit -> Purchase -> Paid client, the two legs of
-    // `sales_from_website` since the purchase became its own rung.
-    visitToPurchasePct: PercentSchema.nullable(),
-    purchaseToPaidClientPct: PercentSchema.nullable(),
-  })
-  .partial()
-  .openapi('SalesFunnelRates');
-
-// A rate stated for ONE ARROW of a funnel, identified by the two STEPS it
-// connects rather than by a name from a closed list. That is what lets a brand
-// price an arrow brand-service does not know in advance — a funnel gaining a
-// step costs no column, no enum and no rename wave across the fleet.
-// `ratePct` null CLEARS the statement; an arrow the patch omits is untouched.
-export const SalesFunnelArrowRatePatchSchema = z
-  .object({
-    fromStep: z.string().min(1),
-    toStep: z.string().min(1),
-    ratePct: PercentSchema.nullable(),
-  })
-  .openapi('SalesFunnelArrowRatePatch');
-
-// READ shape of one arrow. `provenance` says where the rate came from:
-// `stated_arrow` (the brand stated this arrow — WINS), `named_rate` (no
-// statement, so the legacy named rate answered) or `unstated` (nobody priced
-// it, `ratePct` is null and no number is invented). `rateKey` names the legacy
-// column covering this arrow, and is null for an arrow no named rate covers.
-export const SalesFunnelArrowRateSchema = z
+// ── RETAINED: one offer's frozen sales funnels ─────────────────────────────
+// The sales funnel is retired (wave C2, distribute.you#4413): rates are stated
+// per LEG, lifetime revenue per OFFER. This shape survives only for
+// GET /internal/offers/{offerId}/sales-funnels, which client-service
+// (reward-tasks) and workflow-service (AI meeting-booking) still call. Nothing
+// writes these rows; delete this with that route.
+const RetainedFunnelArrowSchema = z
   .object({
     fromStep: z.string(),
     toStep: z.string(),
@@ -2382,314 +2265,29 @@ export const SalesFunnelArrowRateSchema = z
     provenance: z.enum(['stated_arrow', 'named_rate', 'unstated']),
     rateKey: z.string().nullable(),
   })
-  .openapi('SalesFunnelArrowRate');
+  .openapi('RetainedFunnelArrow');
 
-// WRITE request — a PARTIAL patch. Omitted = leave unchanged; explicit `null` =
-// clear back to never-declared. Declaring a funnel needs no fields at all: the
-// declaration is the row, and its numbers can arrive later.
-export const DeclareSalesFunnelRequestSchema = z
+const RetainedFunnelSchema = z
   .object({
-    // Switch the funnel on or off. Omitted = leave as stored (true on a first
-    // write, since configuring a funnel is saying you sell through it).
-    active: z.boolean().optional(),
-    rates: SalesFunnelRatesSchema.optional(),
-    // Rates for the funnel's ARROWS, each named by the two steps it connects.
-    // ADDITIVE and independent of `rates`: an arrow the catalogue does not know
-    // is accepted and stored, and where both describe the same arrow the stated
-    // arrow wins on read.
-    arrowRates: z.array(SalesFunnelArrowRatePatchSchema).optional(),
-    lifetimeRevenueUsd: z.number().int().positive().nullable().optional(),
-    destinationUrl: z.string().min(1).nullable().optional(),
-    bookingUrl: z.string().min(1).nullable().optional(),
-  })
-  .openapi('DeclareSalesFunnelRequest');
-
-// READ shape of one declared funnel. `rates` carries exactly the legs of THIS
-// funnel's funnel — a leg the brand has not given us is `null`, and a rate the
-// funnel does not price is absent entirely (it is not this funnel's business).
-export const DeclaredSalesFunnelSchema = z
-  .object({
-    funnelKey: SalesFunnelKeySchema,
-    // Whether the org currently sells through this funnel. An INACTIVE funnel
-    // keeps every number on it, so switching it back on returns what the user
-    // entered — which is why it is still listed on the org read.
+    funnelKey: z.string(),
     active: z.boolean(),
     name: z.string(),
     steps: z.array(z.string()),
-    // The event that STARTS this funnel, and the token a consumer matches an
-    // acquisition channel against: a channel that can only produce a phone
-    // conversation cannot feed a funnel that starts at a `website_visit`, and a
-    // channel that never touches the brand's site cannot feed one that does.
-    // `steps[0]` is the same event as a label.
-    startEvent: SalesFunnelStartEventSchema,
-    // The step this funnel is NAMED after — its MILESTONE — and where it sits in
-    // `steps`. The moment that tells a brand the funnel is working, and what a
-    // channel's minimum budget is priced against: one month must pay for at
-    // least one of these. Always a member of `steps`, so a consumer READS it
-    // rather than hardcoding a funnel-to-step mapping of its own.
+    startEvent: z.string(),
     milestoneStep: z.string(),
     milestoneStepIndex: z.number().int(),
-    // NO `goal` / `currentGoal`. A funnel used to carry the goal it optimized
-    // for, and that vocabulary is retired: `sales_meetings_from_conversation`
-    // and `sales_meetings_from_website` both mapped onto one `meetingBooked`,
-    // so a consumer could not price a meeting won from a reply apart from one
-    // won on the website. `funnelKey` is the whole answer.
     rates: z.record(z.string(), z.number().nullable()),
-    // The ARROW view of the same funnel: every arrow the catalogue gives this
-    // funnel, in funnel order, followed by any arrow the brand stated that the
-    // catalogue does not name. A stated arrow rate WINS over the named rate in
-    // `rates` describing the same arrow; `rates` itself is unchanged by any of
-    // it and still answers exactly what it answered before.
-    arrows: z.array(SalesFunnelArrowRateSchema),
+    arrows: z.array(RetainedFunnelArrowSchema),
     lifetimeRevenueUsd: z.number().int().nullable(),
     destinationUrl: z.string().nullable(),
     bookingUrl: z.string().nullable(),
     updatedAt: z.string(),
   })
-  .openapi('DeclaredSalesFunnel');
+  .openapi('RetainedFunnel');
 
-// WRITE request for the WHOLE set: exactly these funnels are active, no others.
-// Everything left out is switched off and KEPT with its numbers. `[]` is refused:
-// an org that has answered sells through at least one funnel.
-export const StateSalesFunnelSetRequestSchema = z
-  .object({
-    // Exactly these funnels are ACTIVE; every other one the org configured is
-    // switched off but KEPT with its numbers. May not be empty — an org that
-    // has answered sells through at least one funnel. A pre-retirement spelling
-    // is accepted and resolved; the response lists canonical keys.
-    funnelKeys: z.array(AcceptedSalesFunnelKeySchema),
-  })
-  .openapi('StateSalesFunnelSetRequest');
-
-// READ response — the funnels this ORG sells this brand through.
-// An EMPTY list means the org has NEVER answered: a gap a consumer must surface,
-// never "sells through nothing". It cannot mean the latter, because an org that
-// has answered always keeps at least one ACTIVE funnel (switching off the last
-// one is refused), so "answered but none" is unreachable.
-// The ORG read lists active AND inactive funnels (the inactive ones carry the
-// numbers the screen has to show); the INTERNAL read lists only the active ones.
-export const GetSalesFunnelsResponseSchema = z
-  .object({
-    funnels: z.array(DeclaredSalesFunnelSchema),
-  })
-  .openapi('GetSalesFunnelsResponse');
-
-// WRITE response — the one funnel just declared (never null).
-export const DeclareSalesFunnelResponseSchema = z
-  .object({
-    funnel: DeclaredSalesFunnelSchema,
-  })
-  .openapi('DeclareSalesFunnelResponse');
-
-const SALES_FUNNELS_MODEL_DESCRIPTION =
-  'A funnel is one funnel from the event that STARTS it down to the SALE, and it owns everything ' +
-  'that funnel needs priced: the conversion rate of each of its steps, the lifetime revenue of a ' +
-  'client won through it, the page an outreach click lands on and, when a meeting sits in the ' +
-  'funnel, a booking link. The catalogue is ' +
-  '`sales_meetings_from_conversation` (Positive reply -> Meeting booked -> Meeting attended -> ' +
-  'Paid client), `sales_meetings_from_website` (Website visit -> Meeting booked -> Meeting ' +
-  'attended -> Paid client), `website_purchases` (Website visit -> Signup -> Paid client), ' +
-  '`form_magnet` (Website visit -> Form filled -> Paid client), `sales_from_conversation` ' +
-  '(Positive reply -> Paid client: the sale closes inside the conversation, no meeting is ever ' +
-  'booked), `sales_meetings_from_ads` (Ad click -> Meeting booked -> Meeting attended -> Paid ' +
-  'client: booked straight from an ad, the brand\'s site never touched) and `lead_forms_from_ads` ' +
-  '(Ad click -> Lead form submitted -> Paid client: a form hosted by the advertising platform ' +
-  'itself, deliberately general across webinar signup, guide download, quote request and demo ' +
-  'request). Every funnel states `startEvent` — `conversation_reply`, `website_visit` or ' +
-  '`ad_click` — which is how a consumer decides which acquisition channels can feed it, and ' +
-  '`milestoneStep` / `milestoneStepIndex`, the step the funnel is NAMED after: the moment that ' +
-  'tells a brand the funnel is working, and what a channel\'s minimum budget is priced against ' +
-  '(one month must pay for at least one of these). Read them rather than hardcoding a mapping. ' +
-  'Nothing is defaulted: a value the brand never declared reads `null`, which never means zero. ' +
-  'THE FUNNEL KEY IS THE WHOLE VOCABULARY: a funnel no longer carries a goal, because the goal set ' +
-  'is retired — it collapsed both meeting funnels onto one `meetingBooked`, so a consumer could not ' +
-  'price a meeting won from a reply apart from one won on the website. Every goal spelling, and ' +
-  'every pre-retirement funnel spelling (`reply_meeting`, `visit_meeting`, `visit_signup`, ' +
-  '`visit_form`), is still ACCEPTED ON WRITE forever and resolves to the funnel(s) it named; none ' +
-  'is ever emitted.';
-
-registry.registerPath({
-  method: 'get',
-  path: '/orgs/brands/{brandId}/sales-funnels',
-  summary: 'Get the sales funnels a brand has declared it sells through',
-  description:
-    'The funnels this brand DECLARED, in catalogue order, each with its own rates, lifetime ' +
-    'revenue, landing page and booking link. ' + SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
-    'Lists ACTIVE and INACTIVE funnels alike: an inactive one keeps every number on it, so the ' +
-    'screen can show what the user entered and switching it back on returns it. An EMPTY list means ' +
-    'the org has NEVER answered — a gap, never "sells through nothing", which is unreachable because ' +
-    'an org that answered always keeps at least one funnel on. ' +
-    "The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
-  request: { params: z.object({ brandId: z.string().uuid() }) },
-  responses: {
-    200: {
-      description: 'The declared funnels (possibly empty)',
-      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID format' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'put',
-  path: '/orgs/brands/{brandId}/sales-funnels',
-  summary: 'State the whole set of funnels a brand sells through',
-  description:
-    'State the WHOLE set at once: exactly these funnels, no others. ' + SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
-    'Funnels already in the set keep the economics they were priced with (restating a set never ' +
-    'wipes them); funnels dropped from it are switched OFF and KEPT with every number on them, so ' +
-    'putting one back in the set returns what the user entered rather than an empty form. ' +
-    'The set may not be empty — an org that has answered sells through at least one funnel. ' +
-    'The set is validated whole before anything is written, so a set ' +
-    'naming a website-led funnel on a brand with no website is rejected 400 and nothing is ' +
-    'half-applied. Returns the stated set.',
-  request: {
-    params: z.object({ brandId: z.string().uuid() }),
-    body: { content: { 'application/json': { schema: StateSalesFunnelSetRequestSchema } } },
-  },
-  responses: {
-    200: {
-      description: 'The stated set',
-      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
-    },
-    400: {
-      description:
-        'Invalid brand ID, an unknown funnel key, or a website-led funnel on a brand with no website',
-    },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'put',
-  path: '/orgs/brands/{brandId}/sales-funnels/{funnelKey}',
-  summary: 'Declare a sales funnel and write its economics',
-  description:
-    'Declare that the brand sells through this funnel, and write what you send of its economics. ' +
-    SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
-    'Idempotent: the declaration IS the row, so declaring twice is declaring once, and a body with ' +
-    'no fields declares the funnel without pricing it yet. PARTIAL: an omitted field is left exactly ' +
-    'as stored, an explicit `null` CLEARS the value back to never-declared. `rates` may only carry ' +
-    "the legs of THIS funnel's own funnel — a foreign rate is rejected 400 rather than dropped. " +
-    '`destinationUrl` is accepted only for a funnel that lands a click on the site and must be on the ' +
-    "brand's own domain (or a subdomain); `bookingUrl` only for a funnel whose funnel contains a " +
-    'meeting, and it may point at any third-party scheduler. A funnel that starts with a website ' +
-    'visit cannot be declared for a brand that has no website (400). `arrowRates` states a rate ' +
-    'for an ARROW of the funnel, named by the two STEPS it connects — including an arrow this ' +
-    'service does not know in advance, which is how a funnel gains a step without a schema ' +
-    'change. Where a stated arrow and a named rate describe the same arrow, the STATED ARROW ' +
-    'WINS on read and `rates` still answers exactly what it answered before.',
-  request: {
-    params: z.object({ brandId: z.string().uuid(), funnelKey: AcceptedSalesFunnelKeySchema }),
-    body: { content: { 'application/json': { schema: DeclareSalesFunnelRequestSchema } } },
-  },
-  responses: {
-    200: {
-      description: 'The declared funnel',
-      content: { 'application/json': { schema: DeclareSalesFunnelResponseSchema } },
-    },
-    400: {
-      description:
-        'Invalid brand ID or funnel key, a rate outside this funnel\'s funnel, a destination the ' +
-        'funnel has no use for, an off-domain page destination, or a website-led funnel on a brand ' +
-        'with no website',
-    },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'delete',
-  path: '/orgs/brands/{brandId}/sales-funnels/{funnelKey}',
-  summary: 'Switch a sales funnel off, or erase it outright',
-  description:
-    'The org no longer sells through this funnel. The row and every number on it SURVIVE — that is ' +
-    'the point: switching it back on returns what the user already entered instead of an empty form. ' +
-    'Idempotent: switching off a funnel that is already off is a 200 with the unchanged set. ' +
-    'REFUSED (400) when it is the LAST active funnel — an org that has answered sells through at ' +
-    'least one. Returns the whole set, active and inactive. ' +
-    '`?erase=true` instead FORGETS the funnel: the row and every number on it are deleted, and ' +
-    'declaring it again starts from an empty form. It is opt-in because it is the destructive one — ' +
-    'an ordinary deselect must never take a user\'s numbers with it. Erasing is refused (400) when ' +
-    'it would leave the org holding funnels with none of them active; erasing the LAST remaining ' +
-    'funnel is allowed and returns the brand to "never answered".',
-  request: {
-    params: z.object({ brandId: z.string().uuid(), funnelKey: AcceptedSalesFunnelKeySchema }),
-    query: z.object({
-      erase: z
-        .enum(['true', 'false'])
-        .optional()
-        .openapi({
-          description:
-            'Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the ' +
-            'funnel and its economics for good.',
-        }),
-    }),
-  },
-  responses: {
-    200: {
-      description: 'The funnels still declared',
-      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID format or unknown funnel key' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'get',
-  path: '/internal/brands/{brandId}/sales-funnels',
-  summary: 'Internal read of the funnels a brand has declared',
-  description:
-    'Internal api-key read of the funnels a brand declared — keyed by brandId, NO org context. ' +
-    'Built for the schedulers (campaign-service arbitration, features-service pricing): these are ' +
-    'the funnels a brand AUTHORIZES, each carrying the goal it optimizes for and the economics it ' +
-    'is ranked on. `goal` and `currentGoal` carry the SAME canonical token — one vocabulary; `goal` ' +
-    'is kept as a byte-stable alias. ' +
-    SALES_FUNNELS_MODEL_DESCRIPTION + ' ' +
-    'Returns ONLY the funnels the org currently sells through — a funnel switched off must never be ' +
-    'ranked. An EMPTY list means the org has never answered: surface it as a gap, do NOT substitute a ' +
-    'plausible set and do NOT derive one from the stored economics. ' +
-    'The org is taken from `x-org-id`; without it, it is resolved when exactly ONE org claims the ' +
-    'brand, and the read is rejected 400 `ORG_REQUIRED` when several do — each org configures the ' +
-    'brand independently, so there is no shared answer to guess at. ' +
-    'WHICH offer the returned funnels belong to, and therefore which lifetime revenue and which ' +
-    'rates: a declared funnel hangs off an OFFER, because a brand selling a $200 self-serve plan ' +
-    'and a $20k contract converts and is worth completely different numbers on the same funnel. ' +
-    'Name it with `?offerId=`; omit it for a brand selling one thing (unchanged behaviour).',
-  request: {
-    params: z.object({ brandId: z.string().uuid() }),
-    query: z.object({
-      offerId: z
-        .string()
-        .uuid()
-        .optional()
-        .openapi({
-          description:
-            "WHICH offer's declared funnels — and therefore whose lifetime revenue and conversion rates. features-service prices a lead through the offer its campaign sells; campaign-service holds that offer on the campaign. Omit for a brand selling one thing (unchanged behaviour); a brand holding SEVERAL offers answers 409 SEVERAL_OFFERS until one is named, rather than being served another proposition's economics.",
-        }),
-    }),
-  },
-  responses: {
-    200: {
-      description: 'The declared funnels (possibly empty)',
-      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID or offer ID format' },
-    404: { description: 'No such brand, or offerId names no offer of this brand' },
-    409: { description: 'The brand sells several offers and none was named (code SEVERAL_OFFERS)' },
-    500: { description: 'Internal server error' },
-  },
-});
+export const RetainedOfferFunnelsResponseSchema = z
+  .object({ funnels: z.array(RetainedFunnelSchema) })
+  .openapi('RetainedOfferFunnelsResponse');
 
 // ── Click destination URL (per-brand config) ────────────────────────────────
 // WRITE request: a single absolute http(s) URL. The route additionally validates
@@ -2807,44 +2405,6 @@ registry.registerPath({
 });
 
 registry.registerPath({
-  method: 'put',
-  path: '/orgs/brands/{brandId}/current-goal',
-  summary: 'Declare what a brand sells through, by the retired goal name for it',
-  description:
-    'RETIRED-GOAL WRITE TOLERANCE. The goal vocabulary no longer answers anything: what a brand ' +
-    'sells through is its declared SALES FUNNELS, and that is the only vocabulary any read emits. ' +
-    'This route survives so a caller still sending yesterday\'s word keeps working — it accepts ' +
-    'every goal spelling the fleet has ever used (including the pre-rename `purchase`), declares ' +
-    'the funnel(s) that goal MEANT, and answers with the funnel set. ' +
-    '`meetingBooked` names BOTH meeting funnels, so it resolves to `sales_meetings_from_website` ' +
-    'for a brand that has set a click destination and `sales_meetings_from_conversation` otherwise; ' +
-    '`combinedSales` declares TWO funnels rather than making a lossy pick; `whatsappConversation` ' +
-    'names no funnel at all and is rejected 400. ' +
-    'ADDITIVE: it switches the named funnels on and leaves every other declaration, and every ' +
-    'number on it, exactly as stored. Stating the whole set (PUT .../sales-funnels) is the only ' +
-    'thing that switches a funnel off. ' +
-    "The brand must belong to the caller's org (x-org-id); a brand outside the org is rejected 403.",
-  request: {
-    params: z.object({ brandId: z.string().uuid() }),
-    body: { content: { 'application/json': { schema: UpdateCurrentGoalRequestSchema } } },
-  },
-  responses: {
-    200: {
-      description: 'The funnels this brand now sells through',
-      content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } },
-    },
-    400: {
-      description:
-        'Invalid brand ID format, an unrecognised goal, a goal that names no funnel ' +
-        '(`whatsappConversation`), or a website-led funnel on a brand with no website',
-    },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
   method: 'get',
   path: '/orgs/brands/{brandId}/sales-economics-effective',
   summary: 'Effective sales economics for a brand (saved or cross-brand default)',
@@ -2946,12 +2506,9 @@ export const BrandProfileFieldsSchema = z.record(
 export const BrandRuntimeContextResponseSchema = z
   .object({
     brand: BrandDetailSchema,
-    // THE LAST GOAL-SHAPED READ IN THE SERVICE, and it is on its way out. The
-    // goal vocabulary is retired everywhere else — what a brand sells through is
-    // its declared sales funnels. This one field survives because
-    // campaign-service's scheduler boots on it for every brand that carries no
-    // per-funnel budget, and removing it would stop those brands running. Do not
-    // add another; read the funnel set instead.
+    // THE LAST GOAL-SHAPED READ IN THE SERVICE. The goal vocabulary is retired
+    // everywhere else. This one field survives because campaign-service's
+    // scheduler still boots on it. Do not add another.
     currentGoal: z.enum(RETIRED_GOALS).openapi('RetiredGoal'),
     // Backward-compatible with the pre-2-layer shape campaign-service consumes.
     // `id`/`version` are null (no version rows anymore); `fields` is the
@@ -2981,9 +2538,7 @@ registry.registerPath({
     '`currentGoal` onward to features-service runtime candidate selection and snapshots the ' +
     'returned brand context for the loop. ' +
     'NOTE: `currentGoal` belongs to the RETIRED goal vocabulary and is the last goal-shaped read ' +
-    'brand-service serves. What a brand sells through is its declared sales funnels ' +
-    '(GET /internal/brands/{brandId}/sales-funnels), which tell the two meeting funnels apart where ' +
-    'the goal cannot. This field survives only until campaign-service boots on the funnel set.',
+    'brand-service serves; it survives only while campaign-service still boots on it.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     query: z.object({
@@ -3313,8 +2868,7 @@ registry.registerPath({
 // Offers — the things a brand sells
 // ============================================================
 // A brand is an IDENTITY (a name, a domain, a logo). An OFFER is a PROPOSITION:
-// the value it promises (the 7 Hormozi user-fields) and the sales funnels it is
-// sold through, with their conversion rates, lifetime revenue and destinations.
+// the value it promises (the 7 Hormozi user-fields) and its lifetime revenue.
 // All of that used to hang off the brand, which forced a brand selling a $200
 // self-serve plan and a $20k contract to describe both as one thing.
 //
@@ -3322,8 +2876,7 @@ registry.registerPath({
 
 const OFFER_MODEL_DESCRIPTION =
   'An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) ' +
-  'and the sales funnels it is sold through, with their conversion rates, lifetime revenue and ' +
-  'destinations — a brand selling a $200 self-serve plan and a $20k contract prices each one for ' +
+  'and its lifetime revenue — a brand selling a $200 self-serve plan and a $20k contract prices each one for ' +
   'what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its ' +
   'conversion-tracking credential describe the company, not one of the things it sells, and every ' +
   'offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks ' +
@@ -3409,7 +2962,7 @@ registry.registerPath({
   path: '/orgs/brands/{brandId}/offers',
   summary: 'Create an offer',
   description:
-    'Create one thing this brand sells. The new offer starts with NOTHING — no funnel, no confirmed ' +
+    'Create one thing this brand sells. The new offer starts with NOTHING — no lifetime revenue, no confirmed ' +
     'field — and is fully independent of every other offer on the brand. ' +
     `The name is at most ${SUPPLIED_OFFER_NAME_MAX_CHARS} characters, carries no word limit, and ` +
     'is unique within the brand: a name already taken is refused 409 rather than ' +
@@ -3449,7 +3002,7 @@ registry.registerPath({
   summary: 'Rename an offer',
   description:
     'Rename it. The character limit applies exactly as it does on create, and the name stays unique within ' +
-    'the brand. Nothing else about the offer changes — its funnels, its economics and its value ' +
+    'the brand. Nothing else about the offer changes — its economics and its value ' +
     'proposition are untouched.',
   request: {
     params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
@@ -3500,100 +3053,11 @@ registry.registerPath({
   },
 });
 
-registry.registerPath({
-  method: 'get',
-  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-funnels',
-  summary: "Get one offer's sales funnels",
-  description:
-    'The funnels THIS OFFER is sold through, each with its own rates, lifetime revenue, landing page ' +
-    'and booking link. ' + SALES_FUNNELS_MODEL_DESCRIPTION,
-  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
-  responses: {
-    200: { description: 'The declared funnels (possibly empty)', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
-    400: { description: 'Invalid brand or offer ID format' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'No such brand, or no such offer on it' },
-    500: { description: 'Internal server error' },
-  },
-});
 
-registry.registerPath({
-  method: 'put',
-  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-funnels',
-  summary: "State the whole set of funnels one offer is sold through",
-  description:
-    'State the WHOLE set for THIS OFFER: exactly these funnels, no others. Funnels dropped from the ' +
-    'set are switched OFF and KEPT with every number on them. ' + SALES_FUNNELS_MODEL_DESCRIPTION,
-  request: {
-    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
-    body: { content: { 'application/json': { schema: StateSalesFunnelSetRequestSchema } } },
-  },
-  responses: {
-    200: { description: 'The stated set', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
-    400: { description: 'Invalid ID, an unknown funnel key, or a website-led funnel on a brand with no website' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'No such brand, or no such offer on it' },
-    500: { description: 'Internal server error' },
-  },
-});
 
-registry.registerPath({
-  method: 'put',
-  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-funnels/{funnelKey}',
-  summary: "Declare a sales funnel on one offer and write its economics",
-  description:
-    'Declare that THIS OFFER is sold through this funnel, and write what you send of its economics. ' +
-    'Idempotent and PARTIAL, exactly like the brand-scoped route: an omitted field is left as ' +
-    'stored, an explicit `null` clears it. Two offers of one brand may sell through the SAME funnel ' +
-    'with completely different rates and a different lifetime revenue — that is the point of the ' +
-    'offer level. ' + SALES_FUNNELS_MODEL_DESCRIPTION,
-  request: {
-    params: z.object({
-      brandId: z.string().uuid(),
-      offerId: z.string().uuid(),
-      funnelKey: AcceptedSalesFunnelKeySchema,
-    }),
-    body: { content: { 'application/json': { schema: DeclareSalesFunnelRequestSchema } } },
-  },
-  responses: {
-    200: { description: 'The declared funnel', content: { 'application/json': { schema: DeclareSalesFunnelResponseSchema } } },
-    400: { description: "Invalid ID or funnel key, a rate outside this funnel's funnel, a destination the funnel has no use for, an off-domain page destination, or a website-led funnel on a brand with no website" },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'No such brand, or no such offer on it' },
-    500: { description: 'Internal server error' },
-  },
-});
 
-registry.registerPath({
-  method: 'delete',
-  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-funnels/{funnelKey}',
-  summary: 'Switch a sales funnel off on one offer, or erase it outright',
-  description:
-    'This OFFER is no longer sold through this funnel. The row and every number on it SURVIVE. ' +
-    'REFUSED (400) when it is the last active funnel of this offer. `?erase=true` instead FORGETS ' +
-    'the funnel and its economics for good.',
-  request: {
-    params: z.object({
-      brandId: z.string().uuid(),
-      offerId: z.string().uuid(),
-      funnelKey: AcceptedSalesFunnelKeySchema,
-    }),
-    query: z.object({
-      erase: z.enum(['true', 'false']).optional().openapi({
-        description:
-          'Omit (or `false`) to switch the funnel off and keep its economics. `true` deletes the ' +
-          'funnel and its economics for good.',
-      }),
-    }),
-  },
-  responses: {
-    200: { description: 'The funnels still declared on this offer', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
-    400: { description: 'Invalid ID or unknown funnel key' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'No such brand, or no such offer on it' },
-    500: { description: 'Internal server error' },
-  },
-});
+
+
 
 registry.registerPath({
   method: 'get',
@@ -3656,15 +3120,15 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/internal/offers/{offerId}/sales-funnels',
-  summary: 'Internal read of one offer\'s active sales funnels',
+  summary: 'RETAINED read of one offer\'s frozen sales funnels',
   description:
-    'The ACTIVE funnels of ONE offer, keyed by the offer alone — what a scheduler ranks over once it ' +
-    'holds an offer id. A funnel switched off is never listed: it must never be ranked. An unknown ' +
-    'offer id is a 404, unlike the brand-keyed read, because an id that names nothing is a caller ' +
-    'error rather than an unconfigured brand. ' + SALES_FUNNELS_MODEL_DESCRIPTION,
+    'Kept after the sales-funnel retirement (wave C2) only because client-service reward-tasks and ' +
+    'workflow-service AI meeting-booking still call it. Read-only: nothing writes these rows any more. ' +
+    'Rates now live per leg (`/internal/brands/{brandId}/leg-rates`), lifetime revenue per offer ' +
+    '(`/internal/brands/{brandId}/offer-economics`). Lists the offer\'s ACTIVE funnels; unknown offer = 404.',
   request: { params: z.object({ offerId: z.string().uuid() }) },
   responses: {
-    200: { description: 'The active funnels of this offer', content: { 'application/json': { schema: GetSalesFunnelsResponseSchema } } },
+    200: { description: 'The active funnels of this offer', content: { 'application/json': { schema: RetainedOfferFunnelsResponseSchema } } },
     400: { description: 'Invalid offer ID format' },
     404: { description: 'Offer not found' },
     500: { description: 'Internal server error' },
@@ -3801,7 +3265,7 @@ registry.registerPath({
     'prospect replies to one of its campaigns saying they are interested, and the rep on this ' +
     'number is phoned within the minute. BRAND grain (per-brand config keyed on (org, brand), ' +
     'mirroring the click-destination / WhatsApp-link write routes), so one number covers every ' +
-    'offer, funnel and channel the brand runs. Body `{ salesRepPhone }` accepts any typed format ' +
+    'offer, leg and channel the brand runs. Body `{ salesRepPhone }` accepts any typed format ' +
     'carrying a country code (`+` or `00` prefix, 8-15 digits) and is normalized to strict E.164 ' +
     'before storage, because the consumer hands the value straight to a telephony provider. A ' +
     'national number with no country code, or anything unparseable, is rejected 400 — nothing is ' +
@@ -4046,146 +3510,16 @@ registry.registerPath({
 });
 
 // ---------------------------------------------------------------------------
-// BRAND-GRAIN FUNNEL RATES — one conversion rate per (org, brand, funnel,
-// arrow), shared by every offer of the brand selling that funnel. Lifetime
-// revenue and the booking link stay per offer on the sales-funnels routes.
-// ---------------------------------------------------------------------------
-
-const BRAND_FUNNEL_RATES_MODEL_DESCRIPTION =
-  "A conversion rate describes how a BRAND sells, so there is ONE stated rate per (brand, funnel, " +
-  'arrow), shared by every offer of the brand selling that funnel. An arrow is named by the two ' +
-  'STEPS it connects. Every funnel of the catalogue is listed, each with every arrow the catalogue ' +
-  'gives it, in funnel order, followed by any arrow the brand stated that the catalogue does not ' +
-  'name. An arrow the brand has not stated reads `stated: false` with `ratePct` and `statedAt` ' +
-  'null — never a number, never a default, never a value borrowed from an offer. Independent of ' +
-  'the per-offer rates on `/sales-funnels`, which keep answering exactly as before.';
-
-export const BrandFunnelArrowRateSchema = z
-  .object({
-    fromStep: z.string(),
-    toStep: z.string(),
-    ratePct: z.number().nullable(),
-    stated: z.boolean(),
-    statedAt: z.string().nullable(),
-  })
-  .openapi('BrandFunnelArrowRate');
-
-export const BrandFunnelRatesSchema = z
-  .object({
-    funnelKey: SalesFunnelKeySchema,
-    name: z.string(),
-    steps: z.array(z.string()),
-    arrows: z.array(BrandFunnelArrowRateSchema),
-  })
-  .openapi('BrandFunnelRates');
-
-export const GetBrandFunnelRatesResponseSchema = z
-  .object({ funnels: z.array(BrandFunnelRatesSchema) })
-  .openapi('GetBrandFunnelRatesResponse');
-
-export const PutBrandFunnelRatesRequestSchema = z
-  .object({
-    // PARTIAL: an arrow omitted is untouched; `ratePct: null` clears it.
-    arrowRates: z.array(SalesFunnelArrowRatePatchSchema).min(1),
-  })
-  .openapi('PutBrandFunnelRatesRequest');
-
-export const PutBrandFunnelRatesResponseSchema = z
-  .object({ funnel: BrandFunnelRatesSchema })
-  .openapi('PutBrandFunnelRatesResponse');
-
-const BrandFunnelRatesQuerySchema = z.object({
-  funnelKey: AcceptedSalesFunnelKeySchema.optional().openapi({
-    description: 'Narrow the read to one funnel. Omit for every funnel of the catalogue.',
-  }),
-});
-
-registry.registerPath({
-  method: 'get',
-  path: '/orgs/brands/{brandId}/funnel-rates',
-  summary: "Read the brand's stated conversion rates, per funnel and arrow",
-  description: BRAND_FUNNEL_RATES_MODEL_DESCRIPTION,
-  request: {
-    params: z.object({ brandId: z.string().uuid() }),
-    query: BrandFunnelRatesQuerySchema,
-  },
-  responses: {
-    200: {
-      description: 'Every funnel (or the one asked for), each arrow stated or not',
-      content: { 'application/json': { schema: GetBrandFunnelRatesResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID or unknown funnel key' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'put',
-  path: '/orgs/brands/{brandId}/funnel-rates/{funnelKey}',
-  summary: 'State or clear conversion rates for arrows of one funnel, at the brand grain',
-  description:
-    BRAND_FUNNEL_RATES_MODEL_DESCRIPTION + ' ' +
-    'PARTIAL: an arrow the body omits is left exactly as stored; `ratePct: null` CLEARS the ' +
-    'statement (the arrow then reads `stated: false`). An arrow the catalogue does not name is ' +
-    'accepted and stored. Refused (400) with nothing written: an empty step, a step pointing at ' +
-    'itself, or the same arrow twice in one body. Applies to every offer of the brand.',
-  request: {
-    params: z.object({ brandId: z.string().uuid(), funnelKey: AcceptedSalesFunnelKeySchema }),
-    body: { content: { 'application/json': { schema: PutBrandFunnelRatesRequestSchema } } },
-  },
-  responses: {
-    200: {
-      description: 'The funnel, as read after the write',
-      content: { 'application/json': { schema: PutBrandFunnelRatesResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID, unknown funnel key, or an arrow that names nothing' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'get',
-  path: '/internal/brands/{brandId}/funnel-rates',
-  summary: "Service read of a brand's stated conversion rates, per funnel and arrow",
-  description:
-    BRAND_FUNNEL_RATES_MODEL_DESCRIPTION + ' ' +
-    'Service auth only; NO user identity needed. `x-org-id` is optional: sent, it scopes the read ' +
-    'to that org; omitted, the single org claiming the brand answers, and a brand claimed by ' +
-    'several orgs is a 400 ORG_REQUIRED rather than one org\'s numbers. An unclaimed brand answers ' +
-    'every arrow unstated.',
-  request: {
-    params: z.object({ brandId: z.string().uuid() }),
-    query: BrandFunnelRatesQuerySchema,
-  },
-  responses: {
-    200: {
-      description: 'Every funnel (or the one asked for), each arrow stated or not',
-      content: { 'application/json': { schema: GetBrandFunnelRatesResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID, unknown funnel key, or ORG_REQUIRED' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-// ---------------------------------------------------------------------------
-// LEG-GRAIN RATES + PER-OFFER LIFETIME REVENUE — the economics a brand states
-// with no sales funnel involved (the funnel is being retired). A rate per (org,
-// brand, leg), shared by every offer; a lifetime revenue per offer.
+// LEG-GRAIN RATES + PER-OFFER LIFETIME REVENUE — the economics a brand states.
+// A rate per (org, brand, leg), shared by every offer; a lifetime revenue per offer.
 // ---------------------------------------------------------------------------
 
 const LEG_RATES_MODEL_DESCRIPTION =
   'A LEG is the move of a lead from one step to another (e.g. Positive reply -> Meeting booked), ' +
   'named by the two STEPS it connects. A brand states ONE conversion rate per leg, shared by every ' +
-  'offer of the brand; no sales funnel is part of the key. Every leg the catalogue knows is listed, ' +
-  'each once, followed by any leg the brand stated that the catalogue does not name. An unstated leg ' +
-  'reads `stated: false` with `ratePct` and `statedAt` null — never a number. PRECEDENCE with the ' +
-  "funnel-keyed routes (which keep answering unchanged): a leg reads the MOST RECENT value stated for " +
-  'it, whichever route stated it — a brand-grain funnel-rate write also states each of its non-null ' +
-  'arrows on the leg. The reverse never happens: a leg write does not change a funnel-keyed read.';
+  'offer of the brand. Every known leg is listed, each once, followed by any leg the brand stated ' +
+  'that is not in that list. An unstated leg reads `stated: false` with `ratePct` and `statedAt` ' +
+  'null — never a number.';
 
 export const LegRateSchema = z
   .object({
@@ -4298,7 +3632,7 @@ registry.registerPath({
   method: 'get',
   path: '/orgs/brands/{brandId}/offers/{offerId}/economics',
   summary: "Read an offer's lifetime revenue and the brand's leg rates",
-  description: 'The lifetime revenue is stated per OFFER, no funnel involved. ' + LEG_RATES_MODEL_DESCRIPTION,
+  description: 'The lifetime revenue is stated per OFFER. ' + LEG_RATES_MODEL_DESCRIPTION,
   request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
   responses: {
     200: { description: 'The offer economics', content: { 'application/json': { schema: OfferEconomicsSchema } } },

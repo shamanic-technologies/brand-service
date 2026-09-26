@@ -1,53 +1,13 @@
 /**
- * The catalogue of sales funnels a brand can sell through.
- *
- * A funnel is ONE funnel, from the event that STARTS it down to the SALE. It owns
- * everything that funnel needs priced: the conversion rate of each of its steps,
- * the lifetime revenue of a client won through it, the page an outreach click
- * lands on and, when a meeting sits in the funnel, a booking link.
- *
- * VOCABULARY (owner-fixed): the terminal outcome of every funnel is a SALE —
- * it is what the customer buys. Each intermediate stage is a STEP. The step a
- * funnel is NAMED after is its MILESTONE. The word "outcome" is deprecated
- * fleet-wide: it used to name the retired per-brand optimization goal.
- *
- * brand-service OWNS this catalogue because it owns what a brand declares. The
- * dashboard renders the same funnels (`apps/dashboard/src/lib/sales-funnels.ts`
- * in `shamanic-technologies/distribute.you`) — the keys, the funnels and the steps
- * are byte-equal with it on purpose, so the screen and the store describe one
- * model rather than two that drift.
- *
- * THE FUNNEL IS THE WHOLE VOCABULARY. A funnel used to carry a `goal` beside its
- * key, and that goal is retired: it was strictly the poorer word, because
- * `sales_meetings_from_conversation` and `sales_meetings_from_website` both mapped
- * onto one `meetingBooked`, so a meeting won from a reply and one won on the
- * website were the same thing to every consumer and could not be priced apart.
- * A funnel key is what every read now answers with, and nothing else. Goal
- * spellings are still ACCEPTED on write, forever — see `src/lib/goal-vocabulary.ts`,
- * which exists for that and for nothing else.
+ * RETAINED, READ-ONLY (wave C2, distribute.you#4413). The sales funnel is
+ * retired — rates live per leg, lifetime revenue per offer — and this catalogue
+ * survives only to format `GET /internal/offers/:offerId/sales-funnels`
+ * (`retainedOfferFunnelsRead.ts`) byte-identically for its two remaining
+ * callers. Nothing accepts a funnel key on write any more. Delete this file with
+ * that route.
  */
 
-/**
- * The funnels in the catalogue. Wire values.
- *
- * These tokens are an owner decision and are the ONLY names the fleet uses for
- * what a brand sells through. The pre-retirement spellings (`reply_meeting`,
- * `visit_meeting`, `visit_signup`, `visit_form`) are accepted on WRITE forever —
- * `toSalesFunnelKey` resolves them — and are never emitted again.
- *
- * The first four are the original catalogue, written while cold email was the
- * only channel we ran: every journey began either in a conversation we started
- * or on the brand's own website. The rest describe journeys the four could not,
- * and exist because roughly thirty acquisition channels are opening. They are
- * ADDED, never renamed over the four: live brands and live budgets reference
- * those keys.
- *
- * A KEY IS NEVER RENAMED, A NAME IS. billing-service keys a daily ceiling on
- * (org, brand, funnel, channel, offer) and brand rows reference these tokens, so
- * a key is frozen the moment anything declares it — while `name` is the only one
- * of the two a customer ever reads. `website_purchases` now reads "Signups" and
- * that mismatch is deliberate, not drift.
- */
+/** The funnel keys a stored row may carry (the `brand_sales_funnels` CHECK). */
 export const SALES_FUNNEL_KEYS = [
   'sales_meetings_from_conversation',
   'sales_meetings_from_website',
@@ -96,30 +56,6 @@ export const SALES_FUNNEL_START_EVENTS = [
 ] as const;
 
 export type SalesFunnelStartEvent = (typeof SALES_FUNNEL_START_EVENTS)[number];
-
-/**
- * Every funnel spelling a caller may still send, besides the four canonical ones.
- *
- * ACCEPTED FOREVER. A caller sending yesterday's word keeps working — that is
- * what made the rename safe to do without any consumer changing in lockstep.
- * They are NEVER emitted: every read answers with the canonical key.
- */
-export const LEGACY_SALES_FUNNEL_KEYS = {
-  reply_meeting: 'sales_meetings_from_conversation',
-  visit_meeting: 'sales_meetings_from_website',
-  visit_signup: 'website_purchases',
-  visit_form: 'form_magnet',
-} as const satisfies Record<string, SalesFunnelKey>;
-
-export type LegacySalesFunnelKey = keyof typeof LEGACY_SALES_FUNNEL_KEYS;
-
-/** Every funnel spelling accepted on write: every canonical key + every legacy one. */
-export const ACCEPTED_SALES_FUNNEL_KEYS = [
-  ...SALES_FUNNEL_KEYS,
-  ...(Object.keys(LEGACY_SALES_FUNNEL_KEYS) as LegacySalesFunnelKey[]),
-] as const;
-
-export type AcceptedSalesFunnelKey = SalesFunnelKey | LegacySalesFunnelKey;
 
 /**
  * Every rate a funnel can price. Named exactly as the columns that store them.
@@ -327,29 +263,6 @@ export const SALES_FUNNELS: SalesFunnelDef[] = [
   },
 ];
 
-export function isSalesFunnelKey(value: string): value is SalesFunnelKey {
-  return (SALES_FUNNEL_KEYS as readonly string[]).includes(value);
-}
-
-export function isLegacySalesFunnelKey(value: string): value is LegacySalesFunnelKey {
-  return Object.prototype.hasOwnProperty.call(LEGACY_SALES_FUNNEL_KEYS, value);
-}
-
-/** True for any spelling a caller may send — canonical or legacy. */
-export function isAcceptedSalesFunnelKey(value: string): value is AcceptedSalesFunnelKey {
-  return isSalesFunnelKey(value) || isLegacySalesFunnelKey(value);
-}
-
-/**
- * Resolve any accepted spelling to its canonical key. Returns null for a word
- * that names no funnel — the caller answers 400 rather than guessing one.
- */
-export function toSalesFunnelKey(value: string): SalesFunnelKey | null {
-  if (isSalesFunnelKey(value)) return value;
-  if (isLegacySalesFunnelKey(value)) return LEGACY_SALES_FUNNEL_KEYS[value];
-  return null;
-}
-
 /** The definition for a key. Throws on an unknown key — never guesses one. */
 export function salesFunnelByKey(key: SalesFunnelKey): SalesFunnelDef {
   const def = SALES_FUNNELS.find((f) => f.key === key);
@@ -367,54 +280,6 @@ export function funnelRateKeys(def: SalesFunnelDef): SalesFunnelRateKey[] {
     out.push(leg);
   }
   return out;
-}
-
-/** True when this funnel's funnel converts at `rate`. */
-export function funnelPricesRate(def: SalesFunnelDef, rate: SalesFunnelRateKey): boolean {
-  return def.legs.includes(rate);
-}
-
-/**
- * Rate spellings a caller may still send FOR ONE FUNNEL, and the leg each names
- * today. ACCEPTED FOREVER, never emitted — the same tolerance
- * `LEGACY_SALES_FUNNEL_KEYS` gives a funnel KEY, applied to a rate NAME.
- *
- * `sales_from_website` is the only entry and it is the reason the mechanism
- * exists. That funnel shipped as a single `Website visit -> Paid client` arrow
- * priced by `visitToClosePct`, and it now states a PURCHASE in the middle. A
- * caller still sending the old name is describing the arrow that leads to the
- * purchase — the rate at which a visit becomes money on the site — so it
- * resolves to `visitToPurchasePct` rather than being rejected as a foreign rate.
- * Without this, the first customer to declare that funnel from a consumer built
- * against the previous shape is answered 400 on a write that is not wrong.
- *
- * SCOPED PER FUNNEL on purpose. `visitToClosePct` sent against `website_purchases`
- * names no arrow that funnel prices, and is still refused: an alias resolves a
- * word onto the leg it is genuinely about, and never onto a column the funnel
- * would not read back.
- *
- * Never map a legacy name onto a leg that means something else, and never add an
- * entry to spare a caller from learning a genuinely new number.
- */
-export const LEGACY_FUNNEL_RATE_KEYS: Partial<
-  Record<SalesFunnelKey, Record<string, SalesFunnelRateKey>>
-> = {
-  sales_from_website: { visitToClosePct: 'visitToPurchasePct' },
-};
-
-/**
- * The leg of THIS funnel a rate spelling names — canonical or legacy — or null
- * for a word that names none of them.
- *
- * Null is the caller's signal to answer 400. It is deliberately not a throw: the
- * write path collects every foreign rate in one error rather than failing on the
- * first.
- */
-export function toFunnelRateKey(def: SalesFunnelDef, key: string): SalesFunnelRateKey | null {
-  if (funnelPricesRate(def, key as SalesFunnelRateKey)) return key as SalesFunnelRateKey;
-  const resolved = LEGACY_FUNNEL_RATE_KEYS[def.key]?.[key];
-  if (resolved && funnelPricesRate(def, resolved)) return resolved;
-  return null;
 }
 
 /**
