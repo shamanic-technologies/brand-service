@@ -136,6 +136,10 @@ export interface OfferLifetimeRevenueView {
   /** What a paying client of this offer is worth, USD. `null` = never stated. */
   lifetimeRevenueUsd: number | null;
   lifetimeRevenueStatedAt: string | null;
+  /** Where a prospect of this offer books a meeting. `null` = never stated. */
+  bookingUrl: string | null;
+  /** Where this offer's outreach click lands. `null` = never stated. */
+  destinationUrl: string | null;
 }
 
 type OfferRow = typeof brandOffers.$inferSelect;
@@ -146,6 +150,8 @@ function formatOfferLtr(row: OfferRow): OfferLifetimeRevenueView {
     name: row.name,
     lifetimeRevenueUsd: row.lifetimeRevenueUsd ?? null,
     lifetimeRevenueStatedAt: row.lifetimeRevenueUsd === null ? null : row.lifetimeRevenueStatedAt ?? null,
+    bookingUrl: row.bookingUrl ?? null,
+    destinationUrl: row.destinationUrl ?? null,
   };
 }
 
@@ -174,6 +180,8 @@ export interface OfferEconomicsView {
   name: string;
   lifetimeRevenueUsd: number | null;
   lifetimeRevenueStatedAt: string | null;
+  bookingUrl: string | null;
+  destinationUrl: string | null;
   /** The brand's leg rates — the same for every offer of the brand. */
   legRates: LegRateView[];
 }
@@ -185,12 +193,15 @@ export async function readOfferEconomics(orgId: string, brandId: string, offerId
 
 export interface OfferEconomicsPatch {
   lifetimeRevenueUsd?: number | null;
+  bookingUrl?: string | null;
+  destinationUrl?: string | null;
   legRates?: LegRatePatch[];
 }
 
 /**
- * State an offer's lifetime revenue and/or the brand's leg rates, in one
- * transaction. An omitted field is untouched; `lifetimeRevenueUsd: null` clears.
+ * State an offer's lifetime revenue, booking link, click destination and/or the
+ * brand's leg rates, in one transaction. An omitted field is untouched; `null`
+ * clears.
  */
 export async function writeOfferEconomics(
   orgId: string,
@@ -204,6 +215,15 @@ export async function writeOfferEconomics(
   await db.transaction(async (tx) => {
     if (patch.lifetimeRevenueUsd !== undefined) {
       await setOfferLifetimeRevenue(tx, orgId, brandId, offerId, patch.lifetimeRevenueUsd, now);
+    }
+    const links: { bookingUrl?: string | null; destinationUrl?: string | null } = {};
+    if (patch.bookingUrl !== undefined) links.bookingUrl = patch.bookingUrl;
+    if (patch.destinationUrl !== undefined) links.destinationUrl = patch.destinationUrl;
+    if (Object.keys(links).length > 0) {
+      await tx
+        .update(brandOffers)
+        .set(links)
+        .where(and(eq(brandOffers.id, offerId), eq(brandOffers.orgId, orgId), eq(brandOffers.brandId, brandId)));
     }
     if (legs.length > 0) await applyLegPatches(tx, orgId, brandId, legs, now);
   });
