@@ -60,7 +60,7 @@ export interface ChatParams {
    * the answer (faster, cheaper). Provider-floored: Gemini 2.5 → thinking fully
    * OFF; Gemini 3 (incl. flash-pro) has no full-off → drops to its lowest level
    * (`minimal` for Flash). Use for short structured-JSON / scoring tasks that
-   * don't need funnel-of-thought.
+   * don't need chain-of-thought.
    */
   disableThinking?: boolean;
 }

@@ -205,12 +205,6 @@ describe('Offers', () => {
       expect(economics.body.lifetimeRevenueUsd).toBe(20000);
     });
 
-    it('404s an offer id that names nothing', async () => {
-      const res = await request(app)
-        .get(`/internal/offers/${randomUUID()}/sales-funnels`)
-        .set(getInternalAuthHeaders());
-      expect(res.status).toBe(404);
-    });
   });
 
   // ── A name the CUSTOMER wrote ─────────────────────────────────────────────

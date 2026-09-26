@@ -259,7 +259,7 @@ if (process.env.NODE_ENV === "test") {
     })
     .catch((err) => {
       markMigrationsFailed(err);
-      // Both: the funnel names the real cause (drivers wrap it out of sight), the
+      // Both: the cause chain names the real cause (drivers wrap it out of sight), the
       // raw error carries the stack.
       console.error("Migration failed:", describeErrorCauses(err));
       console.error(err);
