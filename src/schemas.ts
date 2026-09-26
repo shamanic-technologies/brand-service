@@ -2251,44 +2251,6 @@ registry.registerPath({
   },
 });
 
-// ── RETAINED: one offer's frozen sales funnels ─────────────────────────────
-// The sales funnel is retired (wave C2, distribute.you#4413): rates are stated
-// per LEG, lifetime revenue per OFFER. This shape survives only for
-// GET /internal/offers/{offerId}/sales-funnels, which client-service
-// (reward-tasks) and workflow-service (AI meeting-booking) still call. Nothing
-// writes these rows; delete this with that route.
-const RetainedFunnelArrowSchema = z
-  .object({
-    fromStep: z.string(),
-    toStep: z.string(),
-    ratePct: z.number().nullable(),
-    provenance: z.enum(['stated_arrow', 'named_rate', 'unstated']),
-    rateKey: z.string().nullable(),
-  })
-  .openapi('RetainedFunnelArrow');
-
-const RetainedFunnelSchema = z
-  .object({
-    funnelKey: z.string(),
-    active: z.boolean(),
-    name: z.string(),
-    steps: z.array(z.string()),
-    startEvent: z.string(),
-    milestoneStep: z.string(),
-    milestoneStepIndex: z.number().int(),
-    rates: z.record(z.string(), z.number().nullable()),
-    arrows: z.array(RetainedFunnelArrowSchema),
-    lifetimeRevenueUsd: z.number().int().nullable(),
-    destinationUrl: z.string().nullable(),
-    bookingUrl: z.string().nullable(),
-    updatedAt: z.string(),
-  })
-  .openapi('RetainedFunnel');
-
-export const RetainedOfferFunnelsResponseSchema = z
-  .object({ funnels: z.array(RetainedFunnelSchema) })
-  .openapi('RetainedOfferFunnelsResponse');
-
 // ── Click destination URL (per-brand config) ────────────────────────────────
 // WRITE request: a single absolute http(s) URL. The route additionally validates
 // the protocol (http/https) and rejects non-http(s)/unparseable input with 400.
@@ -3116,25 +3078,6 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
-
-registry.registerPath({
-  method: 'get',
-  path: '/internal/offers/{offerId}/sales-funnels',
-  summary: 'RETAINED read of one offer\'s frozen sales funnels',
-  description:
-    'Kept after the sales-funnel retirement (wave C2) only because client-service reward-tasks and ' +
-    'workflow-service AI meeting-booking still call it. Read-only: nothing writes these rows any more. ' +
-    'Rates now live per leg (`/internal/brands/{brandId}/leg-rates`), lifetime revenue per offer ' +
-    '(`/internal/brands/{brandId}/offer-economics`). Lists the offer\'s ACTIVE funnels; unknown offer = 404.',
-  request: { params: z.object({ offerId: z.string().uuid() }) },
-  responses: {
-    200: { description: 'The active funnels of this offer', content: { 'application/json': { schema: RetainedOfferFunnelsResponseSchema } } },
-    400: { description: 'Invalid offer ID format' },
-    404: { description: 'Offer not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
 
 // ── Sales rep phone (per-brand config) ──────────────────────────────────────
 // WRITE request: a phone number typed in any format, as long as it carries a

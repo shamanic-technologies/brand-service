@@ -18,7 +18,6 @@ vi.mock('../../src/db', () => ({
   brandExtractedFields: {},
   // The service now reaches the offer resolver, which imports these.
   brandOffers: {},
-  brandSalesFunnels: {},
   brands: {},
 }));
 

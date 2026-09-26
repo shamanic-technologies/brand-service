@@ -53,13 +53,14 @@ backfill scripts, table `brand_funnel_arrow_rates` and column
 `*_funnel_snapshot_20260926` tables in the same transaction and refuses to drop on
 a count mismatch).
 
-**⚠️ ONE funnel read is RETAINED: `GET /internal/offers/:offerId/sales-funnels`**
-(`src/services/retainedOfferFunnelsRead.ts` + a trimmed `salesFunnelCatalogue.ts`),
-because client-service reward-tasks and workflow-service's AI meeting-booking DAG
-still call it in production. It reads `brand_sales_funnels` +
-`brand_sales_funnel_arrow_rates`, which NOTHING writes any more (frozen). Do not
-add a writer. Delete the route, the module, the catalogue and both tables once
-those two callers have moved to the leg / offer reads.
+**Wave C3 deleted the last one: `GET /internal/offers/:offerId/sales-funnels`**,
+its read module + catalogue, and tables `brand_sales_funnels` +
+`brand_sales_funnel_arrow_rates` (migration `0074`, same snapshot-count-drop shape:
+`*_c3_snapshot_20260926`, owned by the service role because the migration creates
+it; a pg_dump sits in `/root/distribute/backups/`). It shipped only after a fleet
+`git grep` of every repo's `origin/main` showed zero callers. No funnel concept
+survives in brand-service; do NOT reintroduce one — rates are per LEG
+(`brand_leg_rates`), lifetime revenue per OFFER (`brand_offers`).
 
 ## Offer answers — what a customer states so a responder does not have to guess
 

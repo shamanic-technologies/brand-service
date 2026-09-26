@@ -357,7 +357,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
         // No `temperature`: the "DISTINCT from existingIcps" instruction (not
         // sampling noise) is what drives a complementary segment on follow-ups.
         maxTokens: 512,
-        // Short one-line JSON ICP — no funnel-of-thought needed. Floors the
+        // Short one-line JSON ICP — no chain-of-thought needed. Floors the
         // model's reasoning to `low` for a faster reply.
         disableThinking: true,
       },

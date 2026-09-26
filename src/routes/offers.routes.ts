@@ -27,7 +27,6 @@ import {
   OfferAnswersValidationError,
 } from '../services/brandOfferAnswersService';
 import { ChatServiceImageGenerationError } from '../lib/chat-client';
-import { readActiveFunnelsByOfferId } from '../services/retainedOfferFunnelsRead';
 import {
   getUserFieldsViewByOfferId,
   upsertUserFieldsByOfferId,
@@ -417,31 +416,6 @@ internalRouter.get('/brands/:brandId/offers', async (req: Request, res: Response
     return res.status(200).json({ offers });
   } catch (error: any) {
     console.error('[brand-service] Internal list offers error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-/**
- * GET /internal/offers/:offerId/sales-funnels
- * RETAINED after the funnel retirement (wave C2) because two services still
- * call it in production: client-service reward-tasks and workflow-service's AI
- * meeting-booking DAG. Read-only over frozen rows; see
- * `retainedOfferFunnelsRead.ts`. Unknown offer = 404.
- */
-internalRouter.get('/offers/:offerId/sales-funnels', async (req: Request, res: Response) => {
-  try {
-    const { offerId } = req.params;
-    if (!UUID_REGEX.test(offerId)) {
-      return res.status(400).json({ error: 'Invalid offer ID format: must be a UUID' });
-    }
-
-    const offer = await getOfferById(offerId);
-    if (!offer) return res.status(404).json({ error: 'Offer not found' });
-
-    const set = await readActiveFunnelsByOfferId(offer.orgId, offer.brandId, offerId);
-    return res.status(200).json(set);
-  } catch (error: any) {
-    console.error('[brand-service] Internal get offer sales funnels error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
