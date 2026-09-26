@@ -3,7 +3,7 @@ import { PutLegRatesRequestSchema, PutOfferEconomicsRequestSchema } from '../sch
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
 import { rejectOfferProblem } from '../lib/offer-scope';
-import { OfferNotFoundError } from '../services/brandOffersService';
+import { OfferNotFoundError, getOfferById } from '../services/brandOffersService';
 import {
   readLegRates,
   readOfferEconomics,
@@ -142,6 +142,24 @@ internalRouter.get('/brands/:brandId/offer-economics', async (req: Request, res:
     return res.status(200).json({ legRates, offers });
   } catch (error: any) {
     console.error('[brand-service] Internal get offer economics error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * One offer's economics keyed by the offer alone — for a caller that holds only
+ * the offer id (the AI meeting-booking DAG reads `bookingUrl`). The org and
+ * brand are the offer's own. Unknown offer = 404.
+ */
+internalRouter.get('/offers/:offerId/economics', async (req: Request, res: Response) => {
+  try {
+    const { offerId } = req.params;
+    if (badOffer(res, offerId)) return;
+    const offer = await getOfferById(offerId);
+    if (!offer) return res.status(404).json({ error: 'Offer not found' });
+    return res.status(200).json(await readOfferEconomics(offer.orgId, offer.brandId, offerId));
+  } catch (error: any) {
+    console.error('[brand-service] Internal get offer economics by offer error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });

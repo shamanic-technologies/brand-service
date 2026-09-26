@@ -498,6 +498,13 @@
       "when": 1789713131558,
       "tag": "0072_drop_funnel_remnants",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1789713132558,
+      "tag": "0073_offer_booking_and_destination_urls",
+      "breakpoints": true
     }
   ]
 }
