@@ -8,6 +8,10 @@ vi.stubGlobal('fetch', mockFetch);
 process.env.API_REGISTRY_SERVICE_URL = 'https://api-registry.test';
 process.env.API_REGISTRY_SERVICE_API_KEY = 'test-registry-key';
 process.env.BRAND_SERVICE_API_KEY = 'test-brand-key';
+// Each participant is called with ITS OWN key ({NAME}_SERVICE_API_KEY), never a fallback.
+for (const name of ['CAMPAIGN', 'FAILING', 'DOWN', 'SVC_A', 'SVC_B', 'SVC_C']) {
+  process.env[`${name}_SERVICE_API_KEY`] = `test-${name.toLowerCase()}-key`;
+}
 
 import {
   discoverTransferServices,
@@ -192,6 +196,35 @@ describe('transferService', () => {
       expect((results['svc-b'] as { error: string }).error).toContain('400');
       expect(results['svc-c']).toHaveProperty('error');
       expect((results['svc-c'] as { error: string }).error).toContain('timeout');
+    });
+  });
+
+  describe('participant api key', () => {
+    it('reports a participant whose key is not configured as a failure, without calling it', async () => {
+      delete process.env.GHOST_SERVICE_API_KEY;
+      const results = await fanOutTransfer([{ name: 'ghost', baseUrl: 'https://ghost.test' }], {
+        sourceBrandId: 'b', sourceOrgId: 'o1', targetOrgId: 'o2',
+      });
+      expect(results.ghost).toEqual({ error: 'GHOST_SERVICE_API_KEY is not set on brand-service' });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('sends the participant its own key', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, body: { updatedTables: [] } }),
+      );
+      await fanOutTransfer([{ name: 'campaign', baseUrl: 'https://campaign.test' }], {
+        sourceBrandId: 'b', sourceOrgId: 'o1', targetOrgId: 'o2',
+      });
+      expect(mockFetch.mock.calls[0][1].headers['x-api-key']).toBe('test-campaign-key');
+    });
+
+    it('reports a 2xx body without updatedTables as a failure', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, status: 200, body: { ok: true } }));
+      const results = await fanOutTransfer([{ name: 'campaign', baseUrl: 'https://campaign.test' }], {
+        sourceBrandId: 'b', sourceOrgId: 'o1', targetOrgId: 'o2',
+      });
+      expect('error' in results.campaign).toBe(true);
     });
   });
 });
