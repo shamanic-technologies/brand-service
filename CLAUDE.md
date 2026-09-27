@@ -62,6 +62,36 @@ it; a pg_dump sits in `/root/distribute/backups/`). It shipped only after a flee
 survives in brand-service; do NOT reintroduce one — rates are per LEG
 (`brand_leg_rates`), lifetime revenue per OFFER (`brand_offers`).
 
+## Offer proposals — splitting "what you sell" into offers, then confirming them
+
+`POST /orgs/brands/:brandId/offers/proposals` (`{ description }`) → `{ offers:
+[{ name, description, icon }], mainOfferIndex, mainOfferConfidence,
+mainOfferBasis: "only_offer" | "judged" }`. `POST .../offers/confirm` (`{
+offers: [{ name, description?, icon? }], chosenIndex }`) → `{ offers: Offer[],
+chosenOfferId, adoptedOfferId }`. Service `src/services/offerProposalService.ts`,
+icon vocabulary `src/lib/offer-icons.ts`, guards
+`tests/unit/offerProposal.test.ts` + `tests/integration/offerProposals.test.ts`.
+
+- **⚠️ PROPOSE PERSISTS NOTHING.** Only confirm writes.
+- **Two model calls, split by kind.** The split is WRITING → chat-service
+  `/complete` on `flash` (Gemini 3.5 Flash-Lite, measured p50 1.9s / p90 2.1s;
+  it sits inside a modal). The main-offer pick is a CLASSIFICATION → Jev
+  (`judgeChoice`, chat-service `/orgs/judgments`), which returns its confidence.
+  A single offer is never judged (`mainOfferConfidence: null`).
+- **The main offer is a preselection HINT, never stored.** There is no primary
+  offer; confirm does not record which one was chosen.
+- **Icons are a CLOSED Phosphor vocabulary**, enforced by the split's
+  `responseSchema` enum and by both writes; no DB CHECK, so adding a token is one
+  line. Stored on `brand_offers.icon` (+ `description`, migration `0075`).
+- **Names:** a PROPOSED name is one we derive, so it keeps the derived rule (2
+  words, 20 chars, cut by dropping trailing words). A CONFIRMED name is the
+  customer's (they may edit it), so it takes the supplied rule (60 chars).
+- **Confirm leaves exactly the confirmed offers.** A name that already exists is
+  reused (retry = no-op). The brand's IMPLICIT offer — the one leftover offer,
+  named after the brand (or `Default Offer`), with no description — is RENAMED
+  into the chosen offer, keeping its id and its user-fields. Nothing is ever
+  deleted: an offer id may already be referenced in other services.
+
 ## Offer answers — what a customer states so a responder does not have to guess
 
 A cold-email prospect replied "I've been to them before. How much are they?" and

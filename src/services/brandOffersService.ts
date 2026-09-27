@@ -35,6 +35,13 @@ export interface BrandOffer {
    * Written only by `generateOfferImage` (see `offerImageService`).
    */
   imageUrl: string | null;
+  /**
+   * One sentence saying what the offer is, as confirmed when it was created from
+   * a description of what the brand sells. `null` = never stated.
+   */
+  description: string | null;
+  /** A Phosphor token from `src/lib/offer-icons.ts`, or `null` when none was picked. */
+  icon: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,12 +113,14 @@ export class OfferNameUnavailableError extends Error {
 
 type OfferRow = typeof brandOffers.$inferSelect;
 
-function formatOffer(row: OfferRow): BrandOffer {
+export function formatOffer(row: OfferRow): BrandOffer {
   return {
     offerId: row.id,
     brandId: row.brandId,
     name: row.name,
     imageUrl: row.imageUrl ?? null,
+    description: row.description ?? null,
+    icon: row.icon ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
