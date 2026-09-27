@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import {
+  ConfirmOffersRequestSchema,
   CreateOfferRequestSchema,
+  ProposeOffersRequestSchema,
   GenerateOfferImageRequestSchema,
   PutOfferAnswersRequestSchema,
   PutUserFieldsRequestSchema,
@@ -33,6 +35,12 @@ import {
   UnknownUserFieldKeyError,
 } from '../services/brandUserFieldsService';
 import { resolveInternalOrgScope, rejectInternalOrgScope } from '../lib/internal-org-scope';
+import {
+  confirmOffers,
+  OfferConfirmationError,
+  OfferProposalUnavailableError,
+  proposeOffers,
+} from '../services/offerProposalService';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -136,6 +144,104 @@ orgRouter.post('/brands/:brandId/offers', async (req: Request, res: Response) =>
     }
   } catch (error: any) {
     console.error('[brand-service] Create offer error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * POST /orgs/brands/:brandId/offers/proposals
+ * Read a free-text description of what the brand sells and answer which DISTINCT
+ * offers it describes — each with a short name, one sentence and a Phosphor icon
+ * token — plus which one is most likely the main offer (a Jev judgment with its
+ * confidence; `null` confidence when there is only one). PERSISTS NOTHING.
+ *
+ * COST: chat-service is the terminal caller for both the split and the judgment,
+ * so it owns the cost and the affordability gate; its 402 surfaces as a 402.
+ * A description that names nothing to sell is a 422. Any other failure is a loud
+ * 502 — never a fabricated offer.
+ */
+orgRouter.post('/brands/:brandId/offers/proposals', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+    const parsed = ProposeOffersRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    const proposal = await proposeOffers({
+      brandId,
+      text: parsed.data.description,
+      caller: {
+        mode: 'org',
+        orgId: req.orgId!,
+        userId: req.userId ?? '',
+        runId: req.runId ?? '',
+        campaignId: req.campaignId,
+        featureSlug: req.featureSlug,
+        brandIdHeader: req.brandIdHeader,
+        workflowSlug: req.workflowSlug,
+        audienceId: req.audienceId,
+      },
+    });
+    return res.status(200).json(proposal);
+  } catch (error: any) {
+    if (error instanceof OfferProposalUnavailableError) {
+      return res.status(422).json({ error: error.message });
+    }
+    if (typeof error?.message === 'string' && error.message.includes('returned 402')) {
+      return res.status(402).json({ error: 'Insufficient credits' });
+    }
+    console.error('[brand-service] Propose offers error:', error);
+    return res.status(502).json({ error: 'Offer proposal failed', detail: error.message });
+  }
+});
+
+/**
+ * POST /orgs/brands/:brandId/offers/confirm
+ * Create the offers the customer confirmed (the chosen one and the others), in
+ * one transaction. An offer whose name already exists is reused, so a retry is a
+ * no-op; the brand's IMPLICIT offer (created by its first brand-scoped write and
+ * named after the brand) is renamed into the chosen offer instead of being left
+ * beside the confirmed ones. Nothing is deleted. Nothing about which offer was
+ * chosen is stored — there is no primary offer.
+ */
+orgRouter.post('/brands/:brandId/offers/confirm', async (req: Request, res: Response) => {
+  try {
+    const { brandId } = req.params;
+    if (!UUID_REGEX.test(brandId)) {
+      return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
+    }
+    const parsed = ConfirmOffersRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    }
+
+    const ownership = await resolveBrandOwnership(brandId, req.orgId!);
+    if (rejectOwnership(res, ownership)) return;
+
+    try {
+      const confirmation = await confirmOffers(
+        req.orgId!,
+        brandId,
+        parsed.data.offers,
+        parsed.data.chosenIndex,
+      );
+      return res.status(200).json(confirmation);
+    } catch (error) {
+      if (error instanceof OfferConfirmationError) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (rejectOfferProblem(res, error)) return;
+      throw error;
+    }
+  } catch (error: any) {
+    console.error('[brand-service] Confirm offers error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });

@@ -2381,18 +2381,172 @@
           "shareToken"
         ]
       },
-      "ListOffersResponse": {
+      "ProposeOffersResponse": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProposedOffer"
+            },
+            "minItems": 1,
+            "maxItems": 8
+          },
+          "mainOfferIndex": {
+            "type": "integer",
+            "description": "Index into `offers` of the likely main offer. Always set."
+          },
+          "mainOfferConfidence": {
+            "type": "number",
+            "nullable": true,
+            "description": "Jev's confidence (0..1) in `mainOfferIndex`. `null` when there was only one offer (nothing to judge). Low means Jev hesitated between offers."
+          },
+          "mainOfferBasis": {
+            "type": "string",
+            "enum": [
+              "only_offer",
+              "judged"
+            ]
+          }
+        },
+        "required": [
+          "offers",
+          "mainOfferIndex",
+          "mainOfferConfidence",
+          "mainOfferBasis"
+        ]
+      },
+      "ProposedOffer": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "At most 2 words and 20 characters, in the language of the text."
+          },
+          "description": {
+            "type": "string",
+            "description": "One sentence saying what the buyer gets."
+          },
+          "icon": {
+            "$ref": "#/components/schemas/OfferIcon"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "icon"
+        ]
+      },
+      "OfferIcon": {
+        "type": "string",
+        "enum": [
+          "package",
+          "shopping-bag",
+          "storefront",
+          "t-shirt",
+          "sneaker",
+          "diamond",
+          "gift",
+          "flower",
+          "leaf",
+          "plant",
+          "coffee",
+          "fork-knife",
+          "wine",
+          "cookie",
+          "pill",
+          "first-aid-kit",
+          "heartbeat",
+          "tooth",
+          "barbell",
+          "person-simple-run",
+          "flower-lotus",
+          "scissors",
+          "paint-brush",
+          "palette",
+          "camera",
+          "music-notes",
+          "film-slate",
+          "book-open",
+          "graduation-cap",
+          "chalkboard-teacher",
+          "code",
+          "desktop",
+          "device-mobile",
+          "cloud",
+          "robot",
+          "chart-line-up",
+          "megaphone",
+          "handshake",
+          "briefcase",
+          "scales",
+          "calculator",
+          "bank",
+          "currency-dollar",
+          "house",
+          "buildings",
+          "wrench",
+          "hammer",
+          "lightning",
+          "car",
+          "airplane",
+          "truck",
+          "globe",
+          "map-pin",
+          "users",
+          "chat-circle",
+          "phone",
+          "envelope",
+          "calendar",
+          "shield-check",
+          "gear",
+          "paw-print",
+          "baby",
+          "ticket",
+          "game-controller",
+          "sparkle"
+        ],
+        "description": "A Phosphor icon name (https://phosphoricons.com, kebab-case) from the closed vocabulary an offer icon is picked from."
+      },
+      "ProposeOffersRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "What the brand sells, in the customer's own words (e.g. prefilled from their website)."
+          }
+        },
+        "required": [
+          "description"
+        ]
+      },
+      "ConfirmOffersResponse": {
         "type": "object",
         "properties": {
           "offers": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Offer"
-            }
+            },
+            "description": "The offers, in the order confirmed."
+          },
+          "chosenOfferId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "adoptedOfferId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid",
+            "description": "The brand's implicit offer (created by its first brand-scoped write, named after the brand) that was renamed into one of the confirmed offers rather than left beside them. `null` when there was none."
           }
         },
         "required": [
-          "offers"
+          "offers",
+          "chosenOfferId",
+          "adoptedOfferId"
         ]
       },
       "Offer": {
@@ -2413,6 +2567,14 @@
             "type": "string",
             "nullable": true
           },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "icon": {
+            "type": "string",
+            "nullable": true
+          },
           "createdAt": {
             "type": "string"
           },
@@ -2425,8 +2587,74 @@
           "brandId",
           "name",
           "imageUrl",
+          "description",
+          "icon",
           "createdAt",
           "updatedAt"
+        ]
+      },
+      "ConfirmOffersRequest": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "$ref": "#/components/schemas/OfferName"
+                },
+                "description": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 500
+                },
+                "icon": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OfferIcon"
+                    },
+                    {
+                      "nullable": true
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "name"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 8
+          },
+          "chosenIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Index into `offers` of the one the customer starts with."
+          }
+        },
+        "required": [
+          "offers",
+          "chosenIndex"
+        ]
+      },
+      "OfferName": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "ListOffersResponse": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Offer"
+            }
+          }
+        },
+        "required": [
+          "offers"
         ]
       },
       "OfferResponse": {
@@ -2450,11 +2678,6 @@
         "required": [
           "name"
         ]
-      },
-      "OfferName": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 60
       },
       "RenameOfferRequest": {
         "type": "object",
@@ -5670,6 +5893,115 @@
           },
           "404": {
             "description": "Spec not generated"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/proposals": {
+      "post": {
+        "summary": "Propose the offers a description of what the brand sells describes (persists nothing)",
+        "description": "Splits a free-text description into its DISTINCT offers (a single-offer description returns exactly one), each with a short name, one sentence and an icon token, and flags the likely main offer via a Jev typed judgment with its confidence. Nothing is stored; confirm with POST /orgs/brands/{brandId}/offers/confirm. The main offer is a preselection hint only. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and its lifetime revenue — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeOffersRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The proposed offers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposeOffersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or body"
+          },
+          "402": {
+            "description": "Insufficient credits (chat-service gate)"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "422": {
+            "description": "The description names nothing the brand sells"
+          },
+          "502": {
+            "description": "The proposal could not be produced"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/confirm": {
+      "post": {
+        "summary": "Create the offers the customer confirmed",
+        "description": "Creates the confirmed offers under the brand in one transaction. An offer whose name already exists is reused (a retry is a no-op). The brand's implicit offer (created by its first brand-scoped write, named after the brand) is renamed into the chosen offer, keeping its id and everything stated on it, so the brand ends up with exactly the confirmed offers. Nothing is deleted and nothing about the choice is stored. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and its lifetime revenue — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmOffersRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The confirmed offers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmOffersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID, a bad name, a duplicate name, a bad icon or chosenIndex"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "409": {
+            "description": "A concurrent write took one of the names"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
