@@ -1912,6 +1912,7 @@ registry.registerPath({
   responses: {
     200: { description: 'Brand transferred', content: { 'application/json': { schema: TransferBrandResponseSchema } } },
     400: { description: 'Invalid request' },
+    409: { description: 'Source and target org both have an offer with the same name for this brand; nothing moved' },
     500: { description: 'Internal server error' },
   },
 });
@@ -1935,33 +1936,41 @@ export const ServiceTransferResultSchema = z
 export const OrchestrateTransferResponseSchema = z
   .object({
     transferId: z.string().uuid(),
+    status: z.enum(['completed', 'partial']),
+    rerun: z.boolean().describe('True when the source org no longer held the brand and a prior transfer source → target was on record: a retry/no-op re-run.'),
     sourceBrandId: z.string().uuid(),
     sourceOrgId: z.string().uuid(),
     targetOrgId: z.string().uuid(),
-    targetBrandId: z.string().uuid().optional(),
+    participants: z.array(z.string()).describe('Every service that took part, brand-service included.'),
+    failedServices: z.array(z.string()),
     serviceResults: z.record(z.string(), ServiceTransferResultSchema),
+    error: z.string().optional().describe('Present on a partial (502) transfer.'),
   })
   .openapi('OrchestrateTransferResponse');
 
 registry.registerPath({
   method: 'post',
   path: '/orgs/brands/{brandId}/transfer',
-  summary: 'Orchestrate brand transfer across all services',
+  summary: 'Move a brand, with its whole history, to another org',
   description:
-    'Transfers a brand from the current org (x-org-id) to a target org. ' +
-    'Verifies brand ownership, then fans out POST /internal/transfer-brand to every registered service. ' +
-    'If the target org already has a brand with the same domain, targetBrandId is resolved automatically ' +
-    'and passed to all services so they rewrite brand references. ' +
-    'If all services succeed, the source brand is deleted (cascade). If any fail, brand stays in source org.',
+    'Moves a brand the current org (x-org-id) holds to `targetOrgId`, across every service. ' +
+    'Fans out POST /internal/transfer-brand to every service registering it in api-registry, then — only if ALL succeeded — ' +
+    'moves every (org, brand) row brand-service holds (membership, offers, economics, levers, leg rates, click destination, ' +
+    'business context, share token, phone, WhatsApp link, offer answers). The brand id never changes. ' +
+    'Idempotent: calling it again after a completed transfer is a 200 no-op (`rerun: true`); calling it again after a partial ' +
+    'one completes it. A partial transfer answers 502 with the per-service results, never a success status. ' +
+    'Moves history, not money: no balance changes in either org.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: OrchestateTransferRequestSchema } } },
   },
   responses: {
-    200: { description: 'Transfer completed', content: { 'application/json': { schema: OrchestrateTransferResponseSchema } } },
+    200: { description: 'Every participant succeeded', content: { 'application/json': { schema: OrchestrateTransferResponseSchema } } },
     400: { description: 'Invalid request or missing headers' },
-    404: { description: 'Brand not found or does not belong to source org' },
+    404: { description: 'Source org does not hold the brand (and no prior transfer to target is on record)' },
+    409: { description: 'Source and target org both have an offer with the same name for this brand; nothing moved' },
     500: { description: 'Internal server error' },
+    502: { description: 'Participant discovery failed, or at least one participant failed (body = OrchestrateTransferResponse, status partial)', content: { 'application/json': { schema: OrchestrateTransferResponseSchema } } },
   },
 });
 

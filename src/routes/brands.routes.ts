@@ -4,6 +4,7 @@ import { db, brands, orgBrands, brandsOld, brandColors } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
 import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandIdentity, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
+import { moveBrandBetweenOrgs, OfferNameCollisionError } from '../services/brandOrgMoveService';
 import { rewriteBrandReferences } from '../services/brandMergeService';
 import { getBrandIdentitiesByOrgIds } from '../services/orgBrandIdentityService';
 import { isDomainClaimed } from '../services/brandClaimService';
@@ -618,11 +619,11 @@ internalRouter.get('/brands/:id/runs', async (req: Request, res: Response) => {
  * POST /internal/transfer-brand
  * Transfer a brand from one org to another.
  *
- * In the silver/gold world, a "transfer" is purely a membership swap on
- * `org_brands` — the brand row itself is global and never deleted.
+ * The brand row itself is global and never deleted or moved.
  *
- * - `targetBrandId` absent: remove `(sourceOrgId, sourceBrandId)` from
- *   org_brands and insert `(targetOrgId, sourceBrandId)`.
+ * - `targetBrandId` absent: every `(org_id, brand_id)` row brand-service holds
+ *   (membership, offers, economics, levers, leg rates, share token, phone...)
+ *   moves from sourceOrgId to targetOrgId — `moveBrandBetweenOrgs`.
  * - `targetBrandId` present (merge): rewrite all child-table references
  *   from sourceBrandId → targetBrandId via `rewriteBrandReferences`, then
  *   remove the source membership and insert/keep the target membership.
@@ -661,26 +662,17 @@ internalRouter.post('/transfer-brand', async (req: Request, res: Response) => {
       return res.json({ updatedTables });
     }
 
-    // Pure move: swap org_brands membership for the same brand. Only re-insert
-    // for targetOrg when the source membership actually existed — avoids FK
-    // violations when sourceBrandId doesn't exist in brands silver.
-    const removed = await db
-      .delete(orgBrands)
-      .where(and(eq(orgBrands.brandId, sourceBrandId), eq(orgBrands.orgId, sourceOrgId)))
-      .returning({ orgId: orgBrands.orgId, brandId: orgBrands.brandId });
-    if (removed.length > 0) {
-      await db
-        .insert(orgBrands)
-        .values({ orgId: targetOrgId, brandId: sourceBrandId })
-        .onConflictDoNothing({ target: [orgBrands.orgId, orgBrands.brandId] });
-    }
+    // Pure move: re-key every (org, brand) row brand-service holds from the
+    // source org to the target org (membership, offers, economics, levers...).
+    const updatedTables = await moveBrandBetweenOrgs(sourceBrandId, sourceOrgId, targetOrgId);
 
-    const updatedTables = [{ tableName: 'org_brands', count: removed.length }];
-
-    console.log(`[brand-service] transfer-brand (move): sourceBrandId=${sourceBrandId} from=${sourceOrgId} to=${targetOrgId} count=${removed.length}`);
+    console.log(`[brand-service] transfer-brand (move): sourceBrandId=${sourceBrandId} from=${sourceOrgId} to=${targetOrgId} moved=${JSON.stringify(updatedTables)}`);
 
     res.json({ updatedTables });
   } catch (error: any) {
+    if (error instanceof OfferNameCollisionError) {
+      return res.status(409).json({ error: error.message, offerNameCollisions: error.names });
+    }
     console.error('[brand-service] Transfer brand error:', error);
     res.status(500).json({ error: error.message || 'Failed to transfer brand' });
   }

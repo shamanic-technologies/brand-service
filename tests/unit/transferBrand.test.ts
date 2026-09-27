@@ -33,6 +33,16 @@ vi.mock('../../src/db', () => {
   };
 });
 
+const mockMove = vi.fn();
+vi.mock('../../src/services/brandOrgMoveService', async () => {
+  const actual = await vi.importActual<any>('../../src/services/brandOrgMoveService');
+  return {
+    OfferNameCollisionError: actual.OfferNameCollisionError,
+    moveBrandBetweenOrgs: (...args: any[]) => mockMove(...args),
+    findOfferNameCollisions: vi.fn().mockResolvedValue([]),
+  };
+});
+
 vi.mock('../../src/db/utils', () => ({
   query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
 }));
@@ -81,8 +91,9 @@ describe('POST /internal/transfer-brand', () => {
     expect(res.body.error).toBe('Invalid request');
   });
 
-  it('should update org_id when brand matches sourceOrgId', async () => {
-    mockReturning.mockResolvedValueOnce([{ id: brandId }]);
+  it('moves every (org, brand) row via moveBrandBetweenOrgs and reports what moved', async () => {
+    const moved = [{ tableName: 'org_brands', count: 1 }, { tableName: 'brand_offers', count: 2 }];
+    mockMove.mockResolvedValueOnce(moved);
 
     const res = await request(app)
       .post('/internal/transfer-brand')
@@ -90,31 +101,21 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 1 }]);
+    expect(res.body.updatedTables).toEqual(moved);
+    expect(mockMove).toHaveBeenCalledWith(brandId, sourceOrgId, targetOrgId);
   });
 
-  it('should be idempotent — no matching rows returns count 0', async () => {
-    mockReturning.mockResolvedValueOnce([]);
+  it('409s on an offer-name collision', async () => {
+    const { OfferNameCollisionError } = await import('../../src/services/brandOrgMoveService');
+    mockMove.mockRejectedValueOnce(new OfferNameCollisionError(['Main']));
 
     const res = await request(app)
       .post('/internal/transfer-brand')
       .set(headers)
       .send({ sourceBrandId: brandId, sourceOrgId, targetOrgId });
 
-    expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 0 }]);
-  });
-
-  it('should not update a non-existent brand', async () => {
-    mockReturning.mockResolvedValueOnce([]);
-
-    const res = await request(app)
-      .post('/internal/transfer-brand')
-      .set(headers)
-      .send({ sourceBrandId: randomUUID(), sourceOrgId, targetOrgId });
-
-    expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toEqual([{ tableName: 'org_brands', count: 0 }]);
+    expect(res.status).toBe(409);
+    expect(res.body.offerNameCollisions).toEqual(['Main']);
   });
 
   it('should require API key auth', async () => {
@@ -146,7 +147,7 @@ describe('POST /internal/transfer-brand', () => {
   });
 
   it('should return 500 on database error', async () => {
-    mockReturning.mockRejectedValueOnce(new Error('connection refused'));
+    mockMove.mockRejectedValueOnce(new Error('connection refused'));
 
     const res = await request(app)
       .post('/internal/transfer-brand')

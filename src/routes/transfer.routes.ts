@@ -1,15 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { eq, and, desc } from 'drizzle-orm';
-// LEGACY: this transfer flow still operates on the brands_old org_id model.
-// The new transfer semantics live in brands.routes.ts (org_brands membership swap).
-import { db, brandsOld as brands, brandTransfers } from '../db';
+import { db, orgBrands, brandTransfers } from '../db';
 import { OrchestateTransferRequestSchema } from '../schemas';
 import {
   discoverTransferServices,
   fanOutTransfer,
   ServiceResult,
 } from '../services/transferService';
-import { rewriteBrandReferences } from '../services/brandMergeService';
+import {
+  findOfferNameCollisions,
+  moveBrandBetweenOrgs,
+  OfferNameCollisionError,
+} from '../services/brandOrgMoveService';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,7 +21,26 @@ export const orgRouter = Router();
 
 /**
  * POST /orgs/brands/:brandId/transfer
- * Orchestrate brand transfer across all services.
+ * Move a brand, WITH ITS WHOLE HISTORY, from the calling org (x-org-id) to
+ * `targetOrgId`, across every service.
+ *
+ * 1. The source org must HOLD the brand (`org_brands`). A source that no longer
+ *    holds it while the target does, and a prior transfer source → target is on
+ *    record, is a RE-RUN: it is allowed and every step is a no-op or completes
+ *    what a previous partial run left behind.
+ * 2. Offer-name collisions (offers can never be deleted) refuse with 409 before
+ *    anything moves.
+ * 3. Fan out `POST /internal/transfer-brand` to every service registering it
+ *    (api-registry). Discovery that fails, or finds no one, is a 502: an empty
+ *    participant list would read as a successful transfer that moved nothing.
+ * 4. brand-service moves its own rows LAST and only when every participant
+ *    succeeded, so a partial transfer leaves the brand visibly in the source
+ *    org and is retried by calling this again (every participant is idempotent).
+ * 5. Every attempt is recorded in `brand_transfers`.
+ *
+ * 200 = every participant succeeded. 502 = at least one failed: the body carries
+ * the same per-service results plus `failedServices`, never a success status.
+ * Money is not moved here: billing's participant moves history, not balances.
  */
 orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) => {
   try {
@@ -44,115 +65,108 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
       return res.status(400).json({ error: 'Source and target org cannot be the same' });
     }
 
-    // 1. Verify the brand belongs to the source org
-    const [brand] = await db
-      .select({ id: brands.id, orgId: brands.orgId, domain: brands.domain })
-      .from(brands)
-      .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
-      .limit(1);
+    // 1. Who holds the brand today.
+    const holders = await db
+      .select({ orgId: orgBrands.orgId })
+      .from(orgBrands)
+      .where(eq(orgBrands.brandId, brandId));
+    const sourceHolds = holders.some((h) => h.orgId === sourceOrgId);
+    const targetHolds = holders.some((h) => h.orgId === targetOrgId);
 
-    if (!brand) {
-      return res.status(404).json({ error: 'Brand not found or does not belong to source org' });
-    }
-
-    // 2. Check for domain conflict in target org → resolve targetBrandId
-    let targetBrandId: string | undefined;
-    const serviceResults: Record<string, ServiceResult> = {};
-
-    if (brand.domain) {
-      const [conflict] = await db
-        .select({ id: brands.id })
-        .from(brands)
-        .where(and(eq(brands.orgId, targetOrgId), eq(brands.domain, brand.domain)))
-        .limit(1);
-
-      if (conflict) {
-        targetBrandId = conflict.id;
-        console.log(
-          `[brand-service] transfer: domain conflict for "${brand.domain}" — target org already has brand ${conflict.id}, will rewrite to targetBrandId`,
-        );
+    let rerun = false;
+    if (!sourceHolds) {
+      const [prior] = targetHolds
+        ? await db
+            .select({ id: brandTransfers.id })
+            .from(brandTransfers)
+            .where(
+              and(
+                eq(brandTransfers.brandId, brandId),
+                eq(brandTransfers.sourceOrgId, sourceOrgId),
+                eq(brandTransfers.targetOrgId, targetOrgId),
+              ),
+            )
+            .limit(1)
+        : [];
+      if (!prior) {
+        return res.status(404).json({ error: 'Brand not found in source org' });
       }
+      rerun = true;
     }
 
-    // 3. Fan out to all downstream services FIRST
-    const services = await discoverTransferServices();
-    const fanOutResults = await fanOutTransfer(services, {
+    // 2. Offers can never be deleted, so a name both orgs use blocks the move.
+    const collisions = await findOfferNameCollisions(brandId, sourceOrgId, targetOrgId);
+    if (collisions.length > 0) {
+      return res.status(409).json({
+        error: new OfferNameCollisionError(collisions).message + ' — rename one of them, then retry',
+        offerNameCollisions: collisions,
+      });
+    }
+
+    // 3. Fan out.
+    let services;
+    try {
+      services = await discoverTransferServices();
+    } catch (err: any) {
+      console.error('[brand-service] transfer: participant discovery failed:', err.message);
+      return res.status(502).json({ error: `Could not discover transfer participants: ${err.message}` });
+    }
+    const serviceResults: Record<string, ServiceResult> = await fanOutTransfer(services, {
       sourceBrandId: brandId,
       sourceOrgId,
       targetOrgId,
-      ...(targetBrandId ? { targetBrandId } : {}),
     });
-    Object.assign(serviceResults, fanOutResults);
+    if (Object.keys(serviceResults).length === 0) {
+      return res.status(502).json({ error: 'api-registry lists no transfer participant besides brand-service' });
+    }
 
-    // 4. Only update brand-service's own brands table if ALL fan-out calls succeeded
-    const hasFailure = Object.values(serviceResults).some(
-      (r) => 'error' in r,
-    );
+    const failedServices = Object.entries(serviceResults)
+      .filter(([, r]) => 'error' in r)
+      .map(([name]) => name)
+      .sort();
 
-    if (hasFailure) {
-      console.log(
-        `[brand-service] transfer: at least one downstream service failed — brand stays in source org ${sourceOrgId}`,
-      );
-      serviceResults['brand-service'] = {
-        updatedTables: [{ tableName: 'brands', count: 0 }],
-      };
-    } else if (targetBrandId) {
-      // Target org already has this brand — rewrite brand_id on dependents, then delete source
-      const rewriteResults = await rewriteBrandReferences(brandId, targetBrandId);
-
-      const deleteResult = await db
-        .delete(brands)
-        .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
-        .returning({ id: brands.id });
-
-      console.log(
-        `[brand-service] transfer: rewrote brand refs ${brandId} → ${targetBrandId}, deleted source brand`,
-      );
-
-      serviceResults['brand-service'] = {
-        updatedTables: [...rewriteResults, { tableName: 'brands', count: deleteResult.length }],
-      };
+    // 4. brand-service's own rows, last.
+    if (failedServices.length > 0) {
+      serviceResults['brand-service'] = { skipped: true };
     } else {
-      // No conflict — move brand to target org
-      const inlineResult = await db
-        .update(brands)
-        .set({ orgId: targetOrgId, updatedAt: new Date().toISOString() })
-        .where(and(eq(brands.id, brandId), eq(brands.orgId, sourceOrgId)))
-        .returning({ id: brands.id });
-
       serviceResults['brand-service'] = {
-        updatedTables: [{ tableName: 'brands', count: inlineResult.length }],
+        updatedTables: await moveBrandBetweenOrgs(brandId, sourceOrgId, targetOrgId),
       };
     }
 
-    // 5. Store audit log
+    // 5. Audit trail.
     const [transfer] = await db
       .insert(brandTransfers)
-      .values({
-        brandId,
-        sourceOrgId,
-        targetOrgId,
-        initiatedByUserId: userId,
-        serviceResults,
-      })
+      .values({ brandId, sourceOrgId, targetOrgId, initiatedByUserId: userId, serviceResults })
       .returning({ id: brandTransfers.id });
 
+    const status = failedServices.length > 0 ? 'partial' : 'completed';
     console.log(
-      `[brand-service] transfer orchestrated: sourceBrandId=${brandId} from=${sourceOrgId} to=${targetOrgId}${targetBrandId ? ` targetBrandId=${targetBrandId}` : ''} transferId=${transfer.id}`,
+      `[brand-service] transfer ${status}: brandId=${brandId} from=${sourceOrgId} to=${targetOrgId} rerun=${rerun} transferId=${transfer.id}` +
+        (failedServices.length > 0 ? ` failed=${failedServices.join(',')}` : ''),
     );
 
-    const status = hasFailure ? 'partial' : 'completed';
-
-    res.status(hasFailure ? 207 : 200).json({
+    const body = {
       transferId: transfer.id,
       status,
+      rerun,
       sourceBrandId: brandId,
       sourceOrgId,
       targetOrgId,
-      ...(targetBrandId ? { targetBrandId } : {}),
+      participants: Object.keys(serviceResults).sort(),
+      failedServices,
       serviceResults,
-    });
+      ...(failedServices.length > 0
+        ? {
+            error: `Transfer incomplete: ${failedServices.join(', ')} failed. The brand stays in the source org; retry the same call (every participant is idempotent).`,
+          }
+        : {}),
+    };
+    res.status(failedServices.length > 0 ? 502 : 200).json(body);
   } catch (error: any) {
+    if (error instanceof OfferNameCollisionError) {
+      return res.status(409).json({ error: error.message, offerNameCollisions: error.names });
+    }
     console.error('[brand-service] Transfer orchestration error:', error);
     res.status(500).json({ error: error.message || 'Failed to transfer brand' });
   }

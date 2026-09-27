@@ -62,6 +62,32 @@ it; a pg_dump sits in `/root/distribute/backups/`). It shipped only after a flee
 survives in brand-service; do NOT reintroduce one — rates are per LEG
 (`brand_leg_rates`), lifetime revenue per OFFER (`brand_offers`).
 
+## Brand transfer — moving a brand, with its whole history, to another org
+
+`POST /orgs/brands/:brandId/transfer` (`{ targetOrgId }`, caller's org = source)
+orchestrates; `POST /internal/transfer-brand` is this service's own participant in
+the LOCKED fleet contract. Routes `src/routes/transfer.routes.ts`, primitive
+`src/services/brandOrgMoveService.ts`, fan-out `src/services/transferService.ts`.
+
+- **Ownership is `org_brands`, never `brands_old.org_id`.** A source that no longer
+  holds the brand is a 404, unless the target holds it AND a `brand_transfers` row
+  source → target exists: that is a re-run (`rerun: true`), allowed and a no-op.
+- **The brand id never changes and `targetBrandId` is never sent.** Brands are
+  global; a transfer re-keys only what the org holds FOR the brand.
+- **`moveBrandBetweenOrgs` re-keys EVERY table carrying `org_id` AND `brand_id`**
+  (`ORG_SCOPED_BRAND_TABLES`); `tests/unit/brandOrgMove.test.ts` fails the build
+  when schema.ts grows one it does not list. One transaction, idempotent.
+- **On a one-per-(org, brand) collision the SOURCE row wins** (reported as
+  `<table>.replaced_in_target`); **offers are never deleted** (other services hold
+  their ids), so a shared offer name refuses the transfer with 409 before any
+  participant is called.
+- **Fail loud:** participants come from api-registry (`POST /internal/transfer-brand`),
+  each called with ITS OWN `{NAME}_SERVICE_API_KEY` (no fallback key). Discovery
+  failure or an empty participant list = 502. Any participant failure = 502
+  `status: "partial"` + `failedServices`, brand-service rows NOT moved (the brand
+  stays visible in the source org), and the call is simply retried.
+- Every attempt is audited in `brand_transfers`. Moves history, not money.
+
 ## Offer proposals — splitting "what you sell" into offers, then confirming them
 
 `POST /orgs/brands/:brandId/offers/proposals` (`{ description }`) → `{ offers:
