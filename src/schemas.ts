@@ -6,6 +6,7 @@ import {
 import { BrandUrlSchema, OptionalBrandUrlSchema } from './lib/url-utils';
 import { LogoUrlSchema } from './lib/logo-url';
 import { ACCEPTED_OPTIMIZATION_GOALS, RETIRED_GOALS } from './lib/goal-vocabulary';
+import { OFFER_ICONS } from './lib/offer-icons';
 import {
   SUPPLIED_OFFER_NAME_MAX_CHARS,
   offerNameProblem,
@@ -2874,6 +2875,12 @@ export const OfferSchema = z
     // first-class state and not an error: the consumer renders its own glyph.
     // Nothing here is ever a placeholder image.
     imageUrl: z.string().nullable(),
+    // One sentence saying what this offer is, confirmed when it was created from a
+    // description of what the brand sells. `null` = never stated.
+    description: z.string().nullable(),
+    // A Phosphor icon token from the closed vocabulary (see `OfferIcon`), or
+    // `null` when none was picked.
+    icon: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -2892,6 +2899,117 @@ export const GenerateOfferImageRequestSchema = z
     prompt: z.string().min(1).optional(),
   })
   .openapi('GenerateOfferImageRequest');
+
+export const OfferIconSchema = z.enum(OFFER_ICONS).openapi('OfferIcon', {
+  description:
+    'A Phosphor icon name (https://phosphoricons.com, kebab-case) from the closed vocabulary an offer icon is picked from.',
+});
+
+export const ProposeOffersRequestSchema = z
+  .object({
+    description: z.string().trim().min(1).max(20_000).openapi({
+      description: 'What the brand sells, in the customer\'s own words (e.g. prefilled from their website).',
+    }),
+  })
+  .openapi('ProposeOffersRequest');
+
+export const ProposedOfferSchema = z
+  .object({
+    name: z.string().openapi({ description: 'At most 2 words and 20 characters, in the language of the text.' }),
+    description: z.string().openapi({ description: 'One sentence saying what the buyer gets.' }),
+    icon: OfferIconSchema,
+  })
+  .openapi('ProposedOffer');
+
+export const ProposeOffersResponseSchema = z
+  .object({
+    offers: z.array(ProposedOfferSchema).min(1).max(8),
+    mainOfferIndex: z.number().int().openapi({ description: 'Index into `offers` of the likely main offer. Always set.' }),
+    mainOfferConfidence: z.number().nullable().openapi({
+      description:
+        "Jev's confidence (0..1) in `mainOfferIndex`. `null` when there was only one offer (nothing to judge). " +
+        'Low means Jev hesitated between offers.',
+    }),
+    mainOfferBasis: z.enum(['only_offer', 'judged']),
+  })
+  .openapi('ProposeOffersResponse');
+
+export const ConfirmOffersRequestSchema = z
+  .object({
+    offers: z
+      .array(
+        z.object({
+          name: OfferNameSchema,
+          description: z.string().max(500).nullable().optional(),
+          icon: OfferIconSchema.nullable().optional(),
+        }),
+      )
+      .min(1)
+      .max(8),
+    chosenIndex: z.number().int().min(0).openapi({ description: 'Index into `offers` of the one the customer starts with.' }),
+  })
+  .openapi('ConfirmOffersRequest');
+
+export const ConfirmOffersResponseSchema = z
+  .object({
+    offers: z.array(OfferSchema).openapi({ description: 'The offers, in the order confirmed.' }),
+    chosenOfferId: z.string().uuid(),
+    adoptedOfferId: z.string().uuid().nullable().openapi({
+      description:
+        "The brand's implicit offer (created by its first brand-scoped write, named after the brand) that was renamed " +
+        'into one of the confirmed offers rather than left beside them. `null` when there was none.',
+    }),
+  })
+  .openapi('ConfirmOffersResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/offers/proposals',
+  summary: 'Propose the offers a description of what the brand sells describes (persists nothing)',
+  description:
+    'Splits a free-text description into its DISTINCT offers (a single-offer description returns exactly one), each ' +
+    'with a short name, one sentence and an icon token, and flags the likely main offer via a Jev typed judgment with ' +
+    'its confidence. Nothing is stored; confirm with POST /orgs/brands/{brandId}/offers/confirm. ' +
+    'The main offer is a preselection hint only. ' +
+    OFFER_MODEL_DESCRIPTION,
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: ProposeOffersRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The proposed offers', content: { 'application/json': { schema: ProposeOffersResponseSchema } } },
+    400: { description: 'Invalid brand ID or body' },
+    402: { description: 'Insufficient credits (chat-service gate)' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    422: { description: 'The description names nothing the brand sells' },
+    502: { description: 'The proposal could not be produced' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/offers/confirm',
+  summary: 'Create the offers the customer confirmed',
+  description:
+    'Creates the confirmed offers under the brand in one transaction. An offer whose name already exists is reused ' +
+    '(a retry is a no-op). The brand\'s implicit offer (created by its first brand-scoped write, named after the ' +
+    'brand) is renamed into the chosen offer, keeping its id and everything stated on it, so the brand ends up with ' +
+    'exactly the confirmed offers. Nothing is deleted and nothing about the choice is stored. ' +
+    OFFER_MODEL_DESCRIPTION,
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: ConfirmOffersRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The confirmed offers', content: { 'application/json': { schema: ConfirmOffersResponseSchema } } },
+    400: { description: 'Invalid brand ID, a bad name, a duplicate name, a bad icon or chosenIndex' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    409: { description: 'A concurrent write took one of the names' },
+    500: { description: 'Internal server error' },
+  },
+});
 
 export const OfferResponseSchema = z
   .object({ offer: OfferSchema })

@@ -512,6 +512,13 @@
       "when": 1789713133558,
       "tag": "0074_drop_offer_sales_funnels",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1789713134558,
+      "tag": "0075_offer_description_and_icon",
+      "breakpoints": true
     }
   ]
 }

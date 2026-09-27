@@ -183,6 +183,66 @@ export async function generateImage(prompt: string, caller: OrgCaller): Promise<
   };
 }
 
+/**
+ * One `choice` question for chat-service's typed judgments (Jev, via TypeSafe).
+ * `criteria` maps an option key to what that option means; 2 or more options.
+ */
+export interface ChoiceJudgmentQuestion {
+  type: 'choice';
+  instructions: string;
+  criteria: Record<string, string>;
+}
+
+/** A `choice` answer, verbatim: the winner, its confidence and the distribution. */
+export interface ChoiceJudgmentAnswer {
+  type: 'choice';
+  choice: string;
+  confidence: number;
+  probabilities: Record<string, number>;
+}
+
+/**
+ * A typed CLASSIFICATION via chat-service `POST /orgs/judgments` (org-billed,
+ * input tokens only). The fleet rule: a pick-one-of-N question goes here, never
+ * to a text-writing completion, because this answers with the model's own
+ * confidence. chat-service owns the cost and the affordability gate (402).
+ *
+ * Fail-loud: a non-2xx throws with the status in the message (so a 402 is
+ * recognisable upstream), and an answer missing its confidence or distribution
+ * throws rather than being read as a bare winner.
+ */
+export async function judgeChoice(
+  state: string,
+  question: ChoiceJudgmentQuestion,
+  caller: OrgCaller,
+): Promise<ChoiceJudgmentAnswer> {
+  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/orgs/judgments`, {
+    method: 'POST',
+    headers: buildOrgHeaders(caller),
+    body: JSON.stringify({ state, questions: { q: question } }),
+    label: 'chat-service POST /orgs/judgments',
+  });
+
+  const body = (await response.json()) as { answers?: Record<string, unknown> };
+  const answer = body.answers?.q as Partial<ChoiceJudgmentAnswer> | undefined;
+  if (
+    !answer
+    || answer.type !== 'choice'
+    || typeof answer.choice !== 'string'
+    || typeof answer.confidence !== 'number'
+    || !answer.probabilities
+    || typeof answer.probabilities !== 'object'
+  ) {
+    throw new Error('chat-service judgment response was missing its choice, confidence or probabilities');
+  }
+  return {
+    type: 'choice',
+    choice: answer.choice,
+    confidence: answer.confidence,
+    probabilities: answer.probabilities,
+  };
+}
+
 async function chatOrg(params: ChatParams, caller: OrgCaller): Promise<ChatResult> {
   const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/complete`, {
     method: 'POST',

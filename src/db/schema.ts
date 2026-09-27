@@ -419,6 +419,14 @@ export const brandOffers = pgTable("brand_offers", {
 	// The page on the brand's own site this offer's outreach click lands on.
 	// NULL = never stated. Carried over by 0073 like the booking link.
 	destinationUrl: text("destination_url"),
+	// One sentence saying what this offer is, as the customer confirmed it when
+	// the offer was created from a free-text description of what they sell
+	// (`POST /orgs/brands/:brandId/offers/confirm`). NULL = never stated.
+	description: text("description"),
+	// A token from the closed Phosphor vocabulary in `src/lib/offer-icons.ts`,
+	// picked when the offer was proposed. NULL = none. Validated at the write,
+	// not by a CHECK, so adding a token is not a migration.
+	icon: text("icon"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
