@@ -79,6 +79,18 @@ vi.mock('../../src/lib/runs-client', () => ({
 const mockDiscoverServices = vi.fn();
 const mockFanOutTransfer = vi.fn();
 
+const mockMove = vi.fn();
+const mockCollisions = vi.fn();
+
+vi.mock('../../src/services/brandOrgMoveService', async () => {
+  const actual = await vi.importActual<any>('../../src/services/brandOrgMoveService');
+  return {
+    OfferNameCollisionError: actual.OfferNameCollisionError,
+    moveBrandBetweenOrgs: (...args: any[]) => mockMove(...args),
+    findOfferNameCollisions: (...args: any[]) => mockCollisions(...args),
+  };
+});
+
 vi.mock('../../src/services/transferService', () => ({
   discoverTransferServices: (...args: any[]) => mockDiscoverServices(...args),
   fanOutTransfer: (...args: any[]) => mockFanOutTransfer(...args),
@@ -99,69 +111,143 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
 
   const app = createTestApp();
   const headers = getAuthHeaders(sourceOrgId, userId);
+  const moved = [
+    { tableName: 'org_brands', count: 1 },
+    { tableName: 'brand_offers', count: 2 },
+  ];
 
   function setupDefaults() {
-    // 1st select: brand found in source org. 2nd select: no domain conflict.
-    mockSelect
-      .mockResolvedValueOnce([{ id: brandId, orgId: sourceOrgId, domain: 'acme.com' }])
-      .mockResolvedValueOnce([]);
-    mockReturning.mockResolvedValue([{ id: brandId }]);
+    // 1st select: who holds the brand (org_brands) — the source org does.
+    mockSelect.mockResolvedValueOnce([{ orgId: sourceOrgId }]);
     mockInsertReturning.mockResolvedValue([{ id: transferId }]);
-    mockDiscoverServices.mockResolvedValue([]);
-    mockFanOutTransfer.mockResolvedValue({});
+    mockCollisions.mockResolvedValue([]);
+    mockMove.mockResolvedValue(moved);
+    mockDiscoverServices.mockResolvedValue([{ name: 'campaign', baseUrl: 'http://campaign-service:8080' }]);
+    mockFanOutTransfer.mockResolvedValue({
+      campaign: { updatedTables: [{ tableName: 'campaigns', count: 3 }] },
+    });
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSelect.mockReset();
     setupDefaults();
   });
 
-  it('should transfer a brand successfully', async () => {
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId });
+  function post(body: unknown = { targetOrgId }) {
+    return request(app).post(`/orgs/brands/${brandId}/transfer`).set(headers).send(body);
+  }
+
+  it('moves the brand when every participant succeeds, listing every participant and its result', async () => {
+    const res = await post();
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('completed');
+    expect(res.body.rerun).toBe(false);
     expect(res.body.transferId).toBe(transferId);
-    expect(res.body.sourceBrandId).toBe(brandId);
-    expect(res.body.sourceOrgId).toBe(sourceOrgId);
-    expect(res.body.targetOrgId).toBe(targetOrgId);
-    expect(res.body.serviceResults['brand-service']).toEqual({
-      updatedTables: [{ tableName: 'brands', count: 1 }],
+    expect(res.body.participants).toEqual(['brand-service', 'campaign']);
+    expect(res.body.failedServices).toEqual([]);
+    expect(res.body.serviceResults['brand-service']).toEqual({ updatedTables: moved });
+    expect(res.body.serviceResults.campaign).toEqual({ updatedTables: [{ tableName: 'campaigns', count: 3 }] });
+    expect(mockMove).toHaveBeenCalledWith(brandId, sourceOrgId, targetOrgId);
+    // The brand id never changes: no targetBrandId is ever sent downstream.
+    expect(mockFanOutTransfer).toHaveBeenCalledWith(expect.anything(), {
+      sourceBrandId: brandId,
+      sourceOrgId,
+      targetOrgId,
     });
-    expect(res.body.targetBrandId).toBeUndefined();
   });
 
-  it('should include fan-out results from other services', async () => {
+  it('answers 502 (never success) and moves nothing in brand-service when a participant fails', async () => {
     mockFanOutTransfer.mockResolvedValue({
-      'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 3 }] },
-      'outlets-service': { skipped: true },
+      campaign: { updatedTables: [{ tableName: 'campaigns', count: 3 }] },
+      lead: { error: 'lead returned 500: boom' },
     });
 
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId });
+    const res = await post();
+
+    expect(res.status).toBe(502);
+    expect(res.body.status).toBe('partial');
+    expect(res.body.failedServices).toEqual(['lead']);
+    expect(res.body.error).toContain('lead');
+    expect(res.body.serviceResults.lead).toEqual({ error: 'lead returned 500: boom' });
+    expect(res.body.serviceResults['brand-service']).toEqual({ skipped: true });
+    expect(mockMove).not.toHaveBeenCalled();
+    // The partial attempt is still on the audit trail.
+    const { db } = await import('../../src/db');
+    expect(db.insert).toHaveBeenCalled();
+  });
+
+  it('is a no-op success when re-run after a completed transfer', async () => {
+    mockSelect.mockReset();
+    mockSelect
+      .mockResolvedValueOnce([{ orgId: targetOrgId }]) // target holds it now
+      .mockResolvedValueOnce([{ id: randomUUID() }]); // prior transfer on record
+    mockMove.mockResolvedValue([{ tableName: 'org_brands', count: 0 }]);
+    mockFanOutTransfer.mockResolvedValue({ campaign: { updatedTables: [{ tableName: 'campaigns', count: 0 }] } });
+
+    const res = await post();
 
     expect(res.status).toBe(200);
-    expect(res.body.serviceResults['campaign-service']).toEqual({
-      updatedTables: [{ tableName: 'campaigns', count: 3 }],
-    });
-    expect(res.body.serviceResults['outlets-service']).toEqual({ skipped: true });
+    expect(res.body.status).toBe('completed');
+    expect(res.body.rerun).toBe(true);
+  });
+
+  it('404s when the source org does not hold the brand and no transfer to target is on record', async () => {
+    mockSelect.mockReset();
+    mockSelect.mockResolvedValueOnce([{ orgId: randomUUID() }]);
+
+    const res = await post();
+
+    expect(res.status).toBe(404);
+    expect(mockFanOutTransfer).not.toHaveBeenCalled();
+  });
+
+  it('404s when the target holds it but no transfer source → target is on record', async () => {
+    mockSelect.mockReset();
+    mockSelect.mockResolvedValueOnce([{ orgId: targetOrgId }]).mockResolvedValueOnce([]);
+
+    const res = await post();
+
+    expect(res.status).toBe(404);
+    expect(mockFanOutTransfer).not.toHaveBeenCalled();
+  });
+
+  it('409s on an offer-name collision before calling any participant', async () => {
+    mockCollisions.mockResolvedValue(['Doc Dinners']);
+
+    const res = await post();
+
+    expect(res.status).toBe(409);
+    expect(res.body.offerNameCollisions).toEqual(['Doc Dinners']);
+    expect(mockDiscoverServices).not.toHaveBeenCalled();
+    expect(mockFanOutTransfer).not.toHaveBeenCalled();
+  });
+
+  it('502s when participant discovery fails, before moving anything', async () => {
+    mockDiscoverServices.mockRejectedValue(new Error('api-registry unreachable'));
+
+    const res = await post();
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toContain('api-registry');
+    expect(mockMove).not.toHaveBeenCalled();
+  });
+
+  it('502s when discovery finds no participant (empty is not success)', async () => {
+    mockDiscoverServices.mockResolvedValue([]);
+    mockFanOutTransfer.mockResolvedValue({});
+
+    const res = await post();
+
+    expect(res.status).toBe(502);
+    expect(mockMove).not.toHaveBeenCalled();
   });
 
   it('should reject when x-user-id is missing', async () => {
-    const noUserHeaders = {
-      'X-API-Key': headers['X-API-Key'],
-      'X-Org-Id': sourceOrgId,
-      'Content-Type': 'application/json',
-    };
-
     const res = await request(app)
       .post(`/orgs/brands/${brandId}/transfer`)
-      .set(noUserHeaders)
+      .set({ 'X-API-Key': headers['X-API-Key'], 'X-Org-Id': sourceOrgId, 'Content-Type': 'application/json' })
       .send({ targetOrgId });
 
     expect(res.status).toBe(400);
@@ -169,143 +255,25 @@ describe('POST /orgs/brands/:brandId/transfer', () => {
   });
 
   it('should reject when source and target org are the same', async () => {
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId: sourceOrgId });
-
+    const res = await post({ targetOrgId: sourceOrgId });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('same');
   });
 
-  it('should return 404 when brand not found in source org', async () => {
-    mockSelect.mockReset();
-    mockSelect.mockResolvedValue([]);
-
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId });
-
-    expect(res.status).toBe(404);
-  });
-
-  it('should rewrite brand refs and delete source brand on domain conflict, passing targetBrandId to fan-out', async () => {
-    const existingBrandId = randomUUID();
-    mockSelect.mockReset();
-    mockSelect
-      .mockResolvedValueOnce([{ id: brandId, orgId: sourceOrgId, domain: 'acme.com' }])
-      .mockResolvedValueOnce([{ id: existingBrandId }]);
-    mockReturning.mockResolvedValue([{ id: brandId }]);
-    mockInsertReturning.mockResolvedValue([{ id: transferId }]);
-    mockDeleteReturning.mockResolvedValue([{ id: brandId }]);
-    mockDiscoverServices.mockResolvedValue([]);
-    mockFanOutTransfer.mockResolvedValue({
-      'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 2 }] },
-    });
-
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId });
-
-    expect(res.status).toBe(200);
-    expect(res.body.targetBrandId).toBe(existingBrandId);
-    // brand-service results should include rewrite tables + brands delete
-    const brandResults = res.body.serviceResults['brand-service'].updatedTables;
-    expect(brandResults).toContainEqual({ tableName: 'media_assets', count: 0 });
-    expect(brandResults).toContainEqual({ tableName: 'brand_extracted_fields', count: 0 });
-    expect(brandResults).toContainEqual({ tableName: 'brands', count: 1 });
-    expect(res.body.serviceResults['campaign-service']).toEqual({
-      updatedTables: [{ tableName: 'campaigns', count: 2 }],
-    });
-    // Verify targetBrandId was passed in fan-out
-    expect(mockFanOutTransfer).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ sourceBrandId: brandId, targetBrandId: existingBrandId }),
-    );
-    // Verify rewriteBrandReferences was called via query
-    const { query } = await import('../../src/db/utils');
-    expect(query).toHaveBeenCalled();
-  });
-
-  it('should NOT move brand when a downstream service fails (return 207)', async () => {
-    mockFanOutTransfer.mockResolvedValue({
-      'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 3 }] },
-      'outlets-service': { error: 'HTTP 500' },
-    });
-
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId });
-
-    expect(res.status).toBe(207);
-    expect(res.body.status).toBe('partial');
-    // brand-service should NOT have updated the brand
-    expect(res.body.serviceResults['brand-service']).toEqual({
-      updatedTables: [{ tableName: 'brands', count: 0 }],
-    });
-    // db.update should NOT have been called (brand stays in source org)
-    const { db } = await import('../../src/db');
-    expect(db.update).not.toHaveBeenCalled();
-  });
-
-  it('should move brand only when ALL downstream services succeed', async () => {
-    mockFanOutTransfer.mockResolvedValue({
-      'campaign-service': { updatedTables: [{ tableName: 'campaigns', count: 3 }] },
-      'outlets-service': { updatedTables: [{ tableName: 'outlets', count: 1 }] },
-    });
-
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId });
-
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe('completed');
-    expect(res.body.serviceResults['brand-service']).toEqual({
-      updatedTables: [{ tableName: 'brands', count: 1 }],
-    });
-  });
-
   it('should reject invalid brandId format', async () => {
-    const res = await request(app)
-      .post('/orgs/brands/not-a-uuid/transfer')
-      .set(headers)
-      .send({ targetOrgId });
-
+    const res = await request(app).post('/orgs/brands/not-a-uuid/transfer').set(headers).send({ targetOrgId });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('UUID');
   });
 
   it('should reject invalid targetOrgId', async () => {
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId: 'not-a-uuid' });
-
+    const res = await post({ targetOrgId: 'not-a-uuid' });
     expect(res.status).toBe(400);
   });
 
   it('should require API key auth', async () => {
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .send({ targetOrgId });
-
+    const res = await request(app).post(`/orgs/brands/${brandId}/transfer`).send({ targetOrgId });
     expect(res.status).toBe(401);
-  });
-
-  it('should return 500 on service discovery failure', async () => {
-    mockDiscoverServices.mockRejectedValue(new Error('api-registry unreachable'));
-
-    const res = await request(app)
-      .post(`/orgs/brands/${brandId}/transfer`)
-      .set(headers)
-      .send({ targetOrgId });
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toContain('api-registry');
   });
 });
 

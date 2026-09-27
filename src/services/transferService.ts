@@ -2,12 +2,16 @@
  * Transfer orchestration service.
  *
  * Discovers services that have POST /internal/transfer-brand via api-registry,
- * then fans out to each one (best-effort).
+ * then fans out to each one in parallel and reports every result; the
+ * orchestrator (transfer.routes.ts) decides what a failure means.
  * Membership verification is handled upstream by api-service.
  */
 
 import { fetchWithRetry } from '../lib/fetch-with-retry';
 import { AbortError } from 'p-retry';
+
+/** Cap on one participant's transfer call, retries included. */
+const TRANSFER_CALL_TIMEOUT_MS = 5 * 60_000;
 
 interface ServiceInfo {
   name: string;
@@ -69,11 +73,17 @@ async function callTransferBrand(
   service: ServiceInfo,
   body: { sourceBrandId: string; sourceOrgId: string; targetOrgId: string; targetBrandId?: string },
 ): Promise<ServiceResult> {
-  // Env var convention: {NAME}_SERVICE_API_KEY (api-registry returns short names like "cloudflare", "campaign")
+  // Env var convention: {NAME}_SERVICE_API_KEY (api-registry returns short names like "cloudflare", "campaign").
+  // No fallback key: a participant we hold no key for is reported as a failure,
+  // never called with some other service's key.
   const base = service.name.toUpperCase().replace(/-/g, '_');
   const envKey = base.endsWith('_SERVICE') ? `${base}_API_KEY` : `${base}_SERVICE_API_KEY`;
-  const fallbackKey = process.env.BRAND_SERVICE_API_KEY || process.env.COMPANY_SERVICE_API_KEY || '';
-  const apiKey = process.env[envKey] || fallbackKey;
+  const apiKey = process.env[envKey];
+  if (!apiKey) {
+    const message = `${envKey} is not set on brand-service`;
+    console.error(`[brand-service] transfer-brand ${service.name}: ${message}`);
+    return { error: message };
+  }
 
   try {
     const response = await fetchWithRetry(
@@ -85,13 +95,15 @@ async function callTransferBrand(
           'x-api-key': apiKey,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TRANSFER_CALL_TIMEOUT_MS),
         label: `transfer-brand ${service.name}`,
       },
     );
 
-    const data = (await response.json()) as {
-      updatedTables: { tableName: string; count: number }[];
-    };
+    const data = (await response.json()) as { updatedTables?: { tableName: string; count: number }[] };
+    if (!Array.isArray(data.updatedTables)) {
+      return { error: `${service.name} answered without updatedTables: ${JSON.stringify(data).slice(0, 500)}` };
+    }
     return { updatedTables: data.updatedTables };
   } catch (err: any) {
     // AbortError = 4xx, log as info not error

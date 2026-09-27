@@ -1520,6 +1520,17 @@
             "type": "string",
             "format": "uuid"
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "partial"
+            ]
+          },
+          "rerun": {
+            "type": "boolean",
+            "description": "True when the source org no longer held the brand and a prior transfer source → target was on record: a retry/no-op re-run."
+          },
           "sourceBrandId": {
             "type": "string",
             "format": "uuid"
@@ -1532,22 +1543,39 @@
             "type": "string",
             "format": "uuid"
           },
-          "targetBrandId": {
-            "type": "string",
-            "format": "uuid"
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every service that took part, brand-service included."
+          },
+          "failedServices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "serviceResults": {
             "type": "object",
             "additionalProperties": {
               "$ref": "#/components/schemas/ServiceTransferResult"
             }
+          },
+          "error": {
+            "type": "string",
+            "description": "Present on a partial (502) transfer."
           }
         },
         "required": [
           "transferId",
+          "status",
+          "rerun",
           "sourceBrandId",
           "sourceOrgId",
           "targetOrgId",
+          "participants",
+          "failedServices",
           "serviceResults"
         ]
       },
@@ -5041,6 +5069,9 @@
           "400": {
             "description": "Invalid request"
           },
+          "409": {
+            "description": "Source and target org both have an offer with the same name for this brand; nothing moved"
+          },
           "500": {
             "description": "Internal server error"
           }
@@ -5049,8 +5080,8 @@
     },
     "/orgs/brands/{brandId}/transfer": {
       "post": {
-        "summary": "Orchestrate brand transfer across all services",
-        "description": "Transfers a brand from the current org (x-org-id) to a target org. Verifies brand ownership, then fans out POST /internal/transfer-brand to every registered service. If the target org already has a brand with the same domain, targetBrandId is resolved automatically and passed to all services so they rewrite brand references. If all services succeed, the source brand is deleted (cascade). If any fail, brand stays in source org.",
+        "summary": "Move a brand, with its whole history, to another org",
+        "description": "Moves a brand the current org (x-org-id) holds to `targetOrgId`, across every service. Fans out POST /internal/transfer-brand to every service registering it in api-registry, then — only if ALL succeeded — moves every (org, brand) row brand-service holds (membership, offers, economics, levers, leg rates, click destination, business context, share token, phone, WhatsApp link, offer answers). The brand id never changes. Idempotent: calling it again after a completed transfer is a 200 no-op (`rerun: true`); calling it again after a partial one completes it. A partial transfer answers 502 with the per-service results, never a success status. Moves history, not money: no balance changes in either org.",
         "parameters": [
           {
             "schema": {
@@ -5073,7 +5104,7 @@
         },
         "responses": {
           "200": {
-            "description": "Transfer completed",
+            "description": "Every participant succeeded",
             "content": {
               "application/json": {
                 "schema": {
@@ -5086,10 +5117,23 @@
             "description": "Invalid request or missing headers"
           },
           "404": {
-            "description": "Brand not found or does not belong to source org"
+            "description": "Source org does not hold the brand (and no prior transfer to target is on record)"
+          },
+          "409": {
+            "description": "Source and target org both have an offer with the same name for this brand; nothing moved"
           },
           "500": {
             "description": "Internal server error"
+          },
+          "502": {
+            "description": "Participant discovery failed, or at least one participant failed (body = OrchestrateTransferResponse, status partial)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrchestrateTransferResponse"
+                }
+              }
+            }
           }
         }
       }
