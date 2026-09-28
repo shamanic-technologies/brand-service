@@ -519,6 +519,13 @@
       "when": 1789713134558,
       "tag": "0075_offer_description_and_icon",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1789713135558,
+      "tag": "0076_offer_archived_at",
+      "breakpoints": true
     }
   ]
 }

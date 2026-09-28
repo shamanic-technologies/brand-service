@@ -2603,6 +2603,17 @@
             "type": "string",
             "nullable": true
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived"
+            ]
+          },
+          "archivedAt": {
+            "type": "string",
+            "nullable": true
+          },
           "createdAt": {
             "type": "string"
           },
@@ -2617,6 +2628,8 @@
           "imageUrl",
           "description",
           "icon",
+          "status",
+          "archivedAt",
           "createdAt",
           "updatedAt"
         ]
@@ -2671,6 +2684,17 @@
         "minLength": 1,
         "maxLength": 60
       },
+      "OfferResponse": {
+        "type": "object",
+        "properties": {
+          "offer": {
+            "$ref": "#/components/schemas/Offer"
+          }
+        },
+        "required": [
+          "offer"
+        ]
+      },
       "ListOffersResponse": {
         "type": "object",
         "properties": {
@@ -2683,17 +2707,6 @@
         },
         "required": [
           "offers"
-        ]
-      },
-      "OfferResponse": {
-        "type": "object",
-        "properties": {
-          "offer": {
-            "$ref": "#/components/schemas/Offer"
-          }
-        },
-        "required": [
-          "offer"
         ]
       },
       "CreateOfferRequest": {
@@ -6050,10 +6063,10 @@
         }
       }
     },
-    "/orgs/brands/{brandId}/offers": {
-      "get": {
-        "summary": "List the offers a brand sells",
-        "description": "Every offer this org sells under this brand, oldest first — a stable order that implies NO rank. An EMPTY list means the org has never stated one, which is not an error. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and its lifetime revenue — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+    "/orgs/brands/{brandId}/offers/{offerId}/archive": {
+      "post": {
+        "summary": "Archive an offer",
+        "description": "Retire an offer the org no longer sells (or created by mistake): it leaves the default offer listing. NOTHING is deleted — its economics, answers, campaigns and audiences keep referencing it, and `unarchive` restores it. Idempotent: archiving an archived offer keeps its original `archivedAt`. REFUSED 409 with `reason: \"offer_has_ongoing_campaign\"` while any campaign on this offer is `ongoing` (stop the campaign first). If campaign-service cannot be asked, 502 and nothing changes.",
         "parameters": [
           {
             "schema": {
@@ -6063,6 +6076,126 @@
             "required": true,
             "name": "brandId",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The archived offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand or offer ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "409": {
+            "description": "`{ error, reason: \"offer_has_ongoing_campaign\", campaignIds }` — an ongoing campaign runs on this offer"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "502": {
+            "description": "campaign-service could not be asked whether a campaign is ongoing"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/unarchive": {
+      "post": {
+        "summary": "Unarchive an offer",
+        "description": "Bring an archived offer back into the default listing. Idempotent on an active offer.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The active offer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand or offer ID format"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers": {
+      "get": {
+        "summary": "List the offers a brand sells",
+        "description": "Every offer this org sells under this brand, oldest first — a stable order that implies NO rank. An EMPTY list means the org has never stated one, which is not an error. ARCHIVED offers are left out unless `includeArchived=true`; each offer carries `status` (`active` | `archived`) and `archivedAt`. An OFFER is one distinct thing a brand sells. It owns the value proposition (the 7 user-fields) and its lifetime revenue — a brand selling a $200 self-serve plan and a $20k contract prices each one for what it is. The brand keeps its IDENTITY: its name, its domain, its logo and its conversion-tracking credential describe the company, not one of the things it sells, and every offer of a brand shares them. THERE IS NO PRIMARY OFFER — several run at once and none outranks another, so the list order implies no rank. The BRAND-scoped routes are unchanged and still answer exactly what they always did: they resolve the brand's one offer, and REFUSE 409 (`SEVERAL_OFFERS`) when there is more than one rather than guessing which the caller meant — a wrong guess writes one product's economics over another's. A brand-scoped WRITE on a brand with no offer creates its first one.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Include archived offers. Absent or `false` = active offers only."
+            },
+            "required": false,
+            "description": "Include archived offers. Absent or `false` = active offers only.",
+            "name": "includeArchived",
+            "in": "query"
           }
         ],
         "responses": {

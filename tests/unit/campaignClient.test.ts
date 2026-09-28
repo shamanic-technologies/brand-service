@@ -135,3 +135,54 @@ describe('getCampaignFeatureInputs', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('listOngoingCampaignIdsForOffer', () => {
+  function mockResponse(data: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(data),
+      text: () => Promise.resolve(JSON.stringify(data)),
+    };
+  }
+
+  async function importClient() {
+    vi.resetModules();
+    vi.stubGlobal('fetch', mockFetch);
+    return import('../../src/lib/campaign-client');
+  }
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it('asks campaign-service for ongoing campaigns on the offer, under the org', async () => {
+    const { listOngoingCampaignIdsForOffer } = await importClient();
+    mockFetch.mockResolvedValueOnce(mockResponse({ campaigns: [{ id: 'c1' }, { id: 'c2' }] }));
+
+    const ids = await listOngoingCampaignIdsForOffer('offer-1', { orgId: 'org-1' });
+
+    expect(ids).toEqual(['c1', 'c2']);
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toContain('/campaigns?offerId=offer-1&status=ongoing');
+    expect(init.headers['x-org-id']).toBe('org-1');
+  });
+
+  it('fails loud on a 4xx instead of reading it as "nothing running"', async () => {
+    const { listOngoingCampaignIdsForOffer, CampaignServiceUnavailableError } = await importClient();
+    mockFetch.mockResolvedValueOnce(mockResponse({ error: 'x' }, 400));
+
+    await expect(listOngoingCampaignIdsForOffer('offer-1', { orgId: 'org-1' })).rejects.toBeInstanceOf(
+      CampaignServiceUnavailableError
+    );
+  });
+
+  it('fails loud on a body carrying no campaigns array', async () => {
+    const { listOngoingCampaignIdsForOffer, CampaignServiceUnavailableError } = await importClient();
+    mockFetch.mockResolvedValueOnce(mockResponse({}));
+
+    await expect(listOngoingCampaignIdsForOffer('offer-1', { orgId: 'org-1' })).rejects.toBeInstanceOf(
+      CampaignServiceUnavailableError
+    );
+  });
+});
