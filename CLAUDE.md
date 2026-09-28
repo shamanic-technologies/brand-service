@@ -256,3 +256,11 @@ prospect's thread. That second channel has no use for a phone at all.
 - Guards: `tests/unit/salesRep.test.ts` (the normalizers + the rule),
   `tests/integration/salesRep.test.ts` (every AC, including a phone-only row
   written straight to the table standing in for the 3 production ones).
+
+## Site mapping includes the brand's subdomains (`src/lib/brand-domain.ts`)
+
+The url_map strategy (field extraction + image extraction) maps the brand's site with scraping-service `includeSubdomains: true`, so pricing, docs, case studies and help pages on `docs.` / `blog.` / `help.` hosts are candidates for page selection. `keepBrandDomainUrls` then drops everything off the brand's REGISTRABLE domain (Public Suffix List via `tldts`, so `acme.co.uk` never admits every `.co.uk`). The page ceiling is unchanged: selection still returns at most 10 pages, and a map is one Firecrawl credit whatever it contains.
+
+- A brand URL that is itself a subdomain still ALSO maps its root domain (`getRootDomainUrl`), unchanged.
+- `url_map_cache.includes_subdomains` versions the cache: rows mapped before subdomains (false) are ignored on read, so the 180-day TTL cannot keep serving a subdomain-less map. Every write sets it true.
+- `fieldExtractionService` and `scrapeOrchestrator` each hold a copy of the map-cache read/write; change both.

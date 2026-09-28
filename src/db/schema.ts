@@ -865,6 +865,10 @@ export const urlMapCache = pgTable("url_map_cache", {
 	siteUrl: text("site_url").notNull(),
 	normalizedSiteUrl: text("normalized_site_url").notNull(),
 	urls: jsonb().notNull().default([]),
+	// True when the map was taken with the brand's subdomains included. Maps
+	// cached before that (false) are ignored on read, so a 180-day-old map
+	// without docs./blog. pages is re-mapped instead of served.
+	includesSubdomains: boolean("includes_subdomains").default(false).notNull(),
 	mappedAt: timestamp("mapped_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }).notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),

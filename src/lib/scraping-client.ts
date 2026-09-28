@@ -44,6 +44,12 @@ function buildHeaders(tracking?: ScrapingTrackingContext): Record<string, string
   return headers;
 }
 
+/**
+ * Map a site's URLs, subdomains included: a brand's docs., blog. and help.
+ * hosts are part of its site. Firecrawl leaves them out unless asked, and the
+ * map costs the same one credit either way. Callers still filter the result to
+ * the brand's registrable domain (`keepBrandDomainUrls`).
+ */
 export async function mapSiteUrls(
   url: string,
   tracking?: ScrapingTrackingContext,
@@ -57,6 +63,7 @@ export async function mapSiteUrls(
         body: JSON.stringify({
           url,
           limit: 100,
+          includeSubdomains: true,
           ...(tracking && {
             brandId: tracking.brandId,
             workflowSlug: tracking.workflowSlug,

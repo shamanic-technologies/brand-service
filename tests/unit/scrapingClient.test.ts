@@ -45,6 +45,9 @@ describe('scraping-client', () => {
       const body = JSON.parse(calledOpts.body);
       expect(body.url).toBe('https://example.com');
       expect(body.limit).toBe(100);
+      // Subdomains (docs., blog., help.) are part of the brand's site; the
+      // page ceiling downstream is unchanged, so this widens candidates only.
+      expect(body.includeSubdomains).toBe(true);
       expect(calledOpts.headers['X-Org-Id']).toBe('org_123');
       expect(calledOpts.headers['X-User-Id']).toBe('user_456');
     });
