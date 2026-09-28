@@ -67,3 +67,48 @@ export async function getCampaignFeatureInputs(
     return null;
   }
 }
+
+/** Thrown when campaign-service cannot say whether an offer has an ongoing campaign (→ 502). */
+export class CampaignServiceUnavailableError extends Error {
+  constructor(detail: string) {
+    super(`campaign-service could not be asked for this offer's ongoing campaigns: ${detail}`);
+    this.name = 'CampaignServiceUnavailableError';
+  }
+}
+
+/**
+ * The ids of every ONGOING campaign this org runs on this offer — the reason an
+ * offer may not be archived. Read from campaign-service, which owns campaign
+ * status (`GET /campaigns?offerId=&status=ongoing`).
+ *
+ * FAILS LOUD: any failure throws `CampaignServiceUnavailableError`, never `[]`.
+ * "We could not look" must not read as "nothing is running", or an archive would
+ * hide an offer a live campaign is spending on.
+ */
+export async function listOngoingCampaignIdsForOffer(
+  offerId: string,
+  tracking: CampaignTrackingHeaders,
+): Promise<string[]> {
+  const headers: Record<string, string> = {
+    'X-API-Key': CAMPAIGN_SERVICE_API_KEY,
+    'x-org-id': tracking.orgId,
+  };
+  if (tracking.userId) headers['x-user-id'] = tracking.userId;
+  if (tracking.runId) headers['x-run-id'] = tracking.runId;
+
+  const query = new URLSearchParams({ offerId, status: 'ongoing' });
+  let data: { campaigns?: Array<{ id: string }> };
+  try {
+    const response = await fetchWithRetry(`${CAMPAIGN_SERVICE_URL}/campaigns?${query}`, {
+      headers,
+      label: 'campaign-service GET /campaigns?status=ongoing',
+    });
+    data = (await response.json()) as { campaigns?: Array<{ id: string }> };
+  } catch (error: any) {
+    throw new CampaignServiceUnavailableError(error?.message ?? String(error));
+  }
+  if (!Array.isArray(data.campaigns)) {
+    throw new CampaignServiceUnavailableError('response carried no campaigns array');
+  }
+  return data.campaigns.map((c) => c.id);
+}

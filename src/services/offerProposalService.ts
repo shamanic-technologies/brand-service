@@ -447,9 +447,11 @@ export async function confirmOffers(
       const fields = { description: c.description, icon: c.icon, updatedAt: now };
 
       if (match) {
+        // The customer just confirmed they sell this offer, so an archived match
+        // comes back into view rather than being reused while still hidden.
         const [row] = await tx
           .update(brandOffers)
-          .set(fields)
+          .set({ ...fields, archivedAt: null })
           .where(eq(brandOffers.id, match.id))
           .returning();
         result.push(formatOffer(row));

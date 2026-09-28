@@ -4,6 +4,7 @@ import {
   CreateOfferRequestSchema,
   ProposeOffersRequestSchema,
   GenerateOfferImageRequestSchema,
+  ListOffersQuerySchema,
   PutOfferAnswersRequestSchema,
   PutUserFieldsRequestSchema,
   RenameOfferRequestSchema,
@@ -17,7 +18,9 @@ import {
   getOfferById,
   listOffers,
   renameOffer,
+  setOfferArchived,
 } from '../services/brandOffersService';
+import { CampaignServiceUnavailableError, listOngoingCampaignIdsForOffer } from '../lib/campaign-client';
 import {
   buildOfferImagePrompt,
   generateOfferImage,
@@ -103,10 +106,21 @@ orgRouter.get('/brands/:brandId/offers', async (req: Request, res: Response) => 
       return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
     }
 
+    const query = ListOffersQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
+    }
+
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    return res.status(200).json({ offers: await listOffers(req.orgId!, brandId) });
+    // Archived offers are hidden by default: this is the list a dashboard shows
+    // in its offer switcher, and an archived offer is one the owner took out of it.
+    const offers = await listOffers(req.orgId!, brandId);
+    const includeArchived = query.data.includeArchived === 'true';
+    return res.status(200).json({
+      offers: includeArchived ? offers : offers.filter((o) => o.status === 'active'),
+    });
   } catch (error: any) {
     console.error('[brand-service] List offers error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
@@ -354,6 +368,61 @@ orgRouter.post('/brands/:brandId/offers/:offerId/image', async (req: Request, re
     }
     console.error('[brand-service] Generate offer image error:', error);
     return res.status(502).json({ error: 'Offer image generation failed', detail: error.message });
+  }
+});
+
+/**
+ * POST /orgs/brands/:brandId/offers/:offerId/archive
+ * Retire an offer: it leaves the default listing, nothing is deleted, and
+ * `unarchive` brings it back. REFUSED 409 (`reason: offer_has_ongoing_campaign`)
+ * while campaign-service reports an ongoing campaign on it — hiding an offer a
+ * live campaign is spending on would hide the spend. If campaign-service cannot
+ * be asked, 502 and nothing changes.
+ */
+orgRouter.post('/brands/:brandId/offers/:offerId/archive', async (req: Request, res: Response) => {
+  try {
+    const scope = await resolveOfferParam(req, res);
+    if (!scope) return;
+
+    const ongoing = await listOngoingCampaignIdsForOffer(scope.offerId, {
+      orgId: req.orgId!,
+      userId: req.userId,
+      runId: req.runId,
+    });
+    if (ongoing.length > 0) {
+      return res.status(409).json({
+        error:
+          `This offer has ${ongoing.length} ongoing campaign(s). Stop them before archiving the offer: ` +
+          'an archived offer is hidden, and a hidden offer must not be spending.',
+        reason: 'offer_has_ongoing_campaign',
+        campaignIds: ongoing,
+      });
+    }
+
+    const offer = await setOfferArchived(req.orgId!, scope.brandId, scope.offerId, true);
+    return res.status(200).json({ offer });
+  } catch (error: any) {
+    if (error instanceof CampaignServiceUnavailableError) {
+      return res.status(502).json({ error: error.message });
+    }
+    if (rejectOfferProblem(res, error)) return;
+    console.error('[brand-service] Archive offer error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/** POST /orgs/brands/:brandId/offers/:offerId/unarchive — bring it back into the default listing. */
+orgRouter.post('/brands/:brandId/offers/:offerId/unarchive', async (req: Request, res: Response) => {
+  try {
+    const scope = await resolveOfferParam(req, res);
+    if (!scope) return;
+
+    const offer = await setOfferArchived(req.orgId!, scope.brandId, scope.offerId, false);
+    return res.status(200).json({ offer });
+  } catch (error: any) {
+    if (rejectOfferProblem(res, error)) return;
+    console.error('[brand-service] Unarchive offer error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 

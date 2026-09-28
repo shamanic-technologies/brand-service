@@ -427,6 +427,11 @@ export const brandOffers = pgTable("brand_offers", {
 	// picked when the offer was proposed. NULL = none. Validated at the write,
 	// not by a CHECK, so adding a token is not a migration.
 	icon: text("icon"),
+	// When the owner ARCHIVED this offer (they no longer sell it, or created it by
+	// mistake). NULL = not archived. Archiving hides the offer from the default
+	// org listing and nothing else: the row, its economics, its answers and every
+	// campaign/audience referencing it stay. Reversible (unarchive clears it).
+	archivedAt: timestamp("archived_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
