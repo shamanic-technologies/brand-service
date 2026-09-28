@@ -62,6 +62,17 @@ it; a pg_dump sits in `/root/distribute/backups/`). It shipped only after a flee
 survives in brand-service; do NOT reintroduce one — rates are per LEG
 (`brand_leg_rates`), lifetime revenue per OFFER (`brand_offers`).
 
+## Archiving an offer — hidden, never deleted
+
+`brand_offers.archived_at` (migration `0076`). `POST /orgs/brands/:brandId/offers/:offerId/archive`
+and `/unarchive`; every offer read carries `status` (`active` | `archived`) + `archivedAt`.
+Only `GET /orgs/brands/:brandId/offers` hides archived offers (unless `?includeArchived=true`);
+`listOffers`, `resolveSoleOffer`, the by-id read and `/internal/brands/:brandId/offers` still see
+them, so no brand-scoped resolution or sibling reference changes. Archive is refused 409
+`reason: offer_has_ongoing_campaign` while campaign-service `GET /campaigns?offerId=&status=ongoing`
+returns anything; campaign-service unreachable = 502, never "nothing running". Confirming an
+offer by name (`/offers/confirm`) unarchives it. Guards: `tests/integration/offerArchive.test.ts`.
+
 ## Brand transfer — moving a brand, with its whole history, to another org
 
 `POST /orgs/brands/:brandId/transfer` (`{ targetOrgId }`, caller's org = source)

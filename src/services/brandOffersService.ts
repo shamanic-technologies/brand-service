@@ -42,6 +42,13 @@ export interface BrandOffer {
   description: string | null;
   /** A Phosphor token from `src/lib/offer-icons.ts`, or `null` when none was picked. */
   icon: string | null;
+  /**
+   * `archived` when the owner retired the offer (see `archiveOffer`). Derived from
+   * `archivedAt` and nothing else, so the two can never disagree.
+   */
+  status: 'active' | 'archived';
+  /** When it was archived; `null` exactly when `status` is `active`. */
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -121,6 +128,8 @@ export function formatOffer(row: OfferRow): BrandOffer {
     imageUrl: row.imageUrl ?? null,
     description: row.description ?? null,
     icon: row.icon ?? null,
+    status: row.archivedAt ? 'archived' : 'active',
+    archivedAt: row.archivedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -130,6 +139,11 @@ export function formatOffer(row: OfferRow): BrandOffer {
  * Every offer this org sells under this brand, oldest first — a stable order, so
  * two reads never disagree and no position implies rank. `[]` means the org has
  * never stated one.
+ *
+ * ARCHIVED OFFERS ARE INCLUDED here on purpose: `resolveSoleOffer` counts on this
+ * list, and an archived offer still holds its economics and its campaigns, so a
+ * brand-scoped call must keep answering exactly what it answered before the
+ * archive. Only the org listing route hides archived offers (by default).
  */
 export async function listOffers(orgId: string, brandId: string): Promise<BrandOffer[]> {
   const rows = await db
@@ -185,6 +199,38 @@ export async function assertOfferOnBrand(
   const offer = await getOffer(orgId, brandId, offerId);
   if (!offer) throw new OfferNotFoundError(offerId);
   return offer;
+}
+
+/**
+ * Set or clear the offer's `archived_at`. Archiving an already-archived offer
+ * keeps its original timestamp (idempotent); unarchiving clears it. Whether an
+ * ongoing campaign forbids the archive is the ROUTE's check (it has to ask
+ * campaign-service), not this write's.
+ */
+export async function setOfferArchived(
+  orgId: string,
+  brandId: string,
+  offerId: string,
+  archived: boolean
+): Promise<BrandOffer> {
+  const current = await assertOfferOnBrand(orgId, brandId, offerId);
+  if (archived === (current.status === 'archived')) return current;
+
+  const now = new Date().toISOString();
+  const [row] = await db
+    .update(brandOffers)
+    .set({ archivedAt: archived ? now : null, updatedAt: now })
+    .where(
+      and(
+        eq(brandOffers.orgId, orgId),
+        eq(brandOffers.brandId, brandId),
+        eq(brandOffers.id, offerId)
+      )
+    )
+    .returning();
+
+  if (!row) throw new OfferNotFoundError(offerId);
+  return formatOffer(row);
 }
 
 /**

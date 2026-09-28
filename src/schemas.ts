@@ -2890,6 +2890,12 @@ export const OfferSchema = z
     // A Phosphor icon token from the closed vocabulary (see `OfferIcon`), or
     // `null` when none was picked.
     icon: z.string().nullable(),
+    // `archived` = the owner retired this offer (no longer sold, or created by
+    // mistake). Nothing about it is deleted and every sibling reference stays
+    // valid; it is only hidden from the default org listing. Reversible.
+    status: z.enum(['active', 'archived']),
+    // When it was archived; `null` exactly when `status` is `active`.
+    archivedAt: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -3024,6 +3030,52 @@ export const OfferResponseSchema = z
   .object({ offer: OfferSchema })
   .openapi('OfferResponse');
 
+export const ListOffersQuerySchema = z
+  .object({
+    includeArchived: z
+      .enum(['true', 'false'])
+      .optional()
+      .openapi({ description: 'Include archived offers. Absent or `false` = active offers only.' }),
+  })
+  .openapi('ListOffersQuery');
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/archive',
+  summary: 'Archive an offer',
+  description:
+    'Retire an offer the org no longer sells (or created by mistake): it leaves the default offer ' +
+    'listing. NOTHING is deleted — its economics, answers, campaigns and audiences keep referencing it, ' +
+    'and `unarchive` restores it. Idempotent: archiving an archived offer keeps its original `archivedAt`. ' +
+    'REFUSED 409 with `reason: "offer_has_ongoing_campaign"` while any campaign on this offer is `ongoing` ' +
+    '(stop the campaign first). If campaign-service cannot be asked, 502 and nothing changes.',
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The archived offer', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid brand or offer ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    409: { description: '`{ error, reason: "offer_has_ongoing_campaign", campaignIds }` — an ongoing campaign runs on this offer' },
+    502: { description: 'campaign-service could not be asked whether a campaign is ongoing' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/unarchive',
+  summary: 'Unarchive an offer',
+  description: 'Bring an archived offer back into the default listing. Idempotent on an active offer.',
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The active offer', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid brand or offer ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 export const ListOffersResponseSchema = z
   .object({ offers: z.array(OfferSchema) })
   .openapi('ListOffersResponse');
@@ -3035,8 +3087,13 @@ registry.registerPath({
   description:
     'Every offer this org sells under this brand, oldest first — a stable order that implies NO ' +
     'rank. An EMPTY list means the org has never stated one, which is not an error. ' +
+    'ARCHIVED offers are left out unless `includeArchived=true`; each offer carries `status` ' +
+    '(`active` | `archived`) and `archivedAt`. ' +
     OFFER_MODEL_DESCRIPTION,
-  request: { params: z.object({ brandId: z.string().uuid() }) },
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    query: ListOffersQuerySchema,
+  },
   responses: {
     200: { description: 'The offers (possibly empty)', content: { 'application/json': { schema: ListOffersResponseSchema } } },
     400: { description: 'Invalid brand ID format' },
