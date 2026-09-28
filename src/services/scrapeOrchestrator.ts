@@ -14,6 +14,7 @@ import {
   scrapeUrl,
   ScrapingTrackingContext,
 } from '../lib/scraping-client';
+import { getRootDomainUrl, keepBrandDomainUrls } from '../lib/brand-domain';
 
 const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180;
 
@@ -27,23 +28,6 @@ export function normalizeUrl(urlStr: string): string {
     return `${parsed.protocol}//${host}${path}${parsed.search}`;
   } catch {
     return urlStr.toLowerCase().replace(/\/+$/, '');
-  }
-}
-
-/**
- * If the URL is on a subdomain (e.g. bnb.sortes.fun), return the root domain URL.
- * Returns null if the URL is already a root domain or parsing fails.
- */
-export function getRootDomainUrl(urlStr: string): string | null {
-  try {
-    const parsed = new URL(urlStr);
-    const parts = parsed.hostname.split('.');
-    if (parts.length < 3) return null;
-    if (parts.length === 3 && parts[0] === 'www') return null;
-    const rootDomain = parts.slice(-2).join('.');
-    return `${parsed.protocol}//${rootDomain}`;
-  } catch {
-    return null;
   }
 }
 
@@ -96,6 +80,7 @@ async function getCachedUrlMap(siteUrl: string): Promise<string[] | null> {
     .where(
       and(
         eq(urlMapCacheTable.normalizedSiteUrl, normalized),
+        eq(urlMapCacheTable.includesSubdomains, true),
         gt(urlMapCacheTable.expiresAt, sql`NOW()`),
       ),
     )
@@ -112,6 +97,7 @@ async function upsertUrlMap(siteUrl: string, urls: string[], ttlDays: number): P
       siteUrl,
       normalizedSiteUrl: normalized,
       urls,
+      includesSubdomains: true,
       mappedAt: sql`NOW()`,
       expiresAt,
     })
@@ -120,6 +106,7 @@ async function upsertUrlMap(siteUrl: string, urls: string[], ttlDays: number): P
       set: {
         siteUrl,
         urls,
+        includesSubdomains: true,
         mappedAt: sql`NOW()`,
         expiresAt,
         updatedAt: sql`NOW()`,
@@ -237,7 +224,9 @@ export async function mapBrandUrls(
       }
     }
 
-    allUrls = [...new Set(mapResults.flat())];
+    // Firecrawl maps subdomains too; anything off the brand's registrable
+    // domain (an external link, a CDN host) never becomes a candidate.
+    allUrls = keepBrandDomainUrls([...new Set(mapResults.flat())], brandUrl);
     console.log(`[brand-service] [${brandId}] Found ${allUrls.length} unique URLs`);
   } catch (mapError: any) {
     console.warn(`[brand-service] [${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
