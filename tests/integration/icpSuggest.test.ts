@@ -93,16 +93,16 @@ describe('Suggest ICP Endpoint', () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
   });
 
-  it('calls chat-service with google/flash-pro and sends NO sampling params', async () => {
+  it('calls chat-service with anthropic/sonnet, a schema, and NO sampling params', async () => {
     const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
 
     expect(res.status).toBe(200);
     const params = mockChat.mock.calls[0][0];
-    // flash-pro (Gemini 3.8 Flash): the prefill runs on the cheap tier because
-    // chat-service provisions the caller's worst case and an anonymous org holds
-    // $5 of trial credit — a frontier hold on this budget is refused by billing.
-    expect(params.provider).toBe('google');
-    expect(params.model).toBe('flash-pro');
+    // Claude Sonnet 5.5, like every LLM call behind the public onboarding
+    // (owner decision 2026-09-29). Anthropic enforces JSON only through a schema.
+    expect(params.provider).toBe('anthropic');
+    expect(params.model).toBe('sonnet');
+    expect(params.responseSchema).toMatchObject({ required: ['icp'] });
     // No sampling params are sent on this call.
     expect(params.temperature).toBeUndefined();
     expect(params.disableThinking).toBe(true);

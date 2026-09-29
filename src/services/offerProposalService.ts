@@ -239,11 +239,11 @@ export async function proposeOffers(opts: {
       {
         systemPrompt: SPLIT_SYSTEM_PROMPT,
         message: text,
-        provider: 'google',
-        // `flash` = Gemini 3.5 Flash-Lite: measured p50 1.9s / p90 2.1s on this
-        // fleet (7 days to 2026-09-27) against flash-pro's 2.4s / 4.3s. This sits
-        // inside a modal step, and the split is short structured output.
-        model: 'flash',
+        // Claude Sonnet 5.5, like every LLM call behind the public onboarding
+        // (owner decision 2026-09-29). The split is short structured output
+        // inside a modal step, so reasoning stays at its lowest level.
+        provider: 'anthropic',
+        model: 'sonnet',
         responseSchema: SPLIT_RESPONSE_SCHEMA,
         maxTokens: 1024,
         disableThinking: true,
