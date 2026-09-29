@@ -46,15 +46,15 @@ describe('extractFieldsFromContent — model selection by urlStrategy', () => {
     expect(params.thinkingBudget).toBeUndefined();
   });
 
-  it('url_map strategy → anthropic/sonnet, default reasoning, no sampling params', async () => {
+  it('url_map strategy → anthropic/sonnet, lowest reasoning, no sampling params', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'url_map');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
     expect(params.provider).toBe('anthropic');
     expect(params.model).toBe('sonnet');
-    // url_map keeps chat-service's default bounded reasoning for depth.
-    expect(params.disableThinking).toBeUndefined();
+    // url_map runs at the lowest reasoning level too, like every onboarding call.
+    expect(params.disableThinking).toBe(true);
     expect(params.temperature).toBeUndefined();
     expect(params.thinkingBudget).toBeUndefined();
   });
