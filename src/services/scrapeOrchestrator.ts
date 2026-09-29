@@ -272,6 +272,8 @@ export function extractSameHostLinks(markdown: string, baseUrl: string, host: st
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
     if (url.hostname.toLowerCase() !== host) return;
     if (NON_PAGE_EXTENSION.test(url.pathname)) return;
+    // Framework asset routes (Next's image optimizer: /_next/image?url=/logo.png).
+    if (/^\/(_next|_nuxt)\//.test(url.pathname)) return;
     url.hash = '';
     // Scraped markdown can spell same-host links as http://; the host was
     // just served over the base URL's scheme, so use that one.
