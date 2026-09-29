@@ -1639,3 +1639,27 @@ export const brandOfferAnswers = pgTable("brand_offer_answers", {
 	check("brand_offer_answers_answer_not_blank", sql`btrim(${table.answer}) <> ''`),
 	check("brand_offer_answers_position_non_negative", sql`${table.position} >= 0`),
 ]);
+
+/**
+ * HOW AN OFFER SELLS, as the customer states it: the funnel STEPS it goes
+ * through and the LEGS between them that apply (dashboard beta, offer page).
+ * One row per offer. The identifiers are features-service's own step keys and
+ * leg keys, stored AS GIVEN — this service does not validate them against the
+ * features-service catalogue in this phase. NO ROW = never stated, which is a
+ * different answer from a row holding two empty arrays (stated: nothing).
+ *
+ * Keyed on the OFFER alone (FK, cascade): the offer already carries its org and
+ * brand, so a brand transfer that moves the offer moves this with it.
+ */
+export const brandOfferSalesPaths = pgTable("brand_offer_sales_paths", {
+	offerId: uuid("offer_id").primaryKey().notNull(),
+	steps: text().array().notNull(),
+	legKeys: text("leg_keys").array().notNull(),
+	statedAt: timestamp("stated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_offer_sales_paths_offer_id_fkey",
+	}).onDelete("cascade"),
+]);
