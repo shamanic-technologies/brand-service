@@ -30,17 +30,15 @@ describe('extractFieldsFromContent — model selection by urlStrategy', () => {
     mockChat.mockResolvedValue({ json: { services: 'widgets' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
   });
 
-  it('landing strategy → google/flash-pro, disableThinking floors reasoning, no sampling params', async () => {
+  it('landing strategy → anthropic/sonnet, disableThinking floors reasoning, no sampling params', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
-    // flash-pro (Gemini 3.8 Flash) — the onboarding prefill runs on the cheap
-    // tier: chat-service provisions the caller's worst case before the call, and
-    // an anonymous org's $5 trial seed cannot cover a frontier hold on 24k output
-    // tokens. disableThinking floors reasoning to `low` (fast).
-    expect(params.provider).toBe('google');
-    expect(params.model).toBe('flash-pro');
+    // Claude Sonnet 5.5 — every LLM call behind the public onboarding runs on
+    // it (owner decision 2026-09-29). disableThinking floors reasoning to `low`.
+    expect(params.provider).toBe('anthropic');
+    expect(params.model).toBe('sonnet');
     expect(params.disableThinking).toBe(true);
     // No sampling params are sent on this call.
     expect(params.temperature).toBeUndefined();
@@ -48,13 +46,13 @@ describe('extractFieldsFromContent — model selection by urlStrategy', () => {
     expect(params.thinkingBudget).toBeUndefined();
   });
 
-  it('url_map strategy → google/flash-pro, default reasoning, no sampling params', async () => {
+  it('url_map strategy → anthropic/sonnet, default reasoning, no sampling params', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'url_map');
 
     expect(mockChat).toHaveBeenCalledTimes(1);
     const params = mockChat.mock.calls[0][0];
-    expect(params.provider).toBe('google');
-    expect(params.model).toBe('flash-pro');
+    expect(params.provider).toBe('anthropic');
+    expect(params.model).toBe('sonnet');
     // url_map keeps chat-service's default bounded reasoning for depth.
     expect(params.disableThinking).toBeUndefined();
     expect(params.temperature).toBeUndefined();
