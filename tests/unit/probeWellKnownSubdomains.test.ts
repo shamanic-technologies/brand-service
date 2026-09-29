@@ -67,6 +67,7 @@ const OLIVE_DOCS_MD = `
 - [Expiry futures](/expiry-futures)
 - [Perpetuals](https://docs.olive.exchange/perpetual-futures#top)
 - [Logo](https://docs.olive.exchange/logo.png)
+- [![logo](https://docs.olive.exchange/_next/image?url=%2Flogo-color.png&w=1080&q=75)](https://docs.olive.exchange/)
 - [Twitter](https://twitter.com/olive)
 - [App](https://app.olive.exchange/trade)
 `;
