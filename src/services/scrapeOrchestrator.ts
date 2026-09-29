@@ -14,7 +14,7 @@ import {
   scrapeUrl,
   ScrapingTrackingContext,
 } from '../lib/scraping-client';
-import { getRootDomainUrl, keepBrandDomainUrls } from '../lib/brand-domain';
+import { getRootDomainUrl, keepBrandDomainUrls, registrableDomain } from '../lib/brand-domain';
 
 const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180;
 
@@ -234,5 +234,175 @@ export async function mapBrandUrls(
   }
 
   if (allUrls.length === 0) allUrls = [brandUrl];
-  return allUrls;
+  const probed = await probeWellKnownSubdomains({
+    brandUrl, mappedUrls: allUrls, brandId, scrapeTtlDays, tracking,
+  });
+  return [...allUrls, ...probed];
+}
+
+// ─── Well-known subdomain probe ─────────────────────────────────────────────
+
+/**
+ * The subdomains where a brand keeps the facts a technical buyer checks.
+ * Fixed on purpose: nothing outside this list is ever probed.
+ */
+export const WELL_KNOWN_SUBDOMAINS = ['docs', 'help', 'support', 'blog', 'developers'] as const;
+
+/** Links kept per probed subdomain (depth 1: links of its root page only). */
+export const MAX_LINKS_PER_SUBDOMAIN = 30;
+
+const SUBDOMAIN_EXISTS_TIMEOUT_MS = 8000;
+
+const NON_PAGE_EXTENSION = /\.(png|jpe?g|gif|svg|webp|ico|css|js|json|xml|zip|woff2?|ttf|mp4|webm)$/i;
+
+/**
+ * Page links on `host` found in a scraped page's markdown, in page order,
+ * root first. Relative links resolve against `baseUrl`.
+ */
+export function extractSameHostLinks(markdown: string, baseUrl: string, host: string, cap: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string) => {
+    let url: URL;
+    try {
+      url = new URL(raw, baseUrl);
+    } catch {
+      return;
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
+    if (url.hostname.toLowerCase() !== host) return;
+    if (NON_PAGE_EXTENSION.test(url.pathname)) return;
+    url.hash = '';
+    const key = normalizeUrl(url.toString());
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(url.toString());
+  };
+  push(`https://${host}`);
+  const linkPattern = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)|<(https?:\/\/[^>\s]+)>/g;
+  for (const m of markdown.matchAll(linkPattern)) {
+    if (out.length >= cap) break;
+    push(m[1] ?? m[2]);
+  }
+  return out.slice(0, cap);
+}
+
+/** True when the map already holds a page of `host` beyond its bare root. */
+function mapCoversHost(mappedUrls: string[], host: string): boolean {
+  return mappedUrls.some((u) => {
+    try {
+      const parsed = new URL(u);
+      return parsed.hostname.toLowerCase() === host && parsed.pathname.replace(/\/+$/, '') !== '';
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Plain-HTTP existence check (no scraping credit). Returns the final URL when
+ * the subdomain answers 200 on the brand's own registrable domain, else null.
+ */
+async function subdomainLanding(rootUrl: string, brandUrl: string, brandId: string): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetch(rootUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(SUBDOMAIN_EXISTS_TIMEOUT_MS),
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DistributeBot/1.0; +https://distribute.you)' },
+    });
+  } catch (err: any) {
+    console.log(`[brand-service] [${brandId}] Subdomain probe ${rootUrl}: unreachable (${err?.cause?.code ?? err?.name ?? 'error'}: ${err?.message})`);
+    return null;
+  }
+  res.body?.cancel().catch(() => {});
+  const finalUrl = res.url || rootUrl;
+  if (res.status !== 200) {
+    console.log(`[brand-service] [${brandId}] Subdomain probe ${rootUrl}: HTTP ${res.status}, skipped`);
+    return null;
+  }
+  if (keepBrandDomainUrls([finalUrl], brandUrl).length === 0) {
+    console.log(`[brand-service] [${brandId}] Subdomain probe ${rootUrl}: redirects off the brand's domain to ${finalUrl}, skipped`);
+    return null;
+  }
+  return finalUrl;
+}
+
+export interface ProbeSubdomainsOptions {
+  brandUrl: string;
+  /** URLs the site map already produced (after the brand-domain filter). */
+  mappedUrls: string[];
+  brandId: string;
+  scrapeTtlDays: number;
+  tracking: ScrapingTrackingContext;
+  /** Ignore the cached root page of each subdomain and scrape it again. */
+  resetCache?: boolean;
+}
+
+/**
+ * The site map is index-based (sitemap + search index), not a crawler, so a
+ * brand whose docs live on docs.<domain> with no sitemap and no server-side
+ * link from the homepage never gets them mapped. For each well-known
+ * subdomain the map did not already cover: check it exists over plain HTTP,
+ * scrape its root once (cached in page_scrape_cache like any page), and keep
+ * the links on that same host — depth 1, capped. Returns only URLs not already
+ * in `mappedUrls`. A failed probe is logged and contributes nothing.
+ */
+export async function probeWellKnownSubdomains(opts: ProbeSubdomainsOptions): Promise<string[]> {
+  const { brandUrl, mappedUrls, brandId, scrapeTtlDays, tracking, resetCache } = opts;
+  const domain = registrableDomain(brandUrl);
+  if (!domain) return [];
+  let brandHost: string;
+  try {
+    brandHost = new URL(brandUrl).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return [];
+  }
+
+  const perSubdomain = await Promise.all(
+    WELL_KNOWN_SUBDOMAINS.map(async (sub): Promise<string[]> => {
+      const host = `${sub}.${domain}`;
+      if (host === brandHost) return [];
+      if (mapCoversHost(mappedUrls, host)) {
+        console.log(`[brand-service] [${brandId}] Subdomain ${host} already covered by the site map`);
+        return [];
+      }
+      const rootUrl = `https://${host}`;
+      try {
+        let content = resetCache ? null : await getCachedPageContent(rootUrl);
+        let baseUrl = rootUrl;
+        if (!content) {
+          const landing = await subdomainLanding(rootUrl, brandUrl, brandId);
+          if (!landing) return [];
+          baseUrl = landing;
+          content = await scrapeUrl(landing, tracking);
+          if (!content) {
+            console.warn(`[brand-service] [${brandId}] Subdomain probe ${rootUrl}: scrape returned no content`);
+            return [];
+          }
+          await upsertPageContent(rootUrl, content, scrapeTtlDays).catch((err) =>
+            console.warn(`[brand-service] [${brandId}] Failed to cache page content for ${rootUrl}: ${err.message}`),
+          );
+        }
+        const finalHost = new URL(baseUrl).hostname.toLowerCase();
+        const links = extractSameHostLinks(content, baseUrl, finalHost, MAX_LINKS_PER_SUBDOMAIN);
+        console.log(`[brand-service] [${brandId}] Subdomain ${host}: ${links.length} page(s) added as candidates`);
+        return links;
+      } catch (err: any) {
+        console.warn(`[brand-service] [${brandId}] Subdomain probe ${rootUrl} failed: ${err.message}`);
+        return [];
+      }
+    }),
+  );
+
+  const known = new Set(mappedUrls.map(normalizeUrl));
+  const added: string[] = [];
+  for (const url of perSubdomain.flat()) {
+    const key = normalizeUrl(url);
+    if (known.has(key)) continue;
+    known.add(key);
+    added.push(url);
+  }
+  return added;
 }
