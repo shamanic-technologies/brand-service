@@ -3867,3 +3867,81 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
+
+// ---------------------------------------------------------------------------
+// HOW AN OFFER SELLS — the funnel steps and legs the customer selected per offer.
+// ---------------------------------------------------------------------------
+
+const OFFER_SALES_PATH_DESCRIPTION =
+  'How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS ' +
+  "between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) " +
+  'and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the ' +
+  'features-service catalogue. `stated: false` (both lists null) = never stated, distinct from ' +
+  '`stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.';
+
+const SelectionKeySchema = z.string().trim().min(1).max(200);
+
+export const PutOfferSalesPathRequestSchema = z
+  .object({
+    // FULL replace of the offer's selection; both lists required (may be empty).
+    steps: z.array(SelectionKeySchema).max(100),
+    legKeys: z.array(SelectionKeySchema).max(200),
+  })
+  .openapi('PutOfferSalesPathRequest');
+
+export const OfferSalesPathSchema = z
+  .object({
+    offerId: z.string().uuid(),
+    stated: z.boolean(),
+    steps: z.array(z.string()).nullable(),
+    legKeys: z.array(z.string()).nullable(),
+    statedAt: z.string().nullable(),
+  })
+  .openapi('OfferSalesPath');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-path',
+  summary: 'Read the funnel steps and legs selected for an offer',
+  description: OFFER_SALES_PATH_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The selection (or not stated)', content: { 'application/json': { schema: OfferSalesPathSchema } } },
+    400: { description: 'Invalid ID' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/sales-path',
+  summary: 'Replace the funnel steps and legs selected for an offer',
+  description: 'Replaces the whole selection (both lists). ' + OFFER_SALES_PATH_DESCRIPTION,
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PutOfferSalesPathRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The selection, as read after the write', content: { 'application/json': { schema: OfferSalesPathSchema } } },
+    400: { description: 'Invalid ID or body' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/offers/{offerId}/sales-path',
+  summary: 'Service read of the funnel steps and legs selected for an offer',
+  description: OFFER_SALES_PATH_DESCRIPTION + ' Keyed on the offer alone; no user or org header needed.',
+  request: { params: z.object({ offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The selection (or not stated)', content: { 'application/json': { schema: OfferSalesPathSchema } } },
+    400: { description: 'Invalid offer ID' },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
