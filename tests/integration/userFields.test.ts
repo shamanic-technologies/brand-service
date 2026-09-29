@@ -62,13 +62,13 @@ describe('User fields endpoints', () => {
     }
   });
 
-  it('GET returns all 8 keys: suggested prefill, expired ignored, unconfirmed null', async () => {
+  it('GET returns all 10 keys: suggested prefill, expired ignored, unconfirmed null', async () => {
     const res = await request(app).get(ufPath(brandId)).set(getAuthHeaders(ownerOrgId));
 
     expect(res.status).toBe(200);
     const fields = res.body.fields;
     expect(Object.keys(fields).sort()).toEqual(
-      ['dreamOutcome', 'perceivedLikelihood', 'riskReversal', 'scarcity', 'services', 'socialProof', 'urgency', 'targetAudience'].sort(),
+      ['dreamOutcome', 'perceivedLikelihood', 'riskReversal', 'scarcity', 'services', 'socialProof', 'urgency', 'targetAudience', 'giveForFree', 'neverGive'].sort(),
     );
     // Non-expired prefill → suggested.
     expect(fields.urgency).toEqual({ value: 'Ends Friday', provenance: 'suggested' });
@@ -94,6 +94,18 @@ describe('User fields endpoints', () => {
     expect(getRes.status).toBe(200);
     expect(getRes.body.fields.services).toEqual({ value: ['Consulting', 'Audit'], provenance: 'confirmed' });
     expect(getRes.body.fields.dreamOutcome).toEqual({ value: 'Grow revenue faster', provenance: 'confirmed' });
+  });
+
+  it('PUT confirms the two offer give lists and GET serves them back', async () => {
+    const putRes = await request(app)
+      .put(ufPath(brandId))
+      .set(getAuthHeaders(ownerOrgId))
+      .send({ fields: { giveForFree: ['A free audit', '14-day trial'], neverGive: ['Discounts'] } });
+
+    expect(putRes.status).toBe(200);
+    const getRes = await request(app).get(ufPath(brandId)).set(getAuthHeaders(ownerOrgId));
+    expect(getRes.body.fields.giveForFree).toEqual({ value: ['A free audit', '14-day trial'], provenance: 'confirmed' });
+    expect(getRes.body.fields.neverGive).toEqual({ value: ['Discounts'], provenance: 'confirmed' });
   });
 
   it('PUT upserts (re-confirming replaces the value)', async () => {

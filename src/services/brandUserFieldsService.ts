@@ -13,6 +13,13 @@ import { offerScope, resolveOfferForWrite, resolveSoleOffer } from './brandOffer
  * own words outrank the extracted guess the way the seven levers do. Until it
  * was admitted, every new signup's write was refused with a 400 and the visitor
  * could not pass the step.
+ *
+ * `giveForFree` and `neverGive` joined on 2026-09-29, both string[] lists about
+ * ONE offer: what the customer is willing to hand a prospect who replies (a free
+ * audit, a trial, a sample) and what an email must never promise (a discount,
+ * free implementation). Stored, served and prefilled exactly like the levers, so
+ * every reader of an offer's confirmed fields (the brand profile, the
+ * extract-fields overlay the email writer reads) carries them with no change.
  */
 export const USER_FACING_FIELD_KEYS = [
   'services',
@@ -23,6 +30,8 @@ export const USER_FACING_FIELD_KEYS = [
   'urgency',
   'scarcity',
   'targetAudience',
+  'giveForFree',
+  'neverGive',
 ] as const;
 
 export type UserFacingFieldKey = (typeof USER_FACING_FIELD_KEYS)[number];

@@ -62,6 +62,17 @@ it; a pg_dump sits in `/root/distribute/backups/`). It shipped only after a flee
 survives in brand-service; do NOT reintroduce one — rates are per LEG
 (`brand_leg_rates`), lifetime revenue per OFFER (`brand_offers`).
 
+## Offer give lists — `giveForFree` / `neverGive`
+
+Two confirmed user-fields (migration `0079`), string[] per OFFER like the levers:
+what the customer will give a prospect who replies (free audit, trial, sample) and
+what an email must never promise (discounts, free implementation). They ride every
+existing path unchanged: `PUT|GET .../user-fields` (brand- and offer-scoped),
+the suggest-mode prefill (`extract-fields` with those keys; the `suggested` half
+of the view reads them from `brand_extracted_fields`), and every reader of the
+confirmed layer (`brandProfileService`, the extract-fields overlay). Excluded
+from the ICP prompt (copy levers, not targeting).
+
 ## Archiving an offer — hidden, never deleted
 
 `brand_offers.archived_at` (migration `0076`). `POST /orgs/brands/:brandId/offers/:offerId/archive`
