@@ -2564,7 +2564,7 @@ export const UserFieldsResponseSchema = z
     fields: z.record(z.string(), UserFieldViewSchema).openapi({
       description:
         'Map keyed by user-facing field key (services, dreamOutcome, perceivedLikelihood, ' +
-        'socialProof, riskReversal, urgency, scarcity, targetAudience). Each value carries the resolved value ' +
+        'socialProof, riskReversal, urgency, scarcity, targetAudience, giveForFree, neverGive). Each value carries the resolved value ' +
         'and its provenance (`confirmed` = user-validated; `suggested` = auto-extract prefill).',
     }),
   })

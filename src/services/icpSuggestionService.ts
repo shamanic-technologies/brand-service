@@ -76,6 +76,8 @@ const ICP_EXCLUDED_PROFILE_KEYS = new Set(
     'urgency',
     'scarcity',
     'riskReversal',
+    'giveForFree',
+    'neverGive',
     // Brand-vanity self-description (misattribution risk vs prospect firmographics)
     'leadership',
     'funding',

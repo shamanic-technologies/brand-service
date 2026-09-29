@@ -32,7 +32,7 @@ import {
 } from '../../src/services/brandUserFieldsService';
 
 describe('USER_FACING_FIELD_KEYS', () => {
-  it('is exactly the 8 confirmed keys: the seven levers plus targetAudience', () => {
+  it('is exactly the 10 confirmed keys: the seven levers, targetAudience, and the two give lists', () => {
     expect(USER_FACING_FIELD_KEYS).toEqual([
       'services',
       'dreamOutcome',
@@ -42,17 +42,23 @@ describe('USER_FACING_FIELD_KEYS', () => {
       'urgency',
       'scarcity',
       'targetAudience',
+      'giveForFree',
+      'neverGive',
     ]);
     expect(USER_FACING_FIELD_KEYS).not.toContain('valueProposition');
   });
 
-  it('isUserFacingFieldKey recognises only the 8 keys', () => {
+  it('isUserFacingFieldKey recognises only the 10 keys', () => {
     expect(isUserFacingFieldKey('services')).toBe(true);
     expect(isUserFacingFieldKey('dreamOutcome')).toBe(true);
     // The onboarding "Who do you sell to?" answer (distribute.you#4294): refused
     // with a 400 for every new signup until it was admitted here.
     expect(isUserFacingFieldKey('targetAudience')).toBe(true);
     expect(new UnknownUserFieldKeyError('industry').message).toContain('targetAudience');
+    // The offer's two give lists (what a replying prospect may get for free, and
+    // what an email must never promise), stored like the levers.
+    expect(isUserFacingFieldKey('giveForFree')).toBe(true);
+    expect(isUserFacingFieldKey('neverGive')).toBe(true);
     expect(isUserFacingFieldKey('valueProposition')).toBe(false);
     expect(isUserFacingFieldKey('industry')).toBe(false);
   });

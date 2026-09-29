@@ -540,6 +540,13 @@
       "when": 1790700000000,
       "tag": "0078_offer_sales_path",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1790800000000,
+      "tag": "0079_offer_give_lists",
+      "breakpoints": true
     }
   ]
 }
