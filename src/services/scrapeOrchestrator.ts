@@ -273,6 +273,9 @@ export function extractSameHostLinks(markdown: string, baseUrl: string, host: st
     if (url.hostname.toLowerCase() !== host) return;
     if (NON_PAGE_EXTENSION.test(url.pathname)) return;
     url.hash = '';
+    // Scraped markdown can spell same-host links as http://; the host was
+    // just served over the base URL's scheme, so use that one.
+    url.protocol = new URL(baseUrl).protocol;
     const key = normalizeUrl(url.toString());
     if (seen.has(key)) return;
     seen.add(key);
@@ -396,10 +399,13 @@ export async function probeWellKnownSubdomains(opts: ProbeSubdomainsOptions): Pr
     }),
   );
 
-  const known = new Set(mappedUrls.map(normalizeUrl));
+  // Scheme-blind: a map entry https://docs.x.com and a link http://docs.x.com/
+  // are the same page and must not take two of the selection's slots.
+  const schemeless = (u: string) => normalizeUrl(u).replace(/^https?:/, '');
+  const known = new Set(mappedUrls.map(schemeless));
   const added: string[] = [];
   for (const url of perSubdomain.flat()) {
-    const key = normalizeUrl(url);
+    const key = schemeless(url);
     if (known.has(key)) continue;
     known.add(key);
     added.push(url);

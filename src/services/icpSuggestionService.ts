@@ -268,12 +268,6 @@ function extractJson(content: string): unknown {
  * isolation. Throws on malformed output or an empty ICP (fail-loud; never returns
  * a fabricated default).
  */
-export const ICP_RESPONSE_SCHEMA: Record<string, unknown> = {
-  type: 'object',
-  properties: { icp: { type: 'string' } },
-  required: ['icp'],
-};
-
 export function parseIcp(raw: unknown): string {
   const icp =
     raw && typeof raw === 'object' ? (raw as { icp?: unknown }).icp : undefined;
@@ -353,15 +347,13 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
       {
         systemPrompt: SYSTEM_PROMPT,
         message: buildMessage(profileFields, audienceSignals, economics, existingIcps),
-        // Claude Sonnet 5.5, like every LLM call behind the public onboarding
-        // (owner decision 2026-09-29). The anonymous org holds $5 of trial
-        // credit and chat-service provisions the worst case before the call, so
-        // the output budget stays small. Anthropic enforces JSON only through a
-        // schema, so the `{icp}` shape the prompt asks for is stated as one.
-        provider: 'anthropic',
-        model: 'sonnet',
+        provider: 'google',
+        // flash-pro (Gemini 3.8 Flash) — the onboarding prefill path, where an
+        // anonymous org holds $5 of trial credit and chat-service provisions the
+        // caller's worst case before the call. A frontier-tier hold starves that
+        // seed and billing refuses the authorize, so the prefill runs cheap.
+        model: 'flash-pro',
         responseFormat: 'json',
-        responseSchema: ICP_RESPONSE_SCHEMA,
         // No `temperature`: the "DISTINCT from existingIcps" instruction (not
         // sampling noise) is what drives a complementary segment on follow-ups.
         maxTokens: 512,
