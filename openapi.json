@@ -3063,6 +3063,70 @@
           "bookingUrl",
           "destinationUrl"
         ]
+      },
+      "OfferSalesPath": {
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stated": {
+            "type": "boolean"
+          },
+          "steps": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "legKeys": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "statedAt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "offerId",
+          "stated",
+          "steps",
+          "legKeys",
+          "statedAt"
+        ]
+      },
+      "PutOfferSalesPathRequest": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 100
+          },
+          "legKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "steps",
+          "legKeys"
+        ]
       }
     },
     "parameters": {
@@ -7296,6 +7360,151 @@
           },
           "404": {
             "description": "No such offer on this brand"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/sales-path": {
+      "get": {
+        "summary": "Read the funnel steps and legs selected for an offer",
+        "description": "How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the features-service catalogue. `stated: false` (both lists null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The selection (or not stated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferSalesPath"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace the funnel steps and legs selected for an offer",
+        "description": "Replaces the whole selection (both lists). How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the features-service catalogue. `stated: false` (both lists null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutOfferSalesPathRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The selection, as read after the write",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferSalesPath"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID or body"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/offers/{offerId}/sales-path": {
+      "get": {
+        "summary": "Service read of the funnel steps and legs selected for an offer",
+        "description": "How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the features-service catalogue. `stated: false` (both lists null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent. Keyed on the offer alone; no user or org header needed.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The selection (or not stated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferSalesPath"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID"
+          },
+          "404": {
+            "description": "Offer not found"
           },
           "500": {
             "description": "Internal server error"
