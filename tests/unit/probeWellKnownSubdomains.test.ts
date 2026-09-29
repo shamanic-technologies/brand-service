@@ -188,6 +188,21 @@ describe('probeWellKnownSubdomains', () => {
   });
 });
 
+describe('probeWellKnownSubdomains — schemes', () => {
+  it('upgrades http:// links to the served scheme and never re-adds a page the map holds under another scheme', async () => {
+    stubFetch({ 'https://docs.olive.exchange': 'https://docs.olive.exchange/' });
+    scrapeUrl.mockResolvedValueOnce('[Home](http://docs.olive.exchange/)\n[Options](http://docs.olive.exchange/options)');
+    const added = await probeWellKnownSubdomains({
+      brandUrl: 'https://olive.exchange',
+      mappedUrls: ['https://olive.exchange', 'https://docs.olive.exchange'],
+      brandId: 'b1',
+      scrapeTtlDays: 180,
+      tracking,
+    });
+    expect(added).toEqual(['https://docs.olive.exchange/options']);
+  });
+});
+
 describe('extractSameHostLinks', () => {
   it('resolves relative links, drops fragments, assets and other hosts', () => {
     expect(extractSameHostLinks(OLIVE_DOCS_MD, 'https://docs.olive.exchange/', 'docs.olive.exchange', 30)).toEqual([
