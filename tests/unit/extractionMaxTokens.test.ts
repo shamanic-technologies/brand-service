@@ -73,9 +73,9 @@ describe('extraction maxTokens regression', () => {
   );
 
   it('URL selection call should use maxTokens >= 4096 (was 1024, caused 502)', () => {
-    // The selectRelevantUrls function uses google/flash-pro for URL selection
+    // The selectRelevantUrls function uses anthropic/sonnet for URL selection
     const urlSelectionBlock = fieldExtractionSrc.match(
-      /selectRelevantUrls[\s\S]*?model:\s*'flash-pro'[\s\S]*?maxTokens:\s*(\d+)/,
+      /selectRelevantUrls[\s\S]*?model:\s*'sonnet'[\s\S]*?maxTokens:\s*(\d+)/,
     );
     expect(urlSelectionBlock).not.toBeNull();
     const urlSelectionMaxTokens = parseInt(urlSelectionBlock![1], 10);
@@ -84,7 +84,7 @@ describe('extraction maxTokens regression', () => {
 
   it('field extraction call should use maxTokens >= 16384 (was 4096, caused truncated JSON)', () => {
     // Anchored on the modelParams block: both the URL-selection call and the
-    // field extraction run on flash-pro, so the model literal alone no longer
+    // field extraction run on sonnet, so the model literal alone no longer
     // tells the two calls apart.
     const extractionBlock = fieldExtractionSrc.match(
       /const modelParams[\s\S]*?maxTokens:\s*(\d+)/,
