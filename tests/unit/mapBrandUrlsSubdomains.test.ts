@@ -53,6 +53,8 @@ beforeEach(() => {
   insertedValues.length = 0;
   cachedRows = [];
   mapSiteUrls.mockReset();
+  // No well-known subdomain exists in these fixtures: every probe is unreachable.
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
 });
 
 describe('mapBrandUrls — subdomains', () => {
