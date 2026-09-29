@@ -296,7 +296,7 @@ export async function multiBrandExtractFields(
   }
 
   // Look up all brands first to validate and get domains
-  const brandLookups = await Promise.all(brandIds.map((id) => getBrand(id)));
+  const brandLookups = await Promise.all(brandIds.map((id) => getBrand(id, offerId)));
   const brandsMap = new Map<string, Brand>();
 
   for (let i = 0; i < brandIds.length; i++) {
