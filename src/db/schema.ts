@@ -286,6 +286,11 @@ export const brandSalesRepPhones = pgTable("brand_sales_rep_phones", {
 	brandId: uuid("brand_id").notNull(),
 	phone: text("phone"),
 	email: text("email"),
+	// How a hand-over names the rep ("I've copied Marie, Head of Partnerships").
+	// Optional, NULL = never told; neither counts toward `sales_rep_has_a_fact`
+	// (a name alone is not somebody to reach). Migration 0080.
+	firstName: text("first_name"),
+	role: text("role"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
@@ -564,7 +569,7 @@ export const brandUserFields = pgTable("brand_user_fields", {
 		foreignColumns: [brandOffers.id],
 		name: "brand_user_fields_offer_id_fkey",
 	}).onDelete("cascade"),
-	check("brand_user_fields_field_key_check", sql`${table.fieldKey} IN ('services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity', 'targetAudience')`),
+	check("brand_user_fields_field_key_check", sql`${table.fieldKey} IN ('services', 'dreamOutcome', 'perceivedLikelihood', 'socialProof', 'riskReversal', 'urgency', 'scarcity', 'targetAudience', 'giveForFree', 'neverGive')`),
 ]);
 
 /**

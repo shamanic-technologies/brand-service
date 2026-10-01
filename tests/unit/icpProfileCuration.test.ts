@@ -59,6 +59,17 @@ describe('ICP profile curation', () => {
     }
   });
 
+  it('drops the offer give lists: they are copy levers, not targeting', () => {
+    const curated = curateIcpProfileFields({
+      giveForFree: ['A free audit'],
+      neverGive: ['Discounts'],
+      companyOverview: 'z',
+    });
+    expect(curated).not.toHaveProperty('giveForFree');
+    expect(curated).not.toHaveProperty('neverGive');
+    expect(curated).toHaveProperty('companyOverview');
+  });
+
   it('matches excluded keys case-insensitively', () => {
     const curated = curateIcpProfileFields({ Funding: 'x', RISKREVERSAL: 'y', companyOverview: 'z' });
     expect(curated).not.toHaveProperty('Funding');

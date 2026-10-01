@@ -42,7 +42,7 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
 
     expect(res.status).toBe(200);
     expect(Object.keys(res.body.brand).sort()).toEqual(
-      ['clickDestinationUrl', 'colors', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'salesRepEmail', 'salesRepPhone', 'updatedAt', 'url', 'whatsAppLink'],
+      ['clickDestinationUrl', 'colors', 'createdAt', 'domain', 'id', 'logoUrl', 'name', 'salesRepEmail', 'salesRepFirstName', 'salesRepPhone', 'salesRepRole', 'updatedAt', 'url', 'whatsAppLink'],
     );
     // Unset brand: producer defaults clickDestinationUrl to the brand's own url.
     expect(res.body.brand.clickDestinationUrl).toBe(url);
@@ -89,7 +89,9 @@ describe('GET /internal/brands/:id and /public/brands/:id — minimal shape', ()
     expect(publicRes.status).toBe(200);
     expect(publicRes.body.brand).not.toHaveProperty('salesRepPhone');
     expect(publicRes.body.brand).not.toHaveProperty('salesRepEmail');
-    const { salesRepPhone, salesRepEmail, ...internalBrand } = internalRes.body.brand;
+    expect(publicRes.body.brand).not.toHaveProperty('salesRepFirstName');
+    expect(publicRes.body.brand).not.toHaveProperty('salesRepRole');
+    const { salesRepPhone, salesRepEmail, salesRepFirstName, salesRepRole, ...internalBrand } = internalRes.body.brand;
     expect(publicRes.body.brand).toEqual(internalBrand);
   }, 15000);
 

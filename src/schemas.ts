@@ -90,6 +90,9 @@ export const BrandDetailSchema = z
     whatsAppLink: z.string().nullable().openapi({ description: 'The brand\'s WhatsApp link — the click destination for the "maximize WhatsApp conversations" goal. `null` when unset (no sensible default, unlike clickDestinationUrl). Per-brand config, set via PUT /orgs/brands/{brandId}/whatsapp-link.' }),
     colors: z.array(z.string()).nullable().openapi({ description: 'The brand\'s own colour palette — hex strings in the order logo.dev\'s Brand API returns them (e.g. ["#000103","#ce2e36","#003366"]). Nothing is pre-filtered or ranked; the consumer selects. `null` means WE HAVE NO COLOURS for this brand (the provider has not indexed the domain yet, or has no palette for it) — a first-class answer a consumer falls back to its own charter on. No colour is ever invented, defaulted, or derived from the logo, the name, or the domain.' }),
     salesRepPhone: z.string().nullable().optional().openapi({ description: 'The one number to ring when a sales interest lands on this brand (a prospect replies to a campaign saying they are interested, and the rep on this number is phoned within the minute). Strict E.164, ready to hand to a telephony provider. `null` means the brand never stated one — a first-class "nobody to ring", never an empty string and never inferred from any other phone field. Per-brand config, set via PUT /orgs/brands/{brandId}/sales-rep-phone and removed via DELETE. Served on the INTERNAL brand reads only (org-scoped by `x-org-id`); ABSENT from the public brand read and the share-token resolve.' }),
+    salesRepEmail: z.string().nullable().optional().openapi({ description: 'The address to copy on a prospect reply. `null` when the brand never stated one. Served on the INTERNAL brand reads only (org-scoped by `x-org-id`).' }),
+    salesRepFirstName: z.string().nullable().optional().openapi({ description: 'The sales rep\'s first name, as a hand-over names them ("I\'ve copied Marie, Head of Partnerships at Doc Dinners"). `null` when the brand never stated it; never inferred from the email address. Served on the INTERNAL brand reads only.', example: 'Marie' }),
+    salesRepRole: z.string().nullable().optional().openapi({ description: 'The sales rep\'s role / job title. `null` when the brand never stated it; never inferred. Served on the INTERNAL brand reads only.', example: 'Head of Partnerships' }),
     createdAt: z.string().openapi({ description: 'ISO timestamp when the brand row was created.' }),
     updatedAt: z.string().openapi({ description: 'ISO timestamp when the brand row was last updated.' }),
   })
@@ -2564,7 +2567,7 @@ export const UserFieldsResponseSchema = z
     fields: z.record(z.string(), UserFieldViewSchema).openapi({
       description:
         'Map keyed by user-facing field key (services, dreamOutcome, perceivedLikelihood, ' +
-        'socialProof, riskReversal, urgency, scarcity, targetAudience). Each value carries the resolved value ' +
+        'socialProof, riskReversal, urgency, scarcity, targetAudience, giveForFree, neverGive). Each value carries the resolved value ' +
         'and its provenance (`confirmed` = user-validated; `suggested` = auto-extract prefill).',
     }),
   })
@@ -3311,6 +3314,25 @@ export const SalesRepResponseSchema = z
           'never rung (what the AI meeting-booking channel needs).',
         example: '+33770657585',
       }),
+    salesRepFirstName: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          'The rep\'s first name, as a hand-over names them ("I\'ve copied Marie, Head of ' +
+          'Partnerships at Doc Dinners"), or `null` when the brand never stated it. Never ' +
+          'inferred from the email address or anywhere else.',
+        example: 'Marie',
+      }),
+    salesRepRole: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          'The rep\'s role / job title ("Head of Partnerships"), or `null` when the brand never ' +
+          'stated it. Never inferred.',
+        example: 'Head of Partnerships',
+      }),
   })
   .openapi('SalesRepResponse');
 
@@ -3347,6 +3369,28 @@ export const UpsertSalesRepRequestSchema = z
           'whole rep). A national number with no country code is refused: no country is ' +
           'inferred, because a guess dials a different person.',
         example: '+33770657585',
+      }),
+    salesRepFirstName: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          'Optional. The rep\'s first name, used to introduce them by name when they are copied ' +
+          'into a prospect\'s thread. OMITTED leaves the stored value untouched (unlike the phone, ' +
+          'so a caller that does not send it never wipes it); `null` or a blank string clears it. ' +
+          'Trimmed, single line, at most 60 characters.',
+        example: 'Marie',
+      }),
+    salesRepRole: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          'Optional. The rep\'s role / job title. OMITTED leaves the stored value untouched; ' +
+          '`null` or a blank string clears it. Trimmed, single line, at most 100 characters.',
+        example: 'Head of Partnerships',
       }),
   })
   .openapi('UpsertSalesRepRequest');

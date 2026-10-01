@@ -161,16 +161,123 @@ export function normalizeSalesRepEmail(input: unknown): string {
   return email;
 }
 
-/** The rep as served: one person, two facts, each `null` when we have no such fact. */
+/** Thrown on invalid first-name / role input — the route maps it to a 400. */
+export class SalesRepIdentityValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SalesRepIdentityValidationError';
+  }
+}
+
+export const SALES_REP_FIRST_NAME_MAX = 60;
+export const SALES_REP_ROLE_MAX = 100;
+
+/**
+ * Normalize one of the two words a hand-over names the rep with
+ * ("I've copied Marie, Head of Partnerships at Doc Dinners").
+ *
+ *  - `undefined` → `undefined` (not sent: the write leaves the stored value alone)
+ *  - `null`, or a blank / whitespace-only string → `null` (cleared: "not stated").
+ *    A blank form field means "I have nothing to say here"; storing `''` would
+ *    make an empty string a second way of saying unset.
+ *  - otherwise trimmed, internal whitespace collapsed to single spaces.
+ *
+ * Refused loudly: a non-string, a line break or control character (the value is
+ * spliced into a sentence of an email), and anything past `max` characters.
+ * Nothing is ever inferred — not from the email's local part, not from anywhere.
+ */
+function normalizeIdentityText(
+  input: unknown,
+  field: 'salesRepFirstName' | 'salesRepRole',
+  max: number
+): string | null | undefined {
+  if (input === undefined) return undefined;
+  if (input === null) return null;
+  if (typeof input !== 'string') {
+    throw new SalesRepIdentityValidationError(`${field} must be a string, or null to clear it.`);
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(input.trim())) {
+    throw new SalesRepIdentityValidationError(
+      `${field} must be a single line of plain text, with no line breaks.`
+    );
+  }
+  const value = input.trim().replace(/\s+/g, ' ');
+  if (value === '') return null;
+  if (value.length > max) {
+    throw new SalesRepIdentityValidationError(`${field} must be at most ${max} characters.`);
+  }
+  return value;
+}
+
+/** The rep's first name as a hand-over says it ("Marie"). See `normalizeIdentityText`. */
+export function normalizeSalesRepFirstName(input: unknown): string | null | undefined {
+  return normalizeIdentityText(input, 'salesRepFirstName', SALES_REP_FIRST_NAME_MAX);
+}
+
+/** The rep's role / job title ("Head of Partnerships"). See `normalizeIdentityText`. */
+export function normalizeSalesRepRole(input: unknown): string | null | undefined {
+  return normalizeIdentityText(input, 'salesRepRole', SALES_REP_ROLE_MAX);
+}
+
+/**
+ * The rep as served: one person, two facts to reach them by, and two words to
+ * NAME them by. Each is `null` when we have no such fact.
+ */
 export interface SalesRep {
   /** The address to copy on a prospect reply, or null when we were never told it. */
   email: string | null;
   /** The number to ring, in strict E.164, or null when we were never told it. */
   phone: string | null;
+  /** The rep's first name, or null when we were never told it. Never inferred. */
+  firstName: string | null;
+  /** The rep's role / job title, or null when we were never told it. Never inferred. */
+  role: string | null;
 }
 
-/** No rep at all — no row. Both facts absent, which is a state, not an error. */
-export const NO_SALES_REP: SalesRep = { email: null, phone: null };
+/**
+ * A WHOLE-rep write. `email` and `phone` are always written (omitted = cleared,
+ * the long-standing contract). `firstName` / `role` are written only when
+ * DEFINED: `undefined` leaves the stored value untouched, `null` clears it — so
+ * a caller that has never heard of them (the dashboard, today) cannot wipe
+ * what someone else stated.
+ */
+export interface SalesRepWrite {
+  email: string | null;
+  phone: string | null;
+  firstName?: string | null;
+  role?: string | null;
+}
+
+/** No rep at all — no row. Every fact absent, which is a state, not an error. */
+export const NO_SALES_REP: SalesRep = { email: null, phone: null, firstName: null, role: null };
+
+type SalesRepRow = {
+  email: string | null;
+  phone: string | null;
+  firstName: string | null;
+  role: string | null;
+};
+
+function toSalesRep(row: SalesRepRow): SalesRep {
+  return {
+    email: row.email ?? null,
+    phone: row.phone ?? null,
+    firstName: row.firstName ?? null,
+    role: row.role ?? null,
+  };
+}
+
+// A function, not a constant: read at call time so a test that mocks `../db`
+// without the table can still import this module.
+function repColumns() {
+  return {
+    email: brandSalesRepPhones.email,
+    phone: brandSalesRepPhones.phone,
+    firstName: brandSalesRepPhones.firstName,
+    role: brandSalesRepPhones.role,
+  };
+}
 
 /**
  * The one product rule, owner-stated: A PHONE REQUIRES AN EMAIL.
@@ -187,7 +294,7 @@ export const NO_SALES_REP: SalesRep = { email: null, phone: null };
  * record of a fact we do not have and keeps working untouched — see the schema
  * comment for why the database does not carry this rule.
  */
-export function assertSalesRepWritable(rep: SalesRep): void {
+export function assertSalesRepWritable(rep: Pick<SalesRep, 'email' | 'phone'>): void {
   if (rep.phone !== null && rep.email === null) {
     throw new SalesRepEmailRequiredError(
       'A sales rep needs an email address: the rep is copied on the prospect’s own reply, and a ' +
@@ -204,13 +311,13 @@ export class SalesRepService {
    */
   async getByBrandId(orgId: string, brandId: string): Promise<SalesRep | null> {
     const [row] = await db
-      .select({ email: brandSalesRepPhones.email, phone: brandSalesRepPhones.phone })
+      .select(repColumns())
       .from(brandSalesRepPhones)
       .where(and(eq(brandSalesRepPhones.orgId, orgId), eq(brandSalesRepPhones.brandId, brandId)))
       .limit(1);
 
     if (!row) return null;
-    return { email: row.email ?? null, phone: row.phone ?? null };
+    return toSalesRep(row);
   }
 
   /** The saved number for an (org, brand), or null when unset. */
@@ -228,17 +335,22 @@ export class SalesRepService {
    * Every column is written, so clearing the phone on a rep that had one is
    * `{ email, phone: null }`. Returns the saved rep.
    */
-  async upsertByBrandId(orgId: string, brandId: string, rep: SalesRep): Promise<SalesRep> {
+  async upsertByBrandId(orgId: string, brandId: string, rep: SalesRepWrite): Promise<SalesRep> {
+    // First name / role: only a DEFINED value is written (see `SalesRepWrite`).
+    const identity = {
+      ...(rep.firstName !== undefined ? { firstName: rep.firstName } : {}),
+      ...(rep.role !== undefined ? { role: rep.role } : {}),
+    };
     const [row] = await db
       .insert(brandSalesRepPhones)
-      .values({ orgId, brandId, phone: rep.phone, email: rep.email })
+      .values({ orgId, brandId, phone: rep.phone, email: rep.email, ...identity })
       .onConflictDoUpdate({
         target: [brandSalesRepPhones.orgId, brandSalesRepPhones.brandId],
-        set: { phone: rep.phone, email: rep.email, updatedAt: sql`NOW()` },
+        set: { phone: rep.phone, email: rep.email, ...identity, updatedAt: sql`NOW()` },
       })
-      .returning({ email: brandSalesRepPhones.email, phone: brandSalesRepPhones.phone });
+      .returning(repColumns());
 
-    return { email: row.email ?? null, phone: row.phone ?? null };
+    return toSalesRep(row);
   }
 
   /**
@@ -261,9 +373,9 @@ export class SalesRepService {
         target: [brandSalesRepPhones.orgId, brandSalesRepPhones.brandId],
         set: { phone, updatedAt: sql`NOW()` },
       })
-      .returning({ email: brandSalesRepPhones.email, phone: brandSalesRepPhones.phone });
+      .returning(repColumns());
 
-    return { email: row.email ?? null, phone: row.phone ?? null };
+    return toSalesRep(row);
   }
 
   /**
@@ -292,9 +404,9 @@ export class SalesRepService {
           sql`${brandSalesRepPhones.email} IS NOT NULL`
         )
       )
-      .returning({ email: brandSalesRepPhones.email, phone: brandSalesRepPhones.phone });
+      .returning(repColumns());
 
-    if (row) return { email: row.email ?? null, phone: null };
+    if (row) return { ...toSalesRep(row), phone: null };
 
     await this.deleteByBrandId(orgId, brandId);
     return NO_SALES_REP;
@@ -334,13 +446,13 @@ export class SalesRepService {
     if (orgId) return (await this.getByBrandId(orgId, brandId)) ?? NO_SALES_REP;
 
     const rows = await db
-      .select({ email: brandSalesRepPhones.email, phone: brandSalesRepPhones.phone })
+      .select(repColumns())
       .from(brandSalesRepPhones)
       .where(eq(brandSalesRepPhones.brandId, brandId))
       .limit(2);
 
     if (rows.length !== 1) return NO_SALES_REP;
-    return { email: rows[0].email ?? null, phone: rows[0].phone ?? null };
+    return toSalesRep(rows[0]);
   }
 }
 
