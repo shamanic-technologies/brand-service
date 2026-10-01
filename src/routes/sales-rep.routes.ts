@@ -10,18 +10,27 @@ import {
   assertSalesRepWritable,
   normalizeSalesRepEmail,
   normalizeSalesRepPhone,
+  normalizeSalesRepFirstName,
+  normalizeSalesRepRole,
   NO_SALES_REP,
   SalesRepEmailRequiredError,
   SalesRepEmailValidationError,
   SalesRepPhoneValidationError,
+  SalesRepIdentityValidationError,
   type SalesRep,
+  type SalesRepWrite,
 } from '../services/salesRepService';
 
 export const orgRouter = Router();
 
 /** The wire shape for a rep: flat, and byte-equal to the brand read's fields. */
 function repBody(rep: SalesRep) {
-  return { salesRepEmail: rep.email, salesRepPhone: rep.phone };
+  return {
+    salesRepEmail: rep.email,
+    salesRepPhone: rep.phone,
+    salesRepFirstName: rep.firstName,
+    salesRepRole: rep.role,
+  };
 }
 
 /**
@@ -33,7 +42,8 @@ function rejectRepWrite(res: Response, err: unknown): boolean {
   if (
     err instanceof SalesRepEmailRequiredError ||
     err instanceof SalesRepEmailValidationError ||
-    err instanceof SalesRepPhoneValidationError
+    err instanceof SalesRepPhoneValidationError ||
+    err instanceof SalesRepIdentityValidationError
   ) {
     res.status(400).json({ error: err.message });
     return true;
@@ -118,12 +128,20 @@ orgRouter.put('/brands/:brandId/sales-rep', async (req: Request, res: Response) 
     // field would make a phone-only body fail the parse, and a zod field-error
     // blob is not a sentence a person can act on. The rule owns its own wording
     // (`assertSalesRepWritable`) and this is the one place it is applied.
-    let rep: SalesRep;
+    let rep: SalesRepWrite;
     try {
-      const { salesRepEmail: rawEmail, salesRepPhone: rawPhone } = parsed.data;
+      const {
+        salesRepEmail: rawEmail,
+        salesRepPhone: rawPhone,
+        salesRepFirstName: rawFirstName,
+        salesRepRole: rawRole,
+      } = parsed.data;
       rep = {
         email: rawEmail === null || rawEmail === undefined ? null : normalizeSalesRepEmail(rawEmail),
         phone: rawPhone === null || rawPhone === undefined ? null : normalizeSalesRepPhone(rawPhone),
+        // Omitted → left as stored; null / blank → cleared. See `SalesRepWrite`.
+        firstName: normalizeSalesRepFirstName(rawFirstName),
+        role: normalizeSalesRepRole(rawRole),
       };
       assertSalesRepWritable(rep);
     } catch (err) {

@@ -286,6 +286,11 @@ export const brandSalesRepPhones = pgTable("brand_sales_rep_phones", {
 	brandId: uuid("brand_id").notNull(),
 	phone: text("phone"),
 	email: text("email"),
+	// How a hand-over names the rep ("I've copied Marie, Head of Partnerships").
+	// Optional, NULL = never told; neither counts toward `sales_rep_has_a_fact`
+	// (a name alone is not somebody to reach). Migration 0080.
+	firstName: text("first_name"),
+	role: text("role"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
