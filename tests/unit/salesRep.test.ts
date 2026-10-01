@@ -11,6 +11,9 @@ import {
   SalesRepEmailRequiredError,
   SalesRepEmailValidationError,
   SalesRepPhoneValidationError,
+  normalizeSalesRepFirstName,
+  normalizeSalesRepRole,
+  SalesRepIdentityValidationError,
 } from '../../src/services/salesRepService';
 
 /**
@@ -175,5 +178,43 @@ describe('assertSalesRepWritable', () => {
   it('says nothing about a rep carrying neither fact — that is a DELETE', () => {
     // The route names DELETE for this; the rule is only about phone-without-email.
     expect(() => assertSalesRepWritable({ email: null, phone: null })).not.toThrow();
+  });
+});
+
+/**
+ * The two words a hand-over names the rep with ("I've copied Marie, Head of
+ * Partnerships at Doc Dinners"). Optional: absent means "not stated" (null),
+ * never an empty string, and nothing is ever inferred.
+ */
+describe('normalizeSalesRepFirstName / normalizeSalesRepRole', () => {
+  it('leaves an omitted field as undefined so the write keeps the stored value', () => {
+    expect(normalizeSalesRepFirstName(undefined)).toBeUndefined();
+    expect(normalizeSalesRepRole(undefined)).toBeUndefined();
+  });
+
+  it('reads null, an empty string and whitespace as "not stated" (null), never ""', () => {
+    for (const input of [null, '', '   ']) {
+      expect(normalizeSalesRepFirstName(input)).toBeNull();
+      expect(normalizeSalesRepRole(input)).toBeNull();
+    }
+  });
+
+  it('trims and collapses inner whitespace, otherwise keeps what was typed', () => {
+    expect(normalizeSalesRepFirstName('  Marie ')).toBe('Marie');
+    expect(normalizeSalesRepRole(' Head   of  Partnerships ')).toBe('Head of Partnerships');
+  });
+
+  it('refuses a line break (the value is spliced into a sentence of an email)', () => {
+    expect(() => normalizeSalesRepFirstName('Marie\nBcc: x@y.com')).toThrow(
+      SalesRepIdentityValidationError
+    );
+    expect(() => normalizeSalesRepRole('Head\r\nof Sales')).toThrow(SalesRepIdentityValidationError);
+  });
+
+  it('refuses a non-string and an over-long value', () => {
+    expect(() => normalizeSalesRepFirstName(42)).toThrow(SalesRepIdentityValidationError);
+    expect(() => normalizeSalesRepFirstName('a'.repeat(61))).toThrow(SalesRepIdentityValidationError);
+    expect(normalizeSalesRepFirstName('a'.repeat(60))).toBe('a'.repeat(60));
+    expect(() => normalizeSalesRepRole('a'.repeat(101))).toThrow(SalesRepIdentityValidationError);
   });
 });

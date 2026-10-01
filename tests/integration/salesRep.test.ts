@@ -59,14 +59,14 @@ describe('Sales rep phone endpoints', () => {
       .send({ salesRepPhone: '+33 7 70 65 75 85' });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: '+33770657585' });
+    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: '+33770657585', salesRepFirstName: null, salesRepRole: null });
   });
 
   it('GET reads the stored number back', async () => {
     const res = await request(app).get(path(brandId)).set(getAuthHeaders(ownerOrgId));
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: '+33770657585' });
+    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: '+33770657585', salesRepFirstName: null, salesRepRole: null });
   });
 
   // AC — change
@@ -121,7 +121,7 @@ describe('Sales rep phone endpoints', () => {
     const res = await request(app).get(path(unsetBrandId)).set(getAuthHeaders(ownerOrgId));
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: null });
+    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
   });
 
   it('the batch internal read carries the field per brand', async () => {
@@ -146,7 +146,7 @@ describe('Sales rep phone endpoints', () => {
 
     const del = await request(app).delete(path(unsetBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(del.status).toBe(200);
-    expect(del.body).toEqual({ salesRepEmail: null, salesRepPhone: null });
+    expect(del.body).toEqual({ salesRepEmail: null, salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
 
     const read = await request(app)
       .get(`/internal/brands/${unsetBrandId}`)
@@ -164,7 +164,7 @@ describe('Sales rep phone endpoints', () => {
   it('DELETE on a brand with no number is a 200, not a 404', async () => {
     const res = await request(app).delete(path(unsetBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: null });
+    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
   });
 
   // A brand several orgs claim: each org states its own number, and the read is
@@ -345,11 +345,11 @@ describe('Sales rep endpoints', () => {
     expect(put.status).toBe(200);
     // The phone is normalized to E.164 for the dialler; the email is trimmed and
     // otherwise stored exactly as typed — the case is the customer's, not ours.
-    expect(put.body).toEqual({ salesRepEmail: 'Kevin@Acme.com', salesRepPhone: '+33770657585' });
+    expect(put.body).toEqual({ salesRepEmail: 'Kevin@Acme.com', salesRepPhone: '+33770657585', salesRepFirstName: null, salesRepRole: null });
 
     const get = await request(app).get(rep(brandId)).set(getAuthHeaders(ownerOrgId));
     expect(get.status).toBe(200);
-    expect(get.body).toEqual({ salesRepEmail: 'Kevin@Acme.com', salesRepPhone: '+33770657585' });
+    expect(get.body).toEqual({ salesRepEmail: 'Kevin@Acme.com', salesRepPhone: '+33770657585', salesRepFirstName: null, salesRepRole: null });
   });
 
   // AC 2 — an email with no phone is LEGAL: copied on replies, never rung.
@@ -360,10 +360,10 @@ describe('Sales rep endpoints', () => {
       .send({ salesRepEmail: '  rep@meetings.example  ' });
 
     expect(put.status).toBe(200);
-    expect(put.body).toEqual({ salesRepEmail: 'rep@meetings.example', salesRepPhone: null });
+    expect(put.body).toEqual({ salesRepEmail: 'rep@meetings.example', salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
 
     const get = await request(app).get(rep(unsetBrandId)).set(getAuthHeaders(ownerOrgId));
-    expect(get.body).toEqual({ salesRepEmail: 'rep@meetings.example', salesRepPhone: null });
+    expect(get.body).toEqual({ salesRepEmail: 'rep@meetings.example', salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
   });
 
   it('an explicit null phone is the same as omitting it', async () => {
@@ -373,7 +373,7 @@ describe('Sales rep endpoints', () => {
       .send({ salesRepEmail: 'rep@meetings.example', salesRepPhone: null });
 
     expect(put.status).toBe(200);
-    expect(put.body).toEqual({ salesRepEmail: 'rep@meetings.example', salesRepPhone: null });
+    expect(put.body).toEqual({ salesRepEmail: 'rep@meetings.example', salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
   });
 
   it('the write replaces the WHOLE rep, so omitting the phone CLEARS it', async () => {
@@ -387,7 +387,7 @@ describe('Sales rep endpoints', () => {
       .set(getAuthHeaders(ownerOrgId))
       .send({ salesRepEmail: 'kevin@acme.com' });
 
-    expect(cleared.body).toEqual({ salesRepEmail: 'kevin@acme.com', salesRepPhone: null });
+    expect(cleared.body).toEqual({ salesRepEmail: 'kevin@acme.com', salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
   });
 
   it('PUT is idempotent', async () => {
@@ -395,7 +395,7 @@ describe('Sales rep endpoints', () => {
     await request(app).put(rep(brandId)).set(getAuthHeaders(ownerOrgId)).send(body);
     const second = await request(app).put(rep(brandId)).set(getAuthHeaders(ownerOrgId)).send(body);
 
-    expect(second.body).toEqual({ salesRepEmail: 'kevin@acme.com', salesRepPhone: '+15551234567' });
+    expect(second.body).toEqual({ salesRepEmail: 'kevin@acme.com', salesRepPhone: '+15551234567', salesRepFirstName: null, salesRepRole: null });
     const rows = await db
       .select()
       .from(brandSalesRepPhones)
@@ -479,7 +479,7 @@ describe('Sales rep endpoints', () => {
 
     const res = await request(app).get(rep(fresh)).set(getAuthHeaders(ownerOrgId));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: null });
+    expect(res.body).toEqual({ salesRepEmail: null, salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
   });
 
   // AC 5 — removing the rep removes both facts, and is idempotent.
@@ -491,7 +491,7 @@ describe('Sales rep endpoints', () => {
 
     const first = await request(app).delete(rep(brandId)).set(getAuthHeaders(ownerOrgId));
     expect(first.status).toBe(200);
-    expect(first.body).toEqual({ salesRepEmail: null, salesRepPhone: null });
+    expect(first.body).toEqual({ salesRepEmail: null, salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
 
     const rows = await db
       .select()
@@ -501,7 +501,7 @@ describe('Sales rep endpoints', () => {
 
     const second = await request(app).delete(rep(brandId)).set(getAuthHeaders(ownerOrgId));
     expect(second.status).toBe(200);
-    expect(second.body).toEqual({ salesRepEmail: null, salesRepPhone: null });
+    expect(second.body).toEqual({ salesRepEmail: null, salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
   });
 
   // AC 6 — another service reads the email under the access it already uses for
@@ -518,6 +518,8 @@ describe('Sales rep endpoints', () => {
     expect(viaLegacyRoute.body).toEqual({
       salesRepEmail: 'kevin@acme.com',
       salesRepPhone: '+33770657585',
+      salesRepFirstName: null,
+      salesRepRole: null,
     });
   });
 
@@ -544,10 +546,10 @@ describe('Sales rep endpoints', () => {
   it('a phone-only row reads back its phone and reports its email absent', async () => {
     const viaRep = await request(app).get(rep(legacyBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(viaRep.status).toBe(200);
-    expect(viaRep.body).toEqual({ salesRepEmail: null, salesRepPhone: '+33700000000' });
+    expect(viaRep.body).toEqual({ salesRepEmail: null, salesRepPhone: '+33700000000', salesRepFirstName: null, salesRepRole: null });
 
     const viaLegacy = await request(app).get(legacy(legacyBrandId)).set(getAuthHeaders(ownerOrgId));
-    expect(viaLegacy.body).toEqual({ salesRepEmail: null, salesRepPhone: '+33700000000' });
+    expect(viaLegacy.body).toEqual({ salesRepEmail: null, salesRepPhone: '+33700000000', salesRepFirstName: null, salesRepRole: null });
 
     const viaBrandRead = await request(app)
       .get(`/internal/brands/${legacyBrandId}`)
@@ -586,7 +588,7 @@ describe('Sales rep endpoints', () => {
       .set(getAuthHeaders(ownerOrgId))
       .send({ salesRepPhone: '+33711111111' });
 
-    expect(res.body).toEqual({ salesRepEmail: 'kept@acme.com', salesRepPhone: '+33711111111' });
+    expect(res.body).toEqual({ salesRepEmail: 'kept@acme.com', salesRepPhone: '+33711111111', salesRepFirstName: null, salesRepRole: null });
   });
 
   it('the legacy DELETE removes the NUMBER and keeps a rep who still has an email', async () => {
@@ -597,7 +599,7 @@ describe('Sales rep endpoints', () => {
 
     const del = await request(app).delete(legacy(legacyBrandId)).set(getAuthHeaders(ownerOrgId));
     expect(del.status).toBe(200);
-    expect(del.body).toEqual({ salesRepEmail: 'kept@acme.com', salesRepPhone: null });
+    expect(del.body).toEqual({ salesRepEmail: 'kept@acme.com', salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
 
     // still one row: they are somebody to copy, just nobody to ring
     const rows = await db
@@ -616,7 +618,7 @@ describe('Sales rep endpoints', () => {
     await db.insert(brandSalesRepPhones).values({ orgId: ownerOrgId, brandId: fresh, phone: '+33722222222' });
 
     const del = await request(app).delete(legacy(fresh)).set(getAuthHeaders(ownerOrgId));
-    expect(del.body).toEqual({ salesRepEmail: null, salesRepPhone: null });
+    expect(del.body).toEqual({ salesRepEmail: null, salesRepPhone: null, salesRepFirstName: null, salesRepRole: null });
 
     const rows = await db
       .select()
@@ -661,5 +663,91 @@ describe('Sales rep endpoints', () => {
       .send({ salesRepEmail: 'kevin@acme.com' });
 
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * The rep's first name and role, so a hand-over can introduce them by name
+ * ("I've copied Marie, Head of Partnerships at Doc Dinners"). Both optional:
+ * a rep stated without them reads null, the dashboard's write (which never
+ * sends them) must not wipe them, and nothing is ever inferred.
+ */
+describe('Sales rep first name and role', () => {
+  const app = createTestApp();
+  const orgId = randomUUID();
+  const brandId = randomUUID();
+  const dom = `salesrep-name-${brandId.slice(0, 8)}.com`;
+  const rep = `/orgs/brands/${brandId}/sales-rep`;
+
+  beforeAll(async () => {
+    await db.insert(brands).values({ id: brandId, url: `https://${dom}`, domain: dom, name: 'Doc Dinners' });
+    await db.insert(orgBrands).values({ orgId, brandId });
+  });
+
+  afterAll(async () => {
+    await db.delete(brandSalesRepPhones).where(eq(brandSalesRepPhones.brandId, brandId));
+    await db.delete(orgBrands).where(eq(orgBrands.brandId, brandId));
+    await db.delete(brands).where(eq(brands.id, brandId));
+  });
+
+  const internalRead = () =>
+    request(app).get(`/internal/brands/${brandId}`).set(getInternalAuthHeaders()).set('x-org-id', orgId);
+
+  it('a rep stated without them reads null on the write and the internal brand read (not inferred from the email)', async () => {
+    const put = await request(app).put(rep).set(getAuthHeaders(orgId)).send({ salesRepEmail: 'marie.dupont@docdinners.com' });
+    expect(put.status).toBe(200);
+    expect(put.body.salesRepFirstName).toBeNull();
+    expect(put.body.salesRepRole).toBeNull();
+
+    const read = await internalRead();
+    expect(read.status).toBe(200);
+    expect(read.body.brand.salesRepFirstName).toBeNull();
+    expect(read.body.brand.salesRepRole).toBeNull();
+  });
+
+  it('stores a stated first name and role and serves them on the internal brand read', async () => {
+    const put = await request(app)
+      .put(rep)
+      .set(getAuthHeaders(orgId))
+      .send({ salesRepEmail: 'marie@docdinners.com', salesRepFirstName: ' Marie ', salesRepRole: 'Head of  Partnerships' });
+    expect(put.status).toBe(200);
+    expect(put.body).toEqual({
+      salesRepEmail: 'marie@docdinners.com',
+      salesRepPhone: null,
+      salesRepFirstName: 'Marie',
+      salesRepRole: 'Head of Partnerships',
+    });
+
+    const read = await internalRead();
+    expect(read.body.brand.salesRepFirstName).toBe('Marie');
+    expect(read.body.brand.salesRepRole).toBe('Head of Partnerships');
+  });
+
+  it('a write that omits them (the dashboard today) keeps what was stated', async () => {
+    const put = await request(app)
+      .put(rep)
+      .set(getAuthHeaders(orgId))
+      .send({ salesRepEmail: 'marie@docdinners.com', salesRepPhone: '+33770657585' });
+    expect(put.status).toBe(200);
+    expect(put.body.salesRepFirstName).toBe('Marie');
+    expect(put.body.salesRepRole).toBe('Head of Partnerships');
+  });
+
+  it('null or blank clears them back to null, never an empty string', async () => {
+    const put = await request(app)
+      .put(rep)
+      .set(getAuthHeaders(orgId))
+      .send({ salesRepEmail: 'marie@docdinners.com', salesRepFirstName: null, salesRepRole: '   ' });
+    expect(put.status).toBe(200);
+    expect(put.body.salesRepFirstName).toBeNull();
+    expect(put.body.salesRepRole).toBeNull();
+  });
+
+  it('refuses a multi-line value with a 400', async () => {
+    const put = await request(app)
+      .put(rep)
+      .set(getAuthHeaders(orgId))
+      .send({ salesRepEmail: 'marie@docdinners.com', salesRepFirstName: 'Marie\nBcc: x@y.com' });
+    expect(put.status).toBe(400);
   });
 });

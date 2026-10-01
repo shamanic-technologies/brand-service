@@ -108,6 +108,8 @@ export interface BrandDetail {
   // org. Per-brand config, org-scoped: see `salesRepService.resolveForBrandRead`.
   salesRepEmail?: string | null;
   salesRepPhone?: string | null;
+  salesRepFirstName?: string | null;
+  salesRepRole?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -222,7 +224,12 @@ export async function getBrandDetail(
     ...(options.includeSalesRep
       ? await (async () => {
           const rep = await salesRepService.resolveForBrandRead(row.id, options.orgId);
-          return { salesRepEmail: rep.email, salesRepPhone: rep.phone };
+          return {
+            salesRepEmail: rep.email,
+            salesRepPhone: rep.phone,
+            salesRepFirstName: rep.firstName,
+            salesRepRole: rep.role,
+          };
         })()
       : {}),
     createdAt: row.createdAt,

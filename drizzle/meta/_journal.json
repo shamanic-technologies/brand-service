@@ -547,6 +547,13 @@
       "when": 1790800000000,
       "tag": "0079_offer_give_lists",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0080_sales_rep_name_role",
+      "breakpoints": true
     }
   ]
 }
