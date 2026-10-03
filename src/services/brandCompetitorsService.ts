@@ -28,11 +28,12 @@
  * (no discovery row). Re-running replaces the whole set.
  */
 
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   db,
   brands,
   brandExtractedFields,
+  brandUserFields,
   brandCompetitorDiscoveries,
   brandCompetitors,
 } from '../db';
@@ -41,7 +42,7 @@ import { createRun, updateRun } from '../lib/runs-client';
 import { scrapeUrl } from '../lib/scraping-client';
 import { extractLinkedinCompanyUrl, normalizeCompetitorDomain } from '../lib/competitor-linkedin';
 import { getCachedPageContent, upsertPageContent } from './scrapeOrchestrator';
-import { coerceProfileFields } from './brandProfileService';
+import { listOffers } from './brandOffersService';
 
 /** At most this many competitors are asked for, and kept. */
 export const MAX_COMPETITORS = 8;
@@ -56,12 +57,6 @@ const SCRAPE_CACHE_TTL_DAYS = 180;
 const BROWSER_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
-/** Profile keys that describe how an offer is SOLD, not what the brand is. */
-const EXCLUDED_CONTEXT_KEYS = new Set(
-  ['callToAction', 'perceivedLikelihood', 'urgency', 'scarcity', 'riskReversal', 'giveForFree', 'neverGive']
-    .map((k) => k.toLowerCase()),
-);
-const AUDIENCE_KEYS = new Set(['targetAudience', 'customerPainPoints']);
 
 export class BrandNotFoundError extends Error {
   constructor(brandId: string) {
@@ -184,25 +179,100 @@ const RESPONSE_SCHEMA = {
   required: ['competitors'],
 };
 
-/** What we know about the brand, for the prompt. Brand-wide extracted fields only. */
-async function brandContext(brandId: string): Promise<Record<string, string | string[]>> {
-  const rows = await db
+/**
+ * Extracted-field keys worth showing the model. `brand_extracted_fields` is an
+ * ephemeral (3-day) cache whose keys are open-ended — one brand carries 1,100
+ * `social-view-*` rows — so it is read through an ALLOWLIST, never whole.
+ */
+const CONTEXT_FIELD_KEYS = [
+  'companyOverview', 'services', 'valueProposition', 'industry', 'keyFeatures',
+  'productDifferentiators', 'offerHowItWorks', 'dreamOutcome', 'geography',
+  'targetAudience', 'customerPainPoints',
+];
+const CONTEXT_VALUE_MAX_CHARS = 600;
+const HOMEPAGE_TEXT_MAX_CHARS = 6000;
+
+/** Visible text of an HTML page (scripts, styles and tags dropped, whitespace collapsed). Pure. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<(script|style|noscript|svg|template)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function capValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = Array.isArray(value)
+    ? value.filter((v) => v !== null && v !== undefined).map(String).join('; ')
+    : typeof value === 'string' ? value : JSON.stringify(value);
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'unknown') return null;
+  return trimmed.slice(0, CONTEXT_VALUE_MAX_CHARS);
+}
+
+/**
+ * What we know about the brand, as prompt text: the offers the asking org sells
+ * under it, its confirmed fields, an allowlist of extracted fields, and the
+ * visible text of its homepage (free plain read, else the page cache the
+ * extraction already filled; never a new paid scrape). Empty string = nothing.
+ */
+async function brandContext(
+  brandId: string,
+  orgId: string,
+  brand: { domain: string | null; url: string | null },
+): Promise<string> {
+  const blocks: string[] = [];
+
+  const offers = (await listOffers(orgId, brandId)).filter((o) => o.status === 'active');
+  if (offers.length > 0) {
+    blocks.push('What it sells (offers):\n' + offers
+      .map((o) => `- ${o.name}${o.description ? `: ${o.description.slice(0, CONTEXT_VALUE_MAX_CHARS)}` : ''}`)
+      .join('\n'));
+  }
+
+  const fields = new Map<string, string>();
+  const confirmed = await db
+    .select({ fieldKey: brandUserFields.fieldKey, value: brandUserFields.value })
+    .from(brandUserFields)
+    .where(and(eq(brandUserFields.orgId, orgId), eq(brandUserFields.brandId, brandId), inArray(brandUserFields.fieldKey, CONTEXT_FIELD_KEYS)));
+  for (const row of confirmed) {
+    const v = capValue(row.value);
+    if (v && !fields.has(row.fieldKey)) fields.set(row.fieldKey, v);
+  }
+  const extracted = await db
     .select({ fieldKey: brandExtractedFields.fieldKey, fieldValue: brandExtractedFields.fieldValue })
     .from(brandExtractedFields)
-    .where(and(eq(brandExtractedFields.brandId, brandId), isNull(brandExtractedFields.campaignId)));
-  const profile = coerceProfileFields(rows);
-  const context: Record<string, string | string[]> = {};
-  for (const [key, value] of Object.entries(profile)) {
-    if (!EXCLUDED_CONTEXT_KEYS.has(key.toLowerCase())) context[key] = value;
+    .where(and(
+      eq(brandExtractedFields.brandId, brandId),
+      isNull(brandExtractedFields.campaignId),
+      inArray(brandExtractedFields.fieldKey, CONTEXT_FIELD_KEYS),
+    ));
+  for (const row of extracted) {
+    const v = capValue(row.fieldValue);
+    if (v && !fields.has(row.fieldKey)) fields.set(row.fieldKey, v);
   }
-  // Audience keys are excluded from the derived profile but say who the buyer is.
-  for (const { fieldKey, fieldValue } of rows) {
-    if (!AUDIENCE_KEYS.has(fieldKey)) continue;
-    const coerced = coerceProfileFields([{ fieldKey: `_${fieldKey}`, fieldValue }]);
-    const value = coerced[`_${fieldKey}`];
-    if (value !== undefined) context[fieldKey] = value;
+  if (fields.size > 0) {
+    blocks.push('Profile:\n' + [...fields].map(([k, v]) => `- ${k}: ${v}`).join('\n'));
   }
-  return context;
+
+  const domain = normalizeCompetitorDomain(brand.domain ?? brand.url);
+  if (domain) {
+    const html = await fetchHomepage(domain);
+    const page = html ? htmlToText(html) : await getCachedPageContent(`https://${domain}`);
+    if (page && page.trim().length > 0) {
+      blocks.push('Its homepage (text):\n' + page.trim().slice(0, HOMEPAGE_TEXT_MAX_CHARS));
+    }
+  }
+
+  return blocks.join('\n\n');
 }
 
 export interface ProposedCompetitor {
@@ -335,10 +405,10 @@ export async function discoverBrandCompetitors(opts: DiscoverOptions): Promise<B
     if (stored.status === 'computed') return stored;
   }
 
-  const context = await brandContext(brandId);
-  if (Object.keys(context).length === 0) {
+  const context = await brandContext(brandId, caller.orgId, brand);
+  if (context.length === 0) {
     throw new CompetitorDiscoveryUnavailableError(
-      `Cannot discover competitors for brand ${brandId}: nothing is known about it yet (extract its profile first)`,
+      `Cannot discover competitors for brand ${brandId}: nothing is known about it (no offer, no profile, no readable homepage)`,
     );
   }
 
@@ -374,8 +444,7 @@ export async function discoverBrandCompetitors(opts: DiscoverOptions): Promise<B
           `Company: ${brand.name ?? '(unnamed)'}`,
           `Website: ${brand.domain ?? brand.url ?? '(none)'}`,
           '',
-          'Profile (from its own website):',
-          JSON.stringify(context, null, 2),
+          context,
         ].join('\n'),
         provider: 'google',
         model: COMPETITOR_MODEL,
