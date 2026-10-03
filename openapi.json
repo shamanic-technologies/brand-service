@@ -3170,6 +3170,107 @@
           "steps",
           "legKeys"
         ]
+      },
+      "BrandCompetitors": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_computed",
+              "computed"
+            ]
+          },
+          "discoveredAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "provenance": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "llm_named_then_website_read"
+                ]
+              },
+              "model": {
+                "type": "string"
+              },
+              "proposedCount": {
+                "type": "integer",
+                "description": "Competitors the model named before unreadable/duplicate ones were dropped"
+              },
+              "runId": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "method",
+              "model",
+              "proposedCount",
+              "runId"
+            ]
+          },
+          "competitors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BrandCompetitor"
+            }
+          }
+        },
+        "required": [
+          "brandId",
+          "status",
+          "discoveredAt",
+          "provenance",
+          "competitors"
+        ]
+      },
+      "BrandCompetitor": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Registrable domain of the competitor website, e.g. `acme.com`"
+          },
+          "linkedinUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "`https://www.linkedin.com/company/<slug>/`, or null when its website links none"
+          },
+          "linkedinSource": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "competitor_website",
+              null
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "domain",
+          "linkedinUrl",
+          "linkedinSource"
+        ]
+      },
+      "DiscoverBrandCompetitorsRequest": {
+        "type": "object",
+        "properties": {
+          "refresh": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "parameters": {
@@ -7548,6 +7649,141 @@
           },
           "404": {
             "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/competitors": {
+      "get": {
+        "summary": "Read a brand's competitors and their LinkedIn company pages",
+        "description": "A brand's DIRECT competitors and, for each, the LinkedIn company page its OWN website links to. Found by brand-service (one cheap model call through chat-service naming the competitors from the brand's extracted profile, then a read of each competitor's homepage), never typed by a client. `status: \"not_computed\"` = never looked for; `status: \"computed\"` = looked for, and `competitors` may be empty (nothing found). A competitor whose website could not be read at all is dropped (a domain nobody serves is treated as invented). `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` as the competitor website links it FOR ITSELF (the slug must match its name or domain; links to customers or partners are ignored), `linkedinSource: \"competitor_website\"`; null when no such link exists: never guessed. Brand-wide (a brand is a global identity), not per org or per offer. Pure read: never computes.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored answer (or not_computed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandCompetitors"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/competitors/discover": {
+      "post": {
+        "summary": "Find a brand's competitors and their LinkedIn company pages (once, then reused)",
+        "description": "A brand's DIRECT competitors and, for each, the LinkedIn company page its OWN website links to. Found by brand-service (one cheap model call through chat-service naming the competitors from the brand's extracted profile, then a read of each competitor's homepage), never typed by a client. `status: \"not_computed\"` = never looked for; `status: \"computed\"` = looked for, and `competitors` may be empty (nothing found). A competitor whose website could not be read at all is dropped (a domain nobody serves is treated as invented). `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` as the competitor website links it FOR ITSELF (the slug must match its name or domain; links to customers or partners are ignored), `linkedinSource: \"competitor_website\"`; null when no such link exists: never guessed. Brand-wide (a brand is a global identity), not per org or per offer. Computes when nothing is stored (or `refresh: true`) and stores the answer; otherwise returns the stored answer at no cost. Cost (a fraction of a cent of model tokens, plus a scrape only for a homepage plain HTTP cannot read) is billed to the caller org on a brand-service run, child of `x-run-id`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverBrandCompetitorsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stored answer after discovery",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandCompetitors"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or body"
+          },
+          "402": {
+            "description": "Insufficient credits (from chat-service)"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "422": {
+            "description": "Nothing is known about the brand yet (extract its profile first)"
+          },
+          "502": {
+            "description": "Discovery failed upstream (model or run tracking)"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/competitors": {
+      "get": {
+        "summary": "Service read of a brand's competitors and their LinkedIn company pages",
+        "description": "A brand's DIRECT competitors and, for each, the LinkedIn company page its OWN website links to. Found by brand-service (one cheap model call through chat-service naming the competitors from the brand's extracted profile, then a read of each competitor's homepage), never typed by a client. `status: \"not_computed\"` = never looked for; `status: \"computed\"` = looked for, and `competitors` may be empty (nothing found). A competitor whose website could not be read at all is dropped (a domain nobody serves is treated as invented). `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` as the competitor website links it FOR ITSELF (the slug must match its name or domain; links to customers or partners are ignored), `linkedinSource: \"competitor_website\"`; null when no such link exists: never guessed. Brand-wide (a brand is a global identity), not per org or per offer. Pure read keyed on the brand alone; no org or user header needed.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored answer (or not_computed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandCompetitors"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID"
+          },
+          "404": {
+            "description": "Brand not found"
           },
           "500": {
             "description": "Internal server error"
