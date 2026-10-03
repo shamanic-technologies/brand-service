@@ -222,12 +222,13 @@ function capValue(value: unknown): string | null {
  * What we know about the brand, as prompt text: the offers the asking org sells
  * under it, its confirmed fields, an allowlist of extracted fields, and the
  * visible text of its homepage (free plain read, else the page cache the
- * extraction already filled; never a new paid scrape). Empty string = nothing.
+ * extraction already filled, else one scrape). Empty string = nothing.
  */
 async function brandContext(
   brandId: string,
   orgId: string,
   brand: { domain: string | null; url: string | null },
+  reader: WebsiteReader,
 ): Promise<string> {
   const blocks: string[] = [];
 
@@ -265,8 +266,12 @@ async function brandContext(
 
   const domain = normalizeCompetitorDomain(brand.domain ?? brand.url);
   if (domain) {
-    const html = await fetchHomepage(domain);
-    const page = html ? htmlToText(html) : await getCachedPageContent(`https://${domain}`);
+    // Free plain read first; a homepage that refuses it (bot wall, JS shell) is
+    // read once through the cached scrape, so a brand whose profile was never
+    // extracted is never stuck at "not computed".
+    const html = await reader.fetchHomepage(domain);
+    const plain = html ? htmlToText(html) : '';
+    const page = plain.length > 0 ? plain : await reader.scrapeHomepage(domain);
     if (page && page.trim().length > 0) {
       blocks.push('Its homepage (text):\n' + page.trim().slice(0, HOMEPAGE_TEXT_MAX_CHARS));
     }
@@ -405,13 +410,6 @@ export async function discoverBrandCompetitors(opts: DiscoverOptions): Promise<B
     if (stored.status === 'computed') return stored;
   }
 
-  const context = await brandContext(brandId, caller.orgId, brand);
-  if (context.length === 0) {
-    throw new CompetitorDiscoveryUnavailableError(
-      `Cannot discover competitors for brand ${brandId}: nothing is known about it (no offer, no profile, no readable homepage)`,
-    );
-  }
-
   const run = await createRun({
     orgId: caller.orgId,
     userId: caller.userId || undefined,
@@ -437,6 +435,14 @@ export async function discoverBrandCompetitors(opts: DiscoverOptions): Promise<B
   };
 
   try {
+    const reader = opts.reader ?? defaultReader(brandId, runCaller);
+    const context = await brandContext(brandId, caller.orgId, brand, reader);
+    if (context.length === 0) {
+      throw new CompetitorDiscoveryUnavailableError(
+        `Cannot discover competitors for brand ${brandId}: nothing is known about it (no offer, no profile, no readable homepage)`,
+      );
+    }
+
     const result = await chat(
       {
         systemPrompt: SYSTEM_PROMPT,
@@ -457,7 +463,6 @@ export async function discoverBrandCompetitors(opts: DiscoverOptions): Promise<B
     const raw = result.json ?? JSON.parse((result.content.match(/\{[\s\S]*\}/) ?? ['null'])[0]);
     const proposed = parseProposedCompetitors(raw, brand.domain ?? brand.url);
 
-    const reader = opts.reader ?? defaultReader(brandId, runCaller);
     const resolved = await Promise.all(proposed.map((c) => resolveCompetitorWebsite(c, reader)));
     const kept = resolved.filter((c): c is CompetitorView => c !== null);
 

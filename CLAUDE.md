@@ -75,7 +75,8 @@ survives in brand-service; do NOT reintroduce one — rates are per LEG
 - **Cheapest path:** ONE `flash-pro` call via chat-service (org-billed on a brand-service run,
   child of `x-run-id`) names competitors + domains from: the asking org's offers, confirmed
   fields, an ALLOWLIST of extracted fields (that cache has open-ended keys: distribute.you holds
-  1,100 `social-view-*` rows) and the brand homepage's visible text (capped); each
+  1,100 `social-view-*` rows) and the brand homepage's visible text (capped; plain HTTP, else one
+  cached scrape, so a brand whose profile was never extracted is never stuck); each
   homepage is read over plain HTTP (free), and only when that finds no link, ONE scrape via
   scraping-service (it declares its cost; cached in `page_scrape_cache`). No paid data provider.
 - **⚠️ A homepage links OTHER companies** (lemlist.com links ElevenLabs 4x, itself 2x): only a
