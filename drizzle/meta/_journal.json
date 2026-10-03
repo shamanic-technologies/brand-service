@@ -554,6 +554,13 @@
       "when": 1790900000000,
       "tag": "0080_sales_rep_name_role",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0081_brand_competitors",
+      "breakpoints": true
     }
   ]
 }

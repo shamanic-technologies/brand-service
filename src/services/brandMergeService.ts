@@ -88,6 +88,20 @@ export async function rewriteBrandReferences(
     );
   }
 
+  // brand_competitor_discoveries (PK brand_id) + brand_competitors: a derived
+  // fact about the brand. When the target already has its own answer, the
+  // source's is dropped whole (never mixed into the target's list).
+  await query(
+    `DELETE FROM brand_competitors WHERE brand_id = $1
+     AND EXISTS (SELECT 1 FROM brand_competitor_discoveries WHERE brand_id = $2)`,
+    [sourceBrandId, targetBrandId],
+  );
+  await query(
+    `DELETE FROM brand_competitor_discoveries WHERE brand_id = $1
+     AND EXISTS (SELECT 1 FROM brand_competitor_discoveries WHERE brand_id = $2)`,
+    [sourceBrandId, targetBrandId],
+  );
+
   // 2. Rewrite brand_id on all dependent tables.
   // Deliberately NOT rewritten: `brand_transfers` (an append-only audit log —
   // rewriting it would rewrite history), `brand_relations` (PK(source,target),
@@ -110,6 +124,8 @@ export async function rewriteBrandReferences(
     'brand_click_destinations',
     'brand_whatsapp_links',
     'brand_sales_rep_phones',
+    'brand_competitor_discoveries',
+    'brand_competitors',
   ];
 
   const results: { tableName: string; count: number }[] = [];

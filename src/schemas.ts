@@ -3989,3 +3989,102 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
+
+// ─── Brand competitors ───────────────────────────────────────────────────────
+
+const BRAND_COMPETITORS_DESCRIPTION =
+  "A brand's DIRECT competitors and, for each, the LinkedIn company page its OWN website links to. " +
+  'Found by brand-service (one cheap model call through chat-service naming the competitors from the ' +
+  "brand's extracted profile, then a read of each competitor's homepage), never typed by a client. " +
+  '`status: "not_computed"` = never looked for; `status: "computed"` = looked for, and `competitors` may ' +
+  'be empty (nothing found). A competitor whose website could not be read at all is dropped (a domain ' +
+  'nobody serves is treated as invented). `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` as ' +
+  'the competitor website links it FOR ITSELF (the slug must match its name or domain; links to customers ' +
+  'or partners are ignored), `linkedinSource: "competitor_website"`; null when no such link exists: ' +
+  'never guessed. Brand-wide (a brand is a global identity), not per org or per offer.';
+
+export const DiscoverBrandCompetitorsRequestSchema = z
+  .object({
+    // Recompute even when a stored answer exists. Default: reuse it (costs nothing).
+    refresh: z.boolean().optional(),
+  })
+  .openapi('DiscoverBrandCompetitorsRequest');
+
+export const BrandCompetitorSchema = z
+  .object({
+    name: z.string(),
+    domain: z.string().describe('Registrable domain of the competitor website, e.g. `acme.com`'),
+    linkedinUrl: z.string().nullable().describe('`https://www.linkedin.com/company/<slug>/`, or null when its website links none'),
+    linkedinSource: z.enum(['competitor_website']).nullable(),
+  })
+  .openapi('BrandCompetitor');
+
+export const BrandCompetitorsSchema = z
+  .object({
+    brandId: z.string().uuid(),
+    status: z.enum(['not_computed', 'computed']),
+    discoveredAt: z.string().nullable(),
+    provenance: z
+      .object({
+        method: z.enum(['llm_named_then_website_read']),
+        model: z.string(),
+        proposedCount: z.number().int().describe('Competitors the model named before unreadable/duplicate ones were dropped'),
+        runId: z.string().nullable(),
+      })
+      .nullable(),
+    competitors: z.array(BrandCompetitorSchema),
+  })
+  .openapi('BrandCompetitors');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/competitors',
+  summary: "Read a brand's competitors and their LinkedIn company pages",
+  description: BRAND_COMPETITORS_DESCRIPTION + ' Pure read: never computes.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The stored answer (or not_computed)', content: { 'application/json': { schema: BrandCompetitorsSchema } } },
+    400: { description: 'Invalid brand ID' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/competitors/discover',
+  summary: "Find a brand's competitors and their LinkedIn company pages (once, then reused)",
+  description:
+    BRAND_COMPETITORS_DESCRIPTION +
+    ' Computes when nothing is stored (or `refresh: true`) and stores the answer; otherwise returns the ' +
+    'stored answer at no cost. Cost (a fraction of a cent of model tokens, plus a scrape only for a ' +
+    'homepage plain HTTP cannot read) is billed to the caller org on a brand-service run, child of `x-run-id`.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: DiscoverBrandCompetitorsRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The stored answer after discovery', content: { 'application/json': { schema: BrandCompetitorsSchema } } },
+    400: { description: 'Invalid brand ID or body' },
+    402: { description: 'Insufficient credits (from chat-service)' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    422: { description: 'Nothing is known about the brand yet (extract its profile first)' },
+    502: { description: 'Discovery failed upstream (model or run tracking)' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/competitors',
+  summary: "Service read of a brand's competitors and their LinkedIn company pages",
+  description: BRAND_COMPETITORS_DESCRIPTION + ' Pure read keyed on the brand alone; no org or user header needed.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The stored answer (or not_computed)', content: { 'application/json': { schema: BrandCompetitorsSchema } } },
+    400: { description: 'Invalid brand ID' },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
