@@ -15,6 +15,7 @@ import {
 } from '../../src/lib/competitor-linkedin';
 import {
   MAX_COMPETITORS,
+  htmlToText,
   parseProposedCompetitors,
   resolveCompetitorWebsite,
   type WebsiteReader,
@@ -170,5 +171,13 @@ describe('resolveCompetitorWebsite', () => {
 
   it('drops a competitor whose website cannot be read at all', async () => {
     expect(await resolveCompetitorWebsite(competitor, reader(null, null))).toBeNull();
+  });
+});
+
+describe('htmlToText', () => {
+  it('keeps visible text, drops scripts, styles and tags', () => {
+    expect(htmlToText('<html><style>a{}</style><script>evil()</script><p>Hello&nbsp;<b>world</b> &amp; co</p></html>')).toBe(
+      'Hello world & co',
+    );
   });
 });
