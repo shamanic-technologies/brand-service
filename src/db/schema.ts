@@ -1668,3 +1668,53 @@ export const brandOfferSalesPaths = pgTable("brand_offer_sales_paths", {
 		name: "brand_offer_sales_paths_offer_id_fkey",
 	}).onDelete("cascade"),
 ]);
+
+/**
+ * A brand's DIRECT competitors were looked for (migration 0081). The PRESENCE of
+ * this row is the "computed" signal: no row = never computed, a row with zero
+ * `brand_competitors` rows = computed, nothing found. Keyed on the brand alone —
+ * a brand is a global identity and who it competes with is a fact about it, not
+ * about whichever org asked. See `brandCompetitorsService`.
+ */
+export const brandCompetitorDiscoveries = pgTable("brand_competitor_discoveries", {
+	brandId: uuid("brand_id").primaryKey().notNull(),
+	discoveredAt: timestamp("discovered_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	// Provenance: the model tier that named the competitors, the org whose run
+	// paid for it, that run, and how many companies the model proposed before
+	// the unreachable / duplicate / own-domain ones were dropped.
+	model: text().notNull(),
+	requestedByOrgId: uuid("requested_by_org_id"),
+	runId: text("run_id"),
+	proposedCount: integer("proposed_count").notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_competitor_discoveries_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
+ * One row per competitor kept by the last discovery. `linkedin_url` is the
+ * `https://www.linkedin.com/company/<slug>/` page the COMPETITOR'S OWN WEBSITE
+ * links to, never guessed: NULL = no such link was found, and then
+ * `linkedin_source` is NULL too (CHECK).
+ */
+export const brandCompetitors = pgTable("brand_competitors", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	position: integer().notNull(),
+	name: text().notNull(),
+	domain: text().notNull(),
+	linkedinUrl: text("linkedin_url"),
+	linkedinSource: text("linkedin_source"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_competitors_brand_id_fkey",
+	}).onDelete("cascade"),
+	uniqueIndex("brand_competitors_brand_domain_key").using("btree", table.brandId.asc().nullsLast().op("uuid_ops"), table.domain.asc().nullsLast().op("text_ops")),
+	check("brand_competitors_linkedin_has_source", sql`(linkedin_url IS NULL) = (linkedin_source IS NULL)`),
+]);

@@ -62,6 +62,26 @@ it; a pg_dump sits in `/root/distribute/backups/`). It shipped only after a flee
 survives in brand-service; do NOT reintroduce one — rates are per LEG
 (`brand_leg_rates`), lifetime revenue per OFFER (`brand_offers`).
 
+## Brand competitors — found by us, LinkedIn read off THEIR site (`brandCompetitorsService`)
+
+`GET /orgs/brands/:brandId/competitors`, `POST .../competitors/discover` (`{ refresh? }`),
+`GET /internal/brands/:brandId/competitors` (no org). Tables `brand_competitor_discoveries`
+(PK brand_id = "computed") + `brand_competitors` (migration `0081`). Consumer: human-service
+(LinkedIn competitor-engagers audience). Owner: never a client input.
+
+- **Brand-wide, keyed on brand_id alone** (a brand is global). Not per offer.
+- **Reads never compute.** No discovery row = `not_computed`; a row with no competitors =
+  `computed`, nothing found. Discover reuses the stored answer unless `refresh: true`.
+- **Cheapest path:** ONE `flash-pro` call via chat-service (org-billed on a brand-service run,
+  child of `x-run-id`) names competitors + domains from the brand's extracted fields; each
+  homepage is read over plain HTTP (free), and only when that finds no link, ONE scrape via
+  scraping-service (it declares its cost; cached in `page_scrape_cache`). No paid data provider.
+- **⚠️ A homepage links OTHER companies** (lemlist.com links ElevenLabs 4x, itself 2x): only a
+  slug matching the competitor's name or domain label is taken (`slugMatchesCompany`). No match
+  = `linkedinUrl: null`. Never build a URL from a name.
+- A competitor whose website cannot be read at all is DROPPED (treated as invented); the
+  brand's own domain and duplicate registrable domains too.
+
 ## Offer give lists — `giveForFree` / `neverGive`
 
 Two confirmed user-fields (migration `0079`), string[] per OFFER like the levers:
