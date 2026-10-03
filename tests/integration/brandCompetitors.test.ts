@@ -49,7 +49,10 @@ describe('Brand competitors', () => {
     await db.insert(brandExtractedFields).values([
       { brandId, fieldKey: 'companyOverview', fieldValue: 'Done-for-you cold email agency' },
       { brandId, fieldKey: 'targetAudience', fieldValue: ['B2B SaaS founders'] },
+      { brandId, fieldKey: 'social-view-noise-key-0001', fieldValue: 'An opinion that must never reach the prompt' },
     ]);
+    HOMEPAGES[`https://cmp-${brandId.slice(0, 8)}.com`] =
+      '<html><head><script>var x=1</script></head><body><h1>We book meetings for B2B SaaS</h1></body></html>';
 
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       const body = HOMEPAGES[url];
@@ -114,6 +117,12 @@ describe('Brand competitors', () => {
     // The run is a child of the caller's run, and chat bills on OUR run.
     expect(vi.mocked(createRun).mock.calls[0][0]).toMatchObject({ orgId, parentRunId: 'parent-run', taskName: 'competitor-discovery' });
     expect(mockChat.mock.calls[0][1]).toMatchObject({ mode: 'org', orgId, runId: 'test-competitor-run' });
+    // The prompt carries the allowlisted profile and the homepage text, never open-ended cache keys.
+    const message = mockChat.mock.calls[0][0].message;
+    expect(message).toContain('Done-for-you cold email agency');
+    expect(message).toContain('We book meetings for B2B SaaS');
+    expect(message).not.toContain('var x=1');
+    expect(message).not.toContain('social-view');
 
     // Stored and reused: the internal read returns it, and a second discover spends nothing.
     const internal = await request(app).get(`/internal/brands/${brandId}/competitors`).set({ 'X-API-Key': 'test-secret-key' });
