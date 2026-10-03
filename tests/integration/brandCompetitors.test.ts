@@ -163,6 +163,19 @@ describe('Brand competitors', () => {
     expect((await request(app).get(`/orgs/brands/not-a-uuid/competitors`).set(getAuthHeaders(orgId))).status).toBe(400);
   });
 
+  it('a brand with no profile whose homepage refuses plain HTTP is read through one scrape, never stuck', async () => {
+    mockScrape.mockImplementation(async (url: string) =>
+      url === `https://cmp-${emptyBrandId.slice(0, 8)}.com` ? '# Construction time-lapse cameras for builders' : null,
+    );
+    const res = await request(app).post(`/orgs/brands/${emptyBrandId}/competitors/discover`).set(getAuthHeaders(orgId)).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('computed');
+    expect(mockChat.mock.calls[0][0].message).toContain('Construction time-lapse cameras');
+    await db.delete(brandCompetitors).where(eq(brandCompetitors.brandId, emptyBrandId));
+    await db.delete(brandCompetitorDiscoveries).where(eq(brandCompetitorDiscoveries.brandId, emptyBrandId));
+    await db.delete(pageScrapeCache).where(eq(pageScrapeCache.normalizedUrl, `https://cmp-${emptyBrandId.slice(0, 8)}.com`));
+  });
+
   it('propagates chat-service 402 and stores nothing', async () => {
     mockChat.mockRejectedValue(new Error('chat-service POST /complete (flash-pro) returned 402'));
     const res = await request(app).post(`/orgs/brands/${brandId}/competitors/discover`).set(getAuthHeaders(orgId)).send({});
