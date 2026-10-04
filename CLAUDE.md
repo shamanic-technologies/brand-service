@@ -62,13 +62,10 @@ it; a pg_dump sits in `/root/distribute/backups/`). It shipped only after a flee
 survives in brand-service; do NOT reintroduce one — rates are per LEG
 (`brand_leg_rates`), lifetime revenue per OFFER (`brand_offers`).
 
-## Offer channels + active sales paths (`offerChannelsService`, `offerActiveSalesPathsService`)
+## Offer channels (`offerChannelsService`)
 
-"You choose, we run" (owner 2026-10-04). Routes in `src/routes/offer-sales-path.routes.ts`, migration `0082`.
-- **Channels**: `GET|PUT /orgs/brands/:brandId/offers/:offerId/channels` (`{ channelSlugs }`, full replace, a slug twice = 400), `GET /internal/offers/:offerId/channels`. Table `brand_offer_channels`; no row = `stated: false` (the consumer's default applies, never written here), empty list = stated.
-- **Active sales paths**: `GET .../active-sales-paths`, `GET .../active-sales-paths/history`, `POST .../active-sales-paths` (`{ combinationKey, entryChannelSlug, entryLegKey, replace? }`), `POST .../active-sales-paths/deactivate` (`{ combinationKey }`); internal `GET /internal/offers/:offerId/active-sales-paths[/history]`, `GET /internal/brands/:brandId/active-sales-paths` (`x-org-id` optional filter). Table `brand_offer_active_sales_paths` is APPEND-ONLY: ending sets `ended_at` + `end_reason` (`deactivated`|`replaced`, `replaced_by_id`), never deletes.
-- **One active path per ENTRY (channel x entry leg) and per combination**: partial unique indexes + offer-row `FOR UPDATE` in the activate transaction. Entry taken, no `replace` → 409 `SALES_PATH_ENTRY_TAKEN` (names the holder); `replace: true` ends the holder and inserts in ONE transaction; same path again = 200 no-op.
-- Identifiers stored AS GIVEN (features-service owns the catalogue). **No money here**: budgets are billing-service's. Guard `tests/integration/offerChannelsAndActiveSalesPaths.test.ts`.
+`GET|PUT /orgs/brands/:brandId/offers/:offerId/channels` (`{ channelSlugs }`, full replace, a slug twice = 400), `GET /internal/offers/:offerId/channels`. Table `brand_offer_channels` (migration `0082`); no row = `stated: false` (the consumer's default applies, never written here), empty list = stated. Slugs stored AS GIVEN. Guard `tests/integration/offerChannels.test.ts`.
+- **Per-offer ACTIVE SALES PATHS were shipped (v0.83.5) and REMOVED the same day** (owner 2026-10-04: activation is a per-CAMPAIGN budget in billing-service). Table `brand_offer_active_sales_paths` dropped by `0083` (0 rows in prod). Do NOT reintroduce an offer-level activation store here.
 
 ## Brand competitors — found by us, LinkedIn read off THEIR site (`brandCompetitorsService`)
 
