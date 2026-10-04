@@ -2,8 +2,6 @@ import { Router, Request, Response } from 'express';
 import {
   PutOfferSalesPathRequestSchema,
   PutOfferChannelsRequestSchema,
-  ActivateSalesPathRequestSchema,
-  DeactivateSalesPathRequestSchema,
 } from '../schemas';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { rejectOfferProblem } from '../lib/offer-scope';
@@ -14,18 +12,6 @@ import {
   writeOfferSalesPath,
 } from '../services/offerSalesPathService';
 import { readOfferChannels, readOfferChannelsByOffer, writeOfferChannels } from '../services/offerChannelsService';
-import {
-  activateSalesPath,
-  deactivateSalesPath,
-  readActiveSalesPathHistory,
-  readActiveSalesPathHistoryByOffer,
-  readActiveSalesPaths,
-  readActiveSalesPathsByBrand,
-  readActiveSalesPathsByOffer,
-  SalesPathEntryMismatchError,
-  SalesPathEntryTakenError,
-  SalesPathNotActiveError,
-} from '../services/offerActiveSalesPathsService';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -164,101 +150,6 @@ internalRouter.get('/offers/:offerId/channels', async (req: Request, res: Respon
     return res.status(200).json(await readOfferChannelsByOffer(offerId));
   } catch (error: any) {
     console.error('[brand-service] Internal get offer channels error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-// ── Active sales paths. See `offerActiveSalesPathsService`. ─────────────────
-
-orgRouter.get(
-  '/brands/:brandId/offers/:offerId/active-sales-paths',
-  offerRoute('Get active sales paths', null, async (req, res) => {
-    const { brandId, offerId } = req.params;
-    res.status(200).json({ offerId, activeSalesPaths: await readActiveSalesPaths(req.orgId!, brandId, offerId) });
-  })
-);
-
-orgRouter.get(
-  '/brands/:brandId/offers/:offerId/active-sales-paths/history',
-  offerRoute('Get active sales path history', null, async (req, res) => {
-    const { brandId, offerId } = req.params;
-    res.status(200).json({ offerId, history: await readActiveSalesPathHistory(req.orgId!, brandId, offerId) });
-  })
-);
-
-orgRouter.post(
-  '/brands/:brandId/offers/:offerId/active-sales-paths',
-  offerRoute('Activate sales path', ActivateSalesPathRequestSchema, async (req, res, body) => {
-    const { brandId, offerId } = req.params;
-    try {
-      const result = await activateSalesPath(req.orgId!, brandId, offerId, body, req.userId ?? null);
-      res.status(result.activated ? 201 : 200).json(result);
-    } catch (error) {
-      if (error instanceof SalesPathEntryTakenError) {
-        res.status(409).json({ error: error.message, code: 'SALES_PATH_ENTRY_TAKEN', activeSalesPath: error.holder });
-        return;
-      }
-      if (error instanceof SalesPathEntryMismatchError) {
-        res.status(409).json({ error: error.message, code: 'SALES_PATH_ENTRY_MISMATCH', activeSalesPath: error.active });
-        return;
-      }
-      throw error;
-    }
-  })
-);
-
-orgRouter.post(
-  '/brands/:brandId/offers/:offerId/active-sales-paths/deactivate',
-  offerRoute('Deactivate sales path', DeactivateSalesPathRequestSchema, async (req, res, body) => {
-    const { brandId, offerId } = req.params;
-    try {
-      const deactivated = await deactivateSalesPath(req.orgId!, brandId, offerId, body.combinationKey, req.userId ?? null);
-      res.status(200).json({ deactivated });
-    } catch (error) {
-      if (error instanceof SalesPathNotActiveError) {
-        res.status(404).json({ error: error.message, code: 'SALES_PATH_NOT_ACTIVE' });
-        return;
-      }
-      throw error;
-    }
-  })
-);
-
-internalRouter.get('/offers/:offerId/active-sales-paths', async (req: Request, res: Response) => {
-  try {
-    const { offerId } = req.params;
-    if (badIds(res, null, offerId)) return;
-    if (!(await getOfferById(offerId))) return res.status(404).json({ error: 'Offer not found' });
-    return res.status(200).json({ offerId, activeSalesPaths: await readActiveSalesPathsByOffer(offerId) });
-  } catch (error: any) {
-    console.error('[brand-service] Internal get active sales paths error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-internalRouter.get('/offers/:offerId/active-sales-paths/history', async (req: Request, res: Response) => {
-  try {
-    const { offerId } = req.params;
-    if (badIds(res, null, offerId)) return;
-    if (!(await getOfferById(offerId))) return res.status(404).json({ error: 'Offer not found' });
-    return res.status(200).json({ offerId, history: await readActiveSalesPathHistoryByOffer(offerId) });
-  } catch (error: any) {
-    console.error('[brand-service] Internal get active sales path history error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-internalRouter.get('/brands/:brandId/active-sales-paths', async (req: Request, res: Response) => {
-  try {
-    const { brandId } = req.params;
-    if (!UUID_REGEX.test(brandId)) return res.status(400).json({ error: 'Invalid brand ID format: must be a UUID' });
-    const orgId = (req.headers['x-org-id'] as string | undefined) ?? null;
-    if (orgId !== null && !UUID_REGEX.test(orgId)) {
-      return res.status(400).json({ error: 'Invalid x-org-id format: must be a UUID' });
-    }
-    return res.status(200).json({ brandId, activeSalesPaths: await readActiveSalesPathsByBrand(brandId, orgId) });
-  } catch (error: any) {
-    console.error('[brand-service] Internal get brand active sales paths error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
