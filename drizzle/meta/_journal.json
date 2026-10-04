@@ -561,6 +561,13 @@
       "when": 1791000000000,
       "tag": "0081_brand_competitors",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1791100000000,
+      "tag": "0082_offer_channels_and_active_sales_paths",
+      "breakpoints": true
     }
   ]
 }
