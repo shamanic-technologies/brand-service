@@ -1690,46 +1690,6 @@ export const brandOfferChannels = pgTable("brand_offer_channels", {
 ]);
 
 /**
- * The SALES PATHS a customer activated on an offer (features-service
- * `combinationKey` + the path's entry channel and entry leg), migration 0082.
- * APPEND-ONLY history: a row is never deleted or re-opened; ending a path sets
- * `ended_at` + `end_reason` (`deactivated` | `replaced`, and `replaced_by_id`
- * names the row that took its entry). At most ONE active row per entry
- * (channel x entry leg) and per combination, enforced by the two partial unique
- * indexes. No money here: budgets are billing-service's. See
- * `offerActiveSalesPathsService`.
- */
-export const brandOfferActiveSalesPaths = pgTable("brand_offer_active_sales_paths", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	offerId: uuid("offer_id").notNull(),
-	combinationKey: text("combination_key").notNull(),
-	entryChannelSlug: text("entry_channel_slug").notNull(),
-	entryLegKey: text("entry_leg_key").notNull(),
-	activatedAt: timestamp("activated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	activatedByUserId: text("activated_by_user_id"),
-	endedAt: timestamp("ended_at", { withTimezone: true, mode: 'string' }),
-	endedByUserId: text("ended_by_user_id"),
-	endReason: text("end_reason"),
-	replacedById: uuid("replaced_by_id"),
-}, (table) => [
-	foreignKey({
-		columns: [table.offerId],
-		foreignColumns: [brandOffers.id],
-		name: "brand_offer_active_sales_paths_offer_id_fkey",
-	}).onDelete("cascade"),
-	uniqueIndex("brand_offer_active_sales_paths_one_per_entry")
-		.on(table.offerId, table.entryChannelSlug, table.entryLegKey)
-		.where(sql`ended_at IS NULL`),
-	uniqueIndex("brand_offer_active_sales_paths_one_per_combination")
-		.on(table.offerId, table.combinationKey)
-		.where(sql`ended_at IS NULL`),
-	index("brand_offer_active_sales_paths_offer_idx").on(table.offerId),
-	check("brand_offer_active_sales_paths_end_reason", sql`end_reason IS NULL OR end_reason IN ('deactivated', 'replaced')`),
-	check("brand_offer_active_sales_paths_ended_has_reason", sql`(ended_at IS NULL) = (end_reason IS NULL)`),
-	check("brand_offer_active_sales_paths_replaced_has_successor", sql`(end_reason = 'replaced') = (replaced_by_id IS NOT NULL)`),
-]);
-
-/**
  * A brand's DIRECT competitors were looked for (migration 0081). The PRESENCE of
  * this row is the "computed" signal: no row = never computed, a row with zero
  * `brand_competitors` rows = computed, nothing found. Keyed on the brand alone —
