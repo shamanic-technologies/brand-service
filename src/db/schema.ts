@@ -1690,6 +1690,27 @@ export const brandOfferChannels = pgTable("brand_offer_channels", {
 ]);
 
 /**
+ * The SALES PATHS the customer SELECTED on an offer (features-service
+ * combinationKeys, stored as given), migration 0084. Same shape and semantics as
+ * `brandOfferChannels`: no row = never stated (the consumer applies its own
+ * default), a row with an empty list = stated, none selected. Several paths may
+ * share a campaign: no uniqueness rule, no money. See
+ * `offerSelectedSalesPathsService`.
+ */
+export const brandOfferSelectedSalesPaths = pgTable("brand_offer_selected_sales_paths", {
+	offerId: uuid("offer_id").primaryKey().notNull(),
+	combinationKeys: text("combination_keys").array().notNull(),
+	statedAt: timestamp("stated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	statedByUserId: text("stated_by_user_id"),
+}, (table) => [
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_offer_selected_sales_paths_offer_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * A brand's DIRECT competitors were looked for (migration 0081). The PRESENCE of
  * this row is the "computed" signal: no row = never computed, a row with zero
  * `brand_competitors` rows = computed, nothing found. Keyed on the brand alone —

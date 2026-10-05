@@ -67,6 +67,10 @@ survives in brand-service; do NOT reintroduce one — rates are per LEG
 `GET|PUT /orgs/brands/:brandId/offers/:offerId/channels` (`{ channelSlugs }`, full replace, a slug twice = 400), `GET /internal/offers/:offerId/channels`. Table `brand_offer_channels` (migration `0082`); no row = `stated: false` (the consumer's default applies, never written here), empty list = stated. Slugs stored AS GIVEN. Guard `tests/integration/offerChannels.test.ts`.
 - **Per-offer ACTIVE SALES PATHS were shipped (v0.83.5) and REMOVED the same day** (owner 2026-10-04: activation is a per-CAMPAIGN budget in billing-service). Table `brand_offer_active_sales_paths` dropped by `0083` (0 rows in prod). Do NOT reintroduce an offer-level activation store here.
 
+## Offer selected sales paths (`offerSelectedSalesPathsService`)
+
+`GET|PUT /orgs/brands/:brandId/offers/:offerId/selected-sales-paths` (`{ combinationKeys }`, full replace, a key twice = 400), `GET /internal/offers/:offerId/selected-sales-paths`. Table `brand_offer_selected_sales_paths` (migration `0084`), same semantics as channels: no row = `stated: false` (the dashboard pre-ticks paths above 1x ROI, never written here), empty list = stated. features-service `combinationKey`s stored AS GIVEN. A plain STATED list (what the Sales path page lists), not the activation store above: no uniqueness across paths, no history, no money. Guard `tests/integration/offerSelectedSalesPaths.test.ts`.
+
 ## Brand competitors — found by us, LinkedIn read off THEIR site (`brandCompetitorsService`)
 
 `GET /orgs/brands/:brandId/competitors`, `POST .../competitors/discover` (`{ refresh? }`),
