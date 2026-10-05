@@ -8,7 +8,6 @@ vi.mock('../../src/db', () => ({
   brandUserFields: {},
   brandExtractedFields: {},
   brands: {},
-  brandSalesEconomics: {},
 }));
 
 import { parseIcp } from '../../src/services/icpSuggestionService';

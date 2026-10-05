@@ -5,7 +5,7 @@ import { db, brandClickDestinations } from '../db';
  * Per-brand "click destination URL" config: the page outreach clicks should
  * land on. Default (no row) is the brand's own domain; the user can override it
  * with another page of their site. Brand-level config reused across that brand's
- * campaigns — mirrors the sales-economics per-brand-config scoping (keyed by
+ * campaigns — per-brand-config scoping (keyed by
  * brand_id, NOT on the global `brands` identity row).
  */
 

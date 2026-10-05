@@ -39,7 +39,6 @@ export interface UpdatedTable {
 /** Every table keyed on (org_id, brand_id). Order matters only for readability. */
 export const ORG_SCOPED_BRAND_TABLES = [
   'org_brands',
-  'brand_sales_economics',
   'brand_click_destinations',
   'brand_whatsapp_links',
   'brand_sales_rep_phones',
@@ -53,7 +52,6 @@ export const ORG_SCOPED_BRAND_TABLES = [
 
 /** One row per (org_id, brand_id): the PK is exactly that pair. */
 const ONE_ROW_PER_ORG_BRAND = [
-  'brand_sales_economics',
   'brand_click_destinations',
   'brand_whatsapp_links',
   'brand_sales_rep_phones',

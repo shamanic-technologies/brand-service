@@ -18,14 +18,14 @@ export const orgRouter = Router();
  *
  * Persist the brand's WhatsApp link — the click destination the outreach /
  * sending pipeline points recipients at for the "maximize WhatsApp
- * conversations" goal. Per-brand config (mirrors the click-destination /
- * sales-economics write routes), one row per brand, reused across the brand's
+ * conversations" goal. Per-brand config (mirrors the click-destination
+ * write route), one row per brand, reused across the brand's
  * campaigns. Body `{ whatsAppLink: string }` accepts a WhatsApp URL (wa.me /
  * api.whatsapp.com) or a phone number; a bare number is normalized to a
  * `https://wa.me/<digits>` link. Invalid input → 400. Idempotent upsert.
  * Returns `{ whatsAppLink }` (the saved, normalized value).
  *
- * Same auth as the per-brand click-destination / sales-economics PUT:
+ * Same auth as the per-brand click-destination PUT:
  * org-scoped + the brand must belong to the caller's org (400 bad uuid /
  * 404 unknown brand / 403 foreign).
  */

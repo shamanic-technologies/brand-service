@@ -80,7 +80,7 @@ export async function rewriteBrandReferences(
   // One-row-per-(org, brand) tables: the target's own row always wins, so drop
   // the source's row whenever the target already has one FOR THE SAME ORG.
   // `brand_share_tokens` is absent on purpose — it is never rewritten (see below).
-  for (const table of ['brand_business_context', 'brand_sales_economics', 'brand_click_destinations', 'brand_whatsapp_links', 'brand_sales_rep_phones']) {
+  for (const table of ['brand_business_context', 'brand_click_destinations', 'brand_whatsapp_links', 'brand_sales_rep_phones']) {
     await query(
       `DELETE FROM ${table} s WHERE s.brand_id = $1
        AND EXISTS (SELECT 1 FROM ${table} t WHERE t.brand_id = $2 AND t.org_id = s.org_id)`,
@@ -119,7 +119,6 @@ export async function rewriteBrandReferences(
     'brand_individuals',
     'brand_user_fields',
     'brand_business_context',
-    'brand_sales_economics',
     'brand_leg_rates',
     'brand_click_destinations',
     'brand_whatsapp_links',

@@ -20,7 +20,7 @@ export const orgRouter = Router();
  * PUT /orgs/brands/:brandId/click-destination
  *
  * Persist the brand's chosen click-destination URL — the page outreach clicks
- * should land on. Per-brand config (mirrors the sales-economics write route),
+ * should land on. Per-brand config (keyed on org + brand),
  * reused across the brand's campaigns. Body `{ clickDestinationUrl: string }`;
  * the URL must be an absolute http(s) URL (non-http(s) / unparseable → 400) that
  * is EITHER on the brand's own domain (or a subdomain) OR a WhatsApp link (wa.me /
@@ -28,7 +28,7 @@ export const orgRouter = Router();
  * on a website brand is rejected 400.
  * Idempotent upsert. Returns `{ clickDestinationUrl }` (the saved value).
  *
- * Same auth as the per-brand sales-economics PUT: org-scoped + the brand must
+ * Same auth as every per-brand config PUT: org-scoped + the brand must
  * belong to the caller's org (400 bad uuid / 404 unknown brand / 403 foreign).
  */
 orgRouter.put('/brands/:brandId/click-destination', async (req: Request, res: Response) => {

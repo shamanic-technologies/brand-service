@@ -66,7 +66,7 @@ export interface BrandDetail {
   // brand (url null) with no override set — there is no landing URL to fall back
   // to. The default is computed on read (free), not persisted — the
   // click-destinations row's presence remains the "user-set" signal. Per-brand
-  // config, mirrors sales-economics scoping — never on the brand identity row.
+  // config, keyed on org + brand — never on the brand identity row.
   clickDestinationUrl: string | null;
   // The brand's WhatsApp link — the click destination for the "maximize
   // WhatsApp conversations" goal. `null` when unset: unlike clickDestinationUrl

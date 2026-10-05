@@ -8,8 +8,7 @@
  * tech stack / funding / hiring / buying-intent when relevant), in the style of
  * an Apollo search query. The model walks an Apollo-aligned dimension checklist
  * and includes only the dimensions that genuinely sharpen the segment. Seeded
- * from the brand's current brand-profile fields plus target-audience signals and
- * effective sales economics (when present). The result is a single one-line
+ * from the brand's current brand-profile fields plus target-audience signals. The result is a single one-line
  * string returned to the caller; NOTHING is persisted.
  *
  * Optionally the caller passes `existingIcps` (ICPs already found). When present,
@@ -33,7 +32,6 @@ import type { OrgCaller } from '../lib/chat-client';
 import { createRun, updateRun } from '../lib/runs-client';
 import { db, brandExtractedFields } from '../db';
 import { brandProfileService } from './brandProfileService';
-import { salesEconomicsService } from './salesEconomicsService';
 
 /**
  * Extracted-field keys that describe the brand's TARGET AUDIENCE. These are
@@ -215,24 +213,18 @@ async function getAudienceSignals(brandId: string): Promise<AudienceSignals> {
 export function buildMessage(
   profileFields: Record<string, string | string[]>,
   audienceSignals: AudienceSignals,
-  economics: { economics: unknown; source: string | null },
   existingIcps: string[],
 ): string {
   // Only the offer/targeting-relevant fields reach the model — conversion-copy
   // levers and brand-vanity self-description are dropped here (single source of
   // truth for what enters the "Brand profile" context). The dedicated
-  // audience-signal + economics blocks below are untouched.
+  // audience-signal block below is untouched.
   const curatedProfile = curateIcpProfileFields(profileFields);
 
   const audienceBlock =
     Object.keys(audienceSignals).length === 0
       ? 'No explicit target-audience signals on record.'
       : `Target-audience signals (from the brand's own extracted data):\n${JSON.stringify(audienceSignals, null, 2)}`;
-
-  const economicsBlock =
-    economics.economics === null
-      ? 'No sales economics on record.'
-      : `Effective sales economics (source: ${economics.source}):\n${JSON.stringify(economics.economics, null, 2)}`;
 
   const existingBlock =
     existingIcps.length === 0
@@ -248,8 +240,6 @@ export function buildMessage(
     JSON.stringify(curatedProfile, null, 2),
     '',
     audienceBlock,
-    '',
-    economicsBlock,
     '',
     existingBlock,
     '',
@@ -313,7 +303,6 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
     );
   }
   const audienceSignals = await getAudienceSignals(brandId);
-  const economics = await salesEconomicsService.getEffectiveByBrandId(caller.orgId, brandId);
 
   // 2. Create a brand-service run as a child of the caller's run.
   const run = await createRun({
@@ -348,7 +337,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
     const result = await chat(
       {
         systemPrompt: SYSTEM_PROMPT,
-        message: buildMessage(profileFields, audienceSignals, economics, existingIcps),
+        message: buildMessage(profileFields, audienceSignals, existingIcps),
         provider: 'google',
         // flash-pro (Gemini 3.8 Flash) — the onboarding prefill path, where an
         // anonymous org holds $5 of trial credit and chat-service provisions the

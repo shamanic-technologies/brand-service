@@ -189,7 +189,7 @@ describe('POST /internal/transfer-brand — moves the whole (org, brand) state',
   }
 
   const TABLES = [
-    'org_brands', 'brand_sales_economics', 'brand_click_destinations', 'brand_whatsapp_links',
+    'org_brands', 'brand_click_destinations', 'brand_whatsapp_links',
     'brand_sales_rep_phones', 'brand_share_tokens', 'brand_business_context', 'brand_leg_rates',
     'brand_offers', 'brand_user_fields', 'brand_offer_answers',
   ];
@@ -208,8 +208,6 @@ describe('POST /internal/transfer-brand — moves the whole (org, brand) state',
   async function seedState(orgId: string, brandId: string, offerName: string) {
     const offerId = randomUUID();
     await db.execute(sql`INSERT INTO org_brands (org_id, brand_id) VALUES (${orgId}, ${brandId})`);
-    await db.execute(sql`INSERT INTO brand_sales_economics (org_id, brand_id, lifetime_revenue_usd, reply_to_meeting_pct, visit_to_meeting_pct, meeting_to_close_pct, visit_to_close_pct)
-      VALUES (${orgId}, ${brandId}, 1000, 10, 5, 25, 1)`);
     await db.execute(sql`INSERT INTO brand_click_destinations (org_id, brand_id, click_destination_url) VALUES (${orgId}, ${brandId}, 'https://x.test/a')`);
     await db.execute(sql`INSERT INTO brand_whatsapp_links (org_id, brand_id, whatsapp_link) VALUES (${orgId}, ${brandId}, 'https://wa.me/1')`);
     await db.execute(sql`INSERT INTO brand_sales_rep_phones (org_id, brand_id, phone) VALUES (${orgId}, ${brandId}, '+15550001')`);
@@ -276,7 +274,6 @@ describe('POST /internal/transfer-brand — moves the whole (org, brand) state',
       .set(headers)
       .send({ sourceBrandId: brandId, sourceOrgId: source, targetOrgId: target });
     expect(res.status).toBe(200);
-    expect(res.body.updatedTables).toContainEqual({ tableName: 'brand_sales_economics.replaced_in_target', count: 1 });
     expect(res.body.updatedTables).toContainEqual({ tableName: 'brand_leg_rates.replaced_in_target', count: 1 });
     expect(res.body.updatedTables).toContainEqual({ tableName: 'brand_user_fields.replaced_in_target', count: 1 });
     for (const t of TABLES) {
