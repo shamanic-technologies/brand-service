@@ -4068,6 +4068,94 @@ registry.registerPath({
   },
 });
 
+// ---------------------------------------------------------------------------
+// WHICH SALES PATHS THE CUSTOMER SELECTED ON AN OFFER.
+// ---------------------------------------------------------------------------
+
+const OFFER_SELECTED_SALES_PATHS_DESCRIPTION =
+  'The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s ' +
+  '(e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), ' +
+  'stored as given and not validated against the features-service catalogue. A plain stated list: no ' +
+  'uniqueness across paths (several may share a campaign), no history, no money. `stated: false` ' +
+  '(`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What "never ' +
+  'stated" means is the consumer\'s default; brand-service never writes one. Scoped to ONE offer.';
+
+export const PutOfferSelectedSalesPathsRequestSchema = z
+  .object({
+    // FULL replace of the offer's selected paths (may be empty). A key twice is a 400.
+    combinationKeys: z
+      .array(z.string().trim().min(1).max(2000))
+      .max(200)
+      .refine((keys) => new Set(keys).size === keys.length, { message: 'A combinationKey appears twice' }),
+  })
+  .openapi('PutOfferSelectedSalesPathsRequest');
+
+export const OfferSelectedSalesPathsSchema = z
+  .object({
+    offerId: z.string().uuid(),
+    stated: z.boolean(),
+    combinationKeys: z.array(z.string()).nullable(),
+    statedAt: z.string().nullable(),
+    statedByUserId: z.string().nullable(),
+  })
+  .openapi('OfferSelectedSalesPaths');
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/selected-sales-paths',
+  summary: 'Read the sales paths selected on an offer',
+  description: OFFER_SELECTED_SALES_PATHS_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'The selected paths (or not stated)',
+      content: { 'application/json': { schema: OfferSelectedSalesPathsSchema } },
+    },
+    400: { description: 'Invalid ID' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/selected-sales-paths',
+  summary: 'Replace the sales paths selected on an offer',
+  description: 'Replaces the whole list; `x-user-id` is recorded as who stated it. ' + OFFER_SELECTED_SALES_PATHS_DESCRIPTION,
+  request: {
+    params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: PutOfferSelectedSalesPathsRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: 'The selected paths, as read after the write',
+      content: { 'application/json': { schema: OfferSelectedSalesPathsSchema } },
+    },
+    400: { description: 'Invalid ID or body (incl. a combinationKey twice)' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/offers/{offerId}/selected-sales-paths',
+  summary: 'Service read of the sales paths selected on an offer',
+  description: OFFER_SELECTED_SALES_PATHS_DESCRIPTION + ' Keyed on the offer alone; no user or org header needed.',
+  request: { params: z.object({ offerId: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: 'The selected paths (or not stated)',
+      content: { 'application/json': { schema: OfferSelectedSalesPathsSchema } },
+    },
+    400: { description: 'Invalid offer ID' },
+    404: { description: 'Offer not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
 // ─── Brand competitors ───────────────────────────────────────────────────────
 
 const BRAND_COMPETITORS_DESCRIPTION =
