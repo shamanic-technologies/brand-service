@@ -15,7 +15,7 @@ export const internalRouter = Router();
  * Per-brand read-only SHARE credential.
  *
  * The write side (/orgs) is org-scoped and brand-ownership-checked exactly like
- * the click-destination / whatsapp-link / sales-economics per-brand config
+ * the click-destination / whatsapp-link per-brand config
  * routes: 400 bad uuid / 404 unknown brand / 403 brand outside the caller's org.
  * So a caller from another org can neither read, create, rotate nor revoke a
  * credential that is not theirs.

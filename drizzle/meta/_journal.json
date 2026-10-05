@@ -582,6 +582,13 @@
       "when": 1791300000000,
       "tag": "0084_offer_selected_sales_paths",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1791400000000,
+      "tag": "0085_drop_brand_sales_economics",
+      "breakpoints": true
     }
   ]
 }

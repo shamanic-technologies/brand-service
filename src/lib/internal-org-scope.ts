@@ -6,7 +6,7 @@ import { db, orgBrands } from '../db';
  * Resolving WHICH org a service-auth read is about.
  *
  * Per-brand configuration is org-scoped (see `src/db/schema.ts`): several orgs
- * legitimately claim the same domain, so "the sales economics of brand X" is not
+ * legitimately claim the same domain, so "the click destination of brand X" is not
  * a question with one answer. The internal routes were built before that was
  * true and are called today without any org.
  *

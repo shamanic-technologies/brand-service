@@ -228,7 +228,7 @@ describe('Click Destination Endpoints', () => {
     expect(res.status).toBe(400);
   });
 
-  // Ownership / id semantics mirror the sales-economics write
+  // Ownership / id semantics mirror every per-brand config write
   it('PUT a non-UUID brand id is rejected 400', async () => {
     const res = await request(app)
       .put(path('not-a-uuid'))
