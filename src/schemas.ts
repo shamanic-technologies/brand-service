@@ -5,7 +5,7 @@ import {
 } from '@asteasolutions/zod-to-openapi';
 import { BrandUrlSchema, OptionalBrandUrlSchema } from './lib/url-utils';
 import { LogoUrlSchema } from './lib/logo-url';
-import { ACCEPTED_OPTIMIZATION_GOALS, RETIRED_GOALS } from './lib/goal-vocabulary';
+import { RETIRED_GOALS } from './lib/goal-vocabulary';
 import { OFFER_ICONS } from './lib/offer-icons';
 import {
   SUPPLIED_OFFER_NAME_MAX_CHARS,
@@ -2036,234 +2036,6 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
-// ============================================================
-// Sales Economics (brand-level conversion economics)
-// ============================================================
-
-// The sales conversion-economics metrics WRITTEN by a caller. Wire field names
-// are consumed byte-stable by api-service + the dashboard — do NOT rename.
-// The self-serve close step is split into two sub-rates: visit→signup and
-// signup→paid client. `visitToClosePct` is NOT written here — it is DERIVED on
-// the response (visitToSignupPct * signupToPaidClientPct / 100).
-// No `.coerce`, no `.default()`: a missing/invalid field fails loud (400).
-const PercentSchema = z.number().min(0).max(100);
-
-export const SalesEconomicsMetricsSchema = z
-  .object({
-    lifetimeRevenueUsd: z.number().int().min(0),
-    replyToMeetingPct: PercentSchema,
-    visitToMeetingPct: PercentSchema,
-    meetingToClosePct: PercentSchema,
-    visitToSignupPct: PercentSchema,
-    signupToPaidClientPct: PercentSchema,
-  })
-  .openapi('SalesEconomicsMetrics');
-
-// Brand-level B2C vs B2B classification. NOT named via `.openapi(...)` on
-// purpose: it is `.nullable()` at both call sites, and OAS 3.0 cannot attach
-// `nullable` to a bare `$ref` (same reason SavedSalesEconomicsSchema is unnamed).
-export const BusinessModelSchema = z.enum(['b2c', 'b2b']);
-
-// THE RETIRED GOAL VOCABULARY — accepted on WRITE, never emitted. Every
-// spelling the fleet has ever sent still writes (mirrored into the retired
-// columns, declaring nothing), so no caller has to change in lockstep.
-export const OptimizationGoalSchema = z
-  .enum(ACCEPTED_OPTIMIZATION_GOALS)
-  .openapi('OptimizationGoal');
-
-// UPSERT request body — a PARTIAL patch: EVERY field is optional and an omitted
-// field is left unchanged. That is the same leave-unchanged contract the optional
-// metrics already had; `.partial()` extends it to the 6 core metrics so a caller
-// changing one value (e.g. only lifetimeRevenueUsd) never has to restate the rest
-// from its own in-memory copy — restating is how a stale copy silently overwrites
-// values the user confirmed elsewhere (prod data loss, 2026-07-29).
-// A field that IS sent is validated exactly as before (no `.coerce`, no
-// `.default()`, range-checked) — sending the full set behaves identically to today.
-// CREATE is the one exception: a brand with NO stored row has nothing to leave
-// unchanged, so the 6 core metrics are ALL required there and the route fails loud
-// (400, naming the missing fields) rather than inventing a default or an average.
-// That requirement is enforced in salesEconomicsService.upsertByBrandId, not here,
-// because only the service knows whether a row exists.
-// businessModel: omitted = leave unchanged, `null` = clear it explicitly.
-// optimizationGoal: omitted = leave unchanged; sending sets it. NOT nullable.
-// visitToPaidClientPct / replyToPaidClientPct: single-step rates for the
-// website_visits / positive_replies goals. Optional — omitted = leave unchanged.
-// visitToFormSubmissionPct / formSubmissionToPaidClientPct: two-step rates for
-// the form_submissions goal. Optional — omitted = leave unchanged.
-export const UpsertSalesEconomicsRequestSchema = SalesEconomicsMetricsSchema.partial().extend({
-  visitToPaidClientPct: PercentSchema.optional(),
-  replyToPaidClientPct: PercentSchema.optional(),
-  visitToFormSubmissionPct: PercentSchema.optional(),
-  formSubmissionToPaidClientPct: PercentSchema.optional(),
-  businessModel: BusinessModelSchema.nullable().optional(),
-  optimizationGoal: OptimizationGoalSchema.optional(),
-}).openapi('UpsertSalesEconomicsRequest');
-
-// Saved set = the 5 metrics + when it was last written. Left UNNAMED (no
-// `.openapi(name)`) on purpose: the READ response needs `salesEconomics`
-// nullable, and OAS 3.0 cannot attach `nullable` to a bare `$ref`. Inlining
-// lets `.nullable()` render correctly on the READ side.
-export const SavedSalesEconomicsSchema = SalesEconomicsMetricsSchema.extend({
-  // DERIVED = visitToSignupPct * signupToPaidClientPct / 100. Always
-  // present on read (never null); kept on the wire for projection consumers
-  // (features-service) that still read visitToClosePct unchanged.
-  visitToClosePct: PercentSchema,
-  // Single-step rates, always present on read (server default 5 / 25).
-  visitToPaidClientPct: PercentSchema,
-  replyToPaidClientPct: PercentSchema,
-  // Two-step form-submission rates, always present on read (server default
-  // 25 / 20). NOT NULL — features-service fails loud on a null rate for a
-  // form_submissions-goal brand, so these mirror the single-step never-null contract.
-  visitToFormSubmissionPct: PercentSchema,
-  formSubmissionToPaidClientPct: PercentSchema,
-  // Always present on read; `null` = never set.
-  businessModel: BusinessModelSchema.nullable(),
-  // NO `optimizationGoal`: the retired goal vocabulary. Still ACCEPTED on
-  // write and mirrored into the retired column, read by nothing.
-  updatedAt: z.string(),
-});
-
-// READ response — nullable: `null` means nothing saved (NOT an error).
-export const GetSalesEconomicsResponseSchema = z
-  .object({
-    salesEconomics: SavedSalesEconomicsSchema.nullable(),
-  })
-  .openapi('GetSalesEconomicsResponse');
-
-// WRITE response — never null (you just wrote it). Deliberately a different
-// shape from the READ response; consumers validate them with separate schemas.
-export const UpsertSalesEconomicsResponseSchema = z
-  .object({
-    salesEconomics: SavedSalesEconomicsSchema,
-  })
-  .openapi('UpsertSalesEconomicsResponse');
-
-// EFFECTIVE response — gold serving layer: the economics to USE for a brand.
-// `economics` is the brand's saved 5 metrics (source "user") or the cross-brand
-// average (median LTV, mean percents; source "cross-brand-average"), or null at
-// cold start (source null). Inlined + `.nullable()` for the same OAS-3.0
-// bare-$ref reason as SavedSalesEconomicsSchema.
-export const SalesEconomicsEffectiveResponseSchema = z
-  .object({
-    economics: z
-      .object({
-        lifetimeRevenueUsd: z.number().int().min(0),
-        replyToMeetingPct: PercentSchema,
-        visitToMeetingPct: PercentSchema,
-        meetingToClosePct: PercentSchema,
-        visitToSignupPct: PercentSchema,
-        signupToPaidClientPct: PercentSchema,
-        // DERIVED = visitToSignupPct * signupToPaidClientPct / 100.
-        visitToClosePct: PercentSchema,
-        // Single-step rates: user source passes through; cross-brand-average
-        // source is the MEAN of each.
-        visitToPaidClientPct: PercentSchema,
-        replyToPaidClientPct: PercentSchema,
-        // Two-step form-submission rates (form_submissions goal): user source
-        // passes through; cross-brand-average source is the MEAN of each. NOT
-        // NULL columns → always served, never null (features-service fails loud).
-        visitToFormSubmissionPct: PercentSchema,
-        formSubmissionToPaidClientPct: PercentSchema,
-      })
-      .nullable(),
-    source: z.enum(['user', 'cross-brand-average']).nullable(),
-  })
-  .openapi('SalesEconomicsEffectiveResponse');
-
-registry.registerPath({
-  method: 'get',
-  path: '/orgs/brands/{brandId}/sales-economics',
-  summary: "Get a brand's saved sales conversion economics",
-  description:
-    'Returns the saved economics for the brand (conversion metrics incl. the two self-serve sub-rates ' +
-    '`visitToSignupPct` + `signupToPaidClientPct`, plus the DERIVED `visitToClosePct` = ' +
-    'visitToSignupPct * signupToPaidClientPct / 100, + `businessModel`), or ' +
-    '`{ salesEconomics: null }` when nothing has been saved yet. `businessModel` is `b2c`, `b2b`, ' +
-    'or `null` (never set). Unset is NOT ' +
-    'a 404 — 404 is reserved for an unknown brand. The brand must belong to the caller\'s org ' +
-    '(x-org-id); a brand outside the org is rejected with 403.',
-  request: { params: z.object({ brandId: z.string().uuid() }) },
-  responses: {
-    200: {
-      description: 'Saved metrics, or null when unset',
-      content: { 'application/json': { schema: GetSalesEconomicsResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID format' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'get',
-  path: '/internal/brands/{brandId}/sales-economics',
-  summary: "Internal read of a brand's saved sales economics (incl. optimizationGoal)",
-  description:
-    'Internal api-key read of a brand SAVED economics — keyed by brandId, NO org context. ' +
-    'Built for campaign-service (a scheduler running as a service): it reads `optimizationGoal` ' +
-    '(the brand current optimization goal, a canonical token) once per per-lead loop to drive workflow ' +
-    'selection. Returns the brand OWN saved set (NOT the cross-brand-average effective one — a ' +
-    'brand goal must be the brand own, never an average), or `{ salesEconomics: null }` when the ' +
-    'brand has never saved economics. Unset is NOT a 404.',
-  request: { params: z.object({ brandId: z.string().uuid() }) },
-  responses: {
-    200: {
-      description: 'Saved metrics incl. optimizationGoal, or null when unset',
-      content: { 'application/json': { schema: GetSalesEconomicsResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID format' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'put',
-  path: '/orgs/brands/{brandId}/sales-economics',
-  summary: "Upsert a brand's sales conversion economics",
-  description:
-    'Idempotent PARTIAL write. EVERY field is optional: what you send is written, what you OMIT is ' +
-    'left unchanged — so a screen editing one value (e.g. only `lifetimeRevenueUsd`) sends only that ' +
-    'value and cannot overwrite the rest with a stale copy of them. Sending the full set behaves as ' +
-    'before. EXCEPTION — a brand with NO stored economics has nothing to leave unchanged, so the six ' +
-    'core metrics (`lifetimeRevenueUsd`, `replyToMeetingPct`, `visitToMeetingPct`, `meetingToClosePct`, ' +
-    '`visitToSignupPct`, `signupToPaidClientPct`) are ALL required on that first write; a partial ' +
-    'payload there is rejected 400 with a `missing` array (never defaulted, never averaged). ' +
-    'Percents are 0..100, decimals allowed. `visitToClosePct` is NOT accepted on the request — it is DERIVED on ' +
-    'the response = visitToSignupPct * signupToPaidClientPct / 100; any `visitToClosePct` sent ' +
-    'is ignored. Optional `businessModel` ' +
-    '(`b2c` | `b2b`): omitting leaves it unchanged, `null` clears it. Optional `optimizationGoal` — any canonical token ' +
-    '(`signup` | `meetingBooked` | `websitePurchase` | `combinedSales` | `websiteVisit` | ' +
-    '`positiveReply` | `formSubmission` | `whatsappConversation`) OR any legacy spelling ' +
-    '(`signups`, `booked_meetings`, `sales_meetings`, `sales`, `website_purchase`, `combined_sales`, ' +
-    '`website_visits`, `positive_replies`, `form_submissions`, `whatsapp_conversations`, `purchase`), ' +
-    'which is mirrored into the retired goal column and never echoed: ' +
-    'omitting leaves it unchanged, sending sets it. Optional `visitToFormSubmissionPct` + ' +
-    '`formSubmissionToPaidClientPct` (form_submissions two-step rates): omitting leaves them unchanged. ' +
-    'Invalid enum values ' +
-    'are rejected 400. Repeating the same PUT yields the same end state. Returns the saved set with ' +
-    "the derived `visitToClosePct` + `businessModel` + `updatedAt`. The brand must belong to " +
-    "the caller's org (x-org-id); a brand outside the org is rejected with 403.",
-  request: {
-    params: z.object({ brandId: z.string().uuid() }),
-    body: { content: { 'application/json': { schema: UpsertSalesEconomicsRequestSchema } } },
-  },
-  responses: {
-    200: {
-      description: 'Saved metrics',
-      content: { 'application/json': { schema: UpsertSalesEconomicsResponseSchema } },
-    },
-    400: {
-      description:
-        'Invalid brand ID format, an invalid metric value, or a partial payload for a brand that has ' +
-        'no stored economics (body carries `missing`: the core metrics that must be sent)',
-    },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
 // ── Click destination URL (per-brand config) ────────────────────────────────
 // WRITE request: a single absolute http(s) URL. The route additionally validates
 // the protocol (http/https) and rejects non-http(s)/unparseable input with 400.
@@ -2297,7 +2069,7 @@ registry.registerPath({
   summary: "Set a brand's click destination URL",
   description:
     'Persist the page outreach clicks should land on for this brand. Per-brand config ' +
-    '(reused across the brand\'s campaigns), mirroring the sales-economics write route — NOT brand ' +
+    '(reused across the brand\'s campaigns), keyed on org + brand — NOT brand ' +
     'global identity. Body `{ clickDestinationUrl }` must be an absolute http(s) URL that is EITHER on the ' +
     "brand's OWN domain (or a subdomain of it; `www` is treated as the bare domain on both sides) OR a " +
     'WhatsApp link (wa.me / whatsapp.com / api.whatsapp.com / chat.whatsapp.com, https; or a bare phone ' +
@@ -2355,8 +2127,8 @@ registry.registerPath({
   description:
     'Persist the brand\'s WhatsApp link — the click destination the outreach / sending pipeline ' +
     'points recipients at for the "maximize WhatsApp conversations" goal. Per-brand config ' +
-    '(one row per brand, reused across the brand\'s campaigns), mirroring the click-destination / ' +
-    'sales-economics write routes — NOT brand global identity. Body `{ whatsAppLink }` accepts a ' +
+    '(one row per brand, reused across the brand\'s campaigns), mirroring the click-destination ' +
+    'write route — NOT brand global identity. Body `{ whatsAppLink }` accepts a ' +
     'WhatsApp URL (wa.me / api.whatsapp.com, https only) or a phone number; a bare number is ' +
     'normalized to `https://wa.me/<digits>`. Non-WhatsApp / non-https / unparseable input is ' +
     'rejected 400. Idempotent upsert: repeating the same PUT yields the same end state. Returns ' +
@@ -2373,31 +2145,6 @@ registry.registerPath({
       content: { 'application/json': { schema: UpsertWhatsAppLinkResponseSchema } },
     },
     400: { description: 'Invalid brand ID format or invalid/missing WhatsApp link' },
-    403: { description: "Brand does not belong to the caller's org" },
-    404: { description: 'Brand not found' },
-    500: { description: 'Internal server error' },
-  },
-});
-
-registry.registerPath({
-  method: 'get',
-  path: '/orgs/brands/{brandId}/sales-economics-effective',
-  summary: 'Effective sales economics for a brand (saved or cross-brand default)',
-  description:
-    'Gold serving layer — the economics to USE for the brand: its saved metric set (`source: ' +
-    '"user"`), or the cross-brand average when unset (`lifetimeRevenueUsd` = MEDIAN, the percents = ' +
-    'MEAN, `visitToClosePct` DERIVED from the averaged sub-rates; `source: "cross-brand-average"`), ' +
-    'or `{ economics: null, source: null }` at cold start (no ' +
-    'brand has saved anything yet). Centralizes the null→average defaulting so consumers do not ' +
-    'reimplement it; `source` lets a caller flag an estimate as an estimate. The brand must belong to ' +
-    "the caller's org (x-org-id); a brand outside the org is rejected with 403.",
-  request: { params: z.object({ brandId: z.string().uuid() }) },
-  responses: {
-    200: {
-      description: 'Effective economics + provenance, or both null at cold start',
-      content: { 'application/json': { schema: SalesEconomicsEffectiveResponseSchema } },
-    },
-    400: { description: 'Invalid brand ID format' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     500: { description: 'Internal server error' },
@@ -2441,8 +2188,8 @@ registry.registerPath({
     'signals like tech stack / funding / hiring / buying-intent angle when ' +
     'relevant). The model walks an Apollo-aligned dimension checklist and includes ' +
     'only the dimensions that genuinely sharpen the segment. Seeded from the ' +
-    "brand's brand-profile fields, target-audience signals, and effective sales " +
-    'economics (when present). The result is a single dense one-line string ' +
+    "brand's brand-profile fields and target-audience signals. " +
+    'The result is a single dense one-line string ' +
     '(everyday language, ranges with scale abbreviations like "M"/"$"/"<", no ' +
     'jargon acronyms). Optional body `existingIcps` lists ICPs already found; when ' +
     'present the returned ICP is DISTINCT from and complementary to all of them ("given ' +
@@ -3691,6 +3438,9 @@ const LEG_RATES_MODEL_DESCRIPTION =
   'offer of the brand. Every known leg is listed, each once, followed by any leg the brand stated ' +
   'that is not in that list. An unstated leg reads `stated: false` with `ratePct` and `statedAt` ' +
   'null — never a number.';
+
+// A stated rate, in percent. No `.coerce`, no `.default()`: invalid fails loud (400).
+const PercentSchema = z.number().min(0).max(100);
 
 export const LegRateSchema = z
   .object({

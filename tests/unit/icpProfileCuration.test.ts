@@ -8,12 +8,10 @@ vi.mock('../../src/db', () => ({
   brandUserFields: {},
   brandExtractedFields: {},
   brands: {},
-  brandSalesEconomics: {},
 }));
 
 import { buildMessage, curateIcpProfileFields } from '../../src/services/icpSuggestionService';
 
-const emptyEconomics = { economics: null, source: null };
 
 describe('ICP profile curation', () => {
   it('drops brand-vanity + conversion-copy fields, keeps offer/targeting fields', () => {
@@ -84,7 +82,6 @@ describe('ICP profile curation', () => {
         funding: 'Raised $5M seed from a16z',
       },
       {},
-      emptyEconomics,
       [],
     );
 
@@ -96,19 +93,18 @@ describe('ICP profile curation', () => {
     expect(message).not.toContain('funding');
   });
 
-  it('curates the Brand profile block only — audience + economics blocks untouched', () => {
+  it('curates the Brand profile block only — audience block untouched', () => {
     const message = buildMessage(
       { companyOverview: 'Analytics', urgency: 'Ends Friday' },
       { targetAudience: ['RevOps leaders'], customerPainPoints: ['Manual reporting'] },
-      { economics: { visitToClosePct: 5 }, source: 'user' },
       ['Enterprise RevOps teams'],
     );
 
     // Audience signals still injected.
     expect(message).toContain('RevOps leaders');
     expect(message).toContain('Manual reporting');
-    // Economics still injected.
-    expect(message).toContain('visitToClosePct');
+    // The retired brand sales economics never reach the model.
+    expect(message).not.toContain('sales economics');
     // Existing ICP still threaded.
     expect(message).toContain('Enterprise RevOps teams');
     // Conversion lever dropped from the profile block.

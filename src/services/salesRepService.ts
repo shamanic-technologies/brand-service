@@ -12,7 +12,7 @@ import { db, brandSalesRepPhones } from '../db';
  *  - `phone` — the number to RING, within the minute, on that same reply.
  *
  * Brand grain, keyed on (org_id, brand_id) — mirrors the click-destination /
- * WhatsApp-link / sales-economics per-brand-config scoping, NOT the global
+ * WhatsApp-link per-brand-config scoping, NOT the global
  * `brands` identity row. No row at all means no rep, and that reads as both
  * fields `null` on the brand read — a first-class "nobody to reach", never an
  * error and never a default.

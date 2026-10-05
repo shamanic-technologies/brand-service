@@ -43,6 +43,10 @@ const ACKNOWLEDGED_DROPS: Record<string, string> = {
   '0041_drop_brand_profile_versions.sql':
     'PITR-recovered into brand_user_fields as CONFIRMED provenance; ' +
     'see scripts/recover-brand-user-fields-from-pitr.ts',
+  '0085_drop_brand_sales_economics.sql':
+    'Retired, not replaced (owner 2026-10-05): offer economics live in brand_offers + ' +
+    'brand_leg_rates. pg_dump before the drop: /root/backups/manual/' +
+    'brand_sales_economics_retire_20261005.sql.gz on the box (107 rows).',
 };
 
 function dropTargets(sql: string): string[] {

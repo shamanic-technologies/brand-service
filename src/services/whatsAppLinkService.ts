@@ -5,7 +5,7 @@ import { db, brandWhatsappLinks } from '../db';
  * Per-brand "WhatsApp link" config: the WhatsApp click destination the outreach
  * / sending pipeline points recipients at for the "maximize WhatsApp
  * conversations" goal. Brand-level config reused across that brand's campaigns —
- * mirrors the click-destination / sales-economics per-brand-config scoping
+ * mirrors the click-destination per-brand-config scoping
  * (keyed by brand_id, one row per brand, NOT on the global `brands` identity
  * row). Unset simply means no row (the brand read returns `whatsAppLink: null`).
  */

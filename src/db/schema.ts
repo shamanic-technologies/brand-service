@@ -120,70 +120,12 @@ export const orgBrands = pgTable("org_brands", {
 ]);
 
 /**
- * Brand-level sales conversion economics. One row per brand (PK = brand_id),
- * reused across every sales-cold-email campaign for that brand. The metrics
- * are brand-scoped persisted config (analogous to `intake_forms`). Unset simply means no row.
- *
- * This row is the brand-level bag of economic facts the revenue-overview
- * pipeline reads. New facts are added as typed nullable columns (one per fact).
- */
-export const brandSalesEconomics = pgTable("brand_sales_economics", {
-	orgId: uuid("org_id").notNull(),
-	brandId: uuid("brand_id").notNull(),
-	lifetimeRevenueUsd: integer("lifetime_revenue_usd").notNull(),
-	replyToMeetingPct: numeric("reply_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
-	visitToMeetingPct: numeric("visit_to_meeting_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
-	meetingToClosePct: numeric("meeting_to_close_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
-	// Self-serve close split into two sub-rates. NOT NULL with DB defaults
-	// (25 / 20) — a row inserted without them reads those, mirroring the
-	// optimizationGoal default convention below.
-	visitToSignupPct: numeric("visit_to_signup_pct", { precision: 7, scale: 4, mode: "number" }).default(25).notNull(),
-	signupToPaidClientPct: numeric("signup_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(20).notNull(),
-	// Single-step conversion rates for the beta goals website_visits / positive_replies:
-	// each is a straight visit→paid-client / reply→paid-client rate (no intermediate
-	// step). NOT NULL with DB defaults (5 / 25) — a never-set brand reads those.
-	visitToPaidClientPct: numeric("visit_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(5).notNull(),
-	replyToPaidClientPct: numeric("reply_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(25).notNull(),
-	// Two-step conversion rates for the form_submissions goal (visit→form
-	// submission→paid). NOT NULL with DB defaults (25 / 20) — mirrors the
-	// visitToSignupPct/signupToPaidClientPct two-step pair (form_submissions
-	// collapses to the `signup` runtime goal). Consumers (features-service) fail
-	// loud on a null rate for a form_submissions-goal brand, so these are served
-	// as real numbers everywhere (saved read, effective, cross-brand-average),
-	// identically to the single-step rates.
-	visitToFormSubmissionPct: numeric("visit_to_form_submission_pct", { precision: 7, scale: 4, mode: "number" }).default(25).notNull(),
-	formSubmissionToPaidClientPct: numeric("form_submission_to_paid_client_pct", { precision: 7, scale: 4, mode: "number" }).default(20).notNull(),
-	// DERIVED on every write = visitToSignupPct * signupToPaidClientPct / 100.
-	// Kept as a stored column so the revenue/projection engine (features-service)
-	// keeps reading it unchanged; never written directly by a caller.
-	visitToClosePct: numeric("visit_to_close_pct", { precision: 7, scale: 4, mode: "number" }).notNull(),
-	// Brand-level B2C vs B2B classification. Nullable: null = never set.
-	// Additive field — older callers omit it; see salesEconomicsService upsert.
-	businessModel: text("business_model"),
-	// A MIRROR of org_brands.current_goal, in the same canonical vocabulary.
-	// Nothing reads it: it existed to record the raw wire spelling back when two
-	// wire values (form_submissions, website_purchase) shared one runtime goal,
-	// and both are first-class goals now. NOT NULL default 'websitePurchase'.
-	optimizationGoal: text("optimization_goal").default('websitePurchase').notNull(),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	primaryKey({ columns: [table.orgId, table.brandId] }),
-	foreignKey({
-		columns: [table.brandId],
-		foreignColumns: [brands.id],
-		name: "brand_sales_economics_brand_id_fkey",
-	}).onDelete("cascade"),
-]);
-
-/**
  * Brand-level click destination URL. One row per brand (PK = brand_id), reused
- * across every outreach campaign for that brand — analogous to
- * `brand_sales_economics` / `brands.current_goal` per-brand config, NOT brand
- * global identity. The page outreach clicks should land on; default (no row) is
+ * across every outreach campaign for that brand — per-brand config,
+ * NOT brand global identity. The page outreach clicks should land on; default (no row) is
  * the brand's own domain, which the user can override with another page of their
  * site. Stored as a dedicated config table (not on the `brands` identity row) so
- * it mirrors the sales-economics scoping. `click_destination_url` is NOT NULL —
+ * it stays org-scoped. `click_destination_url` is NOT NULL —
  * the row's presence IS the "set" signal; an unset brand simply has no row, and
  * the brand read (getBrandDetail) then defaults `clickDestinationUrl` to the
  * brand's own landing `url` so the response value is never null.
@@ -206,7 +148,7 @@ export const brandClickDestinations = pgTable("brand_click_destinations", {
 /**
  * Brand-level WhatsApp link. One row per brand (PK = brand_id) — "unique per
  * brand" — reused across every outreach campaign for that brand, analogous to
- * `brand_click_destinations` / `brand_sales_economics` per-brand config, NOT
+ * `brand_click_destinations` per-brand config, NOT
  * brand global identity. Stores the WhatsApp click destination the outreach /
  * sending pipeline points recipients at for the "maximize WhatsApp
  * conversations" goal. `whatsapp_link` is NOT NULL — the row's presence IS the

@@ -53,6 +53,15 @@ backfill scripts, table `brand_funnel_arrow_rates` and column
 `*_funnel_snapshot_20260926` tables in the same transaction and refuses to drop on
 a count mismatch).
 
+**Brand sales economics are retired too (2026-10-05)**: the
+`/orgs/brands/:brandId/sales-economics[-effective]` and
+`/internal/brands/:brandId/sales-economics` routes, the cross-brand AVERAGE
+fallback, and table `brand_sales_economics` (migration `0085`, backup
+`/root/backups/manual/brand_sales_economics_retire_20261005.sql.gz` on the box).
+The economics every figure prices on live on the OFFER (`brand_offers` lifetime
+revenue + `brand_leg_rates`). Never re-add a brand-grain economics row or an
+average across brands.
+
 **Wave C3 deleted the last one: `GET /internal/offers/:offerId/sales-funnels`**,
 its read module + catalogue, and tables `brand_sales_funnels` +
 `brand_sales_funnel_arrow_rates` (migration `0074`, same snapshot-count-drop shape:
