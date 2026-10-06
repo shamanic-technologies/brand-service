@@ -122,7 +122,7 @@ export class IcpSuggestionUnavailableError extends Error {
   }
 }
 
-const SYSTEM_PROMPT = [
+export const ICP_SYSTEM_PROMPT = [
   "You are a B2B go-to-market strategist defining a brand's Ideal Customer",
   'Profile (ICP). An ICP describes the BEST-FIT customer segment — the accounts',
   'that get the most value from the brand, are cheapest to win, and stay longest',
@@ -190,9 +190,10 @@ const SYSTEM_PROMPT = [
   'this brand solves) and WHY they are best-fit, when it sharpens the segment.',
   '',
   'Rules for the description:',
-  '- ONE sentence. Pack in the chosen dimensions densely, like a search query —',
-  '  no preamble, no "the ideal customer is", just the filter itself. Never a',
-  '  paragraph or multiple sentences.',
+  '- ONE sentence of AT MOST 40 WORDS. Pack in the chosen dimensions densely,',
+  '  like a search query — no preamble, no "the ideal customer is", no',
+  '  explanation of why they fit, just the filter itself. Never a paragraph or',
+  '  multiple sentences: drop the weakest dimensions to stay under the cap.',
   '- Plain, everyday language a non-expert understands.',
   '- Express firmographics as RANGES with short scale abbreviations: "M" for',
   '  million, "$", "<", ">", en dashes for ranges (e.g. "$5M–$50M/yr revenue",',
@@ -459,7 +460,7 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
   try {
     const result = await chat(
       {
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: ICP_SYSTEM_PROMPT,
         message: buildMessage({ offer, brandFields, audienceSignals, existingIcps }),
         // Claude Opus 5.5 at its DEFAULT reasoning (effort medium). Owner,
         // 2026-10-06: quality wins on this step — the audiences proposed in
