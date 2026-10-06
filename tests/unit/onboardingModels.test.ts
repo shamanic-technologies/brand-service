@@ -8,7 +8,7 @@ import { resolve } from 'path';
  * broke the 19-field cold-email extraction: Anthropic refuses more than 16
  * union parameters in one structured-output schema).
  *   - field extraction + URL pick: google / flash-pro (Gemini 3.8 Flash)
- *   - ICP: anthropic / opus (2026-10-06, quality first on who to target)
+ *   - ICP: google / flash-pro (2026-10-06 A/B: as accurate as Opus 5.5 at 1/5 the cost)
  *   - offer proposals: google / flash (Gemini 3.5 Flash-Lite)
  */
 const src = (p: string) => readFileSync(resolve(__dirname, '../../src/services', p), 'utf-8');
@@ -17,6 +17,7 @@ describe('onboarding LLM calls run on Gemini', () => {
   it.each([
     ['fieldExtractionService.ts'],
     ['offerProposalService.ts'],
+    ['icpSuggestionService.ts'],
   ])('%s sends no chat call to anthropic', (file) => {
     expect(src(file)).not.toContain("provider: 'anthropic'");
     expect(src(file)).not.toMatch(/model: 'sonnet'/);
@@ -26,11 +27,9 @@ describe('onboarding LLM calls run on Gemini', () => {
     expect(src('offerProposalService.ts')).toMatch(/provider: 'google'[\s\S]*?model: 'flash',/);
   });
 
-  // Owner 2026-10-06: quality wins on the ICP (the audiences must be the buyers
-  // of the picked offer), so it runs on Opus 5.5 at its default reasoning.
-  it('the ICP runs on anthropic/opus with reasoning NOT floored', () => {
-    const icp = src('icpSuggestionService.ts');
-    expect(icp).toMatch(/provider: 'anthropic',\s*model: 'opus'/);
-    expect(icp).not.toMatch(/disableThinking: true/);
+  // 2026-10-06: a prod A/B showed Gemini 3.8 Flash as accurate as Opus 5.5
+  // once the offer's own words reach the prompt, at a fifth of the cost.
+  it('the ICP runs on google/flash-pro', () => {
+    expect(src('icpSuggestionService.ts')).toMatch(/provider: 'google',\s*model: 'flash-pro'/);
   });
 });

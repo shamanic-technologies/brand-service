@@ -95,15 +95,14 @@ describe('Suggest ICP Endpoint', () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
   });
 
-  it('calls chat-service with anthropic/opus at default reasoning, NO sampling params', async () => {
+  it('calls chat-service with google/flash-pro at default reasoning, NO sampling params', async () => {
     const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
 
     expect(res.status).toBe(200);
     const params = mockChat.mock.calls[0][0];
-    // Quality first on who to target (owner 2026-10-06). The hold stays small:
-    // maxTokens x Opus output price is cents, under an anonymous org's $5 seed.
-    expect(params.provider).toBe('anthropic');
-    expect(params.model).toBe('opus');
+    // 2026-10-06 prod A/B: as accurate as Opus 5.5 on the offer-first prompt.
+    expect(params.provider).toBe('google');
+    expect(params.model).toBe('flash-pro');
     expect(params.responseSchema).toBeDefined();
     expect(params.maxTokens).toBeLessThanOrEqual(4096);
     expect(params.temperature).toBeUndefined();

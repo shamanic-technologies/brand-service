@@ -462,21 +462,20 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
       {
         systemPrompt: ICP_SYSTEM_PROMPT,
         message: buildMessage({ offer, brandFields, audienceSignals, existingIcps }),
-        // Claude Opus 5.5 at its DEFAULT reasoning (effort medium). Owner,
-        // 2026-10-06: quality wins on this step — the audiences proposed in
-        // onboarding must be the buyers of the picked offer, and the light
-        // tier (flash-pro, reasoning floored) answered with the brand's usual
-        // customers whatever the offer. The anonymous org holds $5 of trial
-        // credit and chat-service provisions maxTokens x the output price
-        // before the call: 4096 x $20/1M ≈ $0.08, well under the seed.
-        provider: 'anthropic',
-        model: 'opus',
+        // Gemini 3.8 Flash at the service's default reasoning. A prod A/B on
+        // 2026-10-06 (same prompt, 7 offers incl. bare just-picked ones: CERN
+        // Tech Partnerships, Venue Rental, Display Advertising, an angel round)
+        // found Opus 5.5, GLM-5.3 and Gemini 3.8 Flash ALL naming the right
+        // buyers: the wrong audiences came from the prompt (the offer's words
+        // never reached it), not the model. Flash: ~3.2s, ~1.5¢/call against
+        // Opus's 8.3¢. GLM-5.3 was as cheap but shares a 15-in-flight cap with
+        // the cold-email workflows and drifted on the bare angel round.
+        provider: 'google',
+        model: 'flash-pro',
         responseFormat: 'json',
         responseSchema: ICP_RESPONSE_SCHEMA,
-        // No `temperature`: Opus 5.5 refuses sampling params, and the
-        // "DISTINCT from existingIcps" instruction is what drives a
-        // complementary segment on follow-ups. No `disableThinking`: the
-        // budget covers the model's reasoning plus the one-line answer.
+        // No `temperature`: the "DISTINCT from existingIcps" instruction is
+        // what drives a complementary segment on follow-ups.
         maxTokens: 4096,
       },
       chatCaller,
