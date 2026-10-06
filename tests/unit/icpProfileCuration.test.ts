@@ -76,14 +76,15 @@ describe('ICP profile curation', () => {
   });
 
   it('built message excludes a vanity field value and includes a kept field value', () => {
-    const message = buildMessage(
-      {
+    const message = buildMessage({
+      offer: null,
+      brandFields: {
         companyOverview: 'We sell B2B analytics software',
         funding: 'Raised $5M seed from a16z',
       },
-      {},
-      [],
-    );
+      audienceSignals: {},
+      existingIcps: [],
+    });
 
     // Kept field's value reaches the model.
     expect(message).toContain('We sell B2B analytics software');
@@ -94,11 +95,12 @@ describe('ICP profile curation', () => {
   });
 
   it('curates the Brand profile block only — audience block untouched', () => {
-    const message = buildMessage(
-      { companyOverview: 'Analytics', urgency: 'Ends Friday' },
-      { targetAudience: ['RevOps leaders'], customerPainPoints: ['Manual reporting'] },
-      ['Enterprise RevOps teams'],
-    );
+    const message = buildMessage({
+      offer: null,
+      brandFields: { companyOverview: 'Analytics', urgency: 'Ends Friday' },
+      audienceSignals: { targetAudience: ['RevOps leaders'], customerPainPoints: ['Manual reporting'] },
+      existingIcps: ['Enterprise RevOps teams'],
+    });
 
     // Audience signals still injected.
     expect(message).toContain('RevOps leaders');

@@ -15,7 +15,7 @@ vi.mock('../../src/lib/runs-client', () => ({
 
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { chat } from '../../src/lib/chat-client';
-import { db, brands, orgBrands, brandExtractedFields } from '../../src/db';
+import { db, brands, orgBrands, brandExtractedFields, brandOffers, brandUserFields } from '../../src/db';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -73,6 +73,8 @@ describe('Suggest ICP Endpoint', () => {
 
   afterAll(async () => {
     for (const id of [brandId, emptyBrandId, foreignBrandId]) {
+      await db.delete(brandUserFields).where(eq(brandUserFields.brandId, id));
+      await db.delete(brandOffers).where(eq(brandOffers.brandId, id));
       await db.delete(brandExtractedFields).where(eq(brandExtractedFields.brandId, id));
       await db.delete(orgBrands).where(eq(orgBrands.brandId, id));
       await db.delete(brands).where(eq(brands.id, id));
@@ -93,19 +95,19 @@ describe('Suggest ICP Endpoint', () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
   });
 
-  it('calls chat-service with google/flash-pro and sends NO sampling params', async () => {
+  it('calls chat-service with anthropic/opus at default reasoning, NO sampling params', async () => {
     const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
 
     expect(res.status).toBe(200);
     const params = mockChat.mock.calls[0][0];
-    // flash-pro (Gemini 3.8 Flash): the prefill runs on the cheap tier because
-    // chat-service provisions the caller's worst case and an anonymous org holds
-    // $5 of trial credit — a frontier hold on this budget is refused by billing.
-    expect(params.provider).toBe('google');
-    expect(params.model).toBe('flash-pro');
-    // No sampling params are sent on this call.
+    // Quality first on who to target (owner 2026-10-06). The hold stays small:
+    // maxTokens x Opus output price is cents, under an anonymous org's $5 seed.
+    expect(params.provider).toBe('anthropic');
+    expect(params.model).toBe('opus');
+    expect(params.responseSchema).toBeDefined();
+    expect(params.maxTokens).toBeLessThanOrEqual(4096);
     expect(params.temperature).toBeUndefined();
-    expect(params.disableThinking).toBe(true);
+    expect(params.disableThinking).toBeUndefined();
   });
 
   it('injects target-audience signals (targetAudience + customerPainPoints) into the prompt', async () => {
@@ -216,5 +218,41 @@ describe('Suggest ICP Endpoint', () => {
       .set(getAuthHeaders(ownerOrgId))
       .send({ existingIcps: [''] });
     expect(res.status).toBe(400);
+  });
+
+  it("drives the prompt with the NAMED offer's own words, not the brand's other offer", async () => {
+    // Two offers on one brand; only the named one's text may describe the buyer.
+    const [angel] = await db
+      .insert(brandOffers)
+      .values({ orgId: ownerOrgId, brandId, name: 'Angel round', description: 'A seat in our $100K angel round on a SAFE' })
+      .returning({ id: brandOffers.id });
+    const [salesLed] = await db
+      .insert(brandOffers)
+      .values({ orgId: ownerOrgId, brandId, name: 'Sales-led', description: 'Done-for-you booked sales meetings' })
+      .returning({ id: brandOffers.id });
+    await db.insert(brandUserFields).values([
+      { orgId: ownerOrgId, brandId, offerId: angel.id, fieldKey: 'targetAudience', value: 'Business angels writing $10K-$50K checks' },
+      { orgId: ownerOrgId, brandId, offerId: salesLed.id, fieldKey: 'services', value: ['Booked sales meetings for agencies'] },
+    ]);
+
+    try {
+      const res = await request(app)
+        .post(suggestPath(brandId))
+        .set(getAuthHeaders(ownerOrgId))
+        .send({ offerId: angel.id });
+      expect(res.status).toBe(200);
+      const message = mockChat.mock.calls[0][0].message;
+      expect(message).toContain('Angel round');
+      expect(message).toContain('A seat in our $100K angel round on a SAFE');
+      expect(message).toContain('Business angels writing $10K-$50K checks');
+      // The offer states its own audience: the website-wide one stays out.
+      expect(message).not.toContain('RevOps leaders at mid-market SaaS');
+      // The sibling offer's words never reach the model.
+      expect(message).not.toContain('Booked sales meetings for agencies');
+      expect(message).not.toContain('Done-for-you booked sales meetings');
+    } finally {
+      await db.delete(brandUserFields).where(eq(brandUserFields.brandId, brandId));
+      await db.delete(brandOffers).where(eq(brandOffers.brandId, brandId));
+    }
   });
 });

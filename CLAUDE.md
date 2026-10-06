@@ -71,6 +71,10 @@ it; a pg_dump sits in `/root/distribute/backups/`). It shipped only after a flee
 survives in brand-service; do NOT reintroduce one — rates are per LEG
 (`brand_leg_rates`), lifetime revenue per OFFER (`brand_offers`).
 
+## The ICP follows the OFFER — its buyers, not the brand's usual customers
+
+`POST /orgs/brands/:brandId/icp/suggest` (`icpSuggestionService`) states the resolved offer FIRST (name, description, its confirmed fields incl. its own `targetAudience`) and labels the brand's website-derived fields as background on the SELLER. The website-wide `targetAudience`/`customerPainPoints` are dropped when the offer states its own audience, and labelled "may NOT be the buyers of this offer" otherwise. Before 2026-10-06 the offer's words never reached the prompt and the website audience decided the answer (an angel round came back as "SaaS founders hiring their first SDR"). Runs on `anthropic`/`opus` at DEFAULT reasoning, `maxTokens: 4096` (owner: quality wins on this step; the hold stays cents under the anon $5 seed). Do NOT floor its reasoning or move it back to a light tier for speed. Guards: `tests/unit/icpFollowsOffer.test.ts`, `tests/integration/icpSuggest.test.ts`.
+
 ## Offer channels (`offerChannelsService`)
 
 `GET|PUT /orgs/brands/:brandId/offers/:offerId/channels` (`{ channelSlugs }`, full replace, a slug twice = 400), `GET /internal/offers/:offerId/channels`. Table `brand_offer_channels` (migration `0082`); no row = `stated: false` (the consumer's default applies, never written here), empty list = stated. Slugs stored AS GIVEN. Guard `tests/integration/offerChannels.test.ts`.
