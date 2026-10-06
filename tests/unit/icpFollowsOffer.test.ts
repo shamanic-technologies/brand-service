@@ -10,7 +10,7 @@ vi.mock('../../src/db', () => ({
   brandOffers: {},
 }));
 
-import { buildMessage } from '../../src/services/icpSuggestionService';
+import { buildMessage, ICP_SYSTEM_PROMPT } from '../../src/services/icpSuggestionService';
 
 /**
  * The ICP follows the OFFER, not the brand (owner 2026-10-06). Prod probe on
@@ -91,5 +91,10 @@ describe('ICP prompt follows the offer', () => {
     expect(message).not.toContain('THE OFFER');
     expect(message).toContain('Brand profile:');
     expect(message).toContain('hiring their first SDR');
+  });
+
+  it('caps the answer at one sentence of 40 words (Opus otherwise writes a paragraph)', () => {
+    expect(ICP_SYSTEM_PROMPT).toContain('ONE sentence of AT MOST 40 WORDS');
+    expect(ICP_SYSTEM_PROMPT).toContain('THE OFFER COMES FIRST');
   });
 });
