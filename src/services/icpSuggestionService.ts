@@ -1,7 +1,14 @@
 /**
  * ICP suggestion service.
  *
- * Given a brand, asks chat-service (LLM) to write ONE natural-language line
+ * Given a brand AND the offer being prospected for, asks chat-service (LLM) to
+ * write ONE natural-language line describing who BUYS that offer. The offer's
+ * own words (name, description, confirmed fields incl. its targetAudience) are
+ * the subject; the brand's website data is background on the seller. Earlier
+ * versions sent only the brand-wide profile, so every offer of a brand got the
+ * brand's usual customers (an angel round came back as SaaS founders).
+ *
+ * Original framing: ONE natural-language line
  * describing the brand's PRINCIPAL ideal customer profile (ICP) as a precise
  * PROSPECTING FILTER — who to contact (job titles / seniority) AND which
  * companies (industry, headcount range, revenue range, and sharper signals like
@@ -32,6 +39,8 @@ import type { OrgCaller } from '../lib/chat-client';
 import { createRun, updateRun } from '../lib/runs-client';
 import { db, brandExtractedFields } from '../db';
 import { brandProfileService } from './brandProfileService';
+import { getOffer, resolveNamedOffer } from './brandOffersService';
+import { getConfirmedByOfferId } from './brandUserFieldsService';
 
 /**
  * Extracted-field keys that describe the brand's TARGET AUDIENCE. These are
@@ -118,6 +127,24 @@ const SYSTEM_PROMPT = [
   'Profile (ICP). An ICP describes the BEST-FIT customer segment — the accounts',
   'that get the most value from the brand, are cheapest to win, and stay longest',
   '— NOT a generic audience.',
+  '',
+  'THE OFFER COMES FIRST. When the message names an offer, the ICP describes the',
+  'people who BUY THAT OFFER (who pays for it, who says yes to it) and nobody',
+  'else. That can be a completely different population from the brand\'s usual',
+  'customers: a fundraise is bought by investors (business angels, seed funds),',
+  'a partnership offer by partner organisations, a hiring offer by candidates, a',
+  'reseller program by resellers. Read the offer\'s name, description and stated',
+  'fields FIRST and decide who buys it BEFORE you read the brand background. The',
+  'brand background describes the company that sells the offer, and its',
+  'website-wide audience usually describes the buyers of the brand\'s OTHER',
+  'offers: use it only to understand the seller, never as the answer to who buys',
+  'this offer. When the offer\'s own stated target audience is given, it is the',
+  'customer\'s own words about who buys: build the filter from it.',
+  '',
+  'When the buyers are individuals rather than employees of a company (business',
+  'angels, candidates, independent professionals), describe the people with the',
+  'filters that fit them (role, sector focus, typical ticket or budget, location,',
+  'track record) instead of forcing company firmographics.',
   '',
   'Your output reads like a PROSPECTING FILTER written as one natural sentence —',
   'the kind of precise targeting query a sales rep would build in Apollo: WHO to',
@@ -210,41 +237,106 @@ async function getAudienceSignals(brandId: string): Promise<AudienceSignals> {
   return signals;
 }
 
-export function buildMessage(
-  profileFields: Record<string, string | string[]>,
-  audienceSignals: AudienceSignals,
-  existingIcps: string[],
-): string {
+/** The offer the ICP is asked for: its own words, never the brand's. */
+export interface IcpOfferContext {
+  name: string;
+  description: string | null;
+  /** The offer's CONFIRMED fields (incl. its own targetAudience), curated. */
+  fields: Record<string, string | string[]>;
+}
+
+export interface IcpPromptInput {
+  /** The offer being prospected for, or null when the brand holds none. */
+  offer: IcpOfferContext | null;
+  /** Brand-wide fields derived from the website (background on the SELLER). */
+  brandFields: Record<string, string | string[]>;
+  /** Brand-wide audience signals read off the website. */
+  audienceSignals: AudienceSignals;
+  existingIcps: string[];
+}
+
+/**
+ * The user message. When an offer is named, its own text (name, description,
+ * confirmed fields) is stated FIRST and as the subject, and the brand-wide
+ * website data is labelled as background about the seller: before this, the
+ * offer's words never reached the model and the brand's website audience (the
+ * buyers of its OTHER offer) decided the answer — an angel round came back as
+ * "SaaS founders hiring their first SDR".
+ */
+export function buildMessage(input: IcpPromptInput): string {
+  const { offer, existingIcps } = input;
   // Only the offer/targeting-relevant fields reach the model — conversion-copy
-  // levers and brand-vanity self-description are dropped here (single source of
-  // truth for what enters the "Brand profile" context). The dedicated
-  // audience-signal block below is untouched.
-  const curatedProfile = curateIcpProfileFields(profileFields);
+  // levers and brand-vanity self-description are dropped here.
+  const brandFields = curateIcpProfileFields(input.brandFields);
+  const offerStatesAudience = offer !== null && 'targetAudience' in offer.fields;
 
-  const audienceBlock =
-    Object.keys(audienceSignals).length === 0
-      ? 'No explicit target-audience signals on record.'
-      : `Target-audience signals (from the brand's own extracted data):\n${JSON.stringify(audienceSignals, null, 2)}`;
+  const sections: string[] = [];
 
-  const existingBlock =
+  if (offer) {
+    const offerFields = curateIcpProfileFields(offer.fields);
+    sections.push(
+      'THE OFFER this ICP is for (describe who BUYS this, nothing else):',
+      `Name: ${offer.name}`,
+      `Description: ${offer.description?.trim() ? offer.description.trim() : '(none stated)'}`,
+      Object.keys(offerFields).length === 0
+        ? 'Stated fields for this offer: none yet.'
+        : `Stated fields for this offer (the customer's own words):\n${JSON.stringify(offerFields, null, 2)}`,
+      '',
+    );
+  }
+
+  sections.push(
+    offer
+      ? 'Brand background (the company SELLING the offer, read off its website; it may describe a different offer than the one above):'
+      : 'Brand profile:',
+    JSON.stringify(brandFields, null, 2),
+    '',
+  );
+
+  // The website-wide audience is dropped when the offer states its own: two
+  // audiences side by side is how the brand's other buyers leaked in.
+  if (!offerStatesAudience) {
+    sections.push(
+      Object.keys(input.audienceSignals).length === 0
+        ? 'No explicit target-audience signals on record.'
+        : offer
+          ? `Website-wide audience signals (the brand's usual customers, who may NOT be the buyers of the offer above):\n${JSON.stringify(input.audienceSignals, null, 2)}`
+          : `Target-audience signals (from the brand's own extracted data):\n${JSON.stringify(input.audienceSignals, null, 2)}`,
+      '',
+    );
+  }
+
+  sections.push(
     existingIcps.length === 0
       ? 'No ICPs found yet — return the single principal ICP.'
       : [
           'ICPs already found (return a DISTINCT, complementary new one — do NOT',
           'repeat or overlap any of these):',
           ...existingIcps.map((icp) => `- ${icp}`),
-        ].join('\n');
+        ].join('\n'),
+    '',
+    offer
+      ? `Return the ICP of the people who buy "${offer.name}" as JSON: { "icp": string }`
+      : 'Return the ICP as JSON: { "icp": string }',
+  );
 
-  return [
-    'Brand profile:',
-    JSON.stringify(curatedProfile, null, 2),
-    '',
-    audienceBlock,
-    '',
-    existingBlock,
-    '',
-    'Return the ICP as JSON: { "icp": string }',
-  ].join('\n');
+  return sections.join('\n');
+}
+
+/** Confirmed user-field rows → string | string[] map (other shapes dropped). */
+function confirmedToFields(
+  confirmed: Map<string, { value: unknown }>,
+): Record<string, string | string[]> {
+  const fields: Record<string, string | string[]> = {};
+  for (const [key, { value }] of confirmed) {
+    if (typeof value === 'string') {
+      if (value.trim().length > 0) fields[key] = value;
+    } else if (Array.isArray(value)) {
+      const items = value.map((v) => String(v)).filter((v) => v.trim().length > 0);
+      if (items.length > 0) fields[key] = items;
+    }
+  }
+  return fields;
 }
 
 function extractJson(content: string): unknown {
@@ -260,6 +352,13 @@ function extractJson(content: string): unknown {
  * isolation. Throws on malformed output or an empty ICP (fail-loud; never returns
  * a fabricated default).
  */
+/** Anthropic enforces a JSON shape only through a schema. */
+export const ICP_RESPONSE_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: { icp: { type: 'string' } },
+  required: ['icp'],
+};
+
 export function parseIcp(raw: unknown): string {
   const icp =
     raw && typeof raw === 'object' ? (raw as { icp?: unknown }).icp : undefined;
@@ -291,18 +390,42 @@ export interface SuggestIcpOptions {
 export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
   const { brandId, existingIcps, caller } = opts;
 
-  // 1. Seed context from existing brand data (no persistence happens here).
-  const profile = await brandProfileService.getByBrandId(caller.orgId, brandId, opts.offerId);
-  const profileFields = profile.current.fields;
-  // Fail loud when there is nothing OFFER/TARGETING-relevant to seed from — an
-  // empty profile OR one carrying only conversion-copy / brand-vanity fields
-  // (which are dropped from the ICP context) cannot define who to prospect.
-  if (Object.keys(curateIcpProfileFields(profileFields)).length === 0) {
+  // 1. Seed context (no persistence happens here). The offer is resolved
+  // first: who to prospect follows from what is being sold.
+  const offerId = await resolveNamedOffer(caller.orgId, brandId, opts.offerId);
+  const [profile, offerRow, offerConfirmed, audienceSignals] = await Promise.all([
+    brandProfileService.getByBrandId(caller.orgId, brandId, offerId),
+    offerId ? getOffer(caller.orgId, brandId, offerId) : Promise.resolve(null),
+    offerId ? getConfirmedByOfferId(caller.orgId, brandId, offerId) : Promise.resolve(null),
+    getAudienceSignals(brandId),
+  ]);
+
+  // The brand background is the website-derived half ONLY: the offer's
+  // confirmed words travel in the offer block, never blended into the brand's.
+  const brandFields: Record<string, string | string[]> = {};
+  for (const [key, value] of Object.entries(profile.current.fields)) {
+    if (!(key in profile.confirmedFields)) brandFields[key] = value;
+  }
+
+  const offer: IcpOfferContext | null = offerRow
+    ? {
+        name: offerRow.name,
+        description: offerRow.description,
+        fields: offerConfirmed ? confirmedToFields(offerConfirmed) : {},
+      }
+    : null;
+
+  // Fail loud when there is nothing to define a buyer from: no website-derived
+  // targeting field AND no offer words beyond a bare name.
+  const offerHasWords =
+    offer !== null &&
+    ((offer.description?.trim().length ?? 0) > 0 ||
+      Object.keys(curateIcpProfileFields(offer.fields)).length > 0);
+  if (Object.keys(curateIcpProfileFields(brandFields)).length === 0 && !offerHasWords) {
     throw new IcpSuggestionUnavailableError(
       `[brand-service] Cannot suggest an ICP for brand ${brandId}: brand profile has no offer/targeting fields to seed from`,
     );
   }
-  const audienceSignals = await getAudienceSignals(brandId);
 
   // 2. Create a brand-service run as a child of the caller's run.
   const run = await createRun({
@@ -337,20 +460,23 @@ export async function suggestIcp(opts: SuggestIcpOptions): Promise<string> {
     const result = await chat(
       {
         systemPrompt: SYSTEM_PROMPT,
-        message: buildMessage(profileFields, audienceSignals, existingIcps),
-        provider: 'google',
-        // flash-pro (Gemini 3.8 Flash) — the onboarding prefill path, where an
-        // anonymous org holds $5 of trial credit and chat-service provisions the
-        // caller's worst case before the call. A frontier-tier hold starves that
-        // seed and billing refuses the authorize, so the prefill runs cheap.
-        model: 'flash-pro',
+        message: buildMessage({ offer, brandFields, audienceSignals, existingIcps }),
+        // Claude Opus 5.5 at its DEFAULT reasoning (effort medium). Owner,
+        // 2026-10-06: quality wins on this step — the audiences proposed in
+        // onboarding must be the buyers of the picked offer, and the light
+        // tier (flash-pro, reasoning floored) answered with the brand's usual
+        // customers whatever the offer. The anonymous org holds $5 of trial
+        // credit and chat-service provisions maxTokens x the output price
+        // before the call: 4096 x $20/1M ≈ $0.08, well under the seed.
+        provider: 'anthropic',
+        model: 'opus',
         responseFormat: 'json',
-        // No `temperature`: the "DISTINCT from existingIcps" instruction (not
-        // sampling noise) is what drives a complementary segment on follow-ups.
-        maxTokens: 512,
-        // Short one-line JSON ICP — no chain-of-thought needed. Floors the
-        // model's reasoning to `low` for a faster reply.
-        disableThinking: true,
+        responseSchema: ICP_RESPONSE_SCHEMA,
+        // No `temperature`: Opus 5.5 refuses sampling params, and the
+        // "DISTINCT from existingIcps" instruction is what drives a
+        // complementary segment on follow-ups. No `disableThinking`: the
+        // budget covers the model's reasoning plus the one-line answer.
+        maxTokens: 4096,
       },
       chatCaller,
     );
