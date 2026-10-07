@@ -3,7 +3,6 @@ import {
   PutOfferSalesPathRequestSchema,
   PutOfferChannelsRequestSchema,
   PutOfferSelectedSalesPathsRequestSchema,
-  PutOfferSelectedSourcingOriginsRequestSchema,
 } from '../schemas';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { rejectOfferProblem } from '../lib/offer-scope';
@@ -19,11 +18,6 @@ import {
   readOfferSelectedSalesPathsByOffer,
   writeOfferSelectedSalesPaths,
 } from '../services/offerSelectedSalesPathsService';
-import {
-  readOfferSelectedSourcingOrigins,
-  readOfferSelectedSourcingOriginsByOffer,
-  writeOfferSelectedSourcingOrigins,
-} from '../services/offerSelectedSourcingOriginsService';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -200,44 +194,6 @@ internalRouter.get('/offers/:offerId/selected-sales-paths', async (req: Request,
     return res.status(200).json(await readOfferSelectedSalesPathsByOffer(offerId));
   } catch (error: any) {
     console.error('[brand-service] Internal get offer selected sales paths error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
-  }
-});
-
-// ── Sourcing origins the customer selected. See `offerSelectedSourcingOriginsService`. ─
-
-orgRouter.get(
-  '/brands/:brandId/offers/:offerId/selected-sourcing-origins',
-  offerRoute('Get offer selected sourcing origins', null, async (req, res) => {
-    res.status(200).json(await readOfferSelectedSourcingOrigins(req.orgId!, req.params.brandId, req.params.offerId));
-  })
-);
-
-orgRouter.put(
-  '/brands/:brandId/offers/:offerId/selected-sourcing-origins',
-  offerRoute('Put offer selected sourcing origins', PutOfferSelectedSourcingOriginsRequestSchema, async (req, res, body) => {
-    res
-      .status(200)
-      .json(
-        await writeOfferSelectedSourcingOrigins(
-          req.orgId!,
-          req.params.brandId,
-          req.params.offerId,
-          body.originSlugs,
-          req.userId ?? null
-        )
-      );
-  })
-);
-
-internalRouter.get('/offers/:offerId/selected-sourcing-origins', async (req: Request, res: Response) => {
-  try {
-    const { offerId } = req.params;
-    if (badIds(res, null, offerId)) return;
-    if (!(await getOfferById(offerId))) return res.status(404).json({ error: 'Offer not found' });
-    return res.status(200).json(await readOfferSelectedSourcingOriginsByOffer(offerId));
-  } catch (error: any) {
-    console.error('[brand-service] Internal get offer selected sourcing origins error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
