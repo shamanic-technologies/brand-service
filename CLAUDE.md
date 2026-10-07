@@ -84,6 +84,10 @@ survives in brand-service; do NOT reintroduce one — rates are per LEG
 
 `GET|PUT /orgs/brands/:brandId/offers/:offerId/selected-sales-paths` (`{ combinationKeys }`, full replace, a key twice = 400), `GET /internal/offers/:offerId/selected-sales-paths`. Table `brand_offer_selected_sales_paths` (migration `0084`), same semantics as channels: no row = `stated: false` (the dashboard pre-ticks paths above 1x ROI, never written here), empty list = stated. features-service `combinationKey`s stored AS GIVEN. A plain STATED list (what the Sales path page lists), not the activation store above: no uniqueness across paths, no history, no money. Guard `tests/integration/offerSelectedSalesPaths.test.ts`.
 
+## Offer selected sourcing origins (`offerSelectedSourcingOriginsService`)
+
+`GET|PUT /orgs/brands/:brandId/offers/:offerId/selected-sourcing-origins` (`{ originSlugs }`, full replace, a slug twice = 400), `GET /internal/offers/:offerId/selected-sourcing-origins`. Table `brand_offer_selected_sourcing_origins` (migration `0088`), same semantics as selected sales paths: no row = `stated: false` (the dashboard pre-ticks origins above 1x ROI, never written here), empty list = stated. features-service sourcing origin slugs stored AS GIVEN. Guard `tests/integration/offerSelectedSourcingOrigins.test.ts`.
+
 ## Brand competitors — found by us, LinkedIn read off THEIR site (`brandCompetitorsService`)
 
 `GET /orgs/brands/:brandId/competitors`, `POST .../competitors/discover` (`{ refresh? }`),
@@ -113,7 +117,7 @@ survives in brand-service; do NOT reintroduce one — rates are per LEG
 
 - Same method as competitors (`extractLinkedinCompanyUrl`, slug must match the brand's name/domain label). Never built from a name.
 - Reads cheapest first (owner 2026-10-07): plain HTTP homepage (free) -> every `page_scrape_cache` page on the brand's registrable domain (free, already paid) -> Apollo company record by domain (`lib/apollo-client.ts` -> apollo-service `POST /internal/company-firmographics`, platform-billed there, 1 credit only when Apollo knows the company, cached 90d/30d; `apolloLinkedinVerdict` keeps it only for the EXACT registrable domain + a `/company/` URL) -> ONE homepage scrape, only if nothing found, the homepage is not cached, AND `x-org-id` was sent (org-billed on a brand-service run, child of `x-run-id`). No org = no paid read. Apollo error = 502, nothing stored (never read as "none").
-- Provenance: `linkedin_source` `brand_website` | `apollo`; `apollo_asked_at`/`apollo_outcome`/`apollo_linkedin_url`/`none_found_reason` (migration `0087`). A `not_found` row with `apollo_asked_at` NULL (decided before Apollo was in the order) is re-decided once on the next discover; a found row never is.
+- Provenance: `linkedin_source` `brand_website` | `apollo`; `apollo_asked_at`/`apollo_outcome`/`apollo_linkedin_url`/`none_found_reason` (migration `0088`). A `not_found` row with `apollo_asked_at` NULL (decided before Apollo was in the order) is re-decided once on the next discover; a found row never is.
 - Nothing readable at all AND Apollo found nothing = 422, nothing stored (never a `not_found` for a site we could not read).
 
 ## Offer give lists — `giveForFree` / `neverGive`

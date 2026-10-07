@@ -2917,6 +2917,57 @@
           "combinationKeys"
         ]
       },
+      "OfferSelectedSourcingOrigins": {
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stated": {
+            "type": "boolean"
+          },
+          "originSlugs": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "statedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "statedByUserId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "offerId",
+          "stated",
+          "originSlugs",
+          "statedAt",
+          "statedByUserId"
+        ]
+      },
+      "PutOfferSelectedSourcingOriginsRequest": {
+        "type": "object",
+        "properties": {
+          "originSlugs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "originSlugs"
+        ]
+      },
       "BrandCompetitors": {
         "type": "object",
         "properties": {
@@ -7645,6 +7696,151 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OfferSelectedSalesPaths"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid offer ID"
+          },
+          "404": {
+            "description": "Offer not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/selected-sourcing-origins": {
+      "get": {
+        "summary": "Read the sourcing origins selected on an offer",
+        "description": "The sourcing origins the customer selected (ticked) on an offer: features-service sourcing origin slugs (e.g. `sourcing-apollo-cold-filters`, `sourcing-crm-contacts`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness, no history, no money. `stated: false` (`originSlugs: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The selected sourcing origins (or not stated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferSelectedSourcingOrigins"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace the sourcing origins selected on an offer",
+        "description": "Replaces the whole list; `x-user-id` is recorded as who stated it. The sourcing origins the customer selected (ticked) on an offer: features-service sourcing origin slugs (e.g. `sourcing-apollo-cold-filters`, `sourcing-crm-contacts`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness, no history, no money. `stated: false` (`originSlugs: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutOfferSelectedSourcingOriginsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The selected sourcing origins, as read after the write",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferSelectedSourcingOrigins"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID or body (incl. an originSlug twice)"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/offers/{offerId}/selected-sourcing-origins": {
+      "get": {
+        "summary": "Service read of the sourcing origins selected on an offer",
+        "description": "The sourcing origins the customer selected (ticked) on an offer: features-service sourcing origin slugs (e.g. `sourcing-apollo-cold-filters`, `sourcing-crm-contacts`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness, no history, no money. `stated: false` (`originSlugs: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer. Keyed on the offer alone; no user or org header needed.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The selected sourcing origins (or not stated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferSelectedSourcingOrigins"
                 }
               }
             }
