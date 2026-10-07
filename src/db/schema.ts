@@ -1653,7 +1653,7 @@ export const brandOfferSelectedSalesPaths = pgTable("brand_offer_selected_sales_
 ]);
 
 /**
- * WHICH SOURCING ORIGINS the customer SELECTED on an offer (migration 0087):
+ * WHICH SOURCING ORIGINS the customer SELECTED on an offer (migration 0088):
  * features-service sourcing origin slugs stored AS GIVEN. Same semantics as
  * `brandOfferSelectedSalesPaths`: no row = never stated, a row with an empty
  * list = stated, none selected. See `offerSelectedSourcingOriginsService`.
@@ -1742,6 +1742,12 @@ export const brandLinkedinPages = pgTable("brand_linkedin_pages", {
 	requestedByOrgId: uuid("requested_by_org_id"),
 	runId: text("run_id"),
 	discoveredAt: timestamp("discovered_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	// Apollo's company record by the brand's domain (migration 0088). NULL
+	// apollo_asked_at = decided before Apollo was in the order: re-decided once.
+	apolloAskedAt: timestamp("apollo_asked_at", { withTimezone: true, mode: 'string' }),
+	apolloOutcome: text("apollo_outcome"),
+	apolloLinkedinUrl: text("apollo_linkedin_url"),
+	noneFoundReason: text("none_found_reason"),
 }, (table) => [
 	foreignKey({
 		columns: [table.brandId],

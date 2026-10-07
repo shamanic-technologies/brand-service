@@ -10,19 +10,28 @@
  * links is never taken). Nothing is ever built from a name: a site that links
  * no company page answers `not_found`, never a guess.
  *
- * What is read, cheapest first:
+ * What is asked, cheapest first (owner 2026-10-07: "fait le moins cher"):
  *   1. the homepage over plain HTTP (free);
  *   2. every page of the brand's site already sitting in `page_scrape_cache`
  *      (free: the extraction paid for those scrapes already);
- *   3. ONE scrape of the homepage through scraping-service, only when nothing
- *      above found a link, the homepage is not already cached, AND an org is in
+ *   3. Apollo's company record for the brand's domain, through apollo-service
+ *      (`POST /internal/company-firmographics`: platform-billed, 1 credit only
+ *      when Apollo knows the company, cached there 90d/30d, cost declared
+ *      there). Kept only when the record is for that exact domain and its
+ *      `linkedin_url` is a company page (`apolloLinkedinVerdict`). An Apollo
+ *      error fails the discovery (502), never reads as "none";
+ *   4. ONE scrape of the homepage through scraping-service, only when nothing
+ *      above found a page, the homepage is not already cached, AND an org is in
  *      hand: scraping-service declares the cost, billed to that org on a
  *      brand-service run (child of `x-run-id`). With no org there is no one to
  *      bill, so the paid read is skipped.
  *
  * Found once, then reused: reads never compute, and discover returns the stored
  * answer unless `refresh`. No row = `not_computed`; a row with no URL =
- * `not_found`, a real answer, distinct from never having looked.
+ * `not_found`, a real answer, distinct from never having looked. A `not_found`
+ * stored before Apollo was in the order (`apollo_asked_at` NULL) is decided
+ * once more on the next discover: the free reads and Apollo's cache cost
+ * nothing again, and a homepage already scraped is read from the cache.
  */
 
 import { and, eq, gt, like, sql } from 'drizzle-orm';
@@ -30,11 +39,20 @@ import { getDomain } from 'tldts';
 import { db, brands, brandLinkedinPages, pageScrapeCache } from '../db';
 import { createRun, updateRun } from '../lib/runs-client';
 import { scrapeUrl, type ScrapingTrackingContext } from '../lib/scraping-client';
-import { extractLinkedinCompanyUrl, normalizeCompetitorDomain } from '../lib/competitor-linkedin';
+import {
+  apolloLinkedinVerdict,
+  extractLinkedinCompanyUrl,
+  normalizeCompetitorDomain,
+  type ApolloLinkedinOutcome,
+  type ApolloLinkedinVerdict,
+} from '../lib/competitor-linkedin';
+import { lookupApolloCompany } from '../lib/apollo-client';
 import { getCachedPageContent, upsertPageContent } from './scrapeOrchestrator';
 
-/** The one place the URL may come from. */
+/** Where a found URL came from. */
 export const LINKEDIN_SOURCE_BRAND_WEBSITE = 'brand_website' as const;
+export const LINKEDIN_SOURCE_APOLLO = 'apollo' as const;
+export type LinkedinSource = typeof LINKEDIN_SOURCE_BRAND_WEBSITE | typeof LINKEDIN_SOURCE_APOLLO;
 
 const HOMEPAGE_TIMEOUT_MS = 8000;
 const HOMEPAGE_MAX_CHARS = 2_000_000;
@@ -66,16 +84,27 @@ export interface BrandLinkedinPageView {
   /** `https://www.linkedin.com/company/<slug>/`, or null. */
   linkedinUrl: string | null;
   discoveredAt: string | null;
+  /** Why a `not_found` is not found (says what was asked); null otherwise. */
+  noneFoundReason: string | null;
   provenance: {
-    method: 'brand_website_link';
-    /** `brand_website` when found, null otherwise. */
-    source: typeof LINKEDIN_SOURCE_BRAND_WEBSITE | null;
-    /** The page of the brand's site the link was read on. */
+    /** How the stored answer was reached: `apollo_company_lookup` when Apollo found it. */
+    method: 'brand_website_link' | 'apollo_company_lookup';
+    /** `brand_website` | `apollo` when found, null otherwise. */
+    source: LinkedinSource | null;
+    /** The page of the brand's site the link was read on (site source only). */
     foundOnUrl: string | null;
     /** Every page of the brand's site that was read. */
     pagesRead: string[];
     /** brand-service run that paid for a scrape; null when every read was free. */
     runId: string | null;
+    /** Apollo's company record by the brand's domain; `asked: false` = decided before Apollo was asked. */
+    apollo: {
+      asked: boolean;
+      askedAt: string | null;
+      outcome: ApolloLinkedinOutcome | null;
+      /** Apollo's `linkedin_url`, verbatim. */
+      linkedinUrl: string | null;
+    };
   } | null;
 }
 
@@ -98,19 +127,27 @@ export async function readBrandLinkedinPage(brandId: string): Promise<BrandLinke
     .where(eq(brandLinkedinPages.brandId, brandId))
     .limit(1);
   if (!row) {
-    return { brandId, status: 'not_computed', linkedinUrl: null, discoveredAt: null, provenance: null };
+    return { brandId, status: 'not_computed', linkedinUrl: null, discoveredAt: null, noneFoundReason: null, provenance: null };
   }
+  const source = (row.linkedinSource as LinkedinSource | null) ?? null;
   return {
     brandId,
     status: row.linkedinUrl ? 'found' : 'not_found',
     linkedinUrl: row.linkedinUrl,
     discoveredAt: row.discoveredAt,
+    noneFoundReason: row.linkedinUrl ? null : row.noneFoundReason,
     provenance: {
-      method: 'brand_website_link',
-      source: row.linkedinUrl ? LINKEDIN_SOURCE_BRAND_WEBSITE : null,
+      method: source === LINKEDIN_SOURCE_APOLLO ? 'apollo_company_lookup' : 'brand_website_link',
+      source,
       foundOnUrl: row.foundOnUrl,
       pagesRead: row.pagesRead,
       runId: row.runId,
+      apollo: {
+        asked: row.apolloAskedAt !== null,
+        askedAt: row.apolloAskedAt,
+        outcome: (row.apolloOutcome as ApolloLinkedinOutcome | null) ?? null,
+        linkedinUrl: row.apolloLinkedinUrl,
+      },
     },
   };
 }
@@ -197,26 +234,39 @@ export interface DiscoverLinkedinPageOptions {
   refresh?: boolean;
   /** Test seam for the website reads. */
   reader?: BrandSiteReader;
+  /** Test seam for the Apollo step. */
+  apollo?: () => Promise<ApolloLinkedinVerdict>;
 }
 
-interface Search {
+export interface Search {
   linkedinUrl: string | null;
+  source: LinkedinSource | null;
   foundOnUrl: string | null;
   pagesRead: string[];
   /** Whether any page of the site gave readable content. */
   readable: boolean;
+  /** Apollo's verdict; null when the site reads found the page first. */
+  apollo: ApolloLinkedinVerdict | null;
+}
+
+export interface SearchSteps {
+  /** Apollo's company record for the domain, as a verdict. Throws on failure. */
+  apollo: () => Promise<ApolloLinkedinVerdict>;
+  /** The paid homepage scrape; null when there is no org to bill. */
+  scrape: ((url: string) => Promise<string | null>) | null;
 }
 
 /**
- * Read the brand's site cheapest first and stop at the first page linking its
- * own company page. `scrape` is called only when the free reads found nothing
- * and the homepage is not in the cache already. Exported for tests.
+ * Ask cheapest first and stop at the first answer naming the brand's own
+ * company page: the free site reads, then Apollo, then (`scrape`) the paid
+ * homepage scrape, only when nothing found it and the homepage is not in the
+ * cache already. Exported for tests.
  */
 export async function searchBrandSite(
   homepage: string,
   identity: { domain: string; name: string },
   reader: Pick<BrandSiteReader, 'fetchPage' | 'cachedPages'>,
-  scrape: ((url: string) => Promise<string | null>) | null,
+  steps: SearchSteps,
 ): Promise<Search> {
   const pagesRead: string[] = [];
   let readable = false;
@@ -227,9 +277,18 @@ export async function searchBrandSite(
     return extractLinkedinCompanyUrl(content, identity);
   };
 
+  const fromSite = (linkedinUrl: string, foundOnUrl: string, apollo: ApolloLinkedinVerdict | null): Search => ({
+    linkedinUrl,
+    source: LINKEDIN_SOURCE_BRAND_WEBSITE,
+    foundOnUrl,
+    pagesRead,
+    readable,
+    apollo,
+  });
+
   const plain = await reader.fetchPage(homepage);
   const fromPlain = tryPage(homepage, plain);
-  if (fromPlain) return { linkedinUrl: fromPlain, foundOnUrl: homepage, pagesRead, readable };
+  if (fromPlain) return fromSite(fromPlain, homepage, null);
 
   const cached = await reader.cachedPages(identity.domain);
   const homepageNormalized = homepage.replace(/\/+$/, '').replace('://www.', '://');
@@ -237,19 +296,43 @@ export async function searchBrandSite(
   for (const page of cached) {
     if (page.url.replace(/\/+$/, '').replace('://www.', '://') === homepageNormalized) homepageCached = true;
     const found = tryPage(page.url, page.content);
-    if (found) return { linkedinUrl: found, foundOnUrl: page.url, pagesRead, readable };
+    if (found) return fromSite(found, page.url, null);
+  }
+
+  // Apollo's record for the domain: cheaper than a scrape, and free when Apollo
+  // knows no company. Its errors propagate (fail loud, never "none").
+  const apollo = await steps.apollo();
+  if (apollo.linkedinUrl) {
+    return { linkedinUrl: apollo.linkedinUrl, source: LINKEDIN_SOURCE_APOLLO, foundOnUrl: null, pagesRead, readable, apollo };
   }
 
   // A link injected client-side, or a homepage plain HTTP cannot read: one
   // rendered scrape, unless that very page is already cached (it would read
   // the same content again for money).
-  if (scrape && !homepageCached) {
-    const scraped = await scrape(homepage);
+  if (steps.scrape && !homepageCached) {
+    const scraped = await steps.scrape(homepage);
     const found = tryPage(homepage, scraped);
-    if (found) return { linkedinUrl: found, foundOnUrl: homepage, pagesRead, readable };
+    if (found) return fromSite(found, homepage, apollo);
   }
 
-  return { linkedinUrl: null, foundOnUrl: null, pagesRead, readable };
+  return { linkedinUrl: null, source: null, foundOnUrl: null, pagesRead, readable, apollo };
+}
+
+const APOLLO_OUTCOME_TEXT: Record<Exclude<ApolloLinkedinOutcome, 'linkedin_page'>, string> = {
+  no_company: 'Apollo knows no company for it',
+  no_linkedin_url: "Apollo's company record for it has no LinkedIn page",
+  other_domain: "Apollo's company record answers for another domain",
+  not_company_page: "Apollo's LinkedIn URL for it is not a company page",
+};
+
+/** Why nothing was found, naming every source asked. Pure. */
+export function noneFoundReason(domain: string, search: Search, scraped: boolean): string {
+  const site = `${domain} links no LinkedIn company page of its own (${search.pagesRead.length} page${search.pagesRead.length === 1 ? '' : 's'} read${scraped ? ', homepage scraped' : ''})`;
+  const apollo =
+    search.apollo && search.apollo.outcome !== 'linkedin_page'
+      ? `Apollo was asked: ${APOLLO_OUTCOME_TEXT[search.apollo.outcome]}`
+      : 'Apollo was not asked';
+  return `${site}; ${apollo}.`;
 }
 
 /**
@@ -262,7 +345,9 @@ export async function discoverBrandLinkedinPage(opts: DiscoverLinkedinPageOption
 
   if (!opts.refresh) {
     const stored = await readBrandLinkedinPage(brandId);
-    if (stored.status !== 'not_computed') return stored;
+    // A not_found decided before Apollo was in the order is decided once more.
+    const decidedUnderOldOrder = stored.status === 'not_found' && !stored.provenance?.apollo.asked;
+    if (stored.status !== 'not_computed' && !decidedUnderOldOrder) return stored;
   }
 
   const domain = normalizeCompetitorDomain(brand.domain ?? brand.url);
@@ -318,24 +403,37 @@ export async function discoverBrandLinkedinPage(opts: DiscoverLinkedinPageOption
       }
     : null;
 
-  const search = await searchBrandSite(homepage, identity, reader, scrape);
-  if (!search.readable) {
+  let apolloAskedAt: string | null = null;
+  const askApollo = opts.apollo ?? (async () => apolloLinkedinVerdict(await lookupApolloCompany(domain), domain));
+  const search = await searchBrandSite(homepage, identity, reader, {
+    apollo: async () => {
+      const verdict = await askApollo();
+      apolloAskedAt = new Date().toISOString();
+      return verdict;
+    },
+    scrape,
+  });
+  if (!search.linkedinUrl && !search.readable) {
     throw new LinkedinPageUnavailableError(
       caller.orgId
-        ? `Could not read any page of ${domain} to find its LinkedIn page`
-        : `Could not read any page of ${domain} for free; send x-org-id to bill one scrape of its homepage`,
+        ? `Could not read any page of ${domain} to find its LinkedIn page (Apollo found none either)`
+        : `Could not read any page of ${domain} for free and Apollo found no LinkedIn page; send x-org-id to bill one scrape of its homepage`,
     );
   }
 
   const values = {
     brandId,
     linkedinUrl: search.linkedinUrl,
-    linkedinSource: search.linkedinUrl ? LINKEDIN_SOURCE_BRAND_WEBSITE : null,
+    linkedinSource: search.source,
     pagesRead: search.pagesRead,
     foundOnUrl: search.foundOnUrl,
     requestedByOrgId: runId ? caller.orgId ?? null : null,
     runId,
     discoveredAt: new Date().toISOString(),
+    apolloAskedAt,
+    apolloOutcome: search.apollo?.outcome ?? null,
+    apolloLinkedinUrl: search.apollo?.answeredLinkedinUrl ?? null,
+    noneFoundReason: search.linkedinUrl ? null : noneFoundReason(domain, search, runId !== null),
   };
   await db
     .insert(brandLinkedinPages)

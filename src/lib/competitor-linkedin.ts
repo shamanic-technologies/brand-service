@@ -107,3 +107,45 @@ export function extractLinkedinCompanyUrl(
   }
   return best ? canonicalLinkedinCompanyUrl(best.slug) : null;
 }
+
+/** A whole URL that is a LinkedIn COMPANY page (`linkedin.com/company/<slug>`, nothing after the slug but `/`, a query or a hash). */
+const LINKEDIN_COMPANY_PAGE_RE = /^(?:https?:\/\/)?(?:[a-z]{2,3}\.)?linkedin\.com\/company\/([A-Za-z0-9][A-Za-z0-9\-_.%]*)\/?(?:[?#].*)?$/i;
+
+export type ApolloLinkedinOutcome =
+  | 'linkedin_page'
+  | 'no_company'
+  | 'no_linkedin_url'
+  | 'other_domain'
+  | 'not_company_page';
+
+export interface ApolloLinkedinVerdict {
+  outcome: ApolloLinkedinOutcome;
+  /** Canonical company page, only when `outcome` is `linkedin_page`. */
+  linkedinUrl: string | null;
+  /** What Apollo answered, verbatim (provenance). */
+  answeredLinkedinUrl: string | null;
+  answeredDomain: string | null;
+}
+
+/**
+ * Whether Apollo's company record names the brand's OWN LinkedIn company page.
+ * Kept only when Apollo's record is for that exact registrable domain AND its
+ * `linkedin_url` is a company page; anything else is not found, never a guess.
+ * The record is keyed by domain, so the slug need not spell the brand's name
+ * (LinkedIn slugs can be numeric ids). Pure.
+ */
+export function apolloLinkedinVerdict(
+  company: { domain: string; linkedinUrl: string | null } | null,
+  domain: string,
+): ApolloLinkedinVerdict {
+  if (!company) return { outcome: 'no_company', linkedinUrl: null, answeredLinkedinUrl: null, answeredDomain: null };
+  const answeredLinkedinUrl = company.linkedinUrl;
+  const answeredDomain = company.domain;
+  const base = { answeredLinkedinUrl, answeredDomain };
+  if (normalizeCompetitorDomain(company.domain) !== domain) return { outcome: 'other_domain', linkedinUrl: null, ...base };
+  if (!answeredLinkedinUrl) return { outcome: 'no_linkedin_url', linkedinUrl: null, ...base };
+  const match = answeredLinkedinUrl.trim().match(LINKEDIN_COMPANY_PAGE_RE);
+  const slug = match ? match[1].replace(/[.\-_]+$/, '').toLowerCase() : '';
+  if (!slug || NON_COMPANY_SLUGS.has(slug)) return { outcome: 'not_company_page', linkedinUrl: null, ...base };
+  return { outcome: 'linkedin_page', linkedinUrl: canonicalLinkedinCompanyUrl(slug), ...base };
+}
