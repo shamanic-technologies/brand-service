@@ -1653,6 +1653,25 @@ export const brandOfferSelectedSalesPaths = pgTable("brand_offer_selected_sales_
 ]);
 
 /**
+ * WHICH SOURCING ORIGINS the customer SELECTED on an offer (migration 0087):
+ * features-service sourcing origin slugs stored AS GIVEN. Same semantics as
+ * `brandOfferSelectedSalesPaths`: no row = never stated, a row with an empty
+ * list = stated, none selected. See `offerSelectedSourcingOriginsService`.
+ */
+export const brandOfferSelectedSourcingOrigins = pgTable("brand_offer_selected_sourcing_origins", {
+	offerId: uuid("offer_id").primaryKey().notNull(),
+	originSlugs: text("origin_slugs").array().notNull(),
+	statedAt: timestamp("stated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	statedByUserId: text("stated_by_user_id"),
+}, (table) => [
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_offer_selected_sourcing_origins_offer_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
  * A brand's DIRECT competitors were looked for (migration 0081). The PRESENCE of
  * this row is the "computed" signal: no row = never computed, a row with zero
  * `brand_competitors` rows = computed, nothing found. Keyed on the brand alone —
