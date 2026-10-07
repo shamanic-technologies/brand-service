@@ -112,8 +112,9 @@ survives in brand-service; do NOT reintroduce one — rates are per LEG
 `GET /internal/brands/:brandId/linkedin-page` (pure read) and `POST .../linkedin-page/discover` (`{ refresh? }`, once then reused). Table `brand_linkedin_pages` (migration `0086`, PK brand_id). Consumer: social-service (staff "Posting > Posts"), no org in hand. `status`: `not_computed` (no row) | `found` | `not_found` (row, `linkedin_url` NULL).
 
 - Same method as competitors (`extractLinkedinCompanyUrl`, slug must match the brand's name/domain label). Never built from a name.
-- Reads cheapest first: plain HTTP homepage (free) -> every `page_scrape_cache` page on the brand's registrable domain (free, already paid) -> ONE homepage scrape, only if nothing found, the homepage is not cached, AND `x-org-id` was sent (org-billed on a brand-service run, child of `x-run-id`). No org = no paid read.
-- Nothing readable at all = 422, nothing stored (never a `not_found` for a site we could not read).
+- Reads cheapest first (owner 2026-10-07): plain HTTP homepage (free) -> every `page_scrape_cache` page on the brand's registrable domain (free, already paid) -> Apollo company record by domain (`lib/apollo-client.ts` -> apollo-service `POST /internal/company-firmographics`, platform-billed there, 1 credit only when Apollo knows the company, cached 90d/30d; `apolloLinkedinVerdict` keeps it only for the EXACT registrable domain + a `/company/` URL) -> ONE homepage scrape, only if nothing found, the homepage is not cached, AND `x-org-id` was sent (org-billed on a brand-service run, child of `x-run-id`). No org = no paid read. Apollo error = 502, nothing stored (never read as "none").
+- Provenance: `linkedin_source` `brand_website` | `apollo`; `apollo_asked_at`/`apollo_outcome`/`apollo_linkedin_url`/`none_found_reason` (migration `0087`). A `not_found` row with `apollo_asked_at` NULL (decided before Apollo was in the order) is re-decided once on the next discover; a found row never is.
+- Nothing readable at all AND Apollo found nothing = 422, nothing stored (never a `not_found` for a site we could not read).
 
 ## Offer give lists — `giveForFree` / `neverGive`
 
