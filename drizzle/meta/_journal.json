@@ -589,6 +589,13 @@
       "when": 1791400000000,
       "tag": "0085_drop_brand_sales_economics",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1791500000000,
+      "tag": "0086_brand_linkedin_pages",
+      "breakpoints": true
     }
   ]
 }

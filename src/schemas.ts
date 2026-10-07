@@ -4004,3 +4004,75 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
+
+// ─── Brand's own LinkedIn company page ───────────────────────────────────────
+
+const BRAND_LINKEDIN_PAGE_DESCRIPTION =
+  "The brand's OWN LinkedIn company page, read off the brand's own website (the homepage over plain HTTP, " +
+  'every page of its site already scraped, then one scrape of the homepage only when an org is sent to bill ' +
+  'it). Only a `linkedin.com/company/<slug>` link whose slug matches the brand name or domain is taken (a ' +
+  'customer or partner it links is ignored), never built from a name. `status: "not_computed"` = never looked; ' +
+  '`"found"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/`; `"not_found"` = looked, its site ' +
+  'links none (`linkedinUrl: null`). Brand-wide, keyed on the brand alone.';
+
+export const DiscoverBrandLinkedinPageRequestSchema = z
+  .object({
+    // Recompute even when a stored answer exists. Default: reuse it (costs nothing).
+    refresh: z.boolean().optional(),
+  })
+  .openapi('DiscoverBrandLinkedinPageRequest');
+
+export const BrandLinkedinPageSchema = z
+  .object({
+    brandId: z.string().uuid(),
+    status: z.enum(['not_computed', 'found', 'not_found']),
+    linkedinUrl: z.string().nullable().describe('`https://www.linkedin.com/company/<slug>/`, or null'),
+    discoveredAt: z.string().nullable(),
+    provenance: z
+      .object({
+        method: z.enum(['brand_website_link']),
+        source: z.enum(['brand_website']).nullable().describe('Set when found'),
+        foundOnUrl: z.string().nullable().describe('The page of the brand site the link was read on'),
+        pagesRead: z.array(z.string()).describe('Every page of the brand site that was read'),
+        runId: z.string().nullable().describe('brand-service run that paid for a scrape; null when every read was free'),
+      })
+      .nullable(),
+  })
+  .openapi('BrandLinkedinPage');
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/brands/{brandId}/linkedin-page',
+  summary: "Service read of the brand's own LinkedIn company page",
+  description: BRAND_LINKEDIN_PAGE_DESCRIPTION + ' Pure read: never computes. No org or user header needed.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The stored answer (or not_computed)', content: { 'application/json': { schema: BrandLinkedinPageSchema } } },
+    400: { description: 'Invalid brand ID' },
+    404: { description: 'Brand not found' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/brands/{brandId}/linkedin-page/discover',
+  summary: "Find the brand's own LinkedIn company page (once, then reused)",
+  description:
+    BRAND_LINKEDIN_PAGE_DESCRIPTION +
+    ' Computes when nothing is stored (or `refresh: true`) and stores the answer; otherwise returns the stored ' +
+    'answer at no cost. The free reads need no org. `x-org-id` is optional: when sent, and only when the free ' +
+    'reads found nothing and the homepage was never scraped, ONE scrape is billed to that org on a brand-service ' +
+    'run (child of `x-run-id`); without it the paid read is skipped.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: DiscoverBrandLinkedinPageRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The stored answer after discovery', content: { 'application/json': { schema: BrandLinkedinPageSchema } } },
+    400: { description: 'Invalid brand ID, body or x-org-id' },
+    404: { description: 'Brand not found' },
+    422: { description: 'The brand has no website, or no page of it could be read (nothing stored)' },
+    502: { description: 'Discovery failed upstream (run tracking or storage)' },
+  },
+});

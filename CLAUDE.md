@@ -107,6 +107,14 @@ survives in brand-service; do NOT reintroduce one — rates are per LEG
 - A competitor whose website cannot be read at all is DROPPED (treated as invented); the
   brand's own domain and duplicate registrable domains too.
 
+## The brand's OWN LinkedIn company page (`brandLinkedinPageService`)
+
+`GET /internal/brands/:brandId/linkedin-page` (pure read) and `POST .../linkedin-page/discover` (`{ refresh? }`, once then reused). Table `brand_linkedin_pages` (migration `0086`, PK brand_id). Consumer: social-service (staff "Posting > Posts"), no org in hand. `status`: `not_computed` (no row) | `found` | `not_found` (row, `linkedin_url` NULL).
+
+- Same method as competitors (`extractLinkedinCompanyUrl`, slug must match the brand's name/domain label). Never built from a name.
+- Reads cheapest first: plain HTTP homepage (free) -> every `page_scrape_cache` page on the brand's registrable domain (free, already paid) -> ONE homepage scrape, only if nothing found, the homepage is not cached, AND `x-org-id` was sent (org-billed on a brand-service run, child of `x-run-id`). No org = no paid read.
+- Nothing readable at all = 422, nothing stored (never a `not_found` for a site we could not read).
+
 ## Offer give lists — `giveForFree` / `neverGive`
 
 Two confirmed user-fields (migration `0079`), string[] per OFFER like the levers:
