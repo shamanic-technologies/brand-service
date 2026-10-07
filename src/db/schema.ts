@@ -1701,3 +1701,33 @@ export const brandCompetitors = pgTable("brand_competitors", {
 	uniqueIndex("brand_competitors_brand_domain_key").using("btree", table.brandId.asc().nullsLast().op("uuid_ops"), table.domain.asc().nullsLast().op("text_ops")),
 	check("brand_competitors_linkedin_has_source", sql`(linkedin_url IS NULL) = (linkedin_source IS NULL)`),
 ]);
+
+/**
+ * The brand's OWN LinkedIn company page (migration 0086). Row presence = looked
+ * for; `linkedin_url` NULL on a present row = looked for, none found. No row =
+ * never looked for. Keyed on the brand alone: which page is a company's own is
+ * a fact about the brand (a global identity), not about whichever org asked.
+ * The URL is only ever READ off a page of the brand's own website, never built
+ * from its name, so `linkedin_source` is set exactly when the URL is (CHECK).
+ * See `brandLinkedinPageService`.
+ */
+export const brandLinkedinPages = pgTable("brand_linkedin_pages", {
+	brandId: uuid("brand_id").primaryKey().notNull(),
+	linkedinUrl: text("linkedin_url"),
+	linkedinSource: text("linkedin_source"),
+	// Provenance: the pages of the brand's site that were read (the page the
+	// link was found on comes first when found), the org whose run paid for a
+	// scrape (null when every read was free), and that run.
+	pagesRead: jsonb("pages_read").$type<string[]>().notNull().default([]),
+	foundOnUrl: text("found_on_url"),
+	requestedByOrgId: uuid("requested_by_org_id"),
+	runId: text("run_id"),
+	discoveredAt: timestamp("discovered_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_linkedin_pages_brand_id_fkey",
+	}).onDelete("cascade"),
+	check("brand_linkedin_pages_url_has_source", sql`(linkedin_url IS NULL) = (linkedin_source IS NULL)`),
+]);
