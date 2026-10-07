@@ -4095,12 +4095,17 @@ registry.registerPath({
 // ─── Brand's own LinkedIn company page ───────────────────────────────────────
 
 const BRAND_LINKEDIN_PAGE_DESCRIPTION =
-  "The brand's OWN LinkedIn company page, read off the brand's own website (the homepage over plain HTTP, " +
-  'every page of its site already scraped, then one scrape of the homepage only when an org is sent to bill ' +
-  'it). Only a `linkedin.com/company/<slug>` link whose slug matches the brand name or domain is taken (a ' +
-  'customer or partner it links is ignored), never built from a name. `status: "not_computed"` = never looked; ' +
-  '`"found"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/`; `"not_found"` = looked, its site ' +
-  'links none (`linkedinUrl: null`). Brand-wide, keyed on the brand alone.';
+  "The brand's OWN LinkedIn company page, asked cheapest first: the brand's own website for free (the homepage " +
+  'over plain HTTP, every page of its site already scraped), then Apollo\'s company record for the brand domain ' +
+  '(apollo-service, platform-billed, 1 Apollo credit only when Apollo knows the company, cached there), then one ' +
+  'scrape of the homepage only when an org is sent to bill it. A site link is taken only when its slug matches the ' +
+  "brand name or domain (a customer or partner it links is ignored); Apollo's page only when its record is for " +
+  'that exact domain and names a `linkedin.com/company/...` page. Never built from a name. An Apollo error fails ' +
+  'the discovery (502). `status: "not_computed"` = never looked; `"found"` = `linkedinUrl` is ' +
+  '`https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `"not_found"` = looked, ' +
+  'nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before ' +
+  'Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. Brand-wide, ' +
+  'keyed on the brand alone.';
 
 export const DiscoverBrandLinkedinPageRequestSchema = z
   .object({
@@ -4115,13 +4120,30 @@ export const BrandLinkedinPageSchema = z
     status: z.enum(['not_computed', 'found', 'not_found']),
     linkedinUrl: z.string().nullable().describe('`https://www.linkedin.com/company/<slug>/`, or null'),
     discoveredAt: z.string().nullable(),
+    noneFoundReason: z
+      .string()
+      .nullable()
+      .describe('Why a `not_found` is not found, naming every source asked (site pages read, what Apollo answered). null otherwise.'),
     provenance: z
       .object({
-        method: z.enum(['brand_website_link']),
-        source: z.enum(['brand_website']).nullable().describe('Set when found'),
-        foundOnUrl: z.string().nullable().describe('The page of the brand site the link was read on'),
+        method: z
+          .enum(['brand_website_link', 'apollo_company_lookup'])
+          .describe('`apollo_company_lookup` when Apollo found the page; `brand_website_link` otherwise'),
+        source: z.enum(['brand_website', 'apollo']).nullable().describe('Who found it; set when found'),
+        foundOnUrl: z.string().nullable().describe('The page of the brand site the link was read on (source brand_website only)'),
         pagesRead: z.array(z.string()).describe('Every page of the brand site that was read'),
         runId: z.string().nullable().describe('brand-service run that paid for a scrape; null when every read was free'),
+        apollo: z
+          .object({
+            asked: z.boolean().describe('false = decided by the site reads before Apollo was asked'),
+            askedAt: z.string().nullable(),
+            outcome: z
+              .enum(['linkedin_page', 'no_company', 'no_linkedin_url', 'other_domain', 'not_company_page'])
+              .nullable()
+              .describe('Apollo company record by the brand domain: kept only when it is for that exact domain and names a company page'),
+            linkedinUrl: z.string().nullable().describe('Apollo `linkedin_url`, verbatim'),
+          })
+          .describe('Apollo company lookup (apollo-service, platform-billed, cached there)'),
       })
       .nullable(),
   })
