@@ -84,6 +84,10 @@ survives in brand-service; do NOT reintroduce one — rates are per LEG
 
 `GET|PUT /orgs/brands/:brandId/offers/:offerId/selected-sales-paths` (`{ combinationKeys }`, full replace, a key twice = 400), `GET /internal/offers/:offerId/selected-sales-paths`. Table `brand_offer_selected_sales_paths` (migration `0084`), same semantics as channels: no row = `stated: false` (the dashboard pre-ticks paths above 1x ROI, never written here), empty list = stated. features-service `combinationKey`s stored AS GIVEN. A plain STATED list (what the Sales path page lists), not the activation store above: no uniqueness across paths, no history, no money. Guard `tests/integration/offerSelectedSalesPaths.test.ts`.
 
+## Offer selected sourcing origins (`offerSelectedSourcingOriginsService`)
+
+`GET|PUT /orgs/brands/:brandId/offers/:offerId/selected-sourcing-origins` (`{ originSlugs }`, full replace, a slug twice = 400), `GET /internal/offers/:offerId/selected-sourcing-origins`. Table `brand_offer_selected_sourcing_origins` (migration `0087`), same semantics as selected sales paths: no row = `stated: false` (the dashboard pre-ticks origins above 1x ROI, never written here), empty list = stated. features-service sourcing origin slugs stored AS GIVEN. Guard `tests/integration/offerSelectedSourcingOrigins.test.ts`.
+
 ## Brand competitors — found by us, LinkedIn read off THEIR site (`brandCompetitorsService`)
 
 `GET /orgs/brands/:brandId/competitors`, `POST .../competitors/discover` (`{ refresh? }`),

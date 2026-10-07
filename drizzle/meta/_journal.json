@@ -596,6 +596,13 @@
       "when": 1791500000000,
       "tag": "0086_brand_linkedin_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1791600000000,
+      "tag": "0087_offer_selected_sourcing_origins",
+      "breakpoints": true
     }
   ]
 }
