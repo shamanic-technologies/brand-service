@@ -149,3 +149,51 @@ export function apolloLinkedinVerdict(
   if (!slug || NON_COMPANY_SLUGS.has(slug)) return { outcome: 'not_company_page', linkedinUrl: null, ...base };
   return { outcome: 'linkedin_page', linkedinUrl: canonicalLinkedinCompanyUrl(slug), ...base };
 }
+
+/** Why a URL a person typed is not a LinkedIn company page. */
+export type LinkedinPageInputRefusal = 'empty' | 'not_a_url' | 'not_linkedin' | 'personal_profile' | 'not_company_page';
+
+export type LinkedinPageInput =
+  | { ok: true; linkedinUrl: string }
+  | { ok: false; reason: LinkedinPageInputRefusal; message: string };
+
+const EXAMPLE_PAGE = 'https://www.linkedin.com/company/acme/';
+const LINKEDIN_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9\-_.%]*$/;
+
+/**
+ * A LinkedIn company page URL a PERSON typed or pasted, as the one canonical
+ * form we store (`https://www.linkedin.com/company/<slug>/`), or a refusal
+ * whose `message` the dashboard shows as is. Accepts what people paste: no
+ * scheme, `http`, a country subdomain (`fr.`), and anything after the slug
+ * (`/about/`, `/posts/?feedView=all`). Refuses a person's profile (`/in/`), a
+ * showcase / school / group page, a share link and any other host. Pure.
+ */
+export function parseLinkedinCompanyPageInput(raw: unknown): LinkedinPageInput {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text.length === 0) {
+    return { ok: false, reason: 'empty', message: `Paste your LinkedIn company page address, like ${EXAMPLE_PAGE}` };
+  }
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    return { ok: false, reason: 'not_a_url', message: `This is not a web address. Paste your LinkedIn company page, like ${EXAMPLE_PAGE}` };
+  }
+  const host = url.hostname.toLowerCase();
+  if (!['http:', 'https:'].includes(url.protocol) || text.length > 500 || /\s/.test(text)) {
+    return { ok: false, reason: 'not_a_url', message: `This is not a web address. Paste your LinkedIn company page, like ${EXAMPLE_PAGE}` };
+  }
+  if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) {
+    return { ok: false, reason: 'not_linkedin', message: `This address is not on linkedin.com. Paste your LinkedIn company page, like ${EXAMPLE_PAGE}` };
+  }
+  const segments = url.pathname.split('/').filter((s) => s.length > 0);
+  const kind = (segments[0] ?? '').toLowerCase();
+  if (kind === 'in' || kind === 'pub') {
+    return { ok: false, reason: 'personal_profile', message: `This is a person's profile, not a company page. Paste your company page, like ${EXAMPLE_PAGE}` };
+  }
+  const slug = (segments[1] ?? '').replace(/[.\-_]+$/, '').toLowerCase();
+  if (kind !== 'company' || !LINKEDIN_SLUG_RE.test(slug) || NON_COMPANY_SLUGS.has(slug)) {
+    return { ok: false, reason: 'not_company_page', message: `This LinkedIn address is not a company page. Paste your company page, like ${EXAMPLE_PAGE}` };
+  }
+  return { ok: true, linkedinUrl: canonicalLinkedinCompanyUrl(slug) };
+}

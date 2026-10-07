@@ -1,14 +1,18 @@
 import { Router, Request, Response } from 'express';
 import { DiscoverBrandLinkedinPageRequestSchema } from '../schemas';
-import { UUID_REGEX } from '../lib/brand-ownership';
+import { UUID_REGEX, rejectOwnership, resolveBrandOwnership } from '../lib/brand-ownership';
 import {
   BrandNotFoundError,
+  InvalidLinkedinPageError,
   LinkedinPageUnavailableError,
+  clearBrandLinkedinPage,
   discoverBrandLinkedinPage,
   readBrandLinkedinPage,
+  setBrandLinkedinPage,
 } from '../services/brandLinkedinPageService';
 
 export const internalRouter = Router();
+export const orgRouter = Router();
 
 /**
  * The brand's OWN LinkedIn company page. See `brandLinkedinPageService`.
@@ -74,5 +78,62 @@ internalRouter.post('/brands/:brandId/linkedin-page/discover', async (req: Reque
     if (error instanceof LinkedinPageUnavailableError) return res.status(422).json({ error: error.message });
     console.error('[brand-service] Discover brand LinkedIn page error:', error);
     return res.status(502).json({ error: 'LinkedIn page discovery failed', detail: error.message });
+  }
+});
+
+// ─── Org routes: any member of an org that owns the brand ──────────────────
+// Read (never computes, never spends), set (a person's page wins over every
+// automatic source) and clear (back to automatic discovery). Customer surface:
+// no staff gate, the brand-ownership check is the gate.
+
+async function ownedBrand(req: Request, res: Response): Promise<string | null> {
+  const { brandId } = req.params;
+  if (badBrandId(res, brandId)) return null;
+  if (!UUID_REGEX.test(req.orgId ?? '')) {
+    res.status(400).json({ error: 'Invalid x-org-id: must be a UUID' });
+    return null;
+  }
+  if (rejectOwnership(res, await resolveBrandOwnership(brandId, req.orgId!))) return null;
+  return brandId;
+}
+
+orgRouter.get('/brands/:brandId/linkedin-page', async (req: Request, res: Response) => {
+  try {
+    const brandId = await ownedBrand(req, res);
+    if (!brandId) return;
+    return res.status(200).json(await readBrandLinkedinPage(brandId));
+  } catch (error: any) {
+    if (error instanceof BrandNotFoundError) return res.status(404).json({ error: error.message });
+    console.error('[brand-service] Org get brand LinkedIn page error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+orgRouter.put('/brands/:brandId/linkedin-page', async (req: Request, res: Response) => {
+  try {
+    const brandId = await ownedBrand(req, res);
+    if (!brandId) return;
+    const userId = req.userId && UUID_REGEX.test(req.userId) ? req.userId : null;
+    const view = await setBrandLinkedinPage({ brandId, linkedinUrl: req.body?.linkedinUrl, orgId: req.orgId!, userId });
+    return res.status(200).json(view);
+  } catch (error: any) {
+    if (error instanceof InvalidLinkedinPageError) {
+      return res.status(400).json({ error: error.message, reason: error.reason });
+    }
+    if (error instanceof BrandNotFoundError) return res.status(404).json({ error: error.message });
+    console.error('[brand-service] Set brand LinkedIn page error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+orgRouter.delete('/brands/:brandId/linkedin-page', async (req: Request, res: Response) => {
+  try {
+    const brandId = await ownedBrand(req, res);
+    if (!brandId) return;
+    return res.status(200).json(await clearBrandLinkedinPage(brandId));
+  } catch (error: any) {
+    if (error instanceof BrandNotFoundError) return res.status(404).json({ error: error.message });
+    console.error('[brand-service] Clear brand LinkedIn page error:', error);
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
