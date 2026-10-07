@@ -1748,6 +1748,11 @@ export const brandLinkedinPages = pgTable("brand_linkedin_pages", {
 	apolloOutcome: text("apollo_outcome"),
 	apolloLinkedinUrl: text("apollo_linkedin_url"),
 	noneFoundReason: text("none_found_reason"),
+	// Set by a person (migration 0089): `linkedin_source` 'user'. A set page wins
+	// over every automatic source and no discover overwrites it.
+	setByUserId: uuid("set_by_user_id"),
+	setByOrgId: uuid("set_by_org_id"),
+	setAt: timestamp("set_at", { withTimezone: true, mode: 'string' }),
 }, (table) => [
 	foreignKey({
 		columns: [table.brandId],
