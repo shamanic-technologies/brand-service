@@ -26,6 +26,14 @@
  *      brand-service run (child of `x-run-id`). With no org there is no one to
  *      bill, so the paid read is skipped.
  *
+ * A PERSON can set the page (any member of an org that owns the brand, owner
+ * 2026-10-07: "visualiser la page LinkedIn trouvée pour ma brand et la
+ * changer"): `setBrandLinkedinPage`, source `user`. A set page wins over every
+ * automatic source: discover returns it as stored even with `refresh`, and a
+ * discover already running when it was set never overwrites it (the upsert
+ * skips a `user` row). Clearing it (`clearBrandLinkedinPage`) deletes the row:
+ * back to `not_computed`, the next discover decides automatically again.
+ *
  * Found once, then reused: reads never compute, and discover returns the stored
  * answer unless `refresh`. No row = `not_computed`; a row with no URL =
  * `not_found`, a real answer, distinct from never having looked. A `not_found`
@@ -42,6 +50,8 @@ import { scrapeUrl, type ScrapingTrackingContext } from '../lib/scraping-client'
 import {
   apolloLinkedinVerdict,
   extractLinkedinCompanyUrl,
+  parseLinkedinCompanyPageInput,
+  type LinkedinPageInputRefusal,
   normalizeCompetitorDomain,
   type ApolloLinkedinOutcome,
   type ApolloLinkedinVerdict,
@@ -52,7 +62,9 @@ import { getCachedPageContent, upsertPageContent } from './scrapeOrchestrator';
 /** Where a found URL came from. */
 export const LINKEDIN_SOURCE_BRAND_WEBSITE = 'brand_website' as const;
 export const LINKEDIN_SOURCE_APOLLO = 'apollo' as const;
-export type LinkedinSource = typeof LINKEDIN_SOURCE_BRAND_WEBSITE | typeof LINKEDIN_SOURCE_APOLLO;
+/** Set by a person through the org route; wins over every automatic source. */
+export const LINKEDIN_SOURCE_USER = 'user' as const;
+export type LinkedinSource = typeof LINKEDIN_SOURCE_BRAND_WEBSITE | typeof LINKEDIN_SOURCE_APOLLO | typeof LINKEDIN_SOURCE_USER;
 
 const HOMEPAGE_TIMEOUT_MS = 8000;
 const HOMEPAGE_MAX_CHARS = 2_000_000;
@@ -87,10 +99,12 @@ export interface BrandLinkedinPageView {
   /** Why a `not_found` is not found (says what was asked); null otherwise. */
   noneFoundReason: string | null;
   provenance: {
-    /** How the stored answer was reached: `apollo_company_lookup` when Apollo found it. */
-    method: 'brand_website_link' | 'apollo_company_lookup';
-    /** `brand_website` | `apollo` when found, null otherwise. */
+    /** How the stored answer was reached: `apollo_company_lookup` when Apollo found it, `set_by_user` when a person set it. */
+    method: 'brand_website_link' | 'apollo_company_lookup' | 'set_by_user';
+    /** `brand_website` | `apollo` | `user` when found, null otherwise. */
     source: LinkedinSource | null;
+    /** Who set it and when; null unless `source` is `user`. */
+    setBy: { userId: string | null; orgId: string | null; at: string | null } | null;
     /** The page of the brand's site the link was read on (site source only). */
     foundOnUrl: string | null;
     /** Every page of the brand's site that was read. */
@@ -137,8 +151,14 @@ export async function readBrandLinkedinPage(brandId: string): Promise<BrandLinke
     discoveredAt: row.discoveredAt,
     noneFoundReason: row.linkedinUrl ? null : row.noneFoundReason,
     provenance: {
-      method: source === LINKEDIN_SOURCE_APOLLO ? 'apollo_company_lookup' : 'brand_website_link',
+      method:
+        source === LINKEDIN_SOURCE_USER
+          ? 'set_by_user'
+          : source === LINKEDIN_SOURCE_APOLLO
+            ? 'apollo_company_lookup'
+            : 'brand_website_link',
       source,
+      setBy: source === LINKEDIN_SOURCE_USER ? { userId: row.setByUserId, orgId: row.setByOrgId, at: row.setAt } : null,
       foundOnUrl: row.foundOnUrl,
       pagesRead: row.pagesRead,
       runId: row.runId,
@@ -343,8 +363,10 @@ export async function discoverBrandLinkedinPage(opts: DiscoverLinkedinPageOption
   const { brandId, caller } = opts;
   const brand = await loadBrand(brandId);
 
+  const stored = await readBrandLinkedinPage(brandId);
+  // A page a person set is never recomputed, even on `refresh`.
+  if (stored.provenance?.source === LINKEDIN_SOURCE_USER) return stored;
   if (!opts.refresh) {
-    const stored = await readBrandLinkedinPage(brandId);
     // A not_found decided before Apollo was in the order is decided once more.
     const decidedUnderOldOrder = stored.status === 'not_found' && !stored.provenance?.apollo.asked;
     if (stored.status !== 'not_computed' && !decidedUnderOldOrder) return stored;
@@ -435,10 +457,79 @@ export async function discoverBrandLinkedinPage(opts: DiscoverLinkedinPageOption
     apolloLinkedinUrl: search.apollo?.answeredLinkedinUrl ?? null,
     noneFoundReason: search.linkedinUrl ? null : noneFoundReason(domain, search, runId !== null),
   };
+  // A person may have set the page while this discovery ran: theirs wins.
   await db
     .insert(brandLinkedinPages)
     .values(values)
-    .onConflictDoUpdate({ target: brandLinkedinPages.brandId, set: values });
+    .onConflictDoUpdate({
+      target: brandLinkedinPages.brandId,
+      set: values,
+      setWhere: sql`${brandLinkedinPages.linkedinSource} IS DISTINCT FROM ${LINKEDIN_SOURCE_USER}`,
+    });
 
+  return readBrandLinkedinPage(brandId);
+}
+
+// ─── Set by a person ────────────────────────────────────────────────────────
+
+/** The URL a person sent is not a LinkedIn company page; `message` is shown as is. */
+export class InvalidLinkedinPageError extends Error {
+  constructor(
+    public readonly reason: LinkedinPageInputRefusal,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'InvalidLinkedinPageError';
+  }
+}
+
+export interface SetLinkedinPageOptions {
+  brandId: string;
+  /** What the person typed or pasted. */
+  linkedinUrl: unknown;
+  orgId: string;
+  /** Internal user id; null when the caller sent none. */
+  userId: string | null;
+}
+
+/**
+ * A person sets the brand's page: validated, stored canonical, source `user`.
+ * Keeps what the automatic search learned (pages read, Apollo's answer) as
+ * history. Throws `InvalidLinkedinPageError` (nothing stored) or `BrandNotFoundError`.
+ */
+export async function setBrandLinkedinPage(opts: SetLinkedinPageOptions): Promise<BrandLinkedinPageView> {
+  const parsed = parseLinkedinCompanyPageInput(opts.linkedinUrl);
+  if (!parsed.ok) throw new InvalidLinkedinPageError(parsed.reason, parsed.message);
+  await loadBrand(opts.brandId);
+  const now = new Date().toISOString();
+  const set = {
+    linkedinUrl: parsed.linkedinUrl,
+    linkedinSource: LINKEDIN_SOURCE_USER,
+    foundOnUrl: null,
+    requestedByOrgId: null,
+    runId: null,
+    noneFoundReason: null,
+    discoveredAt: now,
+    setByUserId: opts.userId,
+    setByOrgId: opts.orgId,
+    setAt: now,
+  };
+  await db
+    .insert(brandLinkedinPages)
+    .values({ brandId: opts.brandId, ...set })
+    .onConflictDoUpdate({ target: brandLinkedinPages.brandId, set });
+  return readBrandLinkedinPage(opts.brandId);
+}
+
+/**
+ * Clear the page a person set: the row goes, the brand is back to
+ * `not_computed` and the next discover decides automatically. An automatic
+ * answer is not cleared (nothing to undo). Throws `BrandNotFoundError`.
+ */
+export async function clearBrandLinkedinPage(brandId: string): Promise<BrandLinkedinPageView> {
+  await loadBrand(brandId);
+  await db
+    .delete(brandLinkedinPages)
+    .where(and(eq(brandLinkedinPages.brandId, brandId), eq(brandLinkedinPages.linkedinSource, LINKEDIN_SOURCE_USER)));
   return readBrandLinkedinPage(brandId);
 }

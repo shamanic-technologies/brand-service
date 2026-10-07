@@ -4104,8 +4104,10 @@ const BRAND_LINKEDIN_PAGE_DESCRIPTION =
   'the discovery (502). `status: "not_computed"` = never looked; `"found"` = `linkedinUrl` is ' +
   '`https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `"not_found"` = looked, ' +
   'nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before ' +
-  'Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. Brand-wide, ' +
-  'keyed on the brand alone.';
+  'Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. A person can SET ' +
+  'the page (`PUT /orgs/brands/{brandId}/linkedin-page`): `provenance.source: "user"`, `provenance.setBy` says who ' +
+  'and when. A set page wins over every automatic source: discover returns it as stored, even with `refresh`. ' +
+  'Brand-wide, keyed on the brand alone.';
 
 export const DiscoverBrandLinkedinPageRequestSchema = z
   .object({
@@ -4127,9 +4129,20 @@ export const BrandLinkedinPageSchema = z
     provenance: z
       .object({
         method: z
-          .enum(['brand_website_link', 'apollo_company_lookup'])
-          .describe('`apollo_company_lookup` when Apollo found the page; `brand_website_link` otherwise'),
-        source: z.enum(['brand_website', 'apollo']).nullable().describe('Who found it; set when found'),
+          .enum(['brand_website_link', 'apollo_company_lookup', 'set_by_user'])
+          .describe('`set_by_user` when a person set the page; `apollo_company_lookup` when Apollo found it; `brand_website_link` otherwise'),
+        source: z
+          .enum(['brand_website', 'apollo', 'user'])
+          .nullable()
+          .describe('Who found it (`user` = set by a person); set when found'),
+        setBy: z
+          .object({
+            userId: z.string().nullable().describe('Internal user id of the person who set it (null when the caller sent none)'),
+            orgId: z.string().nullable().describe('Internal org id the person set it from'),
+            at: z.string().nullable().describe('When it was set'),
+          })
+          .nullable()
+          .describe('Who set the page and when; null unless `source` is `user`'),
         foundOnUrl: z.string().nullable().describe('The page of the brand site the link was read on (source brand_website only)'),
         pagesRead: z.array(z.string()).describe('Every page of the brand site that was read'),
         runId: z.string().nullable().describe('brand-service run that paid for a scrape; null when every read was free'),
@@ -4148,6 +4161,84 @@ export const BrandLinkedinPageSchema = z
       .nullable(),
   })
   .openapi('BrandLinkedinPage');
+
+export const SetBrandLinkedinPageRequestSchema = z
+  .object({
+    linkedinUrl: z
+      .string()
+      .describe(
+        'The LinkedIn company page, as pasted: no scheme, `http`, a country subdomain and anything after the slug ' +
+          '(`/about/`, `/posts/`) are accepted; stored as `https://www.linkedin.com/company/<slug>/`.',
+      ),
+  })
+  .openapi('SetBrandLinkedinPageRequest');
+
+export const BrandLinkedinPageRefusalSchema = z
+  .object({
+    error: z.string().describe('A sentence the dashboard shows as is'),
+    reason: z.enum(['empty', 'not_a_url', 'not_linkedin', 'personal_profile', 'not_company_page']),
+  })
+  .openapi('BrandLinkedinPageRefusal');
+
+const BRAND_LINKEDIN_PAGE_ORG_ERRORS = {
+  403: { description: "The brand does not belong to the caller's org" },
+  404: { description: 'Brand not found' },
+  500: { description: 'Internal server error' },
+};
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/linkedin-page',
+  summary: "A member's read of the brand's own LinkedIn company page",
+  description:
+    BRAND_LINKEDIN_PAGE_DESCRIPTION +
+    ' Pure read of the stored answer: never computes, never spends. `not_computed` = nothing decided yet.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The stored answer (or not_computed)', content: { 'application/json': { schema: BrandLinkedinPageSchema } } },
+    400: { description: 'Invalid brand ID or x-org-id' },
+    ...BRAND_LINKEDIN_PAGE_ORG_ERRORS,
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/linkedin-page',
+  summary: "Set the brand's own LinkedIn company page (a person's answer wins)",
+  description:
+    BRAND_LINKEDIN_PAGE_DESCRIPTION +
+    ' Any member of an org that owns the brand. Replaces whatever was stored (found, not found or set before); ' +
+    'answers the stored page as read back, `provenance.source: "user"`. A URL that is not a LinkedIn company ' +
+    'page is refused 400 with `{ error, reason }` and nothing is stored.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    body: { content: { 'application/json': { schema: SetBrandLinkedinPageRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The page as stored', content: { 'application/json': { schema: BrandLinkedinPageSchema } } },
+    400: {
+      description: 'Not a LinkedIn company page (`reason`), or an invalid brand ID / x-org-id (`error` only)',
+      content: { 'application/json': { schema: BrandLinkedinPageRefusalSchema } },
+    },
+    ...BRAND_LINKEDIN_PAGE_ORG_ERRORS,
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/linkedin-page',
+  summary: 'Clear a page a person set: back to automatic discovery',
+  description:
+    BRAND_LINKEDIN_PAGE_DESCRIPTION +
+    ' Removes a page a person set; the brand is back to `not_computed` and the next discover decides ' +
+    'automatically. An automatic answer is left as is (nothing to undo). Answers the stored answer after.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The stored answer after clearing', content: { 'application/json': { schema: BrandLinkedinPageSchema } } },
+    400: { description: 'Invalid brand ID or x-org-id' },
+    ...BRAND_LINKEDIN_PAGE_ORG_ERRORS,
+  },
+});
 
 registry.registerPath({
   method: 'get',

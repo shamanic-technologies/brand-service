@@ -12,7 +12,7 @@ import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoute
 import { orgRouter as legRatesOrgRoutes, internalRouter as legRatesInternalRoutes } from '../../src/routes/leg-rates.routes';
 import { orgRouter as offerSalesPathOrgRoutes, internalRouter as offerSalesPathInternalRoutes } from '../../src/routes/offer-sales-path.routes';
 import { orgRouter as competitorsOrgRoutes, internalRouter as competitorsInternalRoutes } from '../../src/routes/competitors.routes';
-import { internalRouter as linkedinPageInternalRoutes } from '../../src/routes/linkedin-page.routes';
+import { internalRouter as linkedinPageInternalRoutes, orgRouter as linkedinPageOrgRoutes } from '../../src/routes/linkedin-page.routes';
 import { orgRouter as icpOrgRoutes } from '../../src/routes/icp.routes';
 import { orgRouter as userFieldsOrgRoutes } from '../../src/routes/user-fields.routes';
 import { orgRouter as brandGoalOrgRoutes, internalRouter as brandGoalInternalRoutes } from '../../src/routes/brand-goal.routes';
@@ -84,6 +84,7 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, legRatesOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, offerSalesPathOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, competitorsOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, linkedinPageOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, icpOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, userFieldsOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, brandGoalOrgRoutes);

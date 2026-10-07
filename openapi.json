@@ -3106,9 +3106,10 @@
                 "type": "string",
                 "enum": [
                   "brand_website_link",
-                  "apollo_company_lookup"
+                  "apollo_company_lookup",
+                  "set_by_user"
                 ],
-                "description": "`apollo_company_lookup` when Apollo found the page; `brand_website_link` otherwise"
+                "description": "`set_by_user` when a person set the page; `apollo_company_lookup` when Apollo found it; `brand_website_link` otherwise"
               },
               "source": {
                 "type": "string",
@@ -3116,9 +3117,37 @@
                 "enum": [
                   "brand_website",
                   "apollo",
+                  "user",
                   null
                 ],
-                "description": "Who found it; set when found"
+                "description": "Who found it (`user` = set by a person); set when found"
+              },
+              "setBy": {
+                "type": "object",
+                "nullable": true,
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "Internal user id of the person who set it (null when the caller sent none)"
+                  },
+                  "orgId": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "Internal org id the person set it from"
+                  },
+                  "at": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "When it was set"
+                  }
+                },
+                "required": [
+                  "userId",
+                  "orgId",
+                  "at"
+                ],
+                "description": "Who set the page and when; null unless `source` is `user`"
               },
               "foundOnUrl": {
                 "type": "string",
@@ -3179,6 +3208,7 @@
             "required": [
               "method",
               "source",
+              "setBy",
               "foundOnUrl",
               "pagesRead",
               "runId",
@@ -3193,6 +3223,41 @@
           "discoveredAt",
           "noneFoundReason",
           "provenance"
+        ]
+      },
+      "BrandLinkedinPageRefusal": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "A sentence the dashboard shows as is"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "not_a_url",
+              "not_linkedin",
+              "personal_profile",
+              "not_company_page"
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "reason"
+        ]
+      },
+      "SetBrandLinkedinPageRequest": {
+        "type": "object",
+        "properties": {
+          "linkedinUrl": {
+            "type": "string",
+            "description": "The LinkedIn company page, as pasted: no scheme, `http`, a country subdomain and anything after the slug (`/about/`, `/posts/`) are accepted; stored as `https://www.linkedin.com/company/<slug>/`."
+          }
+        },
+        "required": [
+          "linkedinUrl"
         ]
       },
       "DiscoverBrandLinkedinPageRequest": {
@@ -7992,10 +8057,145 @@
         }
       }
     },
+    "/orgs/brands/{brandId}/linkedin-page": {
+      "get": {
+        "summary": "A member's read of the brand's own LinkedIn company page",
+        "description": "The brand's OWN LinkedIn company page, asked cheapest first: the brand's own website for free (the homepage over plain HTTP, every page of its site already scraped), then Apollo's company record for the brand domain (apollo-service, platform-billed, 1 Apollo credit only when Apollo knows the company, cached there), then one scrape of the homepage only when an org is sent to bill it. A site link is taken only when its slug matches the brand name or domain (a customer or partner it links is ignored); Apollo's page only when its record is for that exact domain and names a `linkedin.com/company/...` page. Never built from a name. An Apollo error fails the discovery (502). `status: \"not_computed\"` = never looked; `\"found\"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `\"not_found\"` = looked, nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. A person can SET the page (`PUT /orgs/brands/{brandId}/linkedin-page`): `provenance.source: \"user\"`, `provenance.setBy` says who and when. A set page wins over every automatic source: discover returns it as stored, even with `refresh`. Brand-wide, keyed on the brand alone. Pure read of the stored answer: never computes, never spends. `not_computed` = nothing decided yet.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored answer (or not_computed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandLinkedinPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or x-org-id"
+          },
+          "403": {
+            "description": "The brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set the brand's own LinkedIn company page (a person's answer wins)",
+        "description": "The brand's OWN LinkedIn company page, asked cheapest first: the brand's own website for free (the homepage over plain HTTP, every page of its site already scraped), then Apollo's company record for the brand domain (apollo-service, platform-billed, 1 Apollo credit only when Apollo knows the company, cached there), then one scrape of the homepage only when an org is sent to bill it. A site link is taken only when its slug matches the brand name or domain (a customer or partner it links is ignored); Apollo's page only when its record is for that exact domain and names a `linkedin.com/company/...` page. Never built from a name. An Apollo error fails the discovery (502). `status: \"not_computed\"` = never looked; `\"found\"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `\"not_found\"` = looked, nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. A person can SET the page (`PUT /orgs/brands/{brandId}/linkedin-page`): `provenance.source: \"user\"`, `provenance.setBy` says who and when. A set page wins over every automatic source: discover returns it as stored, even with `refresh`. Brand-wide, keyed on the brand alone. Any member of an org that owns the brand. Replaces whatever was stored (found, not found or set before); answers the stored page as read back, `provenance.source: \"user\"`. A URL that is not a LinkedIn company page is refused 400 with `{ error, reason }` and nothing is stored.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBrandLinkedinPageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The page as stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandLinkedinPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a LinkedIn company page (`reason`), or an invalid brand ID / x-org-id (`error` only)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandLinkedinPageRefusal"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Clear a page a person set: back to automatic discovery",
+        "description": "The brand's OWN LinkedIn company page, asked cheapest first: the brand's own website for free (the homepage over plain HTTP, every page of its site already scraped), then Apollo's company record for the brand domain (apollo-service, platform-billed, 1 Apollo credit only when Apollo knows the company, cached there), then one scrape of the homepage only when an org is sent to bill it. A site link is taken only when its slug matches the brand name or domain (a customer or partner it links is ignored); Apollo's page only when its record is for that exact domain and names a `linkedin.com/company/...` page. Never built from a name. An Apollo error fails the discovery (502). `status: \"not_computed\"` = never looked; `\"found\"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `\"not_found\"` = looked, nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. A person can SET the page (`PUT /orgs/brands/{brandId}/linkedin-page`): `provenance.source: \"user\"`, `provenance.setBy` says who and when. A set page wins over every automatic source: discover returns it as stored, even with `refresh`. Brand-wide, keyed on the brand alone. Removes a page a person set; the brand is back to `not_computed` and the next discover decides automatically. An automatic answer is left as is (nothing to undo). Answers the stored answer after.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored answer after clearing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandLinkedinPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid brand ID or x-org-id"
+          },
+          "403": {
+            "description": "The brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/internal/brands/{brandId}/linkedin-page": {
       "get": {
         "summary": "Service read of the brand's own LinkedIn company page",
-        "description": "The brand's OWN LinkedIn company page, asked cheapest first: the brand's own website for free (the homepage over plain HTTP, every page of its site already scraped), then Apollo's company record for the brand domain (apollo-service, platform-billed, 1 Apollo credit only when Apollo knows the company, cached there), then one scrape of the homepage only when an org is sent to bill it. A site link is taken only when its slug matches the brand name or domain (a customer or partner it links is ignored); Apollo's page only when its record is for that exact domain and names a `linkedin.com/company/...` page. Never built from a name. An Apollo error fails the discovery (502). `status: \"not_computed\"` = never looked; `\"found\"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `\"not_found\"` = looked, nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. Brand-wide, keyed on the brand alone. Pure read: never computes. No org or user header needed.",
+        "description": "The brand's OWN LinkedIn company page, asked cheapest first: the brand's own website for free (the homepage over plain HTTP, every page of its site already scraped), then Apollo's company record for the brand domain (apollo-service, platform-billed, 1 Apollo credit only when Apollo knows the company, cached there), then one scrape of the homepage only when an org is sent to bill it. A site link is taken only when its slug matches the brand name or domain (a customer or partner it links is ignored); Apollo's page only when its record is for that exact domain and names a `linkedin.com/company/...` page. Never built from a name. An Apollo error fails the discovery (502). `status: \"not_computed\"` = never looked; `\"found\"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `\"not_found\"` = looked, nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. A person can SET the page (`PUT /orgs/brands/{brandId}/linkedin-page`): `provenance.source: \"user\"`, `provenance.setBy` says who and when. A set page wins over every automatic source: discover returns it as stored, even with `refresh`. Brand-wide, keyed on the brand alone. Pure read: never computes. No org or user header needed.",
         "parameters": [
           {
             "schema": {
@@ -8033,7 +8233,7 @@
     "/internal/brands/{brandId}/linkedin-page/discover": {
       "post": {
         "summary": "Find the brand's own LinkedIn company page (once, then reused)",
-        "description": "The brand's OWN LinkedIn company page, asked cheapest first: the brand's own website for free (the homepage over plain HTTP, every page of its site already scraped), then Apollo's company record for the brand domain (apollo-service, platform-billed, 1 Apollo credit only when Apollo knows the company, cached there), then one scrape of the homepage only when an org is sent to bill it. A site link is taken only when its slug matches the brand name or domain (a customer or partner it links is ignored); Apollo's page only when its record is for that exact domain and names a `linkedin.com/company/...` page. Never built from a name. An Apollo error fails the discovery (502). `status: \"not_computed\"` = never looked; `\"found\"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `\"not_found\"` = looked, nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. Brand-wide, keyed on the brand alone. Computes when nothing is stored (or `refresh: true`) and stores the answer; otherwise returns the stored answer at no cost. The free reads need no org. `x-org-id` is optional: when sent, and only when the free reads found nothing and the homepage was never scraped, ONE scrape is billed to that org on a brand-service run (child of `x-run-id`); without it the paid read is skipped.",
+        "description": "The brand's OWN LinkedIn company page, asked cheapest first: the brand's own website for free (the homepage over plain HTTP, every page of its site already scraped), then Apollo's company record for the brand domain (apollo-service, platform-billed, 1 Apollo credit only when Apollo knows the company, cached there), then one scrape of the homepage only when an org is sent to bill it. A site link is taken only when its slug matches the brand name or domain (a customer or partner it links is ignored); Apollo's page only when its record is for that exact domain and names a `linkedin.com/company/...` page. Never built from a name. An Apollo error fails the discovery (502). `status: \"not_computed\"` = never looked; `\"found\"` = `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` (`provenance.source` says who found it); `\"not_found\"` = looked, nobody names one (`linkedinUrl: null`, `noneFoundReason` says what was asked). A `not_found` decided before Apollo was asked (`provenance.apollo.asked: false`) is decided once more on the next discover. A person can SET the page (`PUT /orgs/brands/{brandId}/linkedin-page`): `provenance.source: \"user\"`, `provenance.setBy` says who and when. A set page wins over every automatic source: discover returns it as stored, even with `refresh`. Brand-wide, keyed on the brand alone. Computes when nothing is stored (or `refresh: true`) and stores the answer; otherwise returns the stored answer at no cost. The free reads need no org. `x-org-id` is optional: when sent, and only when the free reads found nothing and the homepage was never scraped, ONE scrape is billed to that org on a brand-service run (child of `x-run-id`); without it the paid read is skipped.",
         "parameters": [
           {
             "schema": {
