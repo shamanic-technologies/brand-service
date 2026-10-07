@@ -101,6 +101,12 @@ export async function rewriteBrandReferences(
      AND EXISTS (SELECT 1 FROM brand_competitor_discoveries WHERE brand_id = $2)`,
     [sourceBrandId, targetBrandId],
   );
+  // brand_linkedin_pages (PK brand_id): same rule, the target's own answer wins.
+  await query(
+    `DELETE FROM brand_linkedin_pages WHERE brand_id = $1
+     AND EXISTS (SELECT 1 FROM brand_linkedin_pages WHERE brand_id = $2)`,
+    [sourceBrandId, targetBrandId],
+  );
 
   // 2. Rewrite brand_id on all dependent tables.
   // Deliberately NOT rewritten: `brand_transfers` (an append-only audit log —
@@ -125,6 +131,7 @@ export async function rewriteBrandReferences(
     'brand_sales_rep_phones',
     'brand_competitor_discoveries',
     'brand_competitors',
+    'brand_linkedin_pages',
   ];
 
   const results: { tableName: string; count: number }[] = [];
