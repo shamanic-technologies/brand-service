@@ -3669,21 +3669,51 @@ registry.registerPath({
 
 const OFFER_SALES_PATH_DESCRIPTION =
   'How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS ' +
-  "between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) " +
-  'and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the ' +
-  'features-service catalogue, except the outbound entry legs: `start_to_conversation` and ' +
-  '`start_to_website_visit` are accepted on input and stored and served as `lead_found_to_conversation` / ' +
-  '`lead_found_to_website_visit` (the outbound leg rename, wave 2; the two spellings collapse onto one entry). ' +
-  '`stated: false` (both lists null) = never stated, distinct from ' +
-  '`stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.';
+  'between them that apply, EACH LEG WITH THE CHANNEL (features-service feature slug) THAT PERFORMS IT. ' +
+  'An offer selling through Google Ads and cold email holds `{ legKey: "start_to_website_visit", featureSlug: "google-ads" }` ' +
+  'and `{ legKey: "lead_found_to_website_visit", featureSlug: "sales-cold-email-outreach" }` side by side. ' +
+  "Identifiers are features-service's own step keys, leg keys and feature slugs, stored as given and not " +
+  'validated against its catalogue, except that an outbound leg (`start_to_conversation` / ' +
+  '`start_to_website_visit` on an outbound feature) is stored and served in its NEW spelling ' +
+  '(`lead_found_to_*`; both spellings accepted, they collapse onto one entry). An ENTRY leg ' +
+  '(`start_to_*`, `lead_found_to_*`) MUST name its channel; a later leg may carry `featureSlug: null`. ' +
+  'Served: `legs` (with channel) and `legKeys` (the bare leg keys, first occurrence wins). ' +
+  '`stated: false` (every list null) = never stated, distinct from `stated: true` with empty lists. ' +
+  'Scoped to ONE offer; another offer of the brand is independent.';
 
 const SelectionKeySchema = z.string().trim().min(1).max(200);
 
+// One part of a leg identity: no `@` (it separates leg from channel in storage) and no `+`.
+const LegPartSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .refine((v) => !v.includes('@') && !v.includes('+'), { message: 'Must not contain "@" or "+"' });
+
+export const SalesPathLegSchema = z
+  .object({
+    legKey: LegPartSchema,
+    // The feature that performs this leg. Required (non-null) on an ENTRY leg
+    // (`start_to_*`, `lead_found_to_*`): one with null is refused 400
+    // `reason: entry_leg_without_channel`, never guessed.
+    featureSlug: LegPartSchema.nullable(),
+  })
+  .openapi('SalesPathLeg');
+
 export const PutOfferSalesPathRequestSchema = z
   .object({
-    // FULL replace of the offer's selection; both lists required (may be empty).
+    // FULL replace of the offer's selection; `steps` and ONE of `legs` / `legKeys` required (may be empty).
     steps: z.array(SelectionKeySchema).max(100),
-    legKeys: z.array(SelectionKeySchema).max(200),
+    // The shape to send: each leg with the channel that performs it.
+    legs: z.array(SalesPathLegSchema).max(200).optional(),
+    // DEPRECATED legacy shape (bare keys, no channel), accepted during the switch:
+    // its entry legs are read as cold email's (`sales-cold-email-outreach`), the
+    // only entry-leg channel of the surface that sends it. Send `legs` instead.
+    legKeys: z.array(LegPartSchema).max(200).optional(),
+  })
+  .refine((b) => (b.legs === undefined) !== (b.legKeys === undefined), {
+    message: 'Send exactly one of `legs` (preferred) or `legKeys` (deprecated)',
   })
   .openapi('PutOfferSalesPathRequest');
 
@@ -3693,6 +3723,7 @@ export const OfferSalesPathSchema = z
     stated: z.boolean(),
     steps: z.array(z.string()).nullable(),
     legKeys: z.array(z.string()).nullable(),
+    legs: z.array(SalesPathLegSchema).nullable(),
     statedAt: z.string().nullable(),
   })
   .openapi('OfferSalesPath');
@@ -3723,7 +3754,7 @@ registry.registerPath({
   },
   responses: {
     200: { description: 'The selection, as read after the write', content: { 'application/json': { schema: OfferSalesPathSchema } } },
-    400: { description: 'Invalid ID or body' },
+    400: { description: 'Invalid ID or body, or an entry leg naming no channel (`reason: entry_leg_without_channel`, `legKey`)' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'No such brand, or no such offer on it' },
     500: { description: 'Internal server error' },

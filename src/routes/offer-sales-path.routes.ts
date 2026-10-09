@@ -12,6 +12,14 @@ import {
   readOfferSalesPathByOffer,
   writeOfferSalesPath,
 } from '../services/offerSalesPathService';
+import {
+  EntryLegWithoutChannelError,
+  formatSalesPathLeg,
+  isLegacyOutboundLegKey,
+  legacyOutboundLegKeysInCombinationKey,
+  legsFromLegacyLegKeys,
+} from '../lib/outbound-leg-keys';
+import { warnLegacyOutboundLegKeys } from '../lib/legacy-leg-key-log';
 import { readOfferChannels, readOfferChannelsByOffer, writeOfferChannels } from '../services/offerChannelsService';
 import {
   readOfferSelectedSalesPaths,
@@ -65,11 +73,22 @@ orgRouter.put('/brands/:brandId/offers/:offerId/sales-path', async (req: Request
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
     }
+    const legs = parsed.data.legs ?? legsFromLegacyLegKeys(parsed.data.legKeys!);
+    warnLegacyOutboundLegKeys(
+      req,
+      legs.filter((l) => isLegacyOutboundLegKey(l.legKey, l.featureSlug)).map(formatSalesPathLeg)
+    );
+    if (parsed.data.legKeys !== undefined) {
+      console.warn(`[brand-service] legacy-sales-path-shape offer=${offerId}: bare legKeys sent, entry legs read as cold email's`);
+    }
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
     try {
-      return res.status(200).json(await writeOfferSalesPath(req.orgId!, brandId, offerId, parsed.data));
+      return res.status(200).json(await writeOfferSalesPath(req.orgId!, brandId, offerId, { steps: parsed.data.steps, legs }));
     } catch (error) {
+      if (error instanceof EntryLegWithoutChannelError) {
+        return res.status(400).json({ error: error.message, reason: 'entry_leg_without_channel', legKey: error.legKey });
+      }
       if (rejectOfferProblem(res, error)) return;
       throw error;
     }
@@ -172,6 +191,7 @@ orgRouter.get(
 orgRouter.put(
   '/brands/:brandId/offers/:offerId/selected-sales-paths',
   offerRoute('Put offer selected sales paths', PutOfferSelectedSalesPathsRequestSchema, async (req, res, body) => {
+    warnLegacyOutboundLegKeys(req, body.combinationKeys.flatMap(legacyOutboundLegKeysInCombinationKey));
     res
       .status(200)
       .json(

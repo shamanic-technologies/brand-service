@@ -1601,7 +1601,14 @@ export const brandOfferAnswers = pgTable("brand_offer_answers", {
 export const brandOfferSalesPaths = pgTable("brand_offer_sales_paths", {
 	offerId: uuid("offer_id").primaryKey().notNull(),
 	steps: text().array().notNull(),
+	// The bare projection of `legs` (no channel), kept written so every reader of
+	// the old shape (and the previous container during a deploy swap) still works.
 	legKeys: text("leg_keys").array().notNull(),
+	// The legs WITH the channel that performs each one (migration 0092):
+	// `<legKey>@<featureSlug>`, or the bare key for a non-entry leg with no
+	// channel. NULL only on a row the pre-0092 container wrote during the deploy
+	// swap; the service reads that one as the legacy shape. See `SalesPathLeg`.
+	legs: text("legs").array(),
 	statedAt: timestamp("stated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	foreignKey({
