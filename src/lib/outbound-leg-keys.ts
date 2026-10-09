@@ -5,15 +5,17 @@
  *     start_to_conversation   ==  lead_found_to_conversation
  *     start_to_website_visit  ==  lead_found_to_website_visit
  *
- * Wave 1: wherever this service COMPARES leg keys (today: the "a combinationKey
- * twice" refusal on an offer's selected sales paths) the two spellings are the
- * same key. Nothing is rewritten: what a caller sends is stored and served AS
- * GIVEN. The canonical form is a comparison key only, never persisted.
+ * Wave 1 made the two spellings one identity wherever this service compares
+ * leg keys (the "a combinationKey twice" refusal). WAVE 2 (2026-10-09) stores
+ * and serves the NEW spelling: migration `0091` rewrote every stored row, every
+ * write folds a legacy input to the new spelling before storing it, and every
+ * read folds again on the way out (a row written by the previous container
+ * during the deploy swap still serves new). The legacy spelling stays ACCEPTED
+ * on input; dropping that tolerance is a later, separate decision.
  *
- * A leg key with no feature (a bare `start_to_website_visit` in an offer's
- * sales path, or an unattributed combination segment) names no channel, so it
- * cannot be told outbound from paid/earned and is never folded. Same for the
- * legacy keys on a non-outbound feature (ads, SEO, PR...): untouched.
+ * Legacy keys on a non-outbound feature (ads, SEO, PR...) are untouched, and so
+ * is an unattributed segment of a combination key. The one place a BARE key is
+ * folded is an offer's sales path (`toNewSalesPathLegKeys`), see there.
  *
  * No database import, so it carries real unit tests (`tests/unit/outboundLegKeys.test.ts`).
  */
@@ -65,4 +67,35 @@ export function canonicalCombinationKey(combinationKey: string): string {
 /** True when two entries of the list name the same path (either spelling). */
 export function hasDuplicateCombinationKey(combinationKeys: string[]): boolean {
   return new Set(combinationKeys.map(canonicalCombinationKey)).size !== combinationKeys.length;
+}
+
+/**
+ * A features-service combinationKey with every OUTBOUND segment in the new
+ * spelling (the canonical form IS the new spelling). What wave 2 stores and serves.
+ */
+export const toNewCombinationKey = canonicalCombinationKey;
+
+/** First occurrence wins: two spellings of one key collapse onto one entry, order kept. */
+function dedupeKeepingOrder(keys: string[]): string[] {
+  return [...new Set(keys)];
+}
+
+/** An offer's selected combinationKeys as stored and served from wave 2 on. */
+export function toNewCombinationKeys(combinationKeys: string[]): string[] {
+  return dedupeKeepingOrder(combinationKeys.map(toNewCombinationKey));
+}
+
+/**
+ * An offer's sales-path leg keys as stored and served from wave 2 on. These are
+ * BARE keys (no feature), and they ARE folded, because of how they are made:
+ * the Sales path surface offers an ENTRY leg only when one of the channels we
+ * run performs it (dashboard `offeredLegs` over `SALES_PATH_CHANNEL_SLUGS`), and
+ * the only one of those that performs an entry leg is cold email, an OUTBOUND
+ * feature. So every `start_to_conversation` / `start_to_website_visit` this
+ * table holds was ticked as cold email's leg (checked in prod 2026-10-09: 28
+ * rows, every entry leg among the two legacy keys). If a non-outbound channel
+ * ever joins that surface, its entry legs must be stored with their feature.
+ */
+export function toNewSalesPathLegKeys(legKeys: string[]): string[] {
+  return dedupeKeepingOrder(legKeys.map((k) => LEGACY_TO_NEW[k] ?? k));
 }
