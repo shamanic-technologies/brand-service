@@ -44,14 +44,19 @@ describe('Offer sales path', () => {
     expect(res.body).toEqual({ offerId: offerA, stated: false, steps: null, legKeys: null, statedAt: null });
   });
 
-  it('saves a selection and reads back exactly what it saved', async () => {
+  it('saves a selection and reads back what it saved, the outbound entry leg in its new spelling', async () => {
     const selection = {
       steps: ['website_visit', 'signup', 'paid_client'],
       legKeys: ['start_to_website_visit', 'website_visit_to_signup', 'signup_to_paid_client'],
     };
     const put = await request(app).put(pathOf(offerA)).set(getAuthHeaders(orgId)).send(selection);
     expect(put.status).toBe(200);
-    expect(put.body).toMatchObject({ offerId: offerA, stated: true, ...selection });
+    expect(put.body).toMatchObject({
+      offerId: offerA,
+      stated: true,
+      steps: selection.steps,
+      legKeys: ['lead_found_to_website_visit', 'website_visit_to_signup', 'signup_to_paid_client'],
+    });
     expect(typeof put.body.statedAt).toBe('string');
 
     const get = await request(app).get(pathOf(offerA)).set(getAuthHeaders(orgId));
@@ -61,6 +66,20 @@ describe('Offer sales path', () => {
   it('another offer of the same brand is unaffected', async () => {
     const res = await request(app).get(pathOf(offerB)).set(getAuthHeaders(orgId));
     expect(res.body.stated).toBe(false);
+  });
+
+  it('the legacy and new spelling of one leg collapse onto one entry; the new one is accepted as is', async () => {
+    const put = await request(app)
+      .put(pathOf(offerA))
+      .set(getAuthHeaders(orgId))
+      .send({ steps: ['conversation'], legKeys: ['start_to_conversation', 'conversation_to_paid_client', 'lead_found_to_conversation'] });
+    expect(put.status).toBe(200);
+    expect(put.body.legKeys).toEqual(['lead_found_to_conversation', 'conversation_to_paid_client']);
+    const again = await request(app)
+      .put(pathOf(offerA))
+      .set(getAuthHeaders(orgId))
+      .send({ steps: ['conversation'], legKeys: ['lead_found_to_conversation', 'conversation_to_paid_client'] });
+    expect(again.body.legKeys).toEqual(put.body.legKeys);
   });
 
   it('a later save replaces the selection; an empty selection is stated, not absent', async () => {
@@ -88,7 +107,7 @@ describe('Offer sales path', () => {
     await request(app).put(pathOf(offerB)).set(getAuthHeaders(orgId)).send({ steps: ['conversation'], legKeys: ['start_to_conversation'] });
     const res = await request(app).get(`/internal/offers/${offerB}/sales-path`).set(getInternalAuthHeaders());
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ offerId: offerB, stated: true, steps: ['conversation'], legKeys: ['start_to_conversation'] });
+    expect(res.body).toMatchObject({ offerId: offerB, stated: true, steps: ['conversation'], legKeys: ['lead_found_to_conversation'] });
     const missing = await request(app).get(`/internal/offers/${randomUUID()}/sales-path`).set(getInternalAuthHeaders());
     expect(missing.status).toBe(404);
   });

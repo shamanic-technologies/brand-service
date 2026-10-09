@@ -3671,7 +3671,10 @@ const OFFER_SALES_PATH_DESCRIPTION =
   'How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS ' +
   "between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) " +
   'and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the ' +
-  'features-service catalogue. `stated: false` (both lists null) = never stated, distinct from ' +
+  'features-service catalogue, except the outbound entry legs: `start_to_conversation` and ' +
+  '`start_to_website_visit` are accepted on input and stored and served as `lead_found_to_conversation` / ' +
+  '`lead_found_to_website_visit` (the outbound leg rename, wave 2; the two spellings collapse onto one entry). ' +
+  '`stated: false` (both lists null) = never stated, distinct from ' +
   '`stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.';
 
 const SelectionKeySchema = z.string().trim().min(1).max(200);
@@ -3825,11 +3828,13 @@ registry.registerPath({
 
 const OFFER_SELECTED_SALES_PATHS_DESCRIPTION =
   'The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s ' +
-  '(e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), ' +
-  'stored as given and not validated against the features-service catalogue. A plain stated list: no ' +
+  '(e.g. `lead_found_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), ' +
+  'not validated against the features-service catalogue. A plain stated list: no ' +
   'uniqueness across paths (several may share a campaign), no history, no money. A key twice is refused, ' +
   'and on an outbound feature `start_to_conversation`/`lead_found_to_conversation` and ' +
-  '`start_to_website_visit`/`lead_found_to_website_visit` count as the same key. `stated: false` ' +
+  '`start_to_website_visit`/`lead_found_to_website_visit` count as the same key. Either spelling is ' +
+  'accepted on input; an outbound segment is stored and served in the NEW spelling (`lead_found_to_*`, ' +
+  'wave 2), every other byte as given. `stated: false` ' +
   '(`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What "never ' +
   'stated" means is the consumer\'s default; brand-service never writes one. Scoped to ONE offer.';
 
@@ -3837,7 +3842,7 @@ export const PutOfferSelectedSalesPathsRequestSchema = z
   .object({
     // FULL replace of the offer's selected paths (may be empty). A key twice is a 400,
     // and the legacy and new spelling of an outbound leg are the SAME key
-    // (`hasDuplicateCombinationKey`); each is still stored as given.
+    // (`hasDuplicateCombinationKey`); an outbound segment is stored in the new spelling.
     combinationKeys: z
       .array(z.string().trim().min(1).max(2000))
       .max(200)
