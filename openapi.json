@@ -7584,7 +7584,7 @@
     "/orgs/brands/{brandId}/offers/{offerId}/selected-sales-paths": {
       "get": {
         "summary": "Read the sales paths selected on an offer",
-        "description": "The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s (e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness across paths (several may share a campaign), no history, no money. `stated: false` (`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer.",
+        "description": "The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s (e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness across paths (several may share a campaign), no history, no money. A key twice is refused, and on an outbound feature `start_to_conversation`/`lead_found_to_conversation` and `start_to_website_visit`/`lead_found_to_website_visit` count as the same key. `stated: false` (`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer.",
         "parameters": [
           {
             "schema": {
@@ -7632,7 +7632,7 @@
       },
       "put": {
         "summary": "Replace the sales paths selected on an offer",
-        "description": "Replaces the whole list; `x-user-id` is recorded as who stated it. The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s (e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness across paths (several may share a campaign), no history, no money. `stated: false` (`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer.",
+        "description": "Replaces the whole list; `x-user-id` is recorded as who stated it. The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s (e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness across paths (several may share a campaign), no history, no money. A key twice is refused, and on an outbound feature `start_to_conversation`/`lead_found_to_conversation` and `start_to_website_visit`/`lead_found_to_website_visit` count as the same key. `stated: false` (`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer.",
         "parameters": [
           {
             "schema": {
@@ -7691,7 +7691,7 @@
     "/internal/offers/{offerId}/selected-sales-paths": {
       "get": {
         "summary": "Service read of the sales paths selected on an offer",
-        "description": "The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s (e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness across paths (several may share a campaign), no history, no money. `stated: false` (`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer. Keyed on the offer alone; no user or org header needed.",
+        "description": "The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s (e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), stored as given and not validated against the features-service catalogue. A plain stated list: no uniqueness across paths (several may share a campaign), no history, no money. A key twice is refused, and on an outbound feature `start_to_conversation`/`lead_found_to_conversation` and `start_to_website_visit`/`lead_found_to_website_visit` count as the same key. `stated: false` (`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What \"never stated\" means is the consumer's default; brand-service never writes one. Scoped to ONE offer. Keyed on the offer alone; no user or org header needed.",
         "parameters": [
           {
             "schema": {

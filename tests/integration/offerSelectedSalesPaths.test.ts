@@ -75,6 +75,20 @@ describe('Offer selected sales paths', () => {
       expect(dup.status).toBe(400);
     });
 
+    it('the legacy and new outbound spelling are one key: twice = 400, each stored as given', async () => {
+      const renamed = long.replace('start_to_conversation@', 'lead_found_to_conversation@');
+      const both = await request(app).put(pathOf(offerA)).set(headers()).send({ combinationKeys: [long, renamed] });
+      expect(both.status).toBe(400);
+      const put = await request(app).put(pathOf(offerA)).set(headers()).send({ combinationKeys: [renamed] });
+      expect(put.status).toBe(200);
+      expect(put.body.combinationKeys).toEqual([renamed]);
+      // A non-outbound feature keeps start_to_website_visit as its own key.
+      const ads = ['start_to_website_visit@google-ads+website_visit_to_signup', 'lead_found_to_website_visit@google-ads+website_visit_to_signup'];
+      const adsPut = await request(app).put(pathOf(offerA)).set(headers()).send({ combinationKeys: ads });
+      expect(adsPut.status).toBe(200);
+      expect(adsPut.body.combinationKeys).toEqual(ads);
+    });
+
     it("404s an unknown offer and refuses another org's brand", async () => {
       expect((await request(app).get(pathOf(randomUUID())).set(headers())).status).toBe(404);
       expect([403, 404]).toContain((await request(app).get(pathOf(offerA)).set(getAuthHeaders(otherOrgId))).status);
