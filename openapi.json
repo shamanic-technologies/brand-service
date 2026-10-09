@@ -2775,6 +2775,13 @@
               "type": "string"
             }
           },
+          "legs": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "$ref": "#/components/schemas/SalesPathLeg"
+            }
+          },
           "statedAt": {
             "type": "string",
             "nullable": true
@@ -2785,7 +2792,28 @@
           "stated",
           "steps",
           "legKeys",
+          "legs",
           "statedAt"
+        ]
+      },
+      "SalesPathLeg": {
+        "type": "object",
+        "properties": {
+          "legKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "featureSlug": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "legKey",
+          "featureSlug"
         ]
       },
       "PutOfferSalesPathRequest": {
@@ -2800,6 +2828,13 @@
             },
             "maxItems": 100
           },
+          "legs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SalesPathLeg"
+            },
+            "maxItems": 200
+          },
           "legKeys": {
             "type": "array",
             "items": {
@@ -2811,8 +2846,7 @@
           }
         },
         "required": [
-          "steps",
-          "legKeys"
+          "steps"
         ]
       },
       "OfferChannels": {
@@ -7294,7 +7328,7 @@
     "/orgs/brands/{brandId}/offers/{offerId}/sales-path": {
       "get": {
         "summary": "Read the funnel steps and legs selected for an offer",
-        "description": "How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the features-service catalogue, except the outbound entry legs: `start_to_conversation` and `start_to_website_visit` are accepted on input and stored and served as `lead_found_to_conversation` / `lead_found_to_website_visit` (the outbound leg rename, wave 2; the two spellings collapse onto one entry). `stated: false` (both lists null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.",
+        "description": "How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply, EACH LEG WITH THE CHANNEL (features-service feature slug) THAT PERFORMS IT. An offer selling through Google Ads and cold email holds `{ legKey: \"start_to_website_visit\", featureSlug: \"google-ads\" }` and `{ legKey: \"lead_found_to_website_visit\", featureSlug: \"sales-cold-email-outreach\" }` side by side. Identifiers are features-service's own step keys, leg keys and feature slugs, stored as given and not validated against its catalogue, except that an outbound leg (`start_to_conversation` / `start_to_website_visit` on an outbound feature) is stored and served in its NEW spelling (`lead_found_to_*`; both spellings accepted, they collapse onto one entry). An ENTRY leg (`start_to_*`, `lead_found_to_*`) MUST name its channel; a later leg may carry `featureSlug: null`. Served: `legs` (with channel) and `legKeys` (the bare leg keys, first occurrence wins). `stated: false` (every list null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.",
         "parameters": [
           {
             "schema": {
@@ -7342,7 +7376,7 @@
       },
       "put": {
         "summary": "Replace the funnel steps and legs selected for an offer",
-        "description": "Replaces the whole selection (both lists). How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the features-service catalogue, except the outbound entry legs: `start_to_conversation` and `start_to_website_visit` are accepted on input and stored and served as `lead_found_to_conversation` / `lead_found_to_website_visit` (the outbound leg rename, wave 2; the two spellings collapse onto one entry). `stated: false` (both lists null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.",
+        "description": "Replaces the whole selection (both lists). How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply, EACH LEG WITH THE CHANNEL (features-service feature slug) THAT PERFORMS IT. An offer selling through Google Ads and cold email holds `{ legKey: \"start_to_website_visit\", featureSlug: \"google-ads\" }` and `{ legKey: \"lead_found_to_website_visit\", featureSlug: \"sales-cold-email-outreach\" }` side by side. Identifiers are features-service's own step keys, leg keys and feature slugs, stored as given and not validated against its catalogue, except that an outbound leg (`start_to_conversation` / `start_to_website_visit` on an outbound feature) is stored and served in its NEW spelling (`lead_found_to_*`; both spellings accepted, they collapse onto one entry). An ENTRY leg (`start_to_*`, `lead_found_to_*`) MUST name its channel; a later leg may carry `featureSlug: null`. Served: `legs` (with channel) and `legKeys` (the bare leg keys, first occurrence wins). `stated: false` (every list null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent.",
         "parameters": [
           {
             "schema": {
@@ -7384,7 +7418,7 @@
             }
           },
           "400": {
-            "description": "Invalid ID or body"
+            "description": "Invalid ID or body, or an entry leg naming no channel (`reason: entry_leg_without_channel`, `legKey`)"
           },
           "403": {
             "description": "Brand does not belong to the caller's org"
@@ -7401,7 +7435,7 @@
     "/internal/offers/{offerId}/sales-path": {
       "get": {
         "summary": "Service read of the funnel steps and legs selected for an offer",
-        "description": "How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply. Identifiers are features-service's own step keys (e.g. `website_visit`) and leg keys (e.g. `website_visit_to_signup`), stored as given and not validated against the features-service catalogue, except the outbound entry legs: `start_to_conversation` and `start_to_website_visit` are accepted on input and stored and served as `lead_found_to_conversation` / `lead_found_to_website_visit` (the outbound leg rename, wave 2; the two spellings collapse onto one entry). `stated: false` (both lists null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent. Keyed on the offer alone; no user or org header needed.",
+        "description": "How an offer sells, as the customer states it: the funnel STEPS it goes through and the LEGS between them that apply, EACH LEG WITH THE CHANNEL (features-service feature slug) THAT PERFORMS IT. An offer selling through Google Ads and cold email holds `{ legKey: \"start_to_website_visit\", featureSlug: \"google-ads\" }` and `{ legKey: \"lead_found_to_website_visit\", featureSlug: \"sales-cold-email-outreach\" }` side by side. Identifiers are features-service's own step keys, leg keys and feature slugs, stored as given and not validated against its catalogue, except that an outbound leg (`start_to_conversation` / `start_to_website_visit` on an outbound feature) is stored and served in its NEW spelling (`lead_found_to_*`; both spellings accepted, they collapse onto one entry). An ENTRY leg (`start_to_*`, `lead_found_to_*`) MUST name its channel; a later leg may carry `featureSlug: null`. Served: `legs` (with channel) and `legKeys` (the bare leg keys, first occurrence wins). `stated: false` (every list null) = never stated, distinct from `stated: true` with empty lists. Scoped to ONE offer; another offer of the brand is independent. Keyed on the offer alone; no user or org header needed.",
         "parameters": [
           {
             "schema": {
