@@ -7,6 +7,7 @@ import { BrandUrlSchema, OptionalBrandUrlSchema } from './lib/url-utils';
 import { LogoUrlSchema } from './lib/logo-url';
 import { RETIRED_GOALS } from './lib/goal-vocabulary';
 import { OFFER_ICONS } from './lib/offer-icons';
+import { hasDuplicateCombinationKey } from './lib/outbound-leg-keys';
 import {
   SUPPLIED_OFFER_NAME_MAX_CHARS,
   offerNameProblem,
@@ -3826,17 +3827,21 @@ const OFFER_SELECTED_SALES_PATHS_DESCRIPTION =
   'The sales paths the customer selected (ticked) on an offer: features-service `combinationKey`s ' +
   '(e.g. `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`), ' +
   'stored as given and not validated against the features-service catalogue. A plain stated list: no ' +
-  'uniqueness across paths (several may share a campaign), no history, no money. `stated: false` ' +
+  'uniqueness across paths (several may share a campaign), no history, no money. A key twice is refused, ' +
+  'and on an outbound feature `start_to_conversation`/`lead_found_to_conversation` and ' +
+  '`start_to_website_visit`/`lead_found_to_website_visit` count as the same key. `stated: false` ' +
   '(`combinationKeys: null`) = never stated, distinct from `stated: true` with an empty list. What "never ' +
   'stated" means is the consumer\'s default; brand-service never writes one. Scoped to ONE offer.';
 
 export const PutOfferSelectedSalesPathsRequestSchema = z
   .object({
-    // FULL replace of the offer's selected paths (may be empty). A key twice is a 400.
+    // FULL replace of the offer's selected paths (may be empty). A key twice is a 400,
+    // and the legacy and new spelling of an outbound leg are the SAME key
+    // (`hasDuplicateCombinationKey`); each is still stored as given.
     combinationKeys: z
       .array(z.string().trim().min(1).max(2000))
       .max(200)
-      .refine((keys) => new Set(keys).size === keys.length, { message: 'A combinationKey appears twice' }),
+      .refine((keys) => !hasDuplicateCombinationKey(keys), { message: 'A combinationKey appears twice' }),
   })
   .openapi('PutOfferSelectedSalesPathsRequest');
 
