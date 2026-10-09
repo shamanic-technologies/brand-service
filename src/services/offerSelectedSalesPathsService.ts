@@ -1,12 +1,15 @@
 import { eq } from 'drizzle-orm';
 import { db, brandOfferSelectedSalesPaths } from '../db';
 import { assertOfferOnBrand } from './brandOffersService';
+import { toNewCombinationKeys } from '../lib/outbound-leg-keys';
 
 /**
  * WHICH SALES PATHS THE CUSTOMER SELECTED on an offer: features-service
  * combinationKeys (e.g.
- * `start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`),
- * stored AS GIVEN (no validation against the features-service catalogue).
+ * `lead_found_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking`),
+ * stored as given (no validation against the features-service catalogue), except
+ * that every outbound segment is stored and served in its NEW spelling (wave 2;
+ * the legacy `start_to_*` is accepted on input).
  *
  * A plain stated list, modelled on `offerChannelsService`. NOT an activation:
  * no uniqueness across paths (several may share a campaign), no history, no
@@ -35,7 +38,7 @@ async function readRow(offerId: string): Promise<OfferSelectedSalesPathsView> {
   return {
     offerId,
     stated: true,
-    combinationKeys: row.combinationKeys,
+    combinationKeys: toNewCombinationKeys(row.combinationKeys),
     statedAt: row.statedAt,
     statedByUserId: row.statedByUserId,
   };
@@ -61,10 +64,11 @@ export async function writeOfferSelectedSalesPaths(
   orgId: string,
   brandId: string,
   offerId: string,
-  combinationKeys: string[],
+  given: string[],
   userId: string | null
 ): Promise<OfferSelectedSalesPathsView> {
   await assertOfferOnBrand(orgId, brandId, offerId);
+  const combinationKeys = toNewCombinationKeys(given);
   const now = new Date().toISOString();
   await db
     .insert(brandOfferSelectedSalesPaths)

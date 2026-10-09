@@ -39,6 +39,7 @@ describe('Offer selected sales paths', () => {
     const long =
       'start_to_conversation@sales-cold-email-outreach+conversation_to_meeting_booked@ai-meeting-booking+' +
       'meeting_booked_to_meeting_attended+meeting_attended_to_paid_client';
+    const longNew = long.replace('start_to_conversation@', 'lead_found_to_conversation@');
 
     it('an offer that never stated paths reads as not stated', async () => {
       const res = await request(app).get(pathOf(offerA)).set(headers());
@@ -46,11 +47,16 @@ describe('Offer selected sales paths', () => {
       expect(res.body).toEqual({ offerId: offerA, stated: false, combinationKeys: null, statedAt: null, statedByUserId: null });
     });
 
-    it('saves paths as given, records who, and reads them back exactly', async () => {
-      const combinationKeys = [long, 'start_to_conversation@sales-cold-email-outreach', 'not-in-any-catalogue'];
+    it('saves paths (outbound legs in the new spelling), records who, and reads them back exactly', async () => {
+      const combinationKeys = [long, 'start_to_website_visit@cold-linkedin-outreach', 'not-in-any-catalogue'];
       const put = await request(app).put(pathOf(offerA)).set(headers()).send({ combinationKeys });
       expect(put.status).toBe(200);
-      expect(put.body).toMatchObject({ offerId: offerA, stated: true, combinationKeys, statedByUserId: userId });
+      expect(put.body).toMatchObject({
+        offerId: offerA,
+        stated: true,
+        combinationKeys: [longNew, 'lead_found_to_website_visit@cold-linkedin-outreach', 'not-in-any-catalogue'],
+        statedByUserId: userId,
+      });
       expect(typeof put.body.statedAt).toBe('string');
       const get = await request(app).get(pathOf(offerA)).set(headers());
       expect(get.body).toEqual(put.body);
@@ -58,7 +64,7 @@ describe('Offer selected sales paths', () => {
 
     it('a write replaces the whole list', async () => {
       const put = await request(app).put(pathOf(offerA)).set(headers()).send({ combinationKeys: [long] });
-      expect(put.body.combinationKeys).toEqual([long]);
+      expect(put.body.combinationKeys).toEqual([longNew]);
     });
 
     it('an empty list is stated, not absent; the other offer is untouched', async () => {
@@ -75,8 +81,8 @@ describe('Offer selected sales paths', () => {
       expect(dup.status).toBe(400);
     });
 
-    it('the legacy and new outbound spelling are one key: twice = 400, each stored as given', async () => {
-      const renamed = long.replace('start_to_conversation@', 'lead_found_to_conversation@');
+    it('the legacy and new outbound spelling are one key: twice = 400, the new one stored', async () => {
+      const renamed = longNew;
       const both = await request(app).put(pathOf(offerA)).set(headers()).send({ combinationKeys: [long, renamed] });
       expect(both.status).toBe(400);
       const put = await request(app).put(pathOf(offerA)).set(headers()).send({ combinationKeys: [renamed] });
@@ -100,7 +106,7 @@ describe('Offer selected sales paths', () => {
       await request(app).put(pathOf(offerB)).set(headers()).send({ combinationKeys: [long] });
       const res = await request(app).get(`/internal/offers/${offerB}/selected-sales-paths`).set(getInternalAuthHeaders());
       expect(res.status).toBe(200);
-      expect(res.body).toMatchObject({ offerId: offerB, stated: true, combinationKeys: [long] });
+      expect(res.body).toMatchObject({ offerId: offerB, stated: true, combinationKeys: [longNew] });
       const missing = await request(app).get(`/internal/offers/${randomUUID()}/selected-sales-paths`).set(getInternalAuthHeaders());
       expect(missing.status).toBe(404);
     });
