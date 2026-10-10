@@ -10,7 +10,6 @@ import { orgRouter as extractImagesOrgRoutes, internalRouter as extractImagesInt
 import { orgRouter as publicInfoOrgRoutes, internalRouter as publicInfoInternalRoutes } from '../../src/routes/public-information.routes';
 import { orgRouter as transferOrgRoutes, internalRouter as transferInternalRoutes } from '../../src/routes/transfer.routes';
 import { orgRouter as legRatesOrgRoutes, internalRouter as legRatesInternalRoutes } from '../../src/routes/leg-rates.routes';
-import { orgRouter as offerSalesPathOrgRoutes, internalRouter as offerSalesPathInternalRoutes } from '../../src/routes/offer-sales-path.routes';
 import { orgRouter as competitorsOrgRoutes, internalRouter as competitorsInternalRoutes } from '../../src/routes/competitors.routes';
 import { internalRouter as linkedinPageInternalRoutes, orgRouter as linkedinPageOrgRoutes } from '../../src/routes/linkedin-page.routes';
 import { orgRouter as icpOrgRoutes } from '../../src/routes/icp.routes';
@@ -68,7 +67,6 @@ export function createTestApp() {
   app.use('/internal/media-assets', apiKeyAuth, mediaAssetsRoutes);
   app.use('/internal', apiKeyAuth, intakeFormRoutes);
   app.use('/internal', apiKeyAuth, legRatesInternalRoutes);
-  app.use('/internal', apiKeyAuth, offerSalesPathInternalRoutes);
   app.use('/internal', apiKeyAuth, competitorsInternalRoutes);
   app.use('/internal', apiKeyAuth, linkedinPageInternalRoutes);
   app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
@@ -82,7 +80,6 @@ export function createTestApp() {
   app.use('/orgs', apiKeyAuth, requireOrgId, publicInfoOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, transferOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, legRatesOrgRoutes);
-  app.use('/orgs', apiKeyAuth, requireOrgId, offerSalesPathOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, competitorsOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, linkedinPageOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, icpOrgRoutes);
