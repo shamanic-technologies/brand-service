@@ -88,12 +88,27 @@ describe('extractFieldsFromContent — mode selects the prompt persona', () => {
     expect(params.message).not.toContain('return the string "Unknown"');
   });
 
-  it('suggest mode keeps the same model selection as extract (landing → flash-pro, disableThinking)', async () => {
-    await extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'suggest');
+  it.each(['landing', 'url_map'] as const)(
+    'suggest mode (%s) runs on anthropic/opus at effort medium, thinking not disabled (owner 2026-10-12)',
+    async (strategy) => {
+      await extractFieldsFromContent(pages, fields, caller, null, null, strategy, 'suggest');
+      const params = mockChat.mock.calls[0][0];
+      expect(params.provider).toBe('anthropic');
+      expect(params.model).toBe('opus');
+      expect(params.effort).toBe('medium');
+      expect(params.disableThinking).toBeUndefined();
+      expect(params.temperature).toBeUndefined();
+      expect(params.maxTokens).toBe(24000);
+      expect(params.responseSchema).toBeDefined();
+    },
+  );
+
+  it.each(['landing', 'url_map'] as const)('extract mode (%s) stays on google/flash-pro, no effort', async (strategy) => {
+    await extractFieldsFromContent(pages, fields, caller, null, null, strategy, 'extract');
     const params = mockChat.mock.calls[0][0];
     expect(params.provider).toBe('google');
     expect(params.model).toBe('flash-pro');
-    expect(params.disableThinking).toBe(true);
-    expect(params.responseSchema).toBeDefined();
+    expect(params.effort).toBeUndefined();
+    expect(params.disableThinking).toBe(strategy === 'landing' ? true : undefined);
   });
 });

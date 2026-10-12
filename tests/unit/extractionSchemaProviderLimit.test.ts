@@ -61,9 +61,29 @@ describe('field extraction never sends a schema its provider refuses', () => {
       const unions = unionParamCount(params.responseSchema);
       expect(unions).toBe(n);
       if (unions > ANTHROPIC_MAX_UNION_PARAMS) expect(params.provider).not.toBe('anthropic');
-      // Stronger and simpler: field extraction is on Gemini whatever the count.
+      // Stronger and simpler: EXTRACT mode is on Gemini whatever the count.
       expect(params.provider).toBe('google');
       expect(params.model).toBe('flash-pro');
+    }
+  });
+
+  it.each([1, 7, 16, 17, 19, 40])('suggest mode, %i fields: Opus, every call within the union cap, every field asked once', async (n) => {
+    for (const strategy of ['landing', 'url_map'] as const) {
+      mockChat.mockClear();
+      mockChat.mockImplementation(async (p: { responseSchema: { required: string[] } }) => ({
+        json: Object.fromEntries(p.responseSchema.required.map((k) => [k, `v-${k}`])),
+        content: '', tokensInput: 1, tokensOutput: 1, model: 'm',
+      }));
+      const out = await extractFieldsFromContent(pages, fieldsOf(n), caller, null, null, strategy, 'suggest');
+      expect(mockChat).toHaveBeenCalledTimes(Math.ceil(n / ANTHROPIC_MAX_UNION_PARAMS));
+      const asked: string[] = [];
+      for (const [params] of mockChat.mock.calls) {
+        expect(params.provider).toBe('anthropic');
+        expect(unionParamCount(params.responseSchema)).toBeLessThanOrEqual(ANTHROPIC_MAX_UNION_PARAMS);
+        asked.push(...params.responseSchema.required);
+      }
+      expect(asked.sort()).toEqual(fieldsOf(n).map((f) => f.key).sort());
+      expect(Object.keys(out).sort()).toEqual(fieldsOf(n).map((f) => f.key).sort());
     }
   });
 });

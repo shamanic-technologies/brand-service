@@ -13,6 +13,9 @@ vi.mock('../../src/services/fieldExtractionService', () => ({
     { key: 'industry', value: 'SaaS', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: ['https://prov.com/'] },
   ]),
   buildFieldsResponseSchema: (keys: string[]) => ({ type: 'object', properties: {}, required: keys }),
+  SUGGEST_MODEL_PARAMS: { provider: 'anthropic', model: 'opus', effort: 'medium', maxTokens: 24000 },
+  ANTHROPIC_MAX_UNION_PARAMS: 16,
+  chunkFieldsForAnthropic: <T>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / 16) }, (_, i) => xs.slice(i * 16, i * 16 + 16)),
 }));
 
 vi.mock('../../src/lib/trace-event', () => ({
