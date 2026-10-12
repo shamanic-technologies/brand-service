@@ -170,6 +170,10 @@ the LOCKED fleet contract. Routes `src/routes/transfer.routes.ts`, primitive
   stays visible in the source org), and the call is simply retried.
 - Every attempt is audited in `brand_transfers`. Moves history, not money.
 
+## Org teardown — `DELETE /internal/org-brands/by-org/:orgId` (client-service cascade)
+
+client-service's staff org teardown calls it (x-api-key, internal org UUID). `forgetOrg` (`src/services/orgTeardownService.ts`) deletes, in ONE transaction, every row with `org_id = :orgId` in exactly `ORG_SCOPED_BRAND_TABLES` (membership LAST; offers included, their offer-keyed children cascade), and returns `200 { orgId, deleted: { <table>: n } }`. Idempotent: an unknown or already-forgotten org is 200 with zeros. A failure is a 500 with the reason and rolls back. Brand rows, brand-grain tables (their `requested_by_org_id`/`set_by_org_id` are provenance), other orgs, `brand_transfers` (audit) and the frozen `brands_old` are never touched. A new per-(org, brand) table joins `ORG_SCOPED_BRAND_TABLES` (the unit guard forces it) AND `DELETE_ORDER` there (`forgetOrg` throws on drift). Guard: `tests/integration/orgTeardown.test.ts`.
+
 ## Offer proposals — splitting "what you sell" into offers, then confirming them
 
 `POST /orgs/brands/:brandId/offers/proposals` (`{ description }`) → `{ offers:

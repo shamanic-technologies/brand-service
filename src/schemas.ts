@@ -1920,6 +1920,34 @@ registry.registerPath({
   },
 });
 
+// ── Org teardown (client-service cascade) ───────────────────────
+
+export const OrgTeardownResponseSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    deleted: z
+      .record(z.string(), z.number().int().nonnegative())
+      .describe('Rows deleted per table, keyed by table name. All zeros on a repeat call or an org never seen.'),
+  })
+  .openapi('OrgTeardownResponse');
+
+registry.registerPath({
+  method: 'delete',
+  path: '/internal/org-brands/by-org/{orgId}',
+  summary: 'Forget everything brand-service holds for one org (org teardown cascade)',
+  description:
+    'Deletes the org\'s brand memberships (org_brands) and every per-(org, brand) row it owns: offers (with their user fields and answers), ' +
+    'leg rates, click destinations, WhatsApp links, sales rep, share tokens, business context. Brand rows are global and are NEVER deleted; ' +
+    'another org\'s rows are never touched. One transaction. Idempotent: an org with nothing left, or never seen, returns 200 with zero counts. ' +
+    'brand_transfers history is kept as audit. orgId is the internal org UUID (same as x-org-id).',
+  request: { params: z.object({ orgId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'Org forgotten (counts may all be zero)', content: { 'application/json': { schema: OrgTeardownResponseSchema } } },
+    400: { description: 'orgId is not a UUID' },
+    500: { description: 'Delete failed; nothing was deleted (transaction rolled back)' },
+  },
+});
+
 // ── Transfer Orchestration ──────────────────────────────────────
 
 export const OrchestateTransferRequestSchema = z
