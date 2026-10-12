@@ -22,6 +22,7 @@ import { orgRouter as businessContextOrgRoutes } from '../../src/routes/business
 import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from '../../src/routes/share-token.routes';
 import { internalRouter as orgTeardownInternalRoutes } from '../../src/routes/org-teardown.routes';
 import { orgRouter as offersOrgRoutes, internalRouter as offersInternalRoutes } from '../../src/routes/offers.routes';
+import { orgRouter as offerStepsOrgRoutes } from '../../src/routes/offer-steps.routes';
 
 // Import routes — single-tier files
 import organizationRoutes from '../../src/routes/organization.routes';
@@ -93,6 +94,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, salesRepOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, businessContextOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, shareTokenOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, offersOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, offerStepsOrgRoutes);
   app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;
