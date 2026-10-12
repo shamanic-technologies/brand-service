@@ -7,6 +7,7 @@
  * Used by both fieldExtractionService and imageExtractionService.
  */
 
+import { rethrowIfInsufficientCredits } from '../lib/insufficient-credits';
 import { eq, and, gt, sql } from 'drizzle-orm';
 import { db, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import {
@@ -219,6 +220,7 @@ export async function mapBrandUrls(
           );
           mapResults.push(rootUrls);
         } catch (err: any) {
+          rethrowIfInsufficientCredits(err);
           console.warn(`[brand-service] [${brandId}] Root domain mapping failed: ${err.message}`);
         }
       }
@@ -229,6 +231,7 @@ export async function mapBrandUrls(
     allUrls = keepBrandDomainUrls([...new Set(mapResults.flat())], brandUrl);
     console.log(`[brand-service] [${brandId}] Found ${allUrls.length} unique URLs`);
   } catch (mapError: any) {
+    rethrowIfInsufficientCredits(mapError);
     console.warn(`[brand-service] [${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
     allUrls = [brandUrl];
   }
@@ -395,6 +398,7 @@ export async function probeWellKnownSubdomains(opts: ProbeSubdomainsOptions): Pr
         console.log(`[brand-service] [${brandId}] Subdomain ${host}: ${links.length} page(s) added as candidates`);
         return links;
       } catch (err: any) {
+        rethrowIfInsufficientCredits(err);
         console.warn(`[brand-service] [${brandId}] Subdomain probe ${rootUrl} failed: ${err.message}`);
         return [];
       }

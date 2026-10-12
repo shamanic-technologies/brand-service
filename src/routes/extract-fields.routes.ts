@@ -1,3 +1,4 @@
+import { respondIfInsufficientCredits } from '../lib/insufficient-credits';
 import { Router, Request, Response } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getBrand } from '../services/fieldExtractionService';
@@ -90,6 +91,8 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
     // `Error` and the cause (a chat-service 402 naming the credit shortfall)
     // is invisible.
     console.error('[brand-service] Extract fields (multi-brand) error:', error?.message, error);
+    // The org cannot pay (a 402 from chat-service or scraping-service): 402.
+    if (respondIfInsufficientCredits(res, error)) return;
     // A named offer that does not exist (404), and the deliberate 409 for a
     // brand holding several offers when the caller named none. Neither is
     // something to clean up and proceed with: the confirmed fields ground the
@@ -165,6 +168,7 @@ internalRouter.post('/brands/extract-fields', async (req: Request, res: Response
   } catch (error: any) {
     // `error?.message` explicitly — see the org-scoped handler above.
     console.error('[brand-service] Extract fields (internal multi-brand) error:', error?.message, error);
+    if (respondIfInsufficientCredits(res, error)) return;
     // A named offer that does not exist (404), and the deliberate 409 for a
     // brand holding several offers when the caller named none. Neither is
     // something to clean up and proceed with: the confirmed fields ground the

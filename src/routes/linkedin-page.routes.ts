@@ -1,3 +1,4 @@
+import { respondIfInsufficientCredits } from '../lib/insufficient-credits';
 import { Router, Request, Response } from 'express';
 import { DiscoverBrandLinkedinPageRequestSchema } from '../schemas';
 import { UUID_REGEX, rejectOwnership, resolveBrandOwnership } from '../lib/brand-ownership';
@@ -76,6 +77,8 @@ internalRouter.post('/brands/:brandId/linkedin-page/discover', async (req: Reque
   } catch (error: any) {
     if (error instanceof BrandNotFoundError) return res.status(404).json({ error: error.message });
     if (error instanceof LinkedinPageUnavailableError) return res.status(422).json({ error: error.message });
+    // The org cannot pay for the scrape: 402, never a 502.
+    if (respondIfInsufficientCredits(res, error)) return;
     console.error('[brand-service] Discover brand LinkedIn page error:', error);
     return res.status(502).json({ error: 'LinkedIn page discovery failed', detail: error.message });
   }
