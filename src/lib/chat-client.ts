@@ -63,7 +63,16 @@ export interface ChatParams {
    * don't need chain-of-thought.
    */
   disableThinking?: boolean;
+  /**
+   * Anthropic thinking effort (`output_config.effort`). Anthropic only:
+   * chat-service refuses it on another provider rather than ignoring it. Never
+   * send it together with `disableThinking` (that one floors effort to `low`).
+   */
+  effort?: AnthropicEffort;
 }
+
+/** chat-service's Anthropic effort vocabulary (its `ANTHROPIC_EFFORTS`). */
+export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface ChatResult {
   content: string;
@@ -286,7 +295,7 @@ async function chatPlatform(params: ChatParams): Promise<ChatResult> {
   return response.json() as Promise<ChatResult>;
 }
 
-function buildBody(params: ChatParams): Record<string, unknown> {
+export function buildBody(params: ChatParams): Record<string, unknown> {
   return {
     message: params.message,
     systemPrompt: params.systemPrompt,
@@ -300,6 +309,7 @@ function buildBody(params: ChatParams): Record<string, unknown> {
     ...(params.imageContext && { imageContext: params.imageContext }),
     ...(params.thinkingBudget !== undefined && { thinkingBudget: params.thinkingBudget }),
     ...(params.disableThinking !== undefined && { disableThinking: params.disableThinking }),
+    ...(params.effort !== undefined && { effort: params.effort }),
   };
 }
 
