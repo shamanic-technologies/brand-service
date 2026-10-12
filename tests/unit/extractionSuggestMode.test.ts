@@ -41,6 +41,20 @@ describe('hashFieldDescription — mode isolates cache slots', () => {
     expect(suggest).not.toBe(extract);
   });
 
+  it('suggest mode keys on the named offer: two offers of one brand never share a draft', () => {
+    const a = hashFieldDescription('What is the dream outcome?', 'suggest', 'offer-a');
+    const b = hashFieldDescription('What is the dream outcome?', 'suggest', 'offer-b');
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(hashFieldDescription('What is the dream outcome?', 'suggest'));
+    expect(a).toBe(hashFieldDescription('What is the dream outcome?', 'suggest', 'offer-a'));
+  });
+
+  it('extract mode ignores the offer (existing slots stay valid)', () => {
+    expect(hashFieldDescription('What is the dream outcome?', 'extract', 'offer-a')).toBe(
+      hashFieldDescription('What is the dream outcome?', 'extract'),
+    );
+  });
+
   it('suggest mode is deterministic', () => {
     expect(hashFieldDescription('desc', 'suggest')).toBe(hashFieldDescription('desc', 'suggest'));
   });

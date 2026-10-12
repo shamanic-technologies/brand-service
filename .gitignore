@@ -31,3 +31,6 @@ coverage/
 
 # Generated OpenAPI spec
 openapi.json
+
+# Claude Code session locks
+.claude/*.lock
