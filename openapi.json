@@ -1530,6 +1530,27 @@
           "targetOrgId"
         ]
       },
+      "OrgTeardownResponse": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deleted": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Rows deleted per table, keyed by table name. All zeros on a repeat call or an org never seen."
+          }
+        },
+        "required": [
+          "orgId",
+          "deleted"
+        ]
+      },
       "OrchestrateTransferResponse": {
         "type": "object",
         "properties": {
@@ -5080,6 +5101,41 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/org-brands/by-org/{orgId}": {
+      "delete": {
+        "summary": "Forget everything brand-service holds for one org (org teardown cascade)",
+        "description": "Deletes the org's brand memberships (org_brands) and every per-(org, brand) row it owns: offers (with their user fields and answers), leg rates, click destinations, WhatsApp links, sales rep, share tokens, business context. Brand rows are global and are NEVER deleted; another org's rows are never touched. One transaction. Idempotent: an org with nothing left, or never seen, returns 200 with zero counts. brand_transfers history is kept as audit. orgId is the internal org UUID (same as x-org-id).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Org forgotten (counts may all be zero)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgTeardownResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "orgId is not a UUID"
+          },
+          "500": {
+            "description": "Delete failed; nothing was deleted (transaction rolled back)"
           }
         }
       }

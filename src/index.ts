@@ -34,6 +34,7 @@ import { internalRouter as linkedinPageInternalRoutes, orgRouter as linkedinPage
 import { orgRouter as clickDestinationOrgRoutes } from './routes/click-destination.routes';
 import { orgRouter as businessContextOrgRoutes } from './routes/business-context.routes';
 import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from './routes/share-token.routes';
+import { internalRouter as orgTeardownInternalRoutes } from './routes/org-teardown.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
 import organizationRoutes from './routes/organization.routes';
@@ -130,6 +131,7 @@ app.use('/internal', apiKeyAuth, linkedinPageInternalRoutes);
 app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
 app.use('/internal', apiKeyAuth, shareTokenInternalRoutes);
 app.use('/internal', apiKeyAuth, offersInternalRoutes);
+app.use('/internal', apiKeyAuth, orgTeardownInternalRoutes);
 
 // ── Org-scoped routes (API key + x-org-id required) ─────────────
 
