@@ -80,7 +80,7 @@ survives in brand-service; do NOT reintroduce one — rates are per LEG
 Owner, 2026-10-12: "Mets Opus en medium" (the Gemini Flash draft for onboarding / a new offer was too weak). Every `mode: 'suggest'` call (`extractFieldsFromContent` on BOTH strategies, and `consolidateFields`) sends `SUGGEST_MODEL_PARAMS` (`fieldExtractionService.ts`): `anthropic` / `opus` / `effort: 'medium'` / `maxTokens: 24000`, and NO `disableThinking` (chat-service 400s it beside `effort`). `effort` is chat-service's per-call field: adaptive thinking + `output_config.effort`; without it Opus does not reason on `/complete`. `extract` mode and the URL pick stay `google` / `flash-pro`.
 
 - **Anthropic refuses >16 union-typed params in one schema** and every field is a union, so a suggest request over 16 fields is split by `chunkFieldsForAnthropic` into parallel ≤16-field calls, merged; each field asked once. Never move `extract` (19-field cold-email reads) to Anthropic.
-- The suggest cache salt names the model (`mode:suggest:opus-medium`), so Gemini-era drafts stopped matching on deploy. Move it again if the suggest model changes.
+- The suggest cache salt names the model (`mode:suggest:opus-medium`), so Gemini-era drafts stopped matching on deploy. Move it again if the suggest model changes. A named `offerId` salts it too: a draft is grounded in ONE offer's confirmed words, and before that a brand's second offer was served the first offer's draft for 3 days. Extract keys ignore the offer.
 - Guards: `tests/unit/extractionSuggestMode.test.ts`, `extractionSchemaProviderLimit.test.ts`, `multiBrandExtraction.test.ts`, `onboardingModels.test.ts`.
 
 ## Offer sales path, channels and selected sales paths: RETIRED (owner 2026-10-10)
