@@ -1,3 +1,4 @@
+import { respondIfInsufficientCredits } from '../lib/insufficient-credits';
 import { Router, Request, Response } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getBrandForImages } from '../services/imageExtractionService';
@@ -78,6 +79,8 @@ orgRouter.post('/brands/extract-images', async (req: Request, res: Response) => 
     return res.json(result);
   } catch (error: any) {
     console.error('[brand-service] Extract images (multi-brand) error:', error);
+    // The org cannot pay (chat-service, scraping-service or cloudflare-service 402): 402.
+    if (respondIfInsufficientCredits(res, error)) return;
     if (error instanceof SiteMapError) {
       return res.status(422).json({ error: error.message });
     }

@@ -897,6 +897,7 @@ registry.registerPath({
       },
     },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
+    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed' },
     500: { description: 'Internal server error' },
@@ -1117,6 +1118,7 @@ registry.registerPath({
       },
     },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
+    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed (e.g. domain unreachable, no sitemap)' },
     500: { description: 'Internal server error. This includes image upload failures (e.g. cloudflare-service 502) — upload errors are not silently swallowed. If you get a 500, retry the entire request.' },
@@ -3946,6 +3948,7 @@ registry.registerPath({
   responses: {
     200: { description: 'The stored answer after discovery', content: { 'application/json': { schema: BrandLinkedinPageSchema } } },
     400: { description: 'Invalid brand ID, body or x-org-id' },
+    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' },
     404: { description: 'Brand not found' },
     422: { description: 'The brand has no website, or no page of it could be read (nothing stored)' },
     502: { description: 'Discovery failed upstream (run tracking or storage)' },

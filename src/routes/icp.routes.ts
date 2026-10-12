@@ -1,3 +1,4 @@
+import { respondIfInsufficientCredits } from '../lib/insufficient-credits';
 import { Router, Request, Response } from 'express';
 import { SuggestIcpRequestSchema } from '../schemas';
 import {
@@ -66,11 +67,8 @@ orgRouter.post('/brands/:brandId/icp/suggest', async (req: Request, res: Respons
     if (error instanceof IcpSuggestionUnavailableError) {
       return res.status(422).json({ error: error.message });
     }
-    // Propagate chat-service's insufficient-credits 402 (thrown by fetchWithRetry
-    // as a "... returned 402" AbortError) instead of masking it as 502.
-    if (typeof error?.message === 'string' && error.message.includes('returned 402')) {
-      return res.status(402).json({ error: 'Insufficient credits' });
-    }
+    // Propagate chat-service's insufficient-credits 402 instead of masking it as 502.
+    if (respondIfInsufficientCredits(res, error)) return;
     console.error('[brand-service] Suggest ICP error:', error);
     return res.status(502).json({ error: 'ICP generation failed', detail: error.message });
   }

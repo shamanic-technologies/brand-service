@@ -18,6 +18,7 @@ import { uploadToCloudflare, isCloudflareConfigured, CloudflareTrackingHeaders }
 import { createRun, updateRun } from '../lib/runs-client';
 import { getCampaignFeatureInputs } from '../lib/campaign-client';
 import { traceEvent } from '../lib/trace-event';
+import { isInsufficientCredits, rethrowIfInsufficientCredits } from '../lib/insufficient-credits';
 import { mapBrandUrls, scrapeSelectedPages } from './scrapeOrchestrator';
 import { parseImageUrls, isTrackingPixelDomain, getExtensionFromUrl } from '../lib/image-utils';
 
@@ -192,8 +193,11 @@ async function batchAnalyzeImages(
     for (const result of batchResults) {
       if (result.status === 'fulfilled') {
         results.push(result.value);
+      } else if (isInsufficientCredits(result.reason)) {
+        // The org cannot pay: not an image we could not read.
+        throw result.reason;
       }
-      // Skip failed analyses silently — the image just won't be selected
+      // Skip other failed analyses silently — the image just won't be selected
     }
   }
 
@@ -249,6 +253,7 @@ async function selectRelevantUrlsForImages(
     const match = result.content.match(/\[[\s\S]*\]/);
     if (match) return JSON.parse(match[0]).slice(0, 10);
   } catch (error: any) {
+    rethrowIfInsufficientCredits(error);
     console.error('[brand-service] Image URL selection error:', error.message);
   }
 
@@ -610,6 +615,7 @@ export async function extractImages(
             campaignId,
           );
         } catch (uploadError: any) {
+          rethrowIfInsufficientCredits(uploadError);
           const status = uploadError.response?.status ?? uploadError.code ?? 'unknown';
           const reason = uploadError.response?.data?.reason || uploadError.response?.data?.error || uploadError.message || '';
           console.warn(

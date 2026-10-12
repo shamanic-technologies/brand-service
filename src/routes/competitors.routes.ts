@@ -1,3 +1,4 @@
+import { respondIfInsufficientCredits } from '../lib/insufficient-credits';
 import { Router, Request, Response } from 'express';
 import { DiscoverBrandCompetitorsRequestSchema } from '../schemas';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
@@ -71,10 +72,8 @@ orgRouter.post('/brands/:brandId/competitors/discover', async (req: Request, res
     if (error instanceof CompetitorDiscoveryUnavailableError) {
       return res.status(422).json({ error: error.message });
     }
-    // chat-service's insufficient-credit 402 surfaces as a "returned 402" throw.
-    if (typeof error?.message === 'string' && error.message.includes('returned 402')) {
-      return res.status(402).json({ error: 'Insufficient credits' });
-    }
+    // The org cannot pay (chat-service or scraping-service 402): 402.
+    if (respondIfInsufficientCredits(res, error)) return;
     console.error('[brand-service] Discover brand competitors error:', error);
     return res.status(502).json({ error: 'Competitor discovery failed', detail: error.message });
   }
