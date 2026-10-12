@@ -20,6 +20,7 @@ import { orgRouter as whatsAppLinkOrgRoutes } from '../../src/routes/whatsapp-li
 import { orgRouter as salesRepOrgRoutes } from '../../src/routes/sales-rep.routes';
 import { orgRouter as businessContextOrgRoutes } from '../../src/routes/business-context.routes';
 import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from '../../src/routes/share-token.routes';
+import { internalRouter as orgTeardownInternalRoutes } from '../../src/routes/org-teardown.routes';
 import { orgRouter as offersOrgRoutes, internalRouter as offersInternalRoutes } from '../../src/routes/offers.routes';
 
 // Import routes — single-tier files
@@ -72,6 +73,7 @@ export function createTestApp() {
   app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
   app.use('/internal', apiKeyAuth, shareTokenInternalRoutes);
   app.use('/internal', apiKeyAuth, offersInternalRoutes);
+  app.use('/internal', apiKeyAuth, orgTeardownInternalRoutes);
 
   // ── Org-scoped routes (API key + x-org-id) ──────────────────
   app.use('/orgs', apiKeyAuth, requireOrgId, brandsOrgRoutes);
