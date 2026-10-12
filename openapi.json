@@ -3781,6 +3781,9 @@
           "400": {
             "description": "Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL"
           },
+          "402": {
+            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)"
+          },
           "404": {
             "description": "Brand not found"
           },
@@ -3927,6 +3930,9 @@
           },
           "400": {
             "description": "Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL"
+          },
+          "402": {
+            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)"
           },
           "404": {
             "description": "Brand not found"
@@ -7470,6 +7476,9 @@
           },
           "400": {
             "description": "Invalid brand ID, body or x-org-id"
+          },
+          "402": {
+            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)"
           },
           "404": {
             "description": "Brand not found"

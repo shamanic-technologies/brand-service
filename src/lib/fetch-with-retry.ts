@@ -6,6 +6,7 @@
  */
 
 import pRetry, { AbortError } from 'p-retry';
+import { InsufficientCreditsError } from './insufficient-credits';
 
 const DEFAULT_RETRIES = 2;
 const DEFAULT_MIN_TIMEOUT_MS = 1_000;
@@ -50,8 +51,11 @@ export async function fetchWithRetry(
       if (response.status >= 400 && response.status < 500) {
         if (returnClientError) return response;
         const clientErrorText = await response.text().catch(() => '');
+        const message = `${label ?? url} returned ${response.status}: ${clientErrorText}`;
+        // 402 = the org cannot pay. Typed, so no swallow point can mistake it
+        // for an ordinary client error (see lib/insufficient-credits.ts).
         throw new AbortError(
-          `${label ?? url} returned ${response.status}: ${clientErrorText}`,
+          response.status === 402 ? new InsufficientCreditsError(message) : message,
         );
       }
 

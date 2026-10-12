@@ -11,6 +11,7 @@
  * Default scrape cache TTL is 180 days; callers can override via scrapeCacheTtlDays.
  */
 
+import { rethrowIfInsufficientCredits } from '../lib/insufficient-credits';
 import crypto from 'crypto';
 import { eq, and, gt, inArray, sql, isNull, asc } from 'drizzle-orm';
 import { db, brands, brandExtractedFields, brandOffers, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
@@ -316,6 +317,8 @@ async function selectRelevantUrls(
     const arrayMatch = result.content.match(/\[[\s\S]*\]/);
     if (arrayMatch) return normalizeSelectedUrls(JSON.parse(arrayMatch[0]));
   } catch (error: any) {
+    // The message keeps chat-service's `returned 402`, so a refusal for money
+    // still reads as one (lib/insufficient-credits.ts).
     throw new Error(`[brand-service] URL selection failed: ${error.message}`);
   }
 
@@ -976,6 +979,7 @@ export async function extractFields(
                 );
                 mapResults.push(rootUrls);
               } catch (err: any) {
+                rethrowIfInsufficientCredits(err);
                 console.warn(`[brand-service] [${brandId}] Root domain mapping failed: ${err.message}`);
               }
             }
@@ -993,6 +997,7 @@ export async function extractFields(
             data: { urlCount: allUrls.length, brandUrl },
           }, traceHeaders).catch(() => {});
         } catch (mapError: any) {
+          rethrowIfInsufficientCredits(mapError);
           console.warn(`[brand-service] [${brandId}] Site mapping failed, falling back to homepage only: ${mapError.message}`);
           allUrls = [brandUrl];
         }

@@ -2,6 +2,7 @@
  * HTTP client for scraping-service (site mapping + page scraping).
  */
 
+import { rethrowIfInsufficientCredits } from './insufficient-credits';
 import { fetchWithRetry } from './fetch-with-retry';
 
 const SCRAPING_SERVICE_URL =
@@ -77,6 +78,8 @@ export async function mapSiteUrls(
     return data.urls || [];
   } catch (error: any) {
     console.error('Map site URLs error:', error.message);
+    // The org cannot pay for the map: not a site we could not read.
+    rethrowIfInsufficientCredits(error);
     // AbortError from fetchWithRetry means 4xx — treat as SiteMapError
     if (error.name === 'AbortError' || (error.message && error.message.includes('returned 4'))) {
       throw new SiteMapError(`Could not map site URLs: ${error.message}`);
@@ -110,6 +113,8 @@ export async function scrapeUrl(
     return data.result?.rawMarkdown || null;
   } catch (error: any) {
     console.error(`Scrape error for ${url}:`, error.message);
+    // A refusal for money is not "no content": it must reach the caller.
+    rethrowIfInsufficientCredits(error);
     return null;
   }
 }

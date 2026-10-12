@@ -1,3 +1,4 @@
+import { respondIfInsufficientCredits } from '../lib/insufficient-credits';
 import { Router, Request, Response } from 'express';
 import {
   ConfirmOffersRequestSchema,
@@ -31,7 +32,6 @@ import {
   normalizeOfferAnswers,
   OfferAnswersValidationError,
 } from '../services/brandOfferAnswersService';
-import { ChatServiceImageGenerationError } from '../lib/chat-client';
 import {
   getUserFieldsViewByOfferId,
   upsertUserFieldsByOfferId,
@@ -208,9 +208,7 @@ orgRouter.post('/brands/:brandId/offers/proposals', async (req: Request, res: Re
     if (error instanceof OfferProposalUnavailableError) {
       return res.status(422).json({ error: error.message });
     }
-    if (typeof error?.message === 'string' && error.message.includes('returned 402')) {
-      return res.status(402).json({ error: 'Insufficient credits' });
-    }
+    if (respondIfInsufficientCredits(res, error)) return;
     console.error('[brand-service] Propose offers error:', error);
     return res.status(502).json({ error: 'Offer proposal failed', detail: error.message });
   }
@@ -360,12 +358,7 @@ orgRouter.post('/brands/:brandId/offers/:offerId/image', async (req: Request, re
     if (rejectOfferProblem(res, error)) return;
     // The org cannot afford the generation. chat-service is the gate, so its 402
     // is the answer — surfaced, never masked as a 502 and never a silent no-op.
-    if (error instanceof ChatServiceImageGenerationError && error.status === 402) {
-      return res.status(402).json({ error: 'Insufficient credits' });
-    }
-    if (typeof error?.message === 'string' && error.message.includes('returned 402')) {
-      return res.status(402).json({ error: 'Insufficient credits' });
-    }
+    if (respondIfInsufficientCredits(res, error)) return;
     console.error('[brand-service] Generate offer image error:', error);
     return res.status(502).json({ error: 'Offer image generation failed', detail: error.message });
   }
