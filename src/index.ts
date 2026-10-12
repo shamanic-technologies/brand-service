@@ -35,6 +35,7 @@ import { orgRouter as clickDestinationOrgRoutes } from './routes/click-destinati
 import { orgRouter as businessContextOrgRoutes } from './routes/business-context.routes';
 import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from './routes/share-token.routes';
 import { internalRouter as orgTeardownInternalRoutes } from './routes/org-teardown.routes';
+import { orgRouter as offerStepsOrgRoutes } from './routes/offer-steps.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
 import organizationRoutes from './routes/organization.routes';
@@ -152,6 +153,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, salesRepOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, businessContextOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, shareTokenOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, offersOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, offerStepsOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
 // ── Expired extracted-fields cleanup cron ────────────────────────
