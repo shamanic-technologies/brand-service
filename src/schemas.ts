@@ -3698,6 +3698,84 @@ registry.registerPath({
 // them; their tables stay, unread (see CLAUDE.md).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// THE STEPS AN OFFER'S BUSINESS HAS (owner 2026-10-12): only the list of steps, never the retired
+// legs, channels or selected sales paths. The Copilot reads them before proposing a funnel and adds
+// one when the client confirms it.
+// ---------------------------------------------------------------------------
+
+const OFFER_STEPS_DESCRIPTION =
+  "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. " +
+  '`conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never ' +
+  'stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served.';
+
+export const OfferStepsSchema = z
+  .object({
+    offerId: z.string().uuid(),
+    stated: z.boolean().describe('false = the offer never stated its steps (then `steps` and `statedAt` are null)'),
+    steps: z.array(z.string()).nullable().describe('Step keys (features-service vocabulary), in the order they were stated'),
+    statedAt: z.string().nullable().describe('When the list last changed'),
+  })
+  .openapi('OfferSteps');
+
+export const OfferStepWriteResponseSchema = OfferStepsSchema.extend({
+  changed: z.boolean().describe('false = no-op (adding a step already stated, or removing one not stated)'),
+}).openapi('OfferStepWriteResponse');
+
+const OfferStepParams = z.object({
+  brandId: z.string().uuid(),
+  offerId: z.string().uuid(),
+  stepKey: z.string().describe('A features-service step key (`GET /public/catalogue/steps`), e.g. `purchase`'),
+});
+
+const OFFER_STEP_WRITE_RESPONSES = {
+  200: { description: 'The steps, as read after the write', content: { 'application/json': { schema: OfferStepWriteResponseSchema } } },
+  400: { description: 'Invalid ID, or `reason: "unknown_step"` (a key outside the step catalogue; `knownSteps` lists the valid ones)' },
+  403: { description: "Brand does not belong to the caller's org" },
+  404: { description: 'No such brand, or no such offer on it (`code: "OFFER_NOT_FOUND"`)' },
+  500: { description: 'Internal server error' },
+  502: { description: '`reason: "step_catalogue_unavailable"`: features-service could not be read (nothing written)' },
+};
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/steps',
+  summary: "Read the steps an offer's business has",
+  description: OFFER_STEPS_DESCRIPTION,
+  request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
+  responses: {
+    200: { description: "The offer's stated steps", content: { 'application/json': { schema: OfferStepsSchema } } },
+    400: { description: 'Invalid ID' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/steps/{stepKey}',
+  summary: 'State one step of an offer (idempotent)',
+  description:
+    OFFER_STEPS_DESCRIPTION +
+    ' Adds ONE step at the end of the list. Already stated = 200 `changed: false`. An offer that never stated its ' +
+    'steps becomes `stated: true` with this one step. No body.',
+  request: { params: OfferStepParams },
+  responses: OFFER_STEP_WRITE_RESPONSES,
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/steps/{stepKey}',
+  summary: 'Remove one step of an offer (idempotent)',
+  description:
+    OFFER_STEPS_DESCRIPTION +
+    ' Removes ONE step. Not stated = 200 `changed: false` (an offer that never stated its steps stays ' +
+    '`stated: false`). Removing the last step leaves `stated: true` with an empty list.',
+  request: { params: OfferStepParams },
+  responses: OFFER_STEP_WRITE_RESPONSES,
+});
+
 // ─── Brand competitors ───────────────────────────────────────────────────────
 
 const BRAND_COMPETITORS_DESCRIPTION =

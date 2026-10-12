@@ -2772,6 +2772,57 @@
           "destinationUrl"
         ]
       },
+      "OfferSteps": {
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stated": {
+            "type": "boolean",
+            "description": "false = the offer never stated its steps (then `steps` and `statedAt` are null)"
+          },
+          "steps": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Step keys (features-service vocabulary), in the order they were stated"
+          },
+          "statedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the list last changed"
+          }
+        },
+        "required": [
+          "offerId",
+          "stated",
+          "steps",
+          "statedAt"
+        ]
+      },
+      "OfferStepWriteResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OfferSteps"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "changed": {
+                "type": "boolean",
+                "description": "false = no-op (adding a step already stated, or removing one not stated)"
+              }
+            },
+            "required": [
+              "changed"
+            ]
+          }
+        ]
+      },
       "BrandCompetitors": {
         "type": "object",
         "properties": {
@@ -7183,6 +7234,180 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/steps": {
+      "get": {
+        "summary": "Read the steps an offer's business has",
+        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The offer's stated steps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferSteps"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/offers/{offerId}/steps/{stepKey}": {
+      "put": {
+        "summary": "State one step of an offer (idempotent)",
+        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served. Adds ONE step at the end of the list. Already stated = 200 `changed: false`. An offer that never stated its steps becomes `stated: true` with this one step. No body.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A features-service step key (`GET /public/catalogue/steps`), e.g. `purchase`"
+            },
+            "required": true,
+            "description": "A features-service step key (`GET /public/catalogue/steps`), e.g. `purchase`",
+            "name": "stepKey",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The steps, as read after the write",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferStepWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID, or `reason: \"unknown_step\"` (a key outside the step catalogue; `knownSteps` lists the valid ones)"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it (`code: \"OFFER_NOT_FOUND\"`)"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "502": {
+            "description": "`reason: \"step_catalogue_unavailable\"`: features-service could not be read (nothing written)"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove one step of an offer (idempotent)",
+        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served. Removes ONE step. Not stated = 200 `changed: false` (an offer that never stated its steps stays `stated: false`). Removing the last step leaves `stated: true` with an empty list.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "offerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A features-service step key (`GET /public/catalogue/steps`), e.g. `purchase`"
+            },
+            "required": true,
+            "description": "A features-service step key (`GET /public/catalogue/steps`), e.g. `purchase`",
+            "name": "stepKey",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The steps, as read after the write",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferStepWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID, or `reason: \"unknown_step\"` (a key outside the step catalogue; `knownSteps` lists the valid ones)"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "No such brand, or no such offer on it (`code: \"OFFER_NOT_FOUND\"`)"
+          },
+          "500": {
+            "description": "Internal server error"
+          },
+          "502": {
+            "description": "`reason: \"step_catalogue_unavailable\"`: features-service could not be read (nothing written)"
           }
         }
       }
