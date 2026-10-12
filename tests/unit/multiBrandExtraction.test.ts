@@ -63,6 +63,9 @@ vi.mock('../../src/services/fieldExtractionService', () => ({
   getBrand: vi.fn(),
   // consolidateFields builds a strict responseSchema from the real helper.
   buildFieldsResponseSchema: (keys: string[]) => ({ type: 'object', properties: {}, required: keys }),
+  SUGGEST_MODEL_PARAMS: { provider: 'anthropic', model: 'opus', effort: 'medium', maxTokens: 24000 },
+  ANTHROPIC_MAX_UNION_PARAMS: 16,
+  chunkFieldsForAnthropic: <T>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / 16) }, (_, i) => xs.slice(i * 16, i * 16 + 16)),
 }));
 
 // Mock the image extraction service to avoid DB calls
@@ -223,6 +226,33 @@ describe('multiBrandExtractFields', () => {
 
     // Verify consolidated result was persisted to DB
     expect(mockInsert).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['extract', 'google', 'flash-pro', undefined],
+    ['suggest', 'anthropic', 'opus', 'medium'],
+  ] as const)('consolidation in %s mode runs on %s/%s (effort %s)', async (mode, provider, model, effort) => {
+    mockDbCacheMiss();
+    mockedGetBrand
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
+    mockedExtractFields
+      .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] }])
+      .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] }]);
+    mockedChat.mockResolvedValue({ content: '', json: { industry: 'merged' }, tokensInput: 1, tokensOutput: 1, model: 'm' });
+
+    await multiBrandExtractFields({
+      brandIds: ['brand-1', 'brand-2'],
+      fields: [{ key: 'industry', description: 'test' }],
+      caller: orgCaller,
+      mode,
+    });
+
+    const params = mockedChat.mock.calls[0][0];
+    expect(params.provider).toBe(provider);
+    expect(params.model).toBe(model);
+    expect(params.effort).toBe(effort);
+    expect(params.maxTokens).toBe(24000);
   });
 
   it('overlays a confirmed user-facing field and tags provenance confirmed/extracted', async () => {

@@ -8,7 +8,7 @@
 
 import crypto from 'crypto';
 import { eq, gt, sql, and } from 'drizzle-orm';
-import { extractFields, getBrand, buildFieldsResponseSchema, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
+import { extractFields, getBrand, buildFieldsResponseSchema, SUGGEST_MODEL_PARAMS, ANTHROPIC_MAX_UNION_PARAMS, chunkFieldsForAnthropic, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
 import { chat, Caller, OrgCaller, PlatformCaller } from '../lib/chat-client';
 import { db, consolidatedFieldCache } from '../db';
 import { getConfirmedByOfferId, isUserFacingFieldKey, ConfirmedUserField } from './brandUserFieldsService';
@@ -220,6 +220,14 @@ async function consolidateFields(
   chatCaller: Caller,
   mode: ExtractionMode = 'extract',
 ): Promise<Record<string, unknown>> {
+  // Suggest runs on Opus (SUGGEST_MODEL_PARAMS): batch to Anthropic's union cap.
+  if (mode === 'suggest' && fieldKeys.length > ANTHROPIC_MAX_UNION_PARAMS) {
+    const parts = await Promise.all(
+      chunkFieldsForAnthropic(fieldKeys).map((chunk) => consolidateFields(chunk, byBrand, chatCaller, mode)),
+    );
+    return Object.assign({}, ...parts);
+  }
+
   const perBrandSummary = Object.entries(byBrand)
     .map(([domain, fields]) => `Brand "${domain}":\n${JSON.stringify(fields, null, 2)}`)
     .join('\n\n');
@@ -252,15 +260,15 @@ async function consolidateFields(
         (mode === 'suggest'
           ? ` NEVER return "Unknown", null, or empty values — always produce a best-effort merged value.`
           : ''),
-      provider: 'google',
-      model: 'flash-pro',
+      ...(mode === 'suggest'
+        ? SUGGEST_MODEL_PARAMS
+        : { provider: 'google' as const, model: 'flash-pro' as const, maxTokens: 24000 }),
       responseFormat: 'json',
       // Strict schema enforces the output shape server-side so the model can't
       // emit malformed/truncated JSON across the consolidated field set (same
       // chat-service 502 class as the per-brand extraction). `thinkingBudget`
       // was dead config — chat-service /complete never honored it.
       responseSchema: buildFieldsResponseSchema(fieldKeys),
-      maxTokens: 24000,
     },
     chatCaller,
   );

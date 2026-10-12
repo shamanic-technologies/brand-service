@@ -157,6 +157,30 @@ describe('chat-client', () => {
       expect(body.model).toBe('flash-pro');
     });
 
+    it('passes effort when provided, omits it otherwise', async () => {
+      const { chat } = await importClient();
+      mockFetch.mockResolvedValue(
+        mockResponse({ content: '{}', json: {}, tokensInput: 100, tokensOutput: 50, model: 'claude-opus-5-5' }),
+      );
+      const base = {
+        message: 'Suggest the offer',
+        systemPrompt: 'You are Alex Hormozi.',
+        provider: 'anthropic' as const,
+        model: 'opus' as const,
+        responseFormat: 'json' as const,
+        maxTokens: 24000,
+      };
+      const caller = { mode: 'org' as const, orgId: 'org_123', userId: 'user_456', runId: 'run_789' };
+
+      await chat({ ...base, effort: 'medium' }, caller);
+      const withEffort = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(withEffort.effort).toBe('medium');
+      expect(withEffort.disableThinking).toBeUndefined();
+
+      await chat(base, caller);
+      expect(JSON.parse(mockFetch.mock.calls[1][1].body)).not.toHaveProperty('effort');
+    });
+
     it('passes thinkingBudget when provided', async () => {
       const { chat } = await importClient();
 
