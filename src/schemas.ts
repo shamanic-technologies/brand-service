@@ -4060,3 +4060,140 @@ registry.registerPath({
     502: { description: 'Discovery failed upstream (run tracking or storage)' },
   },
 });
+
+// ── Companies: the company a LEAD works at (owner 2026-10-13) ─────────────
+
+const CompanyIdentifierKindSchema = z.enum(['linkedin_company', 'apollo_organization']);
+
+export const CompanyResolveRequestSchema = z
+  .object({
+    companies: z
+      .array(
+        z.object({
+          ref: z.string().max(200).optional().openapi({ description: 'Caller key echoed back on the result (e.g. your own organization id).' }),
+          domain: z.string().max(500).nullable().optional().openapi({ description: 'Website domain or URL. THE identity when present.' }),
+          linkedinUrl: z.string().max(500).nullable().optional().openapi({ description: 'LinkedIn COMPANY page URL. A person/school/showcase URL is ignored.' }),
+          apolloOrganizationId: z.string().max(200).nullable().optional().openapi({ description: 'Apollo organization id.' }),
+          name: z.string().max(500).nullable().optional().openapi({ description: 'Display name. Never an identity on its own; used only as the name of a company created without a domain.' }),
+        }),
+      )
+      .min(1)
+      .max(1000),
+  })
+  .openapi('CompanyResolveRequest');
+
+const CompanyResolutionSchema = z.object({
+  index: z.number().int().openapi({ description: 'Position of the input this result answers.' }),
+  ref: z.string().nullable(),
+  brandId: z.string().uuid().nullable().openapi({ description: 'The company brand id; null when unresolved.' }),
+  domain: z.string().nullable(),
+  matchedBy: z.enum(['domain', 'linkedin_company', 'apollo_organization']).nullable(),
+  created: z.boolean().openapi({ description: 'True when this call created the brand row.' }),
+  unresolvedReason: z.enum(['no_safe_identity', 'invalid_domain']).nullable(),
+  conflictingIdentifiers: z
+    .array(z.object({ kind: CompanyIdentifierKindSchema, value: z.string(), brandId: z.string().uuid() }))
+    .openapi({ description: 'Identifiers sent with this company that already identify ANOTHER brand (left there).' }),
+});
+
+export const CompanyResolveResponseSchema = z
+  .object({ companies: z.array(CompanyResolutionSchema) })
+  .openapi('CompanyResolveResponse');
+
+export const CompanyFactsWriteRequestSchema = z
+  .object({
+    companies: z
+      .array(
+        z.object({
+          brandId: z.string().uuid(),
+          source: z.string().openapi({ description: 'Lowercase token naming where the facts come from, e.g. "apollo".' }),
+          observedAt: z.string().nullable().optional().openapi({ description: 'When the source observed these facts (ISO). Defaults to now. A stored NEWER observation is kept.' }),
+          facts: z.record(z.string(), z.unknown()).openapi({
+            description:
+              'Fact key -> value. Keys: name, description, seoDescription, websiteUrl, logoUrl, linkedinUrl, twitterUrl, ' +
+              'facebookUrl, blogUrl, crunchbaseUrl, angellistUrl, industry, industries[], secondaryIndustries[], keywords[], ' +
+              'technologies[], foundedYear, employeeCount, annualRevenueUsd, latestFundingStage, latestFundingRoundDate ' +
+              '(YYYY-MM-DD), totalFundingUsd, totalFundingPrinted, fundingEvents (object[]), retailLocationCount, ' +
+              'numSuborganizations, alexaRanking, publiclyTradedSymbol, publiclyTradedExchange, primaryPhone, streetAddress, ' +
+              'city, state, postalCode, country. null / blank / empty list = absent: skipped, never clears a stored value.',
+          }),
+        }),
+      )
+      .min(1)
+      .max(1000),
+  })
+  .openapi('CompanyFactsWriteRequest');
+
+export const CompanyFactsWriteResponseSchema = z
+  .object({
+    written: z.number().int(),
+    skippedAbsent: z.number().int(),
+    keptNewer: z.number().int().openapi({ description: 'Facts not written because a newer observation is stored.' }),
+  })
+  .openapi('CompanyFactsWriteResponse');
+
+export const CompanyBatchRequestSchema = z
+  .object({ brandIds: z.array(z.string().uuid()).min(1).max(1000) })
+  .openapi('CompanyBatchRequest');
+
+export const CompanyBatchResponseSchema = z
+  .object({
+    companies: z.array(
+      z.object({
+        brandId: z.string().uuid(),
+        domain: z.string().nullable(),
+        name: z.string().nullable().openapi({ description: 'Stored brand name, never derived on this read. See facts.name.' }),
+        identifiers: z.array(z.object({ kind: CompanyIdentifierKindSchema, value: z.string() })),
+        facts: z.record(z.string(), z.object({ value: z.unknown(), source: z.string(), observedAt: z.string() })),
+      }),
+    ),
+  })
+  .openapi('CompanyBatchResponse');
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/companies/resolve',
+  summary: 'Resolve the companies leads work at to stable brand ids, free, in bulk',
+  description:
+    'A company a lead works at is a brand like any other (same domain = same brand id), nobody\'s client. ' +
+    'Up to 1000 companies per call, one result per input in input order. FREE: local reads and inserts ' +
+    'only, no scrape, LLM, vendor read, run or cost, and no org claim. Identity: the domain when sent; ' +
+    'else a LinkedIn company page, else an Apollo organization id. A name alone is never an identity ' +
+    '(`unresolvedReason: no_safe_identity`). A domain-less company later seen with its domain keeps its id.',
+  request: { body: { content: { 'application/json': { schema: CompanyResolveRequestSchema } } } },
+  responses: {
+    200: { description: 'One result per input', content: { 'application/json': { schema: CompanyResolveResponseSchema } } },
+    400: { description: 'Invalid body or more than 1000 companies' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/internal/companies/facts',
+  summary: 'Write what a source observed about companies (firmographics), with provenance',
+  description:
+    'Identity facts only (name, description, size, funding, industry...), never facts about the company as a ' +
+    'BUYER of some brand. Each fact is stored with its source and observation time. An absent value never ' +
+    'clears a stored one; a stored newer observation is kept. Refused whole (400, nothing written) on an ' +
+    'unknown key, a wrong type, a bad source or date; 404 when a brand id does not exist.',
+  request: { body: { content: { 'application/json': { schema: CompanyFactsWriteRequestSchema } } } },
+  responses: {
+    200: { description: 'Counts', content: { 'application/json': { schema: CompanyFactsWriteResponseSchema } } },
+    400: { description: 'Invalid body or facts (`problems` lists each)' },
+    404: { description: 'Unknown brand ids (`brandIds`)' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/internal/companies/batch',
+  summary: 'Read companies by brand id: identity, identifiers and facts with provenance',
+  description: 'Up to 1000 brand ids, three indexed reads, nothing derived or paid. Unknown ids are omitted.',
+  request: { body: { content: { 'application/json': { schema: CompanyBatchRequestSchema } } } },
+  responses: {
+    200: { description: 'Companies', content: { 'application/json': { schema: CompanyBatchResponseSchema } } },
+    400: { description: 'Invalid body or more than 1000 ids' },
+    500: { description: 'Internal server error' },
+  },
+});

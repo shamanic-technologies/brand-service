@@ -3122,6 +3122,307 @@
             "type": "boolean"
           }
         }
+      },
+      "CompanyResolveResponse": {
+        "type": "object",
+        "properties": {
+          "companies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "description": "Position of the input this result answers."
+                },
+                "ref": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "brandId": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "uuid",
+                  "description": "The company brand id; null when unresolved."
+                },
+                "domain": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "matchedBy": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    "domain",
+                    "linkedin_company",
+                    "apollo_organization",
+                    null
+                  ]
+                },
+                "created": {
+                  "type": "boolean",
+                  "description": "True when this call created the brand row."
+                },
+                "unresolvedReason": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    "no_safe_identity",
+                    "invalid_domain",
+                    null
+                  ]
+                },
+                "conflictingIdentifiers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "linkedin_company",
+                          "apollo_organization"
+                        ]
+                      },
+                      "value": {
+                        "type": "string"
+                      },
+                      "brandId": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "value",
+                      "brandId"
+                    ]
+                  },
+                  "description": "Identifiers sent with this company that already identify ANOTHER brand (left there)."
+                }
+              },
+              "required": [
+                "index",
+                "ref",
+                "brandId",
+                "domain",
+                "matchedBy",
+                "created",
+                "unresolvedReason",
+                "conflictingIdentifiers"
+              ]
+            }
+          }
+        },
+        "required": [
+          "companies"
+        ]
+      },
+      "CompanyResolveRequest": {
+        "type": "object",
+        "properties": {
+          "companies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "description": "Caller key echoed back on the result (e.g. your own organization id)."
+                },
+                "domain": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 500,
+                  "description": "Website domain or URL. THE identity when present."
+                },
+                "linkedinUrl": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 500,
+                  "description": "LinkedIn COMPANY page URL. A person/school/showcase URL is ignored."
+                },
+                "apolloOrganizationId": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 200,
+                  "description": "Apollo organization id."
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true,
+                  "maxLength": 500,
+                  "description": "Display name. Never an identity on its own; used only as the name of a company created without a domain."
+                }
+              }
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "companies"
+        ]
+      },
+      "CompanyFactsWriteResponse": {
+        "type": "object",
+        "properties": {
+          "written": {
+            "type": "integer"
+          },
+          "skippedAbsent": {
+            "type": "integer"
+          },
+          "keptNewer": {
+            "type": "integer",
+            "description": "Facts not written because a newer observation is stored."
+          }
+        },
+        "required": [
+          "written",
+          "skippedAbsent",
+          "keptNewer"
+        ]
+      },
+      "CompanyFactsWriteRequest": {
+        "type": "object",
+        "properties": {
+          "companies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brandId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Lowercase token naming where the facts come from, e.g. \"apollo\"."
+                },
+                "observedAt": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "When the source observed these facts (ISO). Defaults to now. A stored NEWER observation is kept."
+                },
+                "facts": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "nullable": true
+                  },
+                  "description": "Fact key -> value. Keys: name, description, seoDescription, websiteUrl, logoUrl, linkedinUrl, twitterUrl, facebookUrl, blogUrl, crunchbaseUrl, angellistUrl, industry, industries[], secondaryIndustries[], keywords[], technologies[], foundedYear, employeeCount, annualRevenueUsd, latestFundingStage, latestFundingRoundDate (YYYY-MM-DD), totalFundingUsd, totalFundingPrinted, fundingEvents (object[]), retailLocationCount, numSuborganizations, alexaRanking, publiclyTradedSymbol, publiclyTradedExchange, primaryPhone, streetAddress, city, state, postalCode, country. null / blank / empty list = absent: skipped, never clears a stored value."
+                }
+              },
+              "required": [
+                "brandId",
+                "source",
+                "facts"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "companies"
+        ]
+      },
+      "CompanyBatchResponse": {
+        "type": "object",
+        "properties": {
+          "companies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brandId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "domain": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "Stored brand name, never derived on this read. See facts.name."
+                },
+                "identifiers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "linkedin_company",
+                          "apollo_organization"
+                        ]
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "value"
+                    ]
+                  }
+                },
+                "facts": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "nullable": true
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "observedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "source",
+                      "observedAt"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "brandId",
+                "domain",
+                "name",
+                "identifiers",
+                "facts"
+              ]
+            }
+          }
+        },
+        "required": [
+          "companies"
+        ]
+      },
+      "CompanyBatchRequest": {
+        "type": "object",
+        "properties": {
+          "brandIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "brandIds"
+        ]
       }
     },
     "parameters": {
@@ -7769,6 +8070,108 @@
           },
           "502": {
             "description": "Discovery failed upstream (run tracking or storage)"
+          }
+        }
+      }
+    },
+    "/internal/companies/resolve": {
+      "post": {
+        "summary": "Resolve the companies leads work at to stable brand ids, free, in bulk",
+        "description": "A company a lead works at is a brand like any other (same domain = same brand id), nobody's client. Up to 1000 companies per call, one result per input in input order. FREE: local reads and inserts only, no scrape, LLM, vendor read, run or cost, and no org claim. Identity: the domain when sent; else a LinkedIn company page, else an Apollo organization id. A name alone is never an identity (`unresolvedReason: no_safe_identity`). A domain-less company later seen with its domain keeps its id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One result per input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyResolveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body or more than 1000 companies"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/companies/facts": {
+      "put": {
+        "summary": "Write what a source observed about companies (firmographics), with provenance",
+        "description": "Identity facts only (name, description, size, funding, industry...), never facts about the company as a BUYER of some brand. Each fact is stored with its source and observation time. An absent value never clears a stored one; a stored newer observation is kept. Refused whole (400, nothing written) on an unknown key, a wrong type, a bad source or date; 404 when a brand id does not exist.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyFactsWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyFactsWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body or facts (`problems` lists each)"
+          },
+          "404": {
+            "description": "Unknown brand ids (`brandIds`)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/companies/batch": {
+      "post": {
+        "summary": "Read companies by brand id: identity, identifiers and facts with provenance",
+        "description": "Up to 1000 brand ids, three indexed reads, nothing derived or paid. Unknown ids are omitted.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyBatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Companies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyBatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body or more than 1000 ids"
+          },
+          "500": {
+            "description": "Internal server error"
           }
         }
       }
