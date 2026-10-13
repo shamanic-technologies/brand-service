@@ -94,7 +94,12 @@ export function normalizeUrl(input: unknown, field = 'url'): string {
 export function extractDomain(input: unknown, field = 'url'): string {
   const normalized = normalizeUrl(input, field);
   const hostname = new URL(normalized).hostname.toLowerCase();
-  return hostname.replace(/^www\./, '');
+  const domain = hostname.replace(/^www\./, '');
+  // `www.acme` is a valid hostname but strips to `acme`, which is no website.
+  if (!domain.includes('.')) {
+    throw new InvalidUrlError(`Hostname missing TLD: ${domain}`, field);
+  }
+  return domain;
 }
 
 const URL_ISSUE_PREFIX = 'INVALID_URL: ';
