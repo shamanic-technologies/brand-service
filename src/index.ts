@@ -35,6 +35,7 @@ import { orgRouter as clickDestinationOrgRoutes } from './routes/click-destinati
 import { orgRouter as businessContextOrgRoutes } from './routes/business-context.routes';
 import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from './routes/share-token.routes';
 import { internalRouter as orgTeardownInternalRoutes } from './routes/org-teardown.routes';
+import { internalRouter as companiesInternalRoutes, companiesBodyParser } from './routes/companies.routes';
 import { orgRouter as offerStepsOrgRoutes } from './routes/offer-steps.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
@@ -63,6 +64,8 @@ app.use(cors({
 
 // Body limit raised to 2mb so a brand's pasted business context (~1MB / ~300k
 // chars — the no-website field-extraction source) is accepted without a 413.
+// A 1000-company facts write is bigger than 2mb: its own parser runs first.
+app.use('/internal/companies', companiesBodyParser);
 app.use(express.json({ limit: '2mb' }));
 
 // ── Public routes (no auth) ──────────────────────────────────────
@@ -133,6 +136,7 @@ app.use('/internal', apiKeyAuth, brandGoalInternalRoutes);
 app.use('/internal', apiKeyAuth, shareTokenInternalRoutes);
 app.use('/internal', apiKeyAuth, offersInternalRoutes);
 app.use('/internal', apiKeyAuth, orgTeardownInternalRoutes);
+app.use('/internal', apiKeyAuth, companiesInternalRoutes);
 
 // ── Org-scoped routes (API key + x-org-id required) ─────────────
 
