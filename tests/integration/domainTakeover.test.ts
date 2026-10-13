@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
-import { createTestApp, getAuthHeaders } from '../helpers/test-app';
+import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
-import { brands, orgBrands, brandBusinessContext } from '../../src/db/schema';
+import { brands, orgBrands, brandBusinessContext, companyFacts, companyIdentifiers } from '../../src/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
 
@@ -82,6 +82,44 @@ describe('PATCH /orgs/brands/:brandId — domain ownership by checkout', () => {
     // No holder → nothing to arbitrate → client-service is never called.
     expect(fetchSpy).not.toHaveBeenCalled();
   }, 20000);
+
+  it('a prospect company holding the domain hands its company record to the brand taking it', async () => {
+    const callerOrgId = randomUUID();
+    createdOrgIds.push(callerOrgId);
+    const li = `https://www.linkedin.com/company/${domain.split('.')[0]}/`;
+    const resolved = await request(app)
+      .post('/internal/companies/resolve')
+      .set(getInternalAuthHeaders())
+      .send({ companies: [{ domain, linkedinUrl: li }] });
+    const prospectId = resolved.body.companies[0].brandId;
+    createdBrandIds.push(prospectId);
+    await request(app)
+      .put('/internal/companies/facts')
+      .set(getInternalAuthHeaders())
+      .send({ companies: [{ brandId: prospectId, source: 'apollo', facts: { employeeCount: 42 } }] })
+      .expect(200);
+    const targetId = await seedBrand({ orgId: callerOrgId, domain: null, name: 'Live Brand' });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(checkoutReply([]));
+    const res = await request(app)
+      .patch(`/orgs/brands/${targetId}`)
+      .set(getAuthHeaders(callerOrgId, randomUUID()))
+      .send({ url: `https://${domain}` });
+    expect(res.status).toBe(200);
+
+    const facts = await db.select().from(companyFacts).where(eq(companyFacts.brandId, targetId));
+    expect(facts.map((f) => [f.factKey, f.value])).toEqual([['employeeCount', 42]]);
+    expect(await db.select().from(companyFacts).where(eq(companyFacts.brandId, prospectId))).toHaveLength(0);
+    const [owner] = await db.select().from(companyIdentifiers).where(eq(companyIdentifiers.value, li));
+    expect(owner.brandId).toBe(targetId);
+
+    vi.restoreAllMocks();
+    const again = await request(app)
+      .post('/internal/companies/resolve')
+      .set(getInternalAuthHeaders())
+      .send({ companies: [{ domain }] });
+    expect(again.body.companies[0].brandId).toBe(targetId);
+  }, 30000);
 
   it('takes the domain from a never-paid holder owned by ANOTHER org, leaving that org a working brand', async () => {
     const callerOrgId = randomUUID();

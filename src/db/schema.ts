@@ -1749,3 +1749,52 @@ export const brandLinkedinPages = pgTable("brand_linkedin_pages", {
 	}).onDelete("cascade"),
 	check("brand_linkedin_pages_url_has_source", sql`(linkedin_url IS NULL) = (linkedin_source IS NULL)`),
 ]);
+
+/**
+ * A company a LEAD works at is a brand like any other (same domain = same brand
+ * id), it is just nobody's client. These two tables are what make brand-service
+ * the home of that company (owner 2026-10-13, LEAD-REFONTE): see
+ * `companyService` and the "company a lead works at" section of CLAUDE.md.
+ *
+ * `company_identifiers` maps the identities that are SAFE without a domain (a
+ * LinkedIn company page, an Apollo organization id) onto ONE brand. A name is
+ * never an identifier: two companies share a name, never a LinkedIn page.
+ */
+export const companyIdentifiers = pgTable("company_identifiers", {
+	kind: text().notNull(),
+	value: text().notNull(),
+	brandId: uuid("brand_id").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.kind, table.value], name: "company_identifiers_pkey" }),
+	index("company_identifiers_brand_id_idx").using("btree", table.brandId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "company_identifiers_brand_id_fkey",
+	}).onDelete("cascade"),
+	check("company_identifiers_kind_check", sql`kind IN ('linkedin_company', 'apollo_organization')`),
+]);
+
+/**
+ * What is known about a company, one row per (brand, fact): the value, where it
+ * came from (`source`) and when the source observed it. Brand-grain identity
+ * facts (firmographics), never facts about the company as a BUYER of some
+ * brand: those live in lead-service. A newer observation replaces an older one;
+ * an absent value never replaces anything.
+ */
+export const companyFacts = pgTable("company_facts", {
+	brandId: uuid("brand_id").notNull(),
+	factKey: text("fact_key").notNull(),
+	value: jsonb().notNull(),
+	source: text().notNull(),
+	observedAt: timestamp("observed_at", { withTimezone: true, mode: 'string' }).notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	primaryKey({ columns: [table.brandId, table.factKey], name: "company_facts_pkey" }),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "company_facts_brand_id_fkey",
+	}).onDelete("cascade"),
+]);

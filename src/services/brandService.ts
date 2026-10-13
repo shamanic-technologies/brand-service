@@ -29,6 +29,7 @@ import { searchBrandNameByDomain } from '../lib/logo-dev-search';
 import { getBrandCheckoutStatus } from '../lib/client-client';
 import { rewriteBrandReferences } from './brandMergeService';
 import { enqueueBrandColors, forgetBrandColors, resetBrandColorsForNewDomain } from './brandColorsService';
+import { moveCompanyRecord } from './companyService';
 import { salesRepService } from './salesRepService';
 
 interface Brand {
@@ -1073,6 +1074,10 @@ async function takeOverDomain(params: {
   // The holder has no domain left to derive colours from. Forget its palette
   // rather than keep serving the colours of a domain it no longer holds.
   await forgetBrandColors(holderBrandId);
+
+  // The company record (LinkedIn/Apollo identifiers, firmographics) follows the
+  // domain, like the colours: re-resolving the domain now answers the target.
+  await moveCompanyRecord(holderBrandId, targetBrandId);
 
   if (callerClaimsHolder) {
     // Stop the emptied shell from polluting the caller's brand list. Other orgs'

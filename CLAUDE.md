@@ -26,6 +26,22 @@ Microservice for managing brand information, media assets, organizations, and AI
 - `tests/` — Test files (unit + integration, `*.test.ts`)
 - `openapi.json` — Auto-generated from Zod schemas, do NOT edit manually
 
+## A company a LEAD works at is a brand (`companyService`, owner 2026-10-13)
+
+The person lives in human-service, the company here, the lead in lead-service. A prospect's company is a brand row like any other (same domain = same brand id), nobody's client: no `org_brands` claim. Routes `src/routes/companies.routes.ts` (internal, service auth, no org), pure halves `src/lib/company-facts.ts`. Contract lead-service conforms to:
+
+- `POST /internal/companies/resolve` `{ companies: [{ ref?, domain?, linkedinUrl?, apolloOrganizationId?, name? }] }` (max 1000) -> `{ companies: [{ index, ref, brandId|null, domain, matchedBy: domain|linkedin_company|apollo_organization|null, created, unresolvedReason: no_safe_identity|invalid_domain|null, conflictingIdentifiers: [{ kind, value, brandId }] }] }`, one result per input, input order. A handful of statements whatever the batch (bulk insert `ON CONFLICT (domain)` + `inArray` reads).
+- `PUT /internal/companies/facts` `{ companies: [{ brandId, source, observedAt?, facts }] }` (max 1000) -> `{ written, skippedAbsent, keptNewer }`. Closed key list `COMPANY_FACT_TYPES` (adding one = one line, value is jsonb). Unknown key / wrong type / bad source / future `observedAt` = 400 `problems`, NOTHING written; unknown brand = 404 `brandIds`.
+- `POST /internal/companies/batch` `{ brandIds }` (max 1000) -> `{ companies: [{ brandId, domain, name, identifiers, facts: { key: { value, source, observedAt } } }] }`, three indexed reads.
+- Body parser for `/internal/companies` is 10mb (mounted before the global 2mb one, in `index.ts` AND `test-app.ts`).
+
+Rules:
+- **Resolve is FREE.** No scrape, LLM, logo.dev, Apollo, run, cost, colour enqueue, name chain. Never route it through `getOrCreateBrand` / `ensureBrandName` / `getBrandDetail`. The batch read never derives either (`name` is the stored column, the vendor's name is `facts.name`).
+- **Identity: domain, else LinkedIn COMPANY page, else Apollo organization id** (`company_identifiers`, PK `(kind, value)`). A NAME IS NEVER AN IDENTITY (lead-service holds 212k name-only employers from employment histories, 2026-10-13): answered `no_safe_identity`, nothing created. A person/school LinkedIn URL is dropped. A domain-less company created from its identifiers takes `name` as its brand name; a later resolve WITH its domain moves the domain onto that brand (`adoptDomain`, only a domain-less brand), so one company keeps one id. When an identifier already names a brand with ANOTHER domain, the domain wins and the identifier stays put, reported in `conflictingIdentifiers`. Domain-less creation is serialised by advisory lock per identifier.
+- **Facts are identity facts only** (`company_facts`, PK `(brand_id, fact_key)`, `source` + `observed_at`). Never a fact about the company as a BUYER (client of brand X, "not our target"): lead-service keeps those. Absent (null, blank, empty list) is skipped and never clears; a stored NEWER observation is kept (`setWhere observed_at <=`).
+- **The company record follows the DOMAIN**: `takeOverDomain` calls `moveCompanyRecord` (identifiers move, facts merge newer-wins), like the colours. Re-resolving the domain then answers the brand holding it.
+- Guards: `tests/unit/companyFacts.test.ts`, `tests/integration/companies.test.ts`, `tests/integration/domainTakeover.test.ts` (prospect holder case).
+
 ## The sales funnel is retired — rates per (org, brand, LEG), lifetime revenue per OFFER
 
 A LEG is the move of a lead from one step to another (Positive reply -> Meeting

@@ -21,6 +21,7 @@ import { orgRouter as salesRepOrgRoutes } from '../../src/routes/sales-rep.route
 import { orgRouter as businessContextOrgRoutes } from '../../src/routes/business-context.routes';
 import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from '../../src/routes/share-token.routes';
 import { internalRouter as orgTeardownInternalRoutes } from '../../src/routes/org-teardown.routes';
+import { internalRouter as companiesInternalRoutes, companiesBodyParser } from '../../src/routes/companies.routes';
 import { orgRouter as offersOrgRoutes, internalRouter as offersInternalRoutes } from '../../src/routes/offers.routes';
 import { orgRouter as offerStepsOrgRoutes } from '../../src/routes/offer-steps.routes';
 
@@ -36,6 +37,8 @@ import intakeFormRoutes from '../../src/routes/intake-form.routes';
 export function createTestApp() {
   const app = express();
 
+  // A 1000-company facts write is bigger than 2mb: its own parser runs first.
+  app.use('/internal/companies', companiesBodyParser);
   app.use(express.json({ limit: '2mb' }));
 
   // ── Public routes (no auth) ──────────────────────────────────
@@ -75,6 +78,7 @@ export function createTestApp() {
   app.use('/internal', apiKeyAuth, shareTokenInternalRoutes);
   app.use('/internal', apiKeyAuth, offersInternalRoutes);
   app.use('/internal', apiKeyAuth, orgTeardownInternalRoutes);
+  app.use('/internal', apiKeyAuth, companiesInternalRoutes);
 
   // ── Org-scoped routes (API key + x-org-id) ──────────────────
   app.use('/orgs', apiKeyAuth, requireOrgId, brandsOrgRoutes);
