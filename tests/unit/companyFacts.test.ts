@@ -12,6 +12,12 @@ describe('normalizeCompanyIdentity', () => {
     expect(normalizeCompanyIdentity({ domain: 'https://www.BeFCO.com/about' }).domain).toBe('befco.com');
   });
 
+  it('refuses a www-only host whose stripped domain has no TLD (www.zimchiro, seen in prod)', () => {
+    const n = normalizeCompanyIdentity({ domain: 'www.zimchiro' });
+    expect(n.domain).toBeNull();
+    expect(n.domainInvalid).toBe(true);
+  });
+
   it('flags a domain that is not a public website, without throwing', () => {
     const n = normalizeCompanyIdentity({ domain: 'not a domain' });
     expect(n.domain).toBeNull();

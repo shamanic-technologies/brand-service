@@ -3,7 +3,7 @@
  * real unit tests. See `services/companyService.ts` and CLAUDE.md "A company a
  * lead works at is a brand".
  */
-import { extractDomain } from './url-utils';
+import { extractDomain, normalizeUrl } from './url-utils';
 import { parseLinkedinCompanyPageInput } from './competitor-linkedin';
 
 /** Max companies per resolve / facts write / batch read. */
@@ -153,8 +153,12 @@ export function normalizeCompanyIdentity(input: CompanyIdentityInput): Normalize
   const rawDomain = blankToNull(input.domain);
   if (rawDomain) {
     try {
+      // `www.acme` passes extractDomain and strips to `acme`, which is no
+      // website at all: the stored domain must itself be a valid one.
       domain = extractDomain(rawDomain);
+      normalizeUrl(domain);
     } catch {
+      domain = null;
       domainInvalid = true;
     }
   }
