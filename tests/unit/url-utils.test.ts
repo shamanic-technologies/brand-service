@@ -107,6 +107,10 @@ describe('extractDomain', () => {
     expect(extractDomain('https://ACME.com/about')).toBe('acme.com');
   });
 
+  it('refuses a www-only host that strips to no TLD (www.zimchiro, seen in prod)', () => {
+    expect(() => extractDomain('www.zimchiro')).toThrow(InvalidUrlError);
+  });
+
   it('strips www. prefix', () => {
     expect(extractDomain('https://www.acme.com/about')).toBe('acme.com');
   });
