@@ -27,6 +27,8 @@ vi.mock('../../src/db', () => {
     brands: { id: 'brands.id', name: 'brands.name', domain: 'brands.domain' },
     brandsOld: { id: 'brands_old.id', orgId: 'brands_old.orgId', name: 'brands_old.name', domain: 'brands_old.domain' },
     orgBrands: { orgId: 'ob.orgId', brandId: 'ob.brandId' },
+    brandOffers: { id: 'bo.id', brandId: 'bo.brandId' },
+    brandOfferDocuments: { id: 'bod.id', orgId: 'bod.orgId', brandId: 'bod.brandId', offerId: 'bod.offerId' },
     brandExtractedFields: { brandId: 'bef.brandId', fieldKey: 'bef.fieldKey', expiresAt: 'bef.expiresAt' },
     pageScrapeCache: { normalizedUrl: 'psc.normalizedUrl' },
     urlMapCache: { normalizedSiteUrl: 'umc.normalizedSiteUrl' },

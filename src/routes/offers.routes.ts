@@ -65,7 +65,7 @@ export const internalRouter = Router();
  */
 
 /** Resolve `:offerId` under the caller's brand, or write the 400/404 and return null. */
-async function resolveOfferParam(
+export async function resolveOfferParam(
   req: Request,
   res: Response
 ): Promise<{ brandId: string; offerId: string } | null> {

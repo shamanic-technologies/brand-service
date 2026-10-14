@@ -3458,6 +3458,282 @@ registry.registerPath({
 });
 
 // ---------------------------------------------------------------------------
+// OFFER DOCUMENTS — files a client owns about one offer, that our emails attach.
+// ---------------------------------------------------------------------------
+
+const OFFER_DOCUMENTS_MODEL_DESCRIPTION =
+  'Documents are files the client owns about ONE offer (a one-pager, a case study, a spec sheet, ' +
+  'an FAQ). The AI answering a prospect reads the list (`fileName` + `description`) to pick the ' +
+  'one that helps, and the sending service fetches the bytes to attach it. Accepted: pdf, docx, ' +
+  'pptx, xlsx, doc, ppt, xls, csv, txt, md, png, jpg/jpeg, gif, webp; at most 5 MB per file and 25 ' +
+  'files per offer. The type is decided by the file extension and must match the content. Stored ' +
+  'in brand-service\'s own Postgres.';
+
+export const OfferDocumentSchema = z
+  .object({
+    id: z.string().uuid(),
+    brandId: z.string().uuid(),
+    offerId: z.string().uuid(),
+    fileName: z.string().openapi({ example: 'novemiq-one-pager.pdf' }),
+    description: z.string().openapi({
+      description: 'What the file is and when it helps a prospect, in the client\'s words.',
+      example: 'One-page overview of our ISO 13485 audit offer. Send to QA managers who ask what we do.',
+    }),
+    contentType: z.string().openapi({ example: 'application/pdf' }),
+    sizeBytes: z.number().int().positive(),
+    sha256: z.string().openapi({ description: 'Hex SHA-256 of the bytes.' }),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi('OfferDocument');
+
+export const OfferDocumentResponseSchema = z
+  .object({ document: OfferDocumentSchema })
+  .openapi('OfferDocumentResponse');
+
+export const OfferDocumentUploadResponseSchema = z
+  .object({
+    document: OfferDocumentSchema,
+    created: z.boolean().openapi({
+      description: '`false` when the same bytes were already on this offer: the stored row is returned, nothing stored twice.',
+    }),
+  })
+  .openapi('OfferDocumentUploadResponse');
+
+export const OfferDocumentsListResponseSchema = z
+  .object({ documents: z.array(OfferDocumentSchema) })
+  .openapi('OfferDocumentsListResponse');
+
+export const OfferDocumentWithContentResponseSchema = z
+  .object({
+    document: OfferDocumentSchema,
+    contentBase64: z.string().openapi({ description: 'The file bytes, base64.' }),
+  })
+  .openapi('OfferDocumentWithContentResponse');
+
+export const JsonOfferDocumentUploadSchema = z
+  .object({
+    fileName: z.string().min(1).openapi({
+      description: 'File name WITH its extension; the extension decides the type.',
+      example: 'case-study.pdf',
+    }),
+    description: z.string().min(1).max(1000).openapi({
+      description: 'What the file is and when it helps a prospect. Required.',
+    }),
+    contentBase64: z.string().min(1).openapi({ description: 'The file bytes, base64 (at most 5 MB decoded).' }),
+  })
+  .openapi('JsonOfferDocumentUpload');
+
+export const MultipartOfferDocumentUploadSchema = z
+  .object({
+    file: z.string().openapi({ type: 'string', format: 'binary', description: 'The file (at most 5 MB).' }),
+    description: z.string().openapi({ description: 'What the file is and when it helps a prospect. Required.' }),
+    fileName: z.string().optional().openapi({
+      description: 'Overrides the uploaded file name (must keep an accepted extension).',
+    }),
+  })
+  .openapi('MultipartOfferDocumentUpload');
+
+export const PatchOfferDocumentRequestSchema = z
+  .object({
+    fileName: z.string().min(1).optional().openapi({ description: 'New name; must keep the same type of extension.' }),
+    description: z.string().min(1).max(1000).optional(),
+  })
+  .refine((v) => v.fileName !== undefined || v.description !== undefined, {
+    message: 'Send fileName or description',
+  })
+  .openapi('PatchOfferDocumentRequest');
+
+const OfferDocumentParams = z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() });
+const OneOfferDocumentParams = OfferDocumentParams.extend({ documentId: z.string().uuid() });
+const InternalOrgHeader = z.object({
+  'x-org-id': z.string().uuid().openapi({ description: 'Internal org UUID. REQUIRED: another org\'s document is a 404.' }),
+});
+const DocumentErrorBody = { 'application/json': { schema: ErrorResponseSchema } };
+
+const BINARY_CONTENT = {
+  '*/*': { schema: { type: 'string' as const, format: 'binary' } },
+};
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/documents',
+  summary: 'Upload a document to an offer',
+  description:
+    OFFER_DOCUMENTS_MODEL_DESCRIPTION +
+    '\n\nSend `multipart/form-data` (`file`, `description`, optional `fileName`) OR ' +
+    '`application/json` `{ fileName, description, contentBase64 }`. The same bytes already on this ' +
+    'offer answer 200 `created: false` with the stored row (a retry stores nothing twice); a new file ' +
+    'answers 201. Refusals carry `{ error, reason }`, `error` written for a person: 400 ' +
+    '`empty_file|unsupported_type|content_does_not_match_type|invalid_file_name|invalid_description|' +
+    'missing_file|invalid_base64`, 413 `file_too_large`, 409 `too_many_documents`.',
+  request: {
+    params: OfferDocumentParams,
+    body: {
+      required: true,
+      content: {
+        'multipart/form-data': { schema: MultipartOfferDocumentUploadSchema },
+        'application/json': { schema: JsonOfferDocumentUploadSchema },
+      },
+    },
+  },
+  responses: {
+    200: { description: 'Already on this offer (same bytes)', content: { 'application/json': { schema: OfferDocumentUploadResponseSchema } } },
+    201: { description: 'Stored', content: { 'application/json': { schema: OfferDocumentUploadResponseSchema } } },
+    400: { description: 'Invalid file, name, description or IDs', content: DocumentErrorBody },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    409: { description: 'The offer already holds 25 documents', content: DocumentErrorBody },
+    413: { description: 'File over 5 MB', content: DocumentErrorBody },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/documents',
+  summary: 'List the documents of an offer',
+  description: OFFER_DOCUMENTS_MODEL_DESCRIPTION + '\n\nOldest first, metadata only (no bytes). `[]` = none uploaded.',
+  request: { params: OfferDocumentParams },
+  responses: {
+    200: { description: 'The documents', content: { 'application/json': { schema: OfferDocumentsListResponseSchema } } },
+    400: { description: 'Invalid brand or offer ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, or no such offer on it' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/documents/{documentId}',
+  summary: 'Read one document\'s metadata',
+  request: { params: OneOfferDocumentParams },
+  responses: {
+    200: { description: 'The document', content: { 'application/json': { schema: OfferDocumentResponseSchema } } },
+    400: { description: 'Invalid ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, offer, or document on this offer' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/documents/{documentId}/content',
+  summary: 'Download one document',
+  description:
+    'The raw bytes, with `Content-Type` = the stored type, `Content-Disposition: attachment` ' +
+    '(UTF-8 file name) and `X-Document-Sha256`.',
+  request: { params: OneOfferDocumentParams },
+  responses: {
+    200: { description: 'The file bytes', content: BINARY_CONTENT },
+    400: { description: 'Invalid ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, offer, or document on this offer' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/documents/{documentId}',
+  summary: 'Rename a document or edit its description',
+  description: 'The bytes never change. A new `fileName` must keep a same-type extension.',
+  request: {
+    params: OneOfferDocumentParams,
+    body: { content: { 'application/json': { schema: PatchOfferDocumentRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'The document as it now reads', content: { 'application/json': { schema: OfferDocumentResponseSchema } } },
+    400: { description: 'Invalid ID, name or description', content: DocumentErrorBody },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, offer, or document on this offer' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/brands/{brandId}/offers/{offerId}/documents/{documentId}',
+  summary: 'Delete a document',
+  request: { params: OneOfferDocumentParams },
+  responses: {
+    200: {
+      description: 'Deleted',
+      content: {
+        'application/json': {
+          schema: z.object({ deleted: z.literal(true), documentId: z.string().uuid() }),
+        },
+      },
+    },
+    400: { description: 'Invalid ID format' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'No such brand, offer, or document on this offer' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/offers/{offerId}/documents',
+  summary: 'List an offer\'s documents (service-to-service)',
+  description:
+    OFFER_DOCUMENTS_MODEL_DESCRIPTION +
+    '\n\nFor the AI that picks a document. `x-org-id` REQUIRED; an offer of another org is a 404.',
+  request: { params: z.object({ offerId: z.string().uuid() }), headers: InternalOrgHeader },
+  responses: {
+    200: { description: 'The documents', content: { 'application/json': { schema: OfferDocumentsListResponseSchema } } },
+    400: { description: 'Missing/invalid x-org-id or offer ID' },
+    404: { description: 'No such offer for this org' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/offer-documents/{documentId}',
+  summary: 'Read one document by id (service-to-service)',
+  description:
+    'Metadata; with `?includeContent=true` also `contentBase64` (the bytes). `x-org-id` REQUIRED; ' +
+    'another org\'s document is a 404.',
+  request: {
+    params: z.object({ documentId: z.string().uuid() }),
+    query: z.object({ includeContent: z.enum(['true', 'false']).optional() }),
+    headers: InternalOrgHeader,
+  },
+  responses: {
+    200: {
+      description: 'The document (with `contentBase64` when asked)',
+      content: {
+        'application/json': {
+          schema: z.union([OfferDocumentResponseSchema, OfferDocumentWithContentResponseSchema]),
+        },
+      },
+    },
+    400: { description: 'Missing/invalid x-org-id or document ID' },
+    404: { description: 'No such document for this org' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/internal/offer-documents/{documentId}/content',
+  summary: 'Download one document by id (service-to-service)',
+  description:
+    'The raw bytes for an email attachment, with `Content-Type`, `Content-Disposition` and ' +
+    '`X-Document-Sha256`. `x-org-id` REQUIRED; another org\'s document is a 404.',
+  request: { params: z.object({ documentId: z.string().uuid() }), headers: InternalOrgHeader },
+  responses: {
+    200: { description: 'The file bytes', content: BINARY_CONTENT },
+    400: { description: 'Missing/invalid x-org-id or document ID' },
+    404: { description: 'No such document for this org' },
+    500: { description: 'Internal server error' },
+  },
+});
+
+// ---------------------------------------------------------------------------
 // LEG-GRAIN RATES + PER-OFFER LIFETIME REVENUE — the economics a brand states.
 // A rate per (org, brand, leg), shared by every offer; a lifetime revenue per offer.
 // ---------------------------------------------------------------------------
