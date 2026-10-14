@@ -20,7 +20,7 @@
  *
  * Offers ARE deleted here, unlike in a transfer: the org is being forgotten
  * everywhere, so no other service will resolve its offer ids again. Their
- * offer-keyed children (user fields, answers, the retired sales-path tables) go
+ * offer-keyed children (user fields, answers, documents, the retired sales-path tables) go
  * with them by FK cascade; the org-keyed ones are deleted explicitly first so
  * the reported counts are true.
  *
@@ -40,6 +40,7 @@ import { ORG_SCOPED_BRAND_TABLES } from './brandOrgMoveService';
 const DELETE_ORDER: readonly (typeof ORG_SCOPED_BRAND_TABLES)[number][] = [
   'brand_user_fields',
   'brand_offer_answers',
+  'brand_offer_documents',
   'brand_offers',
   'brand_leg_rates',
   'brand_click_destinations',

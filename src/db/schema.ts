@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, timestamp, index, unique, uuid, text, uniqueIndex, foreignKey, check, date, jsonb, integer, boolean, bigint, numeric, json, primaryKey, pgView, pgEnum } from "drizzle-orm/pg-core"
+import { pgTable, serial, varchar, timestamp, index, unique, uuid, text, uniqueIndex, foreignKey, check, date, jsonb, integer, boolean, bigint, numeric, json, primaryKey, pgView, pgEnum, customType } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const belongingConfidenceLevelEnum = pgEnum("belonging_confidence_level_enum", ['found_online', 'guessed', 'user_inputed'])
@@ -1585,6 +1585,57 @@ export const brandOfferAnswers = pgTable("brand_offer_answers", {
 	check("brand_offer_answers_question_not_blank", sql`btrim(${table.question}) <> ''`),
 	check("brand_offer_answers_answer_not_blank", sql`btrim(${table.answer}) <> ''`),
 	check("brand_offer_answers_position_non_negative", sql`${table.position} >= 0`),
+]);
+
+/** Postgres `bytea`, read and written as a Node Buffer (drizzle 0.45 has no built-in). */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+	dataType() {
+		return 'bytea';
+	},
+});
+
+/**
+ * OFFER DOCUMENTS — the files a client owns about one offer (one-pager, case
+ * study, spec sheet, FAQ), so an AI answering a prospect can attach the one
+ * that helps and read them for context. Migration `0094`.
+ *
+ * The bytes live HERE (`content`, TOASTed out of line): one box, one database,
+ * and the nightly per-database pg_dump covers them with no second store. List
+ * reads never select `content`. Capped at 5 MB per file by the write.
+ * `(offer_id, sha256)` is unique so a retried upload returns the stored row.
+ */
+export const brandOfferDocuments = pgTable("brand_offer_documents", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	offerId: uuid("offer_id").notNull(),
+	fileName: text("file_name").notNull(),
+	// What the file is and when it helps, in the client's words. Read by the AI
+	// that picks which document to attach.
+	description: text().notNull(),
+	contentType: text("content_type").notNull(),
+	sizeBytes: integer("size_bytes").notNull(),
+	sha256: text().notNull(),
+	content: bytea("content").notNull(),
+	createdByUserId: text("created_by_user_id"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("brand_offer_documents_offer_id_sha256_key").on(table.offerId, table.sha256),
+	index("brand_offer_documents_org_id_idx").on(table.orgId),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_offer_documents_brand_id_fkey",
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.offerId],
+		foreignColumns: [brandOffers.id],
+		name: "brand_offer_documents_offer_id_fkey",
+	}).onDelete("cascade"),
+	check("brand_offer_documents_file_name_not_blank", sql`btrim(${table.fileName}) <> ''`),
+	check("brand_offer_documents_description_not_blank", sql`btrim(${table.description}) <> ''`),
+	check("brand_offer_documents_size_positive", sql`${table.sizeBytes} > 0`),
 ]);
 
 /**

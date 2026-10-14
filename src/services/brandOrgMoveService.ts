@@ -48,6 +48,7 @@ export const ORG_SCOPED_BRAND_TABLES = [
   'brand_offers',
   'brand_user_fields',
   'brand_offer_answers',
+  'brand_offer_documents',
 ] as const;
 
 /** One row per (org_id, brand_id): the PK is exactly that pair. */
@@ -204,6 +205,15 @@ export async function moveBrandBetweenOrgs(
       count: await count(
         tx,
         sql`UPDATE brand_offer_answers SET org_id = ${targetOrgId} WHERE org_id = ${sourceOrgId} AND brand_id = ${brandId} RETURNING 1`,
+      ),
+    });
+
+    // Offer documents: unique per (offer_id, sha256), travel with their offer.
+    result.push({
+      tableName: 'brand_offer_documents',
+      count: await count(
+        tx,
+        sql`UPDATE brand_offer_documents SET org_id = ${targetOrgId}, updated_at = now() WHERE org_id = ${sourceOrgId} AND brand_id = ${brandId} RETURNING 1`,
       ),
     });
 

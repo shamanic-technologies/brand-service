@@ -296,6 +296,15 @@ other offer route; service-to-service callers read it with the service key plus
   offer-scoped ones in `src/routes/offers.routes.ts` and resolve their scope
   through the same `resolveOfferParam`. Guard: `tests/integration/offerAnswers.test.ts`.
 
+## Offer documents — files a client owns about one offer (`brandOfferDocumentsService`, 2026-10-14)
+
+PDFs (one-pagers, case studies, spec sheets, FAQs) our AI can attach to a reply and read for context. Table `brand_offer_documents` (migration `0094`), routes `src/routes/offer-documents.routes.ts`, guards `tests/unit/offerDocuments.test.ts` + `tests/integration/offerDocuments.test.ts`.
+
+- Org: `POST|GET /orgs/brands/:brandId/offers/:offerId/documents`, `GET|PATCH|DELETE .../documents/:documentId`, `GET .../documents/:documentId/content` (raw bytes). Upload = multipart (`file`, `description`, opt. `fileName`) OR JSON `{ fileName, description, contentBase64 }` (its own 8mb parser, mounted before the global 2mb one in `index.ts` AND `test-app.ts`).
+- Service-to-service, `x-org-id` REQUIRED (400 without): `GET /internal/offers/:offerId/documents`, `GET /internal/offer-documents/:documentId[?includeContent=true]`, `GET /internal/offer-documents/:documentId/content`. Another org's document = 404, never its metadata.
+- **Bytes live in Postgres (`content` bytea)**: one box, the nightly per-database pg_dump covers them, teardown/transfer carry them with the row. Reads list explicit columns and never select `content` except the two content reads.
+- Type = the file EXTENSION (closed list `DOCUMENT_TYPES`), and the leading bytes must match it (a renamed `.pdf` is refused). Max 5 MB (413 `file_too_large`), 25 per offer (409), description required. Same bytes on the same offer = 200 `created: false` with the stored row (unique `(offer_id, sha256)`).
+
 ## The sales rep — ONE person per brand, TWO facts, and a phone requires an email
 
 `brand_sales_rep_phones` stopped being "a phone number" and became "the one

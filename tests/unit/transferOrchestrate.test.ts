@@ -53,6 +53,8 @@ vi.mock('../../src/db', () => {
       domain: 'brands_old.domain',
     },
     orgBrands: { orgId: 'ob.orgId', brandId: 'ob.brandId' },
+    brandOffers: { id: 'bo.id', brandId: 'bo.brandId' },
+    brandOfferDocuments: { id: 'bod.id', orgId: 'bod.orgId', brandId: 'bod.brandId', offerId: 'bod.offerId' },
     brandTransfers: {
       id: 'brandTransfers.id',
       brandId: 'brandTransfers.brandId',

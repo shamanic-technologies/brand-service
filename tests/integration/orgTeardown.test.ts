@@ -30,6 +30,8 @@ describe('DELETE /internal/org-brands/by-org/:orgId', () => {
       VALUES (${orgId}, ${brandId}, NULL, 'urgency', '["y"]'::jsonb)`);
     await db.execute(sql`INSERT INTO brand_offer_answers (org_id, brand_id, offer_id, question, answer, position)
       VALUES (${orgId}, ${brandId}, ${offer.id}, 'How much?', '100', 0)`);
+    await db.execute(sql`INSERT INTO brand_offer_documents (org_id, brand_id, offer_id, file_name, description, content_type, size_bytes, sha256, content)
+      VALUES (${orgId}, ${brandId}, ${offer.id}, 'one-pager.pdf', 'Our one-pager', 'application/pdf', 5, ${'sha-' + tag}, '\\x255044462d'::bytea)`);
     await db.execute(sql`INSERT INTO brand_leg_rates (org_id, brand_id, from_step, to_step, rate_pct)
       VALUES (${orgId}, ${brandId}, 'positiveReply', 'meetingBooked', 25)`);
     await db.execute(sql`INSERT INTO brand_click_destinations (org_id, brand_id, click_destination_url)
