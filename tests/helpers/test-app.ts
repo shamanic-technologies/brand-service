@@ -24,6 +24,7 @@ import { internalRouter as orgTeardownInternalRoutes } from '../../src/routes/or
 import { internalRouter as companiesInternalRoutes, companiesBodyParser } from '../../src/routes/companies.routes';
 import { orgRouter as offersOrgRoutes, internalRouter as offersInternalRoutes } from '../../src/routes/offers.routes';
 import { orgRouter as offerStepsOrgRoutes } from '../../src/routes/offer-steps.routes';
+import { orgRouter as offerDocumentsOrgRoutes, internalRouter as offerDocumentsInternalRoutes, offerDocumentsBodyParser } from '../../src/routes/offer-documents.routes';
 
 // Import routes — single-tier files
 import organizationRoutes from '../../src/routes/organization.routes';
@@ -39,6 +40,8 @@ export function createTestApp() {
 
   // A 1000-company facts write is bigger than 2mb: its own parser runs first.
   app.use('/internal/companies', companiesBodyParser);
+  // A 5 MB document sent as base64 JSON exceeds 2mb: its own parser runs first.
+  app.use(offerDocumentsBodyParser);
   app.use(express.json({ limit: '2mb' }));
 
   // ── Public routes (no auth) ──────────────────────────────────
@@ -79,6 +82,7 @@ export function createTestApp() {
   app.use('/internal', apiKeyAuth, offersInternalRoutes);
   app.use('/internal', apiKeyAuth, orgTeardownInternalRoutes);
   app.use('/internal', apiKeyAuth, companiesInternalRoutes);
+  app.use('/internal', apiKeyAuth, offerDocumentsInternalRoutes);
 
   // ── Org-scoped routes (API key + x-org-id) ──────────────────
   app.use('/orgs', apiKeyAuth, requireOrgId, brandsOrgRoutes);
@@ -99,6 +103,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, salesRepOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, shareTokenOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, offersOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, offerStepsOrgRoutes);
+  app.use('/orgs', apiKeyAuth, requireOrgId, offerDocumentsOrgRoutes);
   app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;

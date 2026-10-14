@@ -37,6 +37,7 @@ import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalR
 import { internalRouter as orgTeardownInternalRoutes } from './routes/org-teardown.routes';
 import { internalRouter as companiesInternalRoutes, companiesBodyParser } from './routes/companies.routes';
 import { orgRouter as offerStepsOrgRoutes } from './routes/offer-steps.routes';
+import { orgRouter as offerDocumentsOrgRoutes, internalRouter as offerDocumentsInternalRoutes, offerDocumentsBodyParser } from './routes/offer-documents.routes';
 
 // Import routes — single-tier files (all internal except analyze which is all org-scoped)
 import organizationRoutes from './routes/organization.routes';
@@ -66,6 +67,8 @@ app.use(cors({
 // chars — the no-website field-extraction source) is accepted without a 413.
 // A 1000-company facts write is bigger than 2mb: its own parser runs first.
 app.use('/internal/companies', companiesBodyParser);
+// A 5 MB document sent as base64 JSON exceeds 2mb: its own parser runs first.
+app.use(offerDocumentsBodyParser);
 app.use(express.json({ limit: '2mb' }));
 
 // ── Public routes (no auth) ──────────────────────────────────────
@@ -137,6 +140,7 @@ app.use('/internal', apiKeyAuth, shareTokenInternalRoutes);
 app.use('/internal', apiKeyAuth, offersInternalRoutes);
 app.use('/internal', apiKeyAuth, orgTeardownInternalRoutes);
 app.use('/internal', apiKeyAuth, companiesInternalRoutes);
+app.use('/internal', apiKeyAuth, offerDocumentsInternalRoutes);
 
 // ── Org-scoped routes (API key + x-org-id required) ─────────────
 
@@ -158,6 +162,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, businessContextOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, shareTokenOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, offersOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, offerStepsOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, offerDocumentsOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
 // ── Expired extracted-fields cleanup cron ────────────────────────

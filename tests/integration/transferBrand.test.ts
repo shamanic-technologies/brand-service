@@ -191,7 +191,7 @@ describe('POST /internal/transfer-brand — moves the whole (org, brand) state',
   const TABLES = [
     'org_brands', 'brand_click_destinations', 'brand_whatsapp_links',
     'brand_sales_rep_phones', 'brand_share_tokens', 'brand_business_context', 'brand_leg_rates',
-    'brand_offers', 'brand_user_fields', 'brand_offer_answers',
+    'brand_offers', 'brand_user_fields', 'brand_offer_answers', 'brand_offer_documents',
   ];
 
   async function seedBrand() {
@@ -218,6 +218,7 @@ describe('POST /internal/transfer-brand — moves the whole (org, brand) state',
     await db.execute(sql`INSERT INTO brand_user_fields (org_id, brand_id, offer_id, field_key, value) VALUES (${orgId}, ${brandId}, ${offerId}, 'dreamOutcome', '"more"'::jsonb)`);
     await db.execute(sql`INSERT INTO brand_user_fields (org_id, brand_id, offer_id, field_key, value) VALUES (${orgId}, ${brandId}, NULL, 'services', '"svc"'::jsonb)`);
     await db.execute(sql`INSERT INTO brand_offer_answers (org_id, brand_id, offer_id, question, answer, position) VALUES (${orgId}, ${brandId}, ${offerId}, 'Price?', '$100', 0)`);
+    await db.execute(sql`INSERT INTO brand_offer_documents (org_id, brand_id, offer_id, file_name, description, content_type, size_bytes, sha256, content) VALUES (${orgId}, ${brandId}, ${offerId}, 'one-pager.pdf', 'Our one-pager', 'application/pdf', 5, ${'sha-' + offerName}, '\\x255044462d'::bytea)`);
     return offerId;
   }
 
