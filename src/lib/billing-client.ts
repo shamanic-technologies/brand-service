@@ -32,6 +32,13 @@ export interface AuthorizeCreditsResult {
   // billing-service returns these as decimal strings (cent precision)
   balance_cents: string;
   required_cents: string;
+  /**
+   * Present ONLY when the refusal is the campaign's (sales funnel's) max budget,
+   * not the balance: `sales_funnel_max_budget_reached` / `_unreadable`.
+   */
+  reason?: string;
+  /** billing's cap snapshot, present only with `reason`. Forwarded verbatim. */
+  sales_funnel_cap?: Record<string, unknown>;
 }
 
 /**

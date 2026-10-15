@@ -9,6 +9,7 @@ import { analyzeMediaAssetAsync } from '../services/geminiAnalysisService';
 import { db, brandsOld as brands, mediaAssets, supabaseStorage } from '../db';
 import { AnalyzeRequestSchema } from '../schemas';
 import { authorizeCredits } from '../lib/billing-client';
+import { insufficientCreditsBody } from '../lib/insufficient-credits';
 
 const router = Router();
 
@@ -110,11 +111,7 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
         audienceId: req.audienceId,
       });
       if (!authResult.sufficient) {
-        return res.status(402).json({
-          error: 'Insufficient credits',
-          balance_cents: authResult.balance_cents,
-          required_cents: authResult.required_cents,
-        });
+        return res.status(402).json(insufficientCreditsBody(authResult));
       }
     } catch (billingError: any) {
       console.error('[analyze] billing-service error:', billingError.message);
@@ -207,11 +204,7 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
           audienceId: req.audienceId,
         });
         if (!authResult.sufficient) {
-          return res.status(402).json({
-            error: 'Insufficient credits',
-            balance_cents: authResult.balance_cents,
-            required_cents: authResult.required_cents,
-          });
+          return res.status(402).json(insufficientCreditsBody(authResult));
         }
       } catch (billingError: any) {
         console.error('[batch-analyze] billing-service error:', billingError.message);
