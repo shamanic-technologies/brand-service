@@ -12,6 +12,18 @@ import {
   offerNameProblem,
 } from './lib/offer-name';
 
+/**
+ * Appended to every 402: a refusal is not always the balance. When billing
+ * refuses because the campaign's (sales funnel's) max budget is reached, the
+ * body names it and forwards billing's fields verbatim.
+ */
+const SALES_FUNNEL_CAP_402_NOTE =
+  '. When the refusal is the campaign\'s max budget (not the balance), `error` names it ' +
+  '("Sales funnel max budget reached" / "Sales funnel max budget could not be read"), and the body adds ' +
+  '`type: "credit_insufficient"`, billing\'s `reason` (`sales_funnel_max_budget_reached` | ' +
+  '`sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, ' +
+  'amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`.';
+
 extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
@@ -897,7 +909,7 @@ registry.registerPath({
       },
     },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
-    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' },
+    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' + SALES_FUNNEL_CAP_402_NOTE },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed' },
     500: { description: 'Internal server error' },
@@ -1118,7 +1130,7 @@ registry.registerPath({
       },
     },
     400: { description: 'Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL' },
-    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' },
+    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' + SALES_FUNNEL_CAP_402_NOTE },
     404: { description: 'Brand not found' },
     422: { description: 'Site scraping failed (e.g. domain unreachable, no sitemap)' },
     500: { description: 'Internal server error. This includes image upload failures (e.g. cloudflare-service 502) — upload errors are not silently swallowed. If you get a 500, retry the entire request.' },
@@ -2235,7 +2247,7 @@ registry.registerPath({
   responses: {
     200: { description: 'Suggested ICP', content: { 'application/json': { schema: SuggestIcpResponseSchema } } },
     400: { description: 'Invalid brand ID format or invalid body' },
-    402: { description: 'Insufficient credits' },
+    402: { description: 'Insufficient credits' + SALES_FUNNEL_CAP_402_NOTE },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     422: { description: 'Brand profile is empty — nothing to seed generation from' },
@@ -2774,7 +2786,7 @@ registry.registerPath({
   responses: {
     200: { description: 'The proposed offers', content: { 'application/json': { schema: ProposeOffersResponseSchema } } },
     400: { description: 'Invalid brand ID or body' },
-    402: { description: 'Insufficient credits (chat-service gate)' },
+    402: { description: 'Insufficient credits (chat-service gate)' + SALES_FUNNEL_CAP_402_NOTE },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     422: { description: 'The description names nothing the brand sells' },
@@ -2972,7 +2984,7 @@ registry.registerPath({
       content: { 'application/json': { schema: OfferResponseSchema } },
     },
     400: { description: 'Invalid brand or offer ID format' },
-    402: { description: 'The org cannot afford the image generation' },
+    402: { description: 'The org cannot afford the image generation' + SALES_FUNNEL_CAP_402_NOTE },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'No such brand, or no such offer on it' },
     502: { description: 'Image generation failed' },
@@ -4129,7 +4141,7 @@ registry.registerPath({
   responses: {
     200: { description: 'The stored answer after discovery', content: { 'application/json': { schema: BrandCompetitorsSchema } } },
     400: { description: 'Invalid brand ID or body' },
-    402: { description: 'Insufficient credits (from chat-service)' },
+    402: { description: 'Insufficient credits (from chat-service)' + SALES_FUNNEL_CAP_402_NOTE },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     422: { description: 'Nothing is known about the brand yet (extract its profile first)' },
@@ -4330,7 +4342,7 @@ registry.registerPath({
   responses: {
     200: { description: 'The stored answer after discovery', content: { 'application/json': { schema: BrandLinkedinPageSchema } } },
     400: { description: 'Invalid brand ID, body or x-org-id' },
-    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' },
+    402: { description: 'The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)' + SALES_FUNNEL_CAP_402_NOTE },
     404: { description: 'Brand not found' },
     422: { description: 'The brand has no website, or no page of it could be read (nothing stored)' },
     502: { description: 'Discovery failed upstream (run tracking or storage)' },
