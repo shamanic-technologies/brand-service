@@ -4353,7 +4353,7 @@
             "description": "Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL"
           },
           "402": {
-            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)"
+            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated). When the refusal is the campaign's max budget (not the balance), `error` names it (\"Sales funnel max budget reached\" / \"Sales funnel max budget could not be read\"), and the body adds `type: \"credit_insufficient\"`, billing's `reason` (`sales_funnel_max_budget_reached` | `sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`."
           },
           "404": {
             "description": "Brand not found"
@@ -4503,7 +4503,7 @@
             "description": "Missing x-brand-id header, invalid UUID, invalid request body, or brand has no URL"
           },
           "402": {
-            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)"
+            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated). When the refusal is the campaign's max budget (not the balance), `error` names it (\"Sales funnel max budget reached\" / \"Sales funnel max budget could not be read\"), and the body adds `type: \"credit_insufficient\"`, billing's `reason` (`sales_funnel_max_budget_reached` | `sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`."
           },
           "404": {
             "description": "Brand not found"
@@ -5985,7 +5985,7 @@
             "description": "Invalid brand ID format or invalid body"
           },
           "402": {
-            "description": "Insufficient credits"
+            "description": "Insufficient credits. When the refusal is the campaign's max budget (not the balance), `error` names it (\"Sales funnel max budget reached\" / \"Sales funnel max budget could not be read\"), and the body adds `type: \"credit_insufficient\"`, billing's `reason` (`sales_funnel_max_budget_reached` | `sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`."
           },
           "403": {
             "description": "Brand does not belong to the caller's org"
@@ -6427,7 +6427,7 @@
             "description": "Invalid brand ID or body"
           },
           "402": {
-            "description": "Insufficient credits (chat-service gate)"
+            "description": "Insufficient credits (chat-service gate). When the refusal is the campaign's max budget (not the balance), `error` names it (\"Sales funnel max budget reached\" / \"Sales funnel max budget could not be read\"), and the body adds `type: \"credit_insufficient\"`, billing's `reason` (`sales_funnel_max_budget_reached` | `sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`."
           },
           "403": {
             "description": "Brand does not belong to the caller's org"
@@ -6867,7 +6867,7 @@
             "description": "Invalid brand or offer ID format"
           },
           "402": {
-            "description": "The org cannot afford the image generation"
+            "description": "The org cannot afford the image generation. When the refusal is the campaign's max budget (not the balance), `error` names it (\"Sales funnel max budget reached\" / \"Sales funnel max budget could not be read\"), and the body adds `type: \"credit_insufficient\"`, billing's `reason` (`sales_funnel_max_budget_reached` | `sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`."
           },
           "403": {
             "description": "Brand does not belong to the caller's org"
@@ -8571,7 +8571,7 @@
             "description": "Invalid brand ID or body"
           },
           "402": {
-            "description": "Insufficient credits (from chat-service)"
+            "description": "Insufficient credits (from chat-service). When the refusal is the campaign's max budget (not the balance), `error` names it (\"Sales funnel max budget reached\" / \"Sales funnel max budget could not be read\"), and the body adds `type: \"credit_insufficient\"`, billing's `reason` (`sales_funnel_max_budget_reached` | `sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`."
           },
           "403": {
             "description": "Brand does not belong to the caller's org"
@@ -8838,7 +8838,7 @@
             "description": "Invalid brand ID, body or x-org-id"
           },
           "402": {
-            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated)"
+            "description": "The org cannot pay for the spend (a 402 from chat-service, scraping-service or cloudflare-service, propagated). When the refusal is the campaign's max budget (not the balance), `error` names it (\"Sales funnel max budget reached\" / \"Sales funnel max budget could not be read\"), and the body adds `type: \"credit_insufficient\"`, billing's `reason` (`sales_funnel_max_budget_reached` | `sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`."
           },
           "404": {
             "description": "Brand not found"
