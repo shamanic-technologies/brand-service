@@ -125,7 +125,7 @@ describe('POST /orgs/media-assets/analyze-batch — billing authorize refusal', 
     );
     const r = await request(app()).post('/orgs/media-assets/analyze-batch').send({ organization_id: ORG });
     expect(r.status).toBe(402);
-    expect(r.body.error).toBe('Sales funnel max budget could not be read');
+    expect(r.body.error).toBe('Sales funnel max budget unreadable');
     expect(r.body.reason).toBe('sales_funnel_max_budget_unreadable');
     expect(r.body.sales_funnel_cap).toEqual(CAP);
   });
