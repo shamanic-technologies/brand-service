@@ -19,7 +19,7 @@ import {
  */
 const SALES_FUNNEL_CAP_402_NOTE =
   '. When the refusal is the campaign\'s max budget (not the balance), `error` names it ' +
-  '("Sales funnel max budget reached" / "Sales funnel max budget could not be read"), and the body adds ' +
+  '("Sales funnel max budget reached" / "Sales funnel max budget unreadable"), and the body adds ' +
   '`type: "credit_insufficient"`, billing\'s `reason` (`sales_funnel_max_budget_reached` | ' +
   '`sales_funnel_max_budget_unreadable`) and `sales_funnel_cap` ({salesFunnelId, salesFunnelCampaignId, ' +
   'amountCents, period, consumedCents, reservedCents}) verbatim. A balance shortfall has no `reason`.';
