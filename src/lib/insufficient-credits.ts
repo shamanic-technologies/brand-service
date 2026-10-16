@@ -60,7 +60,7 @@ export function rethrowIfInsufficientCredits(error: unknown): void {
 /** billing-service's names for a refusal caused by a campaign's max budget, not the balance. */
 export const SALES_FUNNEL_CAP_ERRORS: Record<string, string> = {
   sales_funnel_max_budget_reached: 'Sales funnel max budget reached',
-  sales_funnel_max_budget_unreadable: 'Sales funnel max budget could not be read',
+  sales_funnel_max_budget_unreadable: 'Sales funnel max budget unreadable',
 };
 
 /**
