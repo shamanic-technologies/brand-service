@@ -119,6 +119,47 @@ async function adoptDomain(brandId: string, domain: string): Promise<boolean> {
 }
 
 /**
+ * The SQL predicate "this brand has no name yet and no org ever set one". A
+ * name an org set (`name_set_by_org_at`) is never overwritten, even blank.
+ */
+const NAME_IS_EMPTY_AND_NOT_ORG_SET = sql`(${brands.name} IS NULL OR btrim(${brands.name}) = '') AND ${brands.nameSetByOrgAt} IS NULL`;
+
+/**
+ * Give each brand that has NO name yet the name a caller stated for it
+ * (resolve's `name`). Never over a stored name, never over one an org set,
+ * never a name built from the domain. One statement per chunk.
+ */
+async function fillEmptyBrandNames(pairs: { brandId: string; name: string }[]): Promise<void> {
+  for (const part of chunk(pairs, WRITE_CHUNK)) {
+    if (part.length === 0) continue;
+    const values = sql.join(part.map((p) => sql`(${p.brandId}::uuid, ${p.name}::text)`), sql`, `);
+    await db.execute(sql`
+      UPDATE brands SET name = v.name, updated_at = NOW()
+        FROM (VALUES ${values}) AS v(id, name)
+       WHERE brands.id = v.id AND ${NAME_IS_EMPTY_AND_NOT_ORG_SET}`);
+  }
+}
+
+/**
+ * A brand with no name takes the company's `name` FACT (what a source such as
+ * Apollo observed). Same guards as `fillEmptyBrandNames`. Migration 0095 ran
+ * the same statement once over every existing row.
+ */
+async function fillEmptyBrandNamesFromFacts(brandIds: string[]): Promise<void> {
+  for (const part of chunk([...new Set(brandIds)], WRITE_CHUNK)) {
+    if (part.length === 0) continue;
+    const ids = sql.join(part.map((id) => sql`${id}::uuid`), sql`, `);
+    await db.execute(sql`
+      UPDATE brands SET name = btrim(f.value #>> '{}'), updated_at = NOW()
+        FROM company_facts f
+       WHERE f.brand_id = brands.id AND f.fact_key = 'name'
+         AND jsonb_typeof(f.value) = 'string' AND btrim(f.value #>> '{}') <> ''
+         AND brands.id IN (${ids})
+         AND ${NAME_IS_EMPTY_AND_NOT_ORG_SET}`);
+  }
+}
+
+/**
  * Create the brand of a company known only by its domain-free identifiers.
  * Serialised per identifier (advisory lock), so two concurrent resolves of the
  * same LinkedIn page get one brand.
@@ -181,12 +222,16 @@ export async function resolveCompanies(inputs: CompanyResolveInput[]): Promise<C
   // 2. Every other unknown domain: one bulk insert, race-safe on the unique
   //    domain index, then one read of who holds each.
   const missing = domains.filter((d) => !byDomain.has(d));
+  // The caller's name for each domain (first one stated): stored on the brand
+  // it creates, and given to a brand found with no name (below).
+  const firstNameByDomain = new Map<string, string>();
+  for (const n of norms) if (n.domain && n.name && !firstNameByDomain.has(n.domain)) firstNameByDomain.set(n.domain, n.name);
   const createdDomains = new Set<string>();
   for (const part of chunk(missing, WRITE_CHUNK)) {
     if (part.length === 0) continue;
     const inserted = await db
       .insert(brands)
-      .values(part.map((d) => ({ domain: d, url: normalizeUrl(d) })))
+      .values(part.map((d) => ({ domain: d, url: normalizeUrl(d), name: firstNameByDomain.get(d) ?? null })))
       .onConflictDoNothing({ target: brands.domain })
       .returning({ id: brands.id, domain: brands.domain });
     for (const r of inserted) if (r.domain) createdDomains.add(r.domain);
@@ -237,7 +282,16 @@ export async function resolveCompanies(inputs: CompanyResolveInput[]): Promise<C
     results.push({ ...base, brandId: made.brandId, domain: null, matchedBy: made.matchedBy, created: made.created, unresolvedReason: null });
   }
 
-  // 4. Attach every identifier to the brand it was sent with. An identifier
+  // 4. A resolved brand with no name yet takes the name the caller sent for
+  //    it (first one in input order). Never over a stored or org-set name.
+  const nameFill = new Map<string, string>();
+  results.forEach((r, i) => {
+    const name = norms[i].name;
+    if (r.brandId && name && !nameFill.has(r.brandId)) nameFill.set(r.brandId, name);
+  });
+  await fillEmptyBrandNames([...nameFill].map(([brandId, name]) => ({ brandId, name })));
+
+  // 5. Attach every identifier to the brand it was sent with. An identifier
   //    already held by another brand stays there and is reported.
   const attach = new Map<string, { kind: CompanyIdentifierKind; value: string; brandId: string }>();
   results.forEach((r, i) => {
@@ -367,13 +421,21 @@ export async function writeCompanyFacts(
       .returning({ brandId: companyFacts.brandId });
     written += out.length;
   }
+  // A company with no name takes its `name` fact (the batch read serves
+  // `brands.name`, so a name living only in the facts read as nameless).
+  const namedBrandIds = [...new Set(all.filter((r) => r.factKey === 'name').map((r) => r.brandId))];
+  if (namedBrandIds.length > 0) await fillEmptyBrandNamesFromFacts(namedBrandIds);
   return { written, skippedAbsent, keptNewer: all.length - written };
 }
 
 export interface CompanyView {
   brandId: string;
   domain: string | null;
-  /** The brand's stored display name (may be null; see `facts.name`). Never derived on this read. */
+  /**
+   * The brand's stored display name. Filled at write time from the resolve's
+   * `name` or the `name` fact when the brand had none; null = no source ever
+   * named it. Never derived on this read.
+   */
   name: string | null;
   identifiers: { kind: CompanyIdentifierKind; value: string }[];
   facts: Record<string, { value: unknown; source: string; observedAt: string }>;

@@ -652,6 +652,13 @@
       "when": 1792300000000,
       "tag": "0094_offer_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1792400000000,
+      "tag": "0095_company_names_from_facts",
+      "breakpoints": true
     }
   ]
 }
