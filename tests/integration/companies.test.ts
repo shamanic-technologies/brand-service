@@ -121,7 +121,8 @@ describe('PUT /internal/companies/facts + POST /internal/companies/batch', () =>
     expect(read.status).toBe(200);
     expect(read.body.companies).toHaveLength(1);
     const c = read.body.companies[0];
-    expect(c).toMatchObject({ brandId, domain: `facts-${tag}.example.com`, name: null });
+    // A brand with no name takes its `name` fact: the batch serves it as `name`.
+    expect(c).toMatchObject({ brandId, domain: `facts-${tag}.example.com`, name: 'BeFCO' });
     expect(c.identifiers).toEqual([{ kind: 'linkedin_company', value: `https://www.linkedin.com/company/facts-${tag}/` }]);
     expect(c.facts.employeeCount).toEqual({ value: 120, source: 'apollo', observedAt: '2026-10-01T00:00:00.000Z' });
     expect(c.facts.name.value).toBe('BeFCO');
@@ -167,5 +168,51 @@ describe('PUT /internal/companies/facts + POST /internal/companies/batch', () =>
     });
     expect(unknown.status).toBe(404);
     expect(unknown.body.brandIds).toEqual([missing]);
+  }, 30000);
+});
+
+describe('a company is served with its name (owner 2026-10-17)', () => {
+  const batch = (ids: string[]) => request(app).post('/internal/companies/batch').set(getInternalAuthHeaders()).send({ brandIds: ids });
+  const putFacts = (brandId: string, facts: Record<string, unknown>) =>
+    request(app).put('/internal/companies/facts').set(getInternalAuthHeaders()).send({ companies: [{ brandId, source: 'apollo', facts }] });
+
+  it('resolve by domain keeps the name the caller sent, and gives it to an existing nameless brand', async () => {
+    const created = await resolve([{ domain: `named-${tag}.example.com`, name: 'ADIO Chiropractic' }]);
+    expect(created.body.companies[0].created).toBe(true);
+    const fresh = await batch([created.body.companies[0].brandId]);
+    expect(fresh.body.companies[0].name).toBe('ADIO Chiropractic');
+
+    const nameless = await resolve([{ domain: `nameless-${tag}.example.com` }]);
+    const id = nameless.body.companies[0].brandId;
+    expect((await batch([id])).body.companies[0].name).toBeNull();
+    await resolve([{ domain: `nameless-${tag}.example.com`, name: 'Cifacom' }]);
+    expect((await batch([id])).body.companies[0].name).toBe('Cifacom');
+    // A stored name is never replaced by a later resolve.
+    await resolve([{ domain: `nameless-${tag}.example.com`, name: 'Something Else' }]);
+    expect((await batch([id])).body.companies[0].name).toBe('Cifacom');
+  }, 30000);
+
+  it('a name fact fills an empty name only; a stored name stays', async () => {
+    const r = await resolve([{ domain: `factname-${tag}.example.com` }, { domain: `hasname-${tag}.example.com`, name: 'Kept Name' }]);
+    const [a, b] = r.body.companies.map((c: any) => c.brandId);
+    await putFacts(a, { name: 'From Apollo' });
+    await putFacts(b, { name: 'Other Apollo Name' });
+    const read = await batch([a, b]);
+    expect(read.body.companies.map((c: any) => c.name)).toEqual(['From Apollo', 'Kept Name']);
+  }, 30000);
+
+  it('a name an org set is never overwritten, by a resolve or by a fact', async () => {
+    const r = await resolve([{ domain: `orgset-${tag}.example.com` }]);
+    const id = r.body.companies[0].brandId;
+    // An org cleared the name on purpose: still theirs.
+    await db.update(brands).set({ name: null, nameSetByOrgAt: new Date().toISOString() }).where(eq(brands.id, id));
+    await resolve([{ domain: `orgset-${tag}.example.com`, name: 'Caller Name' }]);
+    await putFacts(id, { name: 'Fact Name' });
+    expect((await batch([id])).body.companies[0].name).toBeNull();
+
+    await db.update(brands).set({ name: 'Org Name' }).where(eq(brands.id, id));
+    await resolve([{ domain: `orgset-${tag}.example.com`, name: 'Caller Name' }]);
+    await putFacts(id, { name: 'Fact Name 2' });
+    expect((await batch([id])).body.companies[0].name).toBe('Org Name');
   }, 30000);
 });
