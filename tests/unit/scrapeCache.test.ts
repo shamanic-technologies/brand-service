@@ -23,7 +23,23 @@ vi.mock('../../src/lib/campaign-client', () => ({
   getCampaignFeatureInputs: vi.fn(),
 }));
 
-import { normalizeUrl, formatFieldPreview } from '../../src/services/fieldExtractionService';
+import {
+  normalizeUrl,
+  formatFieldPreview,
+  EXTRACTION_SOURCE_MAX_AGE_MS,
+  extractionSourceCutoff,
+} from '../../src/services/fieldExtractionService';
+
+describe('extraction source freshness (BRAND-STALE-1017)', () => {
+  it('a saved page older than 3 days is never an extraction source', () => {
+    expect(EXTRACTION_SOURCE_MAX_AGE_MS).toBe(3 * 24 * 60 * 60 * 1000);
+  });
+
+  it('the cutoff is now minus the max age', () => {
+    const now = new Date('2026-10-17T14:55:00.000Z');
+    expect(extractionSourceCutoff(now)).toBe('2026-10-14T14:55:00.000Z');
+  });
+});
 
 describe('normalizeUrl', () => {
   it('strips www prefix', () => {
