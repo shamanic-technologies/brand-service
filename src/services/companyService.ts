@@ -18,6 +18,7 @@ import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { brands, companyFacts, companyIdentifiers } from '../db/schema';
 import { normalizeUrl } from '../lib/url-utils';
+import { initialCompanyName, titlecaseDomain, upgradedCompanyName } from '../lib/company-display-name';
 import {
   type CompanyFactKey,
   type CompanyIdentifierKind,
@@ -179,14 +180,18 @@ export async function resolveCompanies(inputs: CompanyResolveInput[]): Promise<C
   }
 
   // 2. Every other unknown domain: one bulk insert, race-safe on the unique
-  //    domain index, then one read of who holds each.
+  //    domain index, then one read of who holds each. Every company is born
+  //    NAMED: the name a caller sent with the domain, else the titlecased
+  //    domain (a placeholder a vendor's name replaces, see writeCompanyFacts).
   const missing = domains.filter((d) => !byDomain.has(d));
+  const statedNameOf = new Map<string, string>();
+  for (const n of norms) if (n.domain && n.name && !statedNameOf.has(n.domain)) statedNameOf.set(n.domain, n.name);
   const createdDomains = new Set<string>();
   for (const part of chunk(missing, WRITE_CHUNK)) {
     if (part.length === 0) continue;
     const inserted = await db
       .insert(brands)
-      .values(part.map((d) => ({ domain: d, url: normalizeUrl(d) })))
+      .values(part.map((d) => ({ domain: d, url: normalizeUrl(d), name: initialCompanyName(d, statedNameOf.get(d)) })))
       .onConflictDoNothing({ target: brands.domain })
       .returning({ id: brands.id, domain: brands.domain });
     for (const r of inserted) if (r.domain) createdDomains.add(r.domain);
@@ -364,16 +369,93 @@ export async function writeCompanyFacts(
         },
         setWhere: sql`${companyFacts.observedAt} <= excluded.observed_at`,
       })
-      .returning({ brandId: companyFacts.brandId });
+      .returning({ brandId: companyFacts.brandId, factKey: companyFacts.factKey, value: companyFacts.value });
     written += out.length;
+    await upgradeNamesFromFacts(out.filter((r) => r.factKey === 'name'));
   }
   return { written, skippedAbsent, keptNewer: all.length - written };
+}
+
+/**
+ * A vendor's name for a company replaces a missing or placeholder display name
+ * (never a real one, never one a person set). Conditioned on the name read, so
+ * a name written meanwhile is never clobbered.
+ */
+async function upgradeNamesFromFacts(rows: { brandId: string; value: unknown }[]): Promise<void> {
+  if (rows.length === 0) return;
+  const current = await db
+    .select({ id: brands.id, name: brands.name, domain: brands.domain, nameSetByOrgAt: brands.nameSetByOrgAt })
+    .from(brands)
+    .where(inArray(brands.id, rows.map((r) => r.brandId)));
+  const byId = new Map(current.map((b) => [b.id, b]));
+  const changes = rows.flatMap((r) => {
+    const b = byId.get(r.brandId);
+    const next = b ? upgradedCompanyName(b, r.value) : null;
+    return b && next ? [{ id: b.id, from: b.name, to: next }] : [];
+  });
+  await applyNameChanges(changes);
+}
+
+/** One UPDATE per chunk; each row only while it still holds the name we read. */
+async function applyNameChanges(changes: { id: string; from: string | null; to: string }[]): Promise<number> {
+  let updated = 0;
+  for (const part of chunk(changes, WRITE_CHUNK)) {
+    if (part.length === 0) continue;
+    const values = sql.join(part.map((c) => sql`(${c.id}::uuid, ${c.from}::text, ${c.to}::text)`), sql`, `);
+    const out = await db.execute(sql`
+      UPDATE brands SET name = v.next, updated_at = NOW()
+      FROM (VALUES ${values}) AS v(id, prev, next)
+      WHERE brands.id = v.id
+        AND brands.name IS NOT DISTINCT FROM v.prev
+        AND brands.name_set_by_org_at IS NULL
+      RETURNING brands.id`);
+    updated += (out as unknown as unknown[]).length;
+  }
+  return updated;
+}
+
+/**
+ * Name every company row that has a domain and no name: the vendor's name
+ * (`company_facts.name`) when one was observed, else the titlecased domain.
+ * Rows created before companies were born named (2026-10-13 to 10-17: 46k of
+ * them). Idempotent: a second pass finds nothing. Batched, so it never holds a
+ * long transaction.
+ */
+export async function fillNamelessCompanies(batchSize = WRITE_CHUNK): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const rows = await db
+      .select({ id: brands.id, domain: brands.domain, factName: companyFacts.value })
+      .from(brands)
+      .leftJoin(companyFacts, and(eq(companyFacts.brandId, brands.id), eq(companyFacts.factKey, 'name')))
+      .where(and(or(isNull(brands.name), sql`btrim(${brands.name}) = ''`), sql`${brands.domain} IS NOT NULL`, isNull(brands.nameSetByOrgAt)))
+      .limit(batchSize);
+    if (rows.length === 0) break;
+    const changes = rows.map((r) => ({
+      id: r.id,
+      to: (typeof r.factName === 'string' && r.factName.trim()) || titlecaseDomain(r.domain!),
+    }));
+    let n = 0;
+    for (const part of chunk(changes, WRITE_CHUNK)) {
+      const values = sql.join(part.map((c) => sql`(${c.id}::uuid, ${c.to}::text)`), sql`, `);
+      const out = await db.execute(sql`
+        UPDATE brands SET name = v.next, updated_at = NOW()
+        FROM (VALUES ${values}) AS v(id, next)
+        WHERE brands.id = v.id AND (brands.name IS NULL OR btrim(brands.name) = '') AND brands.name_set_by_org_at IS NULL
+        RETURNING brands.id`);
+      n += (out as unknown as unknown[]).length;
+    }
+    total += n;
+    if (n === 0) break;
+  }
+  if (total > 0) console.log(`[brand-service] fillNamelessCompanies: named ${total} companies`);
+  return total;
 }
 
 export interface CompanyView {
   brandId: string;
   domain: string | null;
-  /** The brand's stored display name (may be null; see `facts.name`). Never derived on this read. */
+  /** The company's display name: set by a person, else the vendor's (`facts.name`), else the titlecased domain. Null only for a rare domain-less brand created without a name. */
   name: string | null;
   identifiers: { kind: CompanyIdentifierKind; value: string }[];
   facts: Record<string, { value: unknown; source: string; observedAt: string }>;

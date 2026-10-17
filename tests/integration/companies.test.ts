@@ -5,6 +5,8 @@ import { eq, inArray } from 'drizzle-orm';
 import { createTestApp, getInternalAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
 import { brands, orgBrands, companyIdentifiers, companyFacts } from '../../src/db/schema';
+import { fillNamelessCompanies } from '../../src/services/companyService';
+import { titlecaseDomain } from '../../src/lib/company-display-name';
 
 const app = createTestApp();
 const tag = randomUUID().slice(0, 8);
@@ -121,7 +123,7 @@ describe('PUT /internal/companies/facts + POST /internal/companies/batch', () =>
     expect(read.status).toBe(200);
     expect(read.body.companies).toHaveLength(1);
     const c = read.body.companies[0];
-    expect(c).toMatchObject({ brandId, domain: `facts-${tag}.example.com`, name: null });
+    expect(c).toMatchObject({ brandId, domain: `facts-${tag}.example.com`, name: 'BeFCO' });
     expect(c.identifiers).toEqual([{ kind: 'linkedin_company', value: `https://www.linkedin.com/company/facts-${tag}/` }]);
     expect(c.facts.employeeCount).toEqual({ value: 120, source: 'apollo', observedAt: '2026-10-01T00:00:00.000Z' });
     expect(c.facts.name.value).toBe('BeFCO');
@@ -168,4 +170,45 @@ describe('PUT /internal/companies/facts + POST /internal/companies/batch', () =>
     expect(unknown.status).toBe(404);
     expect(unknown.body.brandIds).toEqual([missing]);
   }, 30000);
+});
+
+describe('every company carries a display name (owner 2026-10-17, "Adam Nasri @ Cifacom")', () => {
+  const nameOf = async (id: string) =>
+    (await db.select({ name: brands.name }).from(brands).where(eq(brands.id, id)))[0]?.name;
+  const putName = (brandId: string, name: string) =>
+    request(app).put('/internal/companies/facts').set(getInternalAuthHeaders())
+      .send({ companies: [{ brandId, source: 'apollo', facts: { name } }] });
+
+  it('a company created from its domain alone is named after the domain; a stated name wins', async () => {
+    const r = await resolve([{ domain: `cifacom-${tag}.example.com` }, { domain: `stated-${tag}.example.com`, name: 'Stated Co' }]);
+    expect(await nameOf(r.body.companies[0].brandId)).toBe(titlecaseDomain(`cifacom-${tag}.example.com`));
+    expect(await nameOf(r.body.companies[1].brandId)).toBe('Stated Co');
+  }, 30000);
+
+  it("a vendor's name replaces the placeholder, never a real name nor a name a person set", async () => {
+    const r = await resolve([
+      { domain: `placeholder-${tag}.example.com` },
+      { domain: `real-${tag}.example.com`, name: 'Real Name' },
+      { domain: `person-${tag}.example.com` },
+    ]);
+    const [a, b, c] = r.body.companies.map((x: any) => x.brandId);
+    await db.update(brands).set({ name: 'Set By Person', nameSetByOrgAt: new Date().toISOString() }).where(eq(brands.id, c));
+    for (const id of [a, b, c]) expect((await putName(id, 'Apollo Name')).status).toBe(200);
+    expect(await nameOf(a)).toBe('Apollo Name');
+    expect(await nameOf(b)).toBe('Real Name');
+    expect(await nameOf(c)).toBe('Set By Person');
+    const read = await request(app).post('/internal/companies/batch').set(getInternalAuthHeaders()).send({ brandIds: [a] });
+    expect(read.body.companies[0].name).toBe('Apollo Name');
+  }, 30000);
+
+  it('rows created nameless are filled once: the vendor name, else the titlecased domain', async () => {
+    const r = await resolve([{ domain: `old-one-${tag}.example.com` }, { domain: `old-two-${tag}.example.com` }]);
+    const [withFact, bare] = r.body.companies.map((x: any) => x.brandId);
+    await putName(withFact, 'Old One Inc');
+    await db.update(brands).set({ name: null }).where(inArray(brands.id, [withFact, bare]));
+
+    await fillNamelessCompanies();
+    expect(await nameOf(withFact)).toBe('Old One Inc');
+    expect(await nameOf(bare)).toBe(titlecaseDomain(`old-two-${tag}.example.com`));
+  }, 60000);
 });
