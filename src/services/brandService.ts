@@ -19,7 +19,8 @@
  * created before this — it runs the same chain and guarantees a non-null name.
  */
 
-import { eq, and, sql, isNull } from 'drizzle-orm';
+import { isPlaceholderName, titlecaseDomain } from '../lib/company-display-name';
+import { eq, and, or, sql, isNull } from 'drizzle-orm';
 import { db, brands, orgBrands, brandClickDestinations, brandWhatsappLinks, brandColors } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
 import { normalizeLogoUrl } from '../lib/logo-url';
@@ -315,13 +316,19 @@ async function persistBrandName(brandId: string, name: string): Promise<void> {
  * Persist `name` ONLY while brands.name is still NULL, and return the name the
  * row actually ends up with. A name that is already stored is never re-derived
  * nor overwritten (that includes a user-set name and a name another concurrent
- * fill just wrote).
+ * fill just wrote). `replaceable` names a placeholder that counts as absent
+ * (the titlecased domain a company row was created with). Never over a name a
+ * person set.
  */
-async function persistBrandNameIfAbsent(brandId: string, name: string): Promise<string> {
+async function persistBrandNameIfAbsent(brandId: string, name: string, replaceable?: string): Promise<string> {
   const [updated] = await db
     .update(brands)
     .set({ name, updatedAt: sql`NOW()` })
-    .where(and(eq(brands.id, brandId), isNull(brands.name)))
+    .where(and(
+      eq(brands.id, brandId),
+      isNull(brands.nameSetByOrgAt),
+      replaceable === undefined ? isNull(brands.name) : or(isNull(brands.name), eq(brands.name, replaceable)),
+    ))
     .returning({ name: brands.name });
 
   if (updated?.name) return updated.name;
@@ -358,7 +365,9 @@ export async function fillBrandNameOnCreate(
 
   const indexed = await searchBrandNameByDomain(domain);
   if (indexed) {
-    const stored = await persistBrandNameIfAbsent(brandId, indexed);
+    // A company row created from its domain (a lead's employer) carries the
+    // titlecased domain as a placeholder: the index's real name replaces it.
+    const stored = await persistBrandNameIfAbsent(brandId, indexed, provisional);
     console.log(`[brand-service] fillBrandNameOnCreate: resolved name "${stored}" from the company index for brand ${brandId} (${domain})`);
     return stored;
   }
@@ -493,22 +502,7 @@ async function fetchLandingHtml(url: string): Promise<string | null> {
   }
 }
 
-/**
- * Titlecase a bare domain into a human-ish name. Strips `www.` and the TLD
- * (everything from the first dot), splits the leading label on `-`/`_`, and
- * titlecases each token. Always returns a non-empty string.
- * e.g. "my-cool-brand.com" → "My Cool Brand", "acme.io" → "Acme".
- */
-export function titlecaseDomain(domain: string): string {
-  const label = domain.replace(/^www\./i, '').split('.')[0] ?? '';
-  const name = label
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
-    .trim();
-  return name || domain;
-}
+export { titlecaseDomain };
 
 /**
  * Derive a brand display name from raw landing-page HTML. Priority:
@@ -761,8 +755,9 @@ export async function getOrCreateBrand(
   // name on the very next screen. Only the logo.dev index lookup is awaited;
   // an index miss returns the titlecased domain immediately and derives from
   // the landing page in the background, so the create never waits on a fetch of
-  // the customer's own website. A brand that already has a name is untouched.
-  if (!brand.name && brand.url && brand.domain) {
+  // the customer's own website. A brand that already has a REAL name is untouched;
+  // a company row created from its domain (titlecased placeholder) gets one too.
+  if (brand.url && brand.domain && isPlaceholderName(brand.name, brand.domain)) {
     brand.name = await fillBrandNameOnCreate(brand.id, brand.url, brand.domain);
   }
 
