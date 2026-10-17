@@ -42,7 +42,12 @@ import {
  * outranks another), and confirming stores nothing about which one was chosen.
  */
 
-/** The most offers one description may propose. More is refused, never truncated. */
+/**
+ * The most offers one description may propose. The model is told the cap (prompt
+ * + schema `maxItems`) and asked to GROUP a large catalogue into at most this
+ * many offers; an answer over it is asked ONCE more to regroup, and only a second
+ * overflow is refused. Never truncated: dropping offers would pick for the client.
+ */
 export const MAX_PROPOSED_OFFERS = 8;
 
 /** The longest description text accepted. A website-prefilled box, not a document. */
@@ -80,6 +85,22 @@ export class OfferProposalUnavailableError extends Error {
   }
 }
 
+/** The model listed more offers than a screen can offer. Retried once with a regroup ask. */
+export class TooManyProposedOffersError extends Error {
+  constructor(readonly count: number) {
+    super(`[brand-service] offer proposal failed: ${count} offers proposed, at most ${MAX_PROPOSED_OFFERS}`);
+    this.name = 'TooManyProposedOffersError';
+  }
+}
+
+/** The follow-up message asking the model to regroup an over-long split. Pure. */
+export function regroupMessage(text: string, count: number): string {
+  return (
+    `${text}\n\n---\nA previous answer listed ${count} offers for this business, more than the ${MAX_PROPOSED_OFFERS} allowed. ` +
+    `Group them into at most ${MAX_PROPOSED_OFFERS} offers: merge the ones sold to the same kind of buyer for the same need.`
+  );
+}
+
 /** A confirm body that cannot be stored as written (→ 400). */
 export class OfferConfirmationError extends Error {
   constructor(message: string) {
@@ -91,6 +112,8 @@ export class OfferConfirmationError extends Error {
 export const SPLIT_SYSTEM_PROMPT = `You read a business's own description of what it sells and list the DISTINCT OFFERS it describes.
 
 An offer is one distinct thing the business sells to a buyer: a product line, a service, a programme. Two things are separate offers only when a buyer would buy them separately, for a different need. Features, benefits, options, sizes and price tiers of ONE thing are NOT separate offers. A business that sells one thing has exactly one offer.
+
+List AT MOST ${MAX_PROPOSED_OFFERS} offers. A business with a larger catalogue (a developer with many projects, a shop with many products) GROUPS them: things sold to the same kind of buyer for the same need are ONE offer, named after the group ("Residential Homes", not one offer per building).
 
 For each offer return:
 - "name": what the business itself calls it, in the language of the text. At most ${DERIVED_OFFER_NAME_MAX_WORDS} words and at most ${DERIVED_OFFER_NAME_MAX_CHARS} characters. Never the business's own name unless that is literally all you have. Every name is different.
@@ -106,6 +129,7 @@ export const SPLIT_RESPONSE_SCHEMA: Record<string, unknown> = {
   properties: {
     offers: {
       type: 'array',
+      maxItems: MAX_PROPOSED_OFFERS,
       items: {
         type: 'object',
         properties: {
@@ -171,9 +195,7 @@ export function parseProposedOffers(raw: unknown): ProposedOffer[] {
     );
   }
   if (offers.length > MAX_PROPOSED_OFFERS) {
-    throw new Error(
-      `[brand-service] offer proposal failed: ${offers.length} offers proposed, at most ${MAX_PROPOSED_OFFERS}`
-    );
+    throw new TooManyProposedOffersError(offers.length);
   }
   return offers;
 }
@@ -234,11 +256,11 @@ export async function proposeOffers(opts: {
     audienceId: caller.audienceId,
   };
 
-  try {
+  const split = async (message: string): Promise<ProposedOffer[]> => {
     const result = await chat(
       {
         systemPrompt: SPLIT_SYSTEM_PROMPT,
-        message: text,
+        message,
         provider: 'google',
         // `flash` = Gemini 3.5 Flash-Lite: measured p50 1.9s / p90 2.1s on this
         // fleet (7 days to 2026-09-27) against flash-pro's 2.4s / 4.3s. This sits
@@ -250,7 +272,20 @@ export async function proposeOffers(opts: {
       },
       chatCaller,
     );
-    const offers = parseProposedOffers(result.json ?? extractJson(result.content));
+    return parseProposedOffers(result.json ?? extractJson(result.content));
+  };
+
+  try {
+    let offers: ProposedOffer[];
+    try {
+      offers = await split(text);
+    } catch (error) {
+      if (!(error instanceof TooManyProposedOffersError)) throw error;
+      // A big catalogue (aldar.com: 10 offers, 2026-10-17) must still leave the
+      // visitor offers to pick: ask once more to regroup, never truncate.
+      console.warn(`[brand-service] ${error.message}; asking once to regroup`);
+      offers = await split(regroupMessage(text, error.count));
+    }
 
     let proposal: OfferProposal;
     if (offers.length === 1) {
