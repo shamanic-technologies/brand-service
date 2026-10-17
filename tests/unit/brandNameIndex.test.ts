@@ -63,6 +63,7 @@ vi.mock('../../src/db', () => {
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: 'eq', args })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
+  or: vi.fn((...args: unknown[]) => ({ type: 'or', args })),
   isNull: vi.fn((...args: unknown[]) => ({ type: 'isNull', args })),
   sql: Object.assign(vi.fn((strings: TemplateStringsArray) => ({ type: 'sql', raw: strings.raw })), {}),
 }));

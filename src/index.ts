@@ -50,6 +50,7 @@ import thesisRoutes from './routes/thesis.routes';
 import usersRoutes from './routes/users.routes';
 import { assertEveryMigrationRan } from './db/verify-migrations';
 import { refreshPendingBrandColors } from './services/brandColorsService';
+import { fillNamelessCompanies } from './services/companyService';
 
 const app = express();
 const port = process.env.PORT || 3005;
@@ -228,6 +229,18 @@ function startExpiredFieldsCleanup(): void {
   }, EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
 }
 
+// Every company with a domain carries a display name (owner 2026-10-17,
+// "Adam Nasri @ Cifacom"). Rows created before companies were born named get
+// theirs here: once ~60s after boot (the 46k backfill), then daily. Idempotent.
+function startNamelessCompaniesFill(): void {
+  const run = (when: string) =>
+    fillNamelessCompanies().catch((err) =>
+      console.error(`[brand-service] Nameless-companies fill (${when}) failed:`, err),
+    );
+  setTimeout(() => void run('boot'), EXPIRED_FIELDS_CLEANUP_BOOT_DELAY_MS);
+  setInterval(() => void run('interval'), EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
+}
+
 // ── Boot ─────────────────────────────────────────────────────────
 // The port binds FIRST, then migrations run behind it.
 //
@@ -271,6 +284,7 @@ if (process.env.NODE_ENV === "test") {
       markMigrationsReady();
       console.log("Migrations complete");
       startExpiredFieldsCleanup();
+startNamelessCompaniesFill();
       startBrandColorsRefresh();
     })
     .catch((err) => {
