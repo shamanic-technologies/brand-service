@@ -9,6 +9,7 @@
  * Scraped page content and URL maps are persisted in DB-backed cache tables
  * (page_scrape_cache, url_map_cache) so they survive redeploys.
  * Default scrape cache TTL is 180 days; callers can override via scrapeCacheTtlDays.
+ * Extraction itself only READS a copy younger than EXTRACTION_SOURCE_MAX_AGE_MS.
  */
 
 import { rethrowIfInsufficientCredits } from '../lib/insufficient-credits';
@@ -71,7 +72,23 @@ export function normalizeUrl(urlStr: string): string {
 
 // ─── DB-backed scrape cache ─────────────────────────────────────────────────
 
-async function getCachedPageContent(url: string): Promise<string | null> {
+/**
+ * The oldest saved copy of a page (or of a site's page list) that field
+ * extraction may read. A fact is re-extracted every CACHE_DURATION_MS, but the
+ * saved pages are kept 180 days for the cheap readers (competitors, LinkedIn
+ * page, images). Reading those here froze every fact on the site as it was
+ * months ago: Distribute.you emails kept promising "$1/day" on 2026-10-17 from
+ * a homepage copy saved on 09-29, weeks after the site dropped it. So a
+ * re-extraction only trusts a copy younger than the facts' own lifetime, and
+ * fetches the page again otherwise. The 180-day expiry on WRITE is unchanged.
+ */
+export const EXTRACTION_SOURCE_MAX_AGE_MS = CACHE_DURATION_MS;
+
+export function extractionSourceCutoff(now: Date = new Date()): string {
+  return new Date(now.getTime() - EXTRACTION_SOURCE_MAX_AGE_MS).toISOString();
+}
+
+export async function getCachedPageContent(url: string): Promise<string | null> {
   const normalized = normalizeUrl(url);
   const rows = await db
     .select({ content: pageScrapeCache.content })
@@ -80,6 +97,7 @@ async function getCachedPageContent(url: string): Promise<string | null> {
       and(
         eq(pageScrapeCache.normalizedUrl, normalized),
         gt(pageScrapeCache.expiresAt, sql`NOW()`),
+        gt(pageScrapeCache.scrapedAt, extractionSourceCutoff()),
       ),
     )
     .limit(1);
@@ -110,7 +128,7 @@ async function upsertPageContent(url: string, content: string, ttlDays: number):
     });
 }
 
-async function getCachedUrlMap(siteUrl: string): Promise<string[] | null> {
+export async function getCachedUrlMap(siteUrl: string): Promise<string[] | null> {
   const normalized = normalizeUrl(siteUrl);
   const rows = await db
     .select({ urls: urlMapCacheTable.urls })
@@ -120,6 +138,7 @@ async function getCachedUrlMap(siteUrl: string): Promise<string[] | null> {
         eq(urlMapCacheTable.normalizedSiteUrl, normalized),
         eq(urlMapCacheTable.includesSubdomains, true),
         gt(urlMapCacheTable.expiresAt, sql`NOW()`),
+        gt(urlMapCacheTable.mappedAt, extractionSourceCutoff()),
       ),
     )
     .limit(1);

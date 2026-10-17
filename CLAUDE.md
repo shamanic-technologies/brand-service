@@ -366,6 +366,10 @@ prospect's thread. That second channel has no use for a phone at all.
   `tests/integration/salesRep.test.ts` (every AC, including a phone-only row
   written straight to the table standing in for the 3 production ones).
 
+## What we write about a brand follows its site NOW (`EXTRACTION_SOURCE_MAX_AGE_MS`, 2026-10-17)
+
+Field extraction reads a saved page (`page_scrape_cache`) or site page list (`url_map_cache`) only if it was fetched less than 3 days ago (= the facts' own `CACHE_DURATION_MS`), else fetches it again. Saved copies still EXPIRE at 180 days for the cheap readers (competitors, LinkedIn page, images, subdomain-probe link discovery). Before this, a re-extraction every 3 days re-read the same months-old copy: Distribute.you emails promised "$1/day" on 2026-10-17 from a homepage saved 09-29. Never let extraction read a copy older than the facts it produces. Guards: `tests/integration/extractionSourceFreshness.test.ts`, `tests/unit/scrapeCache.test.ts`.
+
 ## Site mapping includes the brand's subdomains (`src/lib/brand-domain.ts`)
 
 The url_map strategy (field extraction + image extraction) maps the brand's site with scraping-service `includeSubdomains: true`, so pricing, docs, case studies and help pages on `docs.` / `blog.` / `help.` hosts are candidates for page selection. `keepBrandDomainUrls` then drops everything off the brand's REGISTRABLE domain (Public Suffix List via `tldts`, so `acme.co.uk` never admits every `.co.uk`). The page ceiling is unchanged: selection still returns at most 10 pages, and a map is one Firecrawl credit whatever it contains.
