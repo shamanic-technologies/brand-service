@@ -3995,7 +3995,11 @@ registry.registerPath({
 const OFFER_STEPS_DESCRIPTION =
   "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. " +
   '`conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never ' +
-  'stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served.';
+  'stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served. ' +
+  'EVERY offer knows its steps (owner 2026-10-18): an offer nobody stated steps for is ASSESSED by brand-service on ' +
+  'this read (one Jev judgment, a yes/no per catalogue step, billed to the org when `x-user-id` is sent, else the ' +
+  'platform) and served `stated: true` with `source: "assessed"`; a daily sweep assesses the rest. The client always ' +
+  'wins: an assessment never writes over a stated list, and a client add/remove makes the list `source: "client"`.';
 
 export const OfferStepsSchema = z
   .object({
@@ -4003,6 +4007,10 @@ export const OfferStepsSchema = z
     stated: z.boolean().describe('false = the offer never stated its steps (then `steps` and `statedAt` are null)'),
     steps: z.array(z.string()).nullable().describe('Step keys (features-service vocabulary), in the order they were stated'),
     statedAt: z.string().nullable().describe('When the list last changed'),
+    source: z
+      .enum(['client', 'assessed'])
+      .nullable()
+      .describe('Who stated `steps`: `client` (the client, or the Copilot on its word) or `assessed` (brand-service judged it). null = never stated'),
   })
   .openapi('OfferSteps');
 
@@ -4032,11 +4040,13 @@ registry.registerPath({
   description: OFFER_STEPS_DESCRIPTION,
   request: { params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }) },
   responses: {
-    200: { description: "The offer's stated steps", content: { 'application/json': { schema: OfferStepsSchema } } },
+    200: { description: "The offer's steps (stated by the client, or assessed)", content: { 'application/json': { schema: OfferStepsSchema } } },
     400: { description: 'Invalid ID' },
+    402: { description: 'The org cannot pay the assessment of an offer with no steps (nothing stored)' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'No such brand, or no such offer on it' },
     500: { description: 'Internal server error' },
+    502: { description: '`reason: "step_catalogue_unavailable"` or `"step_assessment_unavailable"`: an offer with no steps could not be assessed (nothing stored)' },
   },
 });
 

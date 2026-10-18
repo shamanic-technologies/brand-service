@@ -1661,12 +1661,21 @@ export const brandOfferSalesPaths = pgTable("brand_offer_sales_paths", {
 	// swap; the service reads that one as the legacy shape. See `SalesPathLeg`.
 	legs: text("legs").array(),
 	statedAt: timestamp("stated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	// WHO stated `steps` (migration 0096, owner 2026-10-18): `client` (the client
+	// or the Copilot on the client's word) or `assessed` (brand-service judged it
+	// with Jev). A client write on an assessed list makes it `client`; an
+	// assessment never writes over an existing row.
+	stepsSource: text("steps_source").default('client').notNull(),
+	// The assessment's evidence, `{ <stepKey>: <probability of yes> }` per
+	// catalogue step judged. NULL on a client-stated row. Read by nothing.
+	stepsAssessment: jsonb("steps_assessment"),
 }, (table) => [
 	foreignKey({
 		columns: [table.offerId],
 		foreignColumns: [brandOffers.id],
 		name: "brand_offer_sales_paths_offer_id_fkey",
 	}).onDelete("cascade"),
+	check("brand_offer_sales_paths_steps_source_check", sql`${table.stepsSource} IN ('client', 'assessed')`),
 ]);
 
 /**
