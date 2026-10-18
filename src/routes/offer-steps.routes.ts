@@ -2,11 +2,14 @@ import { Router, Request, Response } from 'express';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { rejectOfferProblem } from '../lib/offer-scope';
 import { StepCatalogueUnavailableError } from '../lib/features-step-catalogue';
+import { respondIfInsufficientCredits } from '../lib/insufficient-credits';
 import {
   addOfferStep,
   readOfferSteps,
   removeOfferStep,
+  StepAssessmentUnavailableError,
   UnknownStepError,
+  type StepAssessmentBilling,
 } from '../services/offerStepsService';
 
 export const orgRouter = Router();
@@ -39,6 +42,11 @@ function offerStepsRoute(what: string, handle: (req: Request, res: Response) => 
           console.error(`[brand-service] ${what}: ${error.message}`);
           return res.status(502).json({ error: error.message, reason: 'step_catalogue_unavailable' });
         }
+        if (error instanceof StepAssessmentUnavailableError) {
+          console.error(`[brand-service] ${what}: ${error.message}`);
+          return res.status(502).json({ error: error.message, reason: 'step_assessment_unavailable' });
+        }
+        if (respondIfInsufficientCredits(res, error)) return;
         if (rejectOfferProblem(res, error)) return;
         throw error;
       }
@@ -49,10 +57,32 @@ function offerStepsRoute(what: string, handle: (req: Request, res: Response) => 
   };
 }
 
+/**
+ * An offer with no steps is assessed on this read, billed to the org when the
+ * request names a user, else to the platform (a service read carrying only
+ * `x-org-id`: features-service, campaign-service).
+ */
+function assessmentBilling(req: Request): StepAssessmentBilling {
+  if (!req.userId) return { mode: 'platform' };
+  return {
+    mode: 'org',
+    caller: {
+      orgId: req.orgId!,
+      userId: req.userId,
+      runId: req.runId,
+      campaignId: req.campaignId,
+      featureSlug: req.featureSlug,
+      brandIdHeader: req.brandIdHeader,
+      workflowSlug: req.workflowSlug,
+      audienceId: req.audienceId,
+    },
+  };
+}
+
 orgRouter.get(
   '/brands/:brandId/offers/:offerId/steps',
   offerStepsRoute('Get offer steps', async (req, res) => {
-    res.status(200).json(await readOfferSteps(req.orgId!, req.params.brandId, req.params.offerId));
+    res.status(200).json(await readOfferSteps(req.orgId!, req.params.brandId, req.params.offerId, assessmentBilling(req)));
   })
 );
 

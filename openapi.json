@@ -2993,13 +2993,24 @@
             "type": "string",
             "nullable": true,
             "description": "When the list last changed"
+          },
+          "source": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "client",
+              "assessed",
+              null
+            ],
+            "description": "Who stated `steps`: `client` (the client, or the Copilot on its word) or `assessed` (brand-service judged it). null = never stated"
           }
         },
         "required": [
           "offerId",
           "stated",
           "steps",
-          "statedAt"
+          "statedAt",
+          "source"
         ]
       },
       "OfferStepWriteResponse": {
@@ -8320,7 +8331,7 @@
     "/orgs/brands/{brandId}/offers/{offerId}/steps": {
       "get": {
         "summary": "Read the steps an offer's business has",
-        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served.",
+        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served. EVERY offer knows its steps (owner 2026-10-18): an offer nobody stated steps for is ASSESSED by brand-service on this read (one Jev judgment, a yes/no per catalogue step, billed to the org when `x-user-id` is sent, else the platform) and served `stated: true` with `source: \"assessed\"`; a daily sweep assesses the rest. The client always wins: an assessment never writes over a stated list, and a client add/remove makes the list `source: \"client\"`.",
         "parameters": [
           {
             "schema": {
@@ -8343,7 +8354,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The offer's stated steps",
+            "description": "The offer's steps (stated by the client, or assessed)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8355,6 +8366,9 @@
           "400": {
             "description": "Invalid ID"
           },
+          "402": {
+            "description": "The org cannot pay the assessment of an offer with no steps (nothing stored)"
+          },
           "403": {
             "description": "Brand does not belong to the caller's org"
           },
@@ -8363,6 +8377,9 @@
           },
           "500": {
             "description": "Internal server error"
+          },
+          "502": {
+            "description": "`reason: \"step_catalogue_unavailable\"` or `\"step_assessment_unavailable\"`: an offer with no steps could not be assessed (nothing stored)"
           }
         }
       }
@@ -8370,7 +8387,7 @@
     "/orgs/brands/{brandId}/offers/{offerId}/steps/{stepKey}": {
       "put": {
         "summary": "State one step of an offer (idempotent)",
-        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served. Adds ONE step at the end of the list. Already stated = 200 `changed: false`. An offer that never stated its steps becomes `stated: true` with this one step. No body.",
+        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served. EVERY offer knows its steps (owner 2026-10-18): an offer nobody stated steps for is ASSESSED by brand-service on this read (one Jev judgment, a yes/no per catalogue step, billed to the org when `x-user-id` is sent, else the platform) and served `stated: true` with `source: \"assessed\"`; a daily sweep assesses the rest. The client always wins: an assessment never writes over a stated list, and a client add/remove makes the list `source: \"client\"`. Adds ONE step at the end of the list. Already stated = 200 `changed: false`. An offer that never stated its steps becomes `stated: true` with this one step. No body.",
         "parameters": [
           {
             "schema": {
@@ -8431,7 +8448,7 @@
       },
       "delete": {
         "summary": "Remove one step of an offer (idempotent)",
-        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served. Removes ONE step. Not stated = 200 `changed: false` (an offer that never stated its steps stays `stated: false`). Removing the last step leaves `stated: true` with an empty list.",
+        "description": "The funnel steps the client stated its business has for this offer (features-service step keys, e.g. `conversation`, `booking_call`, `meeting_booked`, `purchase`). `stated: false` (steps null) = the offer never stated its steps, a different answer from `stated: true` with an empty list. No leg, channel or sales path is served. EVERY offer knows its steps (owner 2026-10-18): an offer nobody stated steps for is ASSESSED by brand-service on this read (one Jev judgment, a yes/no per catalogue step, billed to the org when `x-user-id` is sent, else the platform) and served `stated: true` with `source: \"assessed\"`; a daily sweep assesses the rest. The client always wins: an assessment never writes over a stated list, and a client add/remove makes the list `source: \"client\"`. Removes ONE step. Not stated = 200 `changed: false` (an offer that never stated its steps stays `stated: false`). Removing the last step leaves `stated: true` with an empty list.",
         "parameters": [
           {
             "schema": {
