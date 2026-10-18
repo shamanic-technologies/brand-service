@@ -9,10 +9,22 @@ vi.mock('../../src/lib/features-step-catalogue', async () => {
   );
   return { ...actual, fetchStepCatalogue: vi.fn() };
 });
+vi.mock('../../src/lib/chat-client', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/chat-client')>('../../src/lib/chat-client');
+  return { ...actual, judgeNouls: vi.fn() };
+});
+vi.mock('../../src/lib/runs-client', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/runs-client')>('../../src/lib/runs-client');
+  return { ...actual, createRun: vi.fn(), updateRun: vi.fn() };
+});
 
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandOffers, brandOfferSalesPaths } from '../../src/db';
 import { fetchStepCatalogue, StepCatalogueUnavailableError } from '../../src/lib/features-step-catalogue';
+import { judgeNouls } from '../../src/lib/chat-client';
+import { createRun, updateRun } from '../../src/lib/runs-client';
+import { InsufficientCreditsError } from '../../src/lib/insufficient-credits';
+import { assessUnstatedOfferSteps } from '../../src/services/offerStepsService';
 
 /**
  * THE STEPS AN OFFER'S BUSINESS HAS (owner 2026-10-12): read, add one, remove one,
@@ -31,6 +43,21 @@ const CATALOGUE = [
   'website_visit',
 ].map((key) => ({ key, name: key }));
 
+/** Jev's answer for a high-value consulting offer: talk first, never a checkout. */
+const CONSULTING_ANSWERS: Record<string, number> = {
+  booking_call: 0.81,
+  conversation: 0.93,
+  form_submitted: 0.22,
+  lead_found: 0.97,
+  meeting_attended: 0.9,
+  meeting_booked: 0.94,
+  paid_client: 0.98,
+  purchase: 0.04,
+  signup: 0.12,
+  website_visit: 0.71,
+};
+const CONSULTING_STEPS = ['booking_call', 'conversation', 'lead_found', 'meeting_attended', 'meeting_booked', 'paid_client', 'website_visit'];
+
 describe('Offer steps', () => {
   const app = createTestApp();
   const orgId = randomUUID();
@@ -41,7 +68,12 @@ describe('Offer steps', () => {
   let blankOfferId = '';
   let legacyOfferId = '';
   let foreignOfferId = '';
+  let assessedOfferId = '';
+  let platformOfferId = '';
+  let sweptOfferId = '';
+  let failingOfferId = '';
   const catalogue = vi.mocked(fetchStepCatalogue);
+  const judge = vi.mocked(judgeNouls);
   const stepsPath = (offerId: string, b = brandId) => `/orgs/brands/${b}/offers/${offerId}/steps`;
 
   async function makeOffer(org: string, brand: string, name: string): Promise<string> {
@@ -63,6 +95,14 @@ describe('Offer steps', () => {
     blankOfferId = await makeOffer(orgId, brandId, 'Never Stated');
     legacyOfferId = await makeOffer(orgId, brandId, 'Legacy Row');
     foreignOfferId = await makeOffer(otherOrgId, otherBrandId, 'Someone Else');
+    assessedOfferId = await makeOffer(orgId, brandId, 'Executive Scorecards');
+    platformOfferId = await makeOffer(orgId, brandId, 'Read By A Service');
+    sweptOfferId = await makeOffer(orgId, brandId, 'Swept Offer');
+    failingOfferId = await makeOffer(orgId, brandId, 'Jev Down');
+    await db
+      .update(brandOffers)
+      .set({ description: 'Executive scorecards for AI spend for CXOs.', lifetimeRevenueUsd: 12000 })
+      .where(eq(brandOffers.id, assessedOfferId));
 
     // The shape the retired sales path wrote (2026-10-08, Doc Dinners).
     await db.insert(brandOfferSalesPaths).values({
@@ -92,12 +132,20 @@ describe('Offer steps', () => {
   beforeEach(() => {
     catalogue.mockReset();
     catalogue.mockResolvedValue(CATALOGUE);
+    judge.mockReset();
+    judge.mockResolvedValue(CONSULTING_ANSWERS);
+    vi.mocked(createRun).mockReset();
+    vi.mocked(createRun).mockResolvedValue({ id: 'assessment-run' } as Awaited<ReturnType<typeof createRun>>);
+    vi.mocked(updateRun).mockReset();
+    vi.mocked(updateRun).mockResolvedValue({} as Awaited<ReturnType<typeof updateRun>>);
   });
+
+  const allOfferIds = () => [statedOfferId, blankOfferId, legacyOfferId, foreignOfferId, assessedOfferId, platformOfferId, sweptOfferId, failingOfferId];
 
   afterAll(async () => {
     await db
       .delete(brandOfferSalesPaths)
-      .where(inArray(brandOfferSalesPaths.offerId, [statedOfferId, blankOfferId, legacyOfferId, foreignOfferId]));
+      .where(inArray(brandOfferSalesPaths.offerId, allOfferIds()));
     await db.delete(brandOffers).where(inArray(brandOffers.brandId, [brandId, otherBrandId]));
     await db.delete(orgBrands).where(inArray(orgBrands.brandId, [brandId, otherBrandId]));
     await db.delete(brands).where(inArray(brands.id, [brandId, otherBrandId]));
@@ -111,22 +159,101 @@ describe('Offer steps', () => {
       stated: true,
       steps: ['conversation', 'booking_call', 'meeting_booked', 'meeting_attended', 'website_visit'],
       statedAt: expect.any(String),
+      source: 'client',
     });
     expect(res.body.steps).not.toContain('purchase');
     expect(catalogue).not.toHaveBeenCalled();
+    // The client's statement wins: a stated offer is never assessed.
+    expect(judge).not.toHaveBeenCalled();
   });
 
-  it('reads an offer that never stated its steps as not stated, distinct from an empty list', async () => {
-    const res = await request(app).get(stepsPath(blankOfferId)).set(getAuthHeaders(orgId));
+  it('assesses an offer that never stated its steps on its first read, org-billed, and stores it once', async () => {
+    const res = await request(app).get(stepsPath(assessedOfferId)).set(getAuthHeaders(orgId, 'user-1', 'parent-run'));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ offerId: blankOfferId, stated: false, steps: null, statedAt: null });
+    expect(res.body).toEqual({
+      offerId: assessedOfferId,
+      stated: true,
+      steps: CONSULTING_STEPS,
+      statedAt: expect.any(String),
+      source: 'assessed',
+    });
+    expect(res.body.steps).not.toContain('purchase');
+
+    // One judgment, one yes/no per catalogue step, on what we know of the offer.
+    expect(judge).toHaveBeenCalledTimes(1);
+    const [state, questions, caller] = judge.mock.calls[0];
+    expect(Object.keys(questions).sort()).toEqual(CATALOGUE.map((s) => s.key).sort());
+    expect(state).toMatchObject({ offer: { name: 'Executive Scorecards', valueOfOneClientUsd: 12000 } });
+    expect(caller).toMatchObject({ mode: 'org', orgId, userId: 'user-1', runId: 'assessment-run' });
+    expect(createRun).toHaveBeenCalledWith(expect.objectContaining({ orgId, userId: 'user-1', parentRunId: 'parent-run', taskName: 'offer-steps-assessment' }));
+    expect(updateRun).toHaveBeenCalledWith('assessment-run', 'completed', expect.anything());
+
+    const [row] = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, assessedOfferId));
+    expect(row.stepsSource).toBe('assessed');
+    expect(row.stepsAssessment).toEqual(CONSULTING_ANSWERS);
+    expect(row.legKeys).toEqual([]);
+
+    // Judged once and persisted.
+    const again = await request(app).get(stepsPath(assessedOfferId)).set(getAuthHeaders(orgId));
+    expect(again.body).toMatchObject({ source: 'assessed', steps: CONSULTING_STEPS });
+    expect(judge).toHaveBeenCalledTimes(1);
+  });
+
+  it('a client add on an assessed list keeps its steps and makes the list the client\'s', async () => {
+    const add = await request(app).put(`${stepsPath(assessedOfferId)}/form_submitted`).set(getAuthHeaders(orgId));
+    expect(add.body).toMatchObject({ changed: true, source: 'client', steps: [...CONSULTING_STEPS, 'form_submitted'] });
+    const del = await request(app).delete(`${stepsPath(assessedOfferId)}/website_visit`).set(getAuthHeaders(orgId));
+    expect(del.body).toMatchObject({ changed: true, source: 'client' });
+    expect(del.body.steps).not.toContain('website_visit');
+    expect(judge).not.toHaveBeenCalled();
+  });
+
+  it('a service read with no user is assessed on the platform', async () => {
+    const headers: Record<string, string> = { ...getAuthHeaders(orgId) };
+    delete headers['X-User-Id'];
+    const res = await request(app).get(stepsPath(platformOfferId)).set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ stated: true, source: 'assessed' });
+    expect(judge.mock.calls[0][2]).toEqual({ mode: 'platform' });
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('answers 502 and stores nothing when the assessment fails; 402 when the org cannot pay', async () => {
+    judge.mockRejectedValue(new Error('chat-service POST /orgs/judgments returned 500'));
+    const res = await request(app).get(stepsPath(failingOfferId)).set(getAuthHeaders(orgId));
+    expect(res.status).toBe(502);
+    expect(res.body.reason).toBe('step_assessment_unavailable');
+    expect(updateRun).toHaveBeenCalledWith('assessment-run', 'failed', expect.anything());
+
+    judge.mockRejectedValue(new InsufficientCreditsError('chat-service POST /orgs/judgments returned 402: {"error":"Insufficient credits"}'));
+    const broke = await request(app).get(stepsPath(failingOfferId)).set(getAuthHeaders(orgId));
+    expect(broke.status).toBe(402);
+
+    const rows = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, failingOfferId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('the sweep assesses unstated offers only, never a stated one', async () => {
+    const before = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, statedOfferId));
+    const result = await assessUnstatedOfferSteps({ onlyOfferIds: [statedOfferId, legacyOfferId, sweptOfferId] });
+    expect(result).toEqual({ assessed: 1, failed: 0 });
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(judge.mock.calls[0][2]).toEqual({ mode: 'platform' });
+
+    const [swept] = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, sweptOfferId));
+    expect(swept).toMatchObject({ stepsSource: 'assessed', steps: CONSULTING_STEPS });
+    const after = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, statedOfferId));
+    expect(after).toEqual(before);
+
+    // A second pass finds nothing left.
+    expect(await assessUnstatedOfferSteps({ onlyOfferIds: [sweptOfferId] })).toEqual({ assessed: 0, failed: 0 });
   });
 
   it('reads a legacy row (legs NULL) by its steps', async () => {
     const res = await request(app).get(stepsPath(legacyOfferId)).set(getAuthHeaders(orgId));
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ stated: true, steps: ['website_visit', 'signup'] });
-    expect(Object.keys(res.body).sort()).toEqual(['offerId', 'stated', 'statedAt', 'steps']);
+    expect(Object.keys(res.body).sort()).toEqual(['offerId', 'source', 'stated', 'statedAt', 'steps']);
   });
 
   it('adds one step at the end, then a second add is a no-op', async () => {

@@ -51,6 +51,7 @@ import usersRoutes from './routes/users.routes';
 import { assertEveryMigrationRan } from './db/verify-migrations';
 import { refreshPendingBrandColors } from './services/brandColorsService';
 import { fillNamelessCompanies } from './services/companyService';
+import { assessUnstatedOfferSteps } from './services/offerStepsService';
 
 const app = express();
 const port = process.env.PORT || 3005;
@@ -241,6 +242,18 @@ function startNamelessCompaniesFill(): void {
   setInterval(() => void run('interval'), EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
 }
 
+// Every offer knows its sales steps (owner 2026-10-18): an offer nobody stated
+// steps for is assessed (Jev, platform-billed) ~60s after boot (the backfill),
+// then daily for any offer no read reached. Idempotent: a stated offer is skipped.
+function startOfferStepsAssessment(): void {
+  const run = (when: string) =>
+    assessUnstatedOfferSteps().catch((err) =>
+      console.error(`[brand-service] Offer steps assessment (${when}) failed:`, err),
+    );
+  setTimeout(() => void run('boot'), EXPIRED_FIELDS_CLEANUP_BOOT_DELAY_MS);
+  setInterval(() => void run('interval'), EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
+}
+
 // ── Boot ─────────────────────────────────────────────────────────
 // The port binds FIRST, then migrations run behind it.
 //
@@ -284,7 +297,8 @@ if (process.env.NODE_ENV === "test") {
       markMigrationsReady();
       console.log("Migrations complete");
       startExpiredFieldsCleanup();
-startNamelessCompaniesFill();
+      startNamelessCompaniesFill();
+      startOfferStepsAssessment();
       startBrandColorsRefresh();
     })
     .catch((err) => {
