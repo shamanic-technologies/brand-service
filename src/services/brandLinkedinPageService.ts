@@ -43,6 +43,7 @@
  */
 
 import { and, eq, gt, like, sql } from 'drizzle-orm';
+import { PAGE_CACHE_TTL_DAYS, pageCacheCutoff } from '../lib/page-cache-ttl';
 import { getDomain } from 'tldts';
 import { db, brands, brandLinkedinPages, pageScrapeCache } from '../db';
 import { createRun, updateRun } from '../lib/runs-client';
@@ -68,7 +69,7 @@ export type LinkedinSource = typeof LINKEDIN_SOURCE_BRAND_WEBSITE | typeof LINKE
 
 const HOMEPAGE_TIMEOUT_MS = 8000;
 const HOMEPAGE_MAX_CHARS = 2_000_000;
-const SCRAPE_CACHE_TTL_DAYS = 180;
+const SCRAPE_CACHE_TTL_DAYS = PAGE_CACHE_TTL_DAYS;
 /** Cached pages of the brand's site read at most (all free). */
 const MAX_CACHED_PAGES = 50;
 const BROWSER_UA =
@@ -216,7 +217,7 @@ async function cachedPages(domain: string): Promise<SitePage[]> {
   const rows = await db
     .select({ url: pageScrapeCache.url, content: pageScrapeCache.content })
     .from(pageScrapeCache)
-    .where(and(like(pageScrapeCache.normalizedUrl, `%${domain}%`), gt(pageScrapeCache.expiresAt, sql`NOW()`)))
+    .where(and(like(pageScrapeCache.normalizedUrl, `%${domain}%`), gt(pageScrapeCache.expiresAt, sql`NOW()`), gt(pageScrapeCache.scrapedAt, pageCacheCutoff())))
     .limit(MAX_CACHED_PAGES * 4);
   return rows.filter((r) => isOnDomain(r.url, domain)).slice(0, MAX_CACHED_PAGES);
 }

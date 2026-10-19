@@ -9,6 +9,7 @@
  */
 
 import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
+import { PAGE_CACHE_TTL_DAYS } from '../lib/page-cache-ttl';
 import crypto from 'crypto';
 import axios from 'axios';
 import { db, brands, brandExtractedImages } from '../db';
@@ -23,7 +24,7 @@ import { mapBrandUrls, scrapeSelectedPages } from './scrapeOrchestrator';
 import { parseImageUrls, isTrackingPixelDomain, getExtensionFromUrl } from '../lib/image-utils';
 
 const CACHE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180;
+const DEFAULT_SCRAPE_CACHE_TTL_DAYS = PAGE_CACHE_TTL_DAYS;
 const MIN_IMAGE_SIZE_BYTES = 5120; // 5KB — skip icons/tracking pixels
 const MAX_CANDIDATE_IMAGES = 50; // limit vision API calls
 const VISION_BATCH_SIZE = 5; // concurrent vision calls
