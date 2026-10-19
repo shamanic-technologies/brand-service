@@ -29,6 +29,7 @@
  */
 
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { PAGE_CACHE_TTL_DAYS } from '../lib/page-cache-ttl';
 import {
   db,
   brands,
@@ -53,7 +54,7 @@ export const LINKEDIN_SOURCE_COMPETITOR_WEBSITE = 'competitor_website' as const;
 
 const HOMEPAGE_TIMEOUT_MS = 8000;
 const HOMEPAGE_MAX_CHARS = 2_000_000;
-const SCRAPE_CACHE_TTL_DAYS = 180;
+const SCRAPE_CACHE_TTL_DAYS = PAGE_CACHE_TTL_DAYS;
 const BROWSER_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 

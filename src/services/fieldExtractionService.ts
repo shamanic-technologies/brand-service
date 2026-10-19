@@ -8,11 +8,12 @@
  *
  * Scraped page content and URL maps are persisted in DB-backed cache tables
  * (page_scrape_cache, url_map_cache) so they survive redeploys.
- * Default scrape cache TTL is 180 days; callers can override via scrapeCacheTtlDays.
+ * Saved pages live PAGE_CACHE_TTL_DAYS (3 days); a caller's scrapeCacheTtlDays can only shorten it.
  * Extraction itself only READS a copy younger than EXTRACTION_SOURCE_MAX_AGE_MS.
  */
 
 import { rethrowIfInsufficientCredits } from '../lib/insufficient-credits';
+import { PAGE_CACHE_TTL_DAYS, pageCacheExpiresAt } from '../lib/page-cache-ttl';
 import crypto from 'crypto';
 import { eq, and, gt, inArray, sql, isNull, asc } from 'drizzle-orm';
 import { db, brands, brandExtractedFields, brandOffers, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
@@ -33,7 +34,7 @@ import { buildProfileContextBlock } from './profileContext';
 import { getBrandBusinessContext } from './brandBusinessContextService';
 
 const CACHE_DURATION_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
-const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180; // 6 months
+const DEFAULT_SCRAPE_CACHE_TTL_DAYS = PAGE_CACHE_TTL_DAYS; // = CACHE_DURATION_MS, see lib/page-cache-ttl
 
 // Business context (pasted when a brand has no website) is fed to the LLM through
 // the SAME extractFieldsFromContent path as scraped pages, which caps each "page"
@@ -75,12 +76,12 @@ export function normalizeUrl(urlStr: string): string {
 /**
  * The oldest saved copy of a page (or of a site's page list) that field
  * extraction may read. A fact is re-extracted every CACHE_DURATION_MS, but the
- * saved pages are kept 180 days for the cheap readers (competitors, LinkedIn
- * page, images). Reading those here froze every fact on the site as it was
- * months ago: Distribute.you emails kept promising "$1/day" on 2026-10-17 from
- * a homepage copy saved on 09-29, weeks after the site dropped it. So a
- * re-extraction only trusts a copy younger than the facts' own lifetime, and
- * fetches the page again otherwise. The 180-day expiry on WRITE is unchanged.
+ * saved pages used to be kept 180 days. Reading those here froze every fact
+ * on the site as it was months ago: Distribute.you emails kept promising
+ * "$1/day" on 2026-10-17 from a homepage copy saved on 09-29, weeks after the
+ * site dropped it. So a re-extraction only trusts a copy younger than the
+ * facts' own lifetime, and since 2026-10-19 no copy is KEPT longer either
+ * (lib/page-cache-ttl: PAGE_CACHE_TTL_DAYS, pinned equal to this).
  */
 export const EXTRACTION_SOURCE_MAX_AGE_MS = CACHE_DURATION_MS;
 
@@ -106,7 +107,7 @@ export async function getCachedPageContent(url: string): Promise<string | null> 
 
 async function upsertPageContent(url: string, content: string, ttlDays: number): Promise<void> {
   const normalized = normalizeUrl(url);
-  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = pageCacheExpiresAt(ttlDays);
   await db
     .insert(pageScrapeCache)
     .values({
@@ -147,7 +148,7 @@ export async function getCachedUrlMap(siteUrl: string): Promise<string[] | null>
 
 async function upsertUrlMap(siteUrl: string, urls: string[], ttlDays: number): Promise<void> {
   const normalized = normalizeUrl(siteUrl);
-  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = pageCacheExpiresAt(ttlDays);
   await db
     .insert(urlMapCacheTable)
     .values({
