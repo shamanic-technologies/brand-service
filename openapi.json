@@ -856,8 +856,8 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 365,
-            "description": "How many days to cache scraped page content and URL maps. Default 180 (6 months). Use lower values (e.g. 1–7) for fast-changing sites like client blogs. Use higher values (e.g. 180–365) for stable pages like journalist profiles or company about pages.",
-            "example": 180
+            "description": "How many days to cache scraped page content and URL maps. Default and maximum 3 (the refresh horizon of the facts built from them); a higher value is capped at 3, a lower one shortens the cache.",
+            "example": 3
           },
           "resetCache": {
             "type": "boolean",
@@ -1060,8 +1060,8 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 365,
-            "description": "How many days to cache scraped page content and URL maps. Default 180 (6 months).",
-            "example": 180
+            "description": "How many days to cache scraped page content and URL maps. Default and maximum 3 (the refresh horizon of the facts built from them); a higher value is capped at 3, a lower one shortens the cache.",
+            "example": 3
           }
         },
         "required": [

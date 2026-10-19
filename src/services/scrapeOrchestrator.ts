@@ -16,8 +16,7 @@ import {
   ScrapingTrackingContext,
 } from '../lib/scraping-client';
 import { getRootDomainUrl, keepBrandDomainUrls, registrableDomain } from '../lib/brand-domain';
-
-const DEFAULT_SCRAPE_CACHE_TTL_DAYS = 180;
+import { pageCacheCutoff, pageCacheExpiresAt } from '../lib/page-cache-ttl';
 
 // ─── URL normalization ──────────────────────────────────────────────────────
 
@@ -43,6 +42,7 @@ export async function getCachedPageContent(url: string): Promise<string | null> 
       and(
         eq(pageScrapeCache.normalizedUrl, normalized),
         gt(pageScrapeCache.expiresAt, sql`NOW()`),
+        gt(pageScrapeCache.scrapedAt, pageCacheCutoff()),
       ),
     )
     .limit(1);
@@ -51,7 +51,7 @@ export async function getCachedPageContent(url: string): Promise<string | null> 
 
 export async function upsertPageContent(url: string, content: string, ttlDays: number): Promise<void> {
   const normalized = normalizeUrl(url);
-  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = pageCacheExpiresAt(ttlDays);
   await db
     .insert(pageScrapeCache)
     .values({
@@ -83,6 +83,7 @@ async function getCachedUrlMap(siteUrl: string): Promise<string[] | null> {
         eq(urlMapCacheTable.normalizedSiteUrl, normalized),
         eq(urlMapCacheTable.includesSubdomains, true),
         gt(urlMapCacheTable.expiresAt, sql`NOW()`),
+        gt(urlMapCacheTable.mappedAt, pageCacheCutoff()),
       ),
     )
     .limit(1);
@@ -91,7 +92,7 @@ async function getCachedUrlMap(siteUrl: string): Promise<string[] | null> {
 
 async function upsertUrlMap(siteUrl: string, urls: string[], ttlDays: number): Promise<void> {
   const normalized = normalizeUrl(siteUrl);
-  const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = pageCacheExpiresAt(ttlDays);
   await db
     .insert(urlMapCacheTable)
     .values({
