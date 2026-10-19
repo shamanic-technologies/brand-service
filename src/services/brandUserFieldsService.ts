@@ -50,6 +50,24 @@ export class UnknownUserFieldKeyError extends Error {
   }
 }
 
+/**
+ * A CLEARED confirmation: `null` (or absent) or a blank string. Clearing a
+ * confirmed field means "stop overriding the site": the confirmation goes and
+ * every read serves the site-extracted value again. Before 2026-10-19 a cleared
+ * field was stored as a `confirmed` row with value NULL — the profile read
+ * dropped it (site value shown) while the extract-fields overlay the email
+ * writer reads served `null`, so emails lost the lever entirely.
+ *
+ * An EMPTY LIST is NOT a clear: `giveForFree: []` / `neverGive: []` is the
+ * customer stating "nothing", saved on purpose by the dashboard, and must not
+ * fall back to a site-guessed freebie an email would then promise.
+ */
+export function isClearedUserFieldValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'string' && value.trim() === '') return true;
+  return false;
+}
+
 export interface ConfirmedUserField {
   value: unknown;
   confirmedAt: string;
@@ -90,6 +108,10 @@ export async function getConfirmedByOfferId(
 
   const map = new Map<string, ConfirmedUserField>();
   for (const row of rows) {
+    // A row left by the pre-2026-10-19 clear (value NULL / blank) confirms
+    // nothing: skip it so EVERY reader (profile, extract-fields overlay, the
+    // user-fields view) falls back to the site value alike.
+    if (isClearedUserFieldValue(row.value)) continue;
     map.set(row.fieldKey, { value: row.value, confirmedAt: row.confirmedAt });
   }
   return map;
@@ -187,7 +209,8 @@ export async function getUserFieldsViewByOfferId(
 }
 
 /**
- * Upsert one or more confirmed user fields for a brand. Every supplied key MUST
+ * Upsert one or more confirmed user fields for a brand. A `null` / blank value
+ * CLEARS the confirmation (row deleted, site value served). Every supplied key MUST
  * be one of the 7 user-facing keys — an unknown key throws
  * `UnknownUserFieldKeyError` (400 upstream) and NOTHING is written. Each key is
  * upserted on (brand_id, field_key): value is replaced and confirmed_at /
@@ -238,6 +261,21 @@ export async function upsertUserFieldsByOfferId(
   const nowIso = new Date().toISOString();
 
   for (const [fieldKey, value] of entries) {
+    // Clearing removes the confirmation (no NULL `confirmed` row): the site
+    // value takes over on every read.
+    if (isClearedUserFieldValue(value)) {
+      await db
+        .delete(brandUserFields)
+        .where(
+          and(
+            eq(brandUserFields.orgId, orgId),
+            eq(brandUserFields.brandId, brandId),
+            eq(brandUserFields.offerId, offerId),
+            eq(brandUserFields.fieldKey, fieldKey),
+          ),
+        );
+      continue;
+    }
     await db
       .insert(brandUserFields)
       .values({
