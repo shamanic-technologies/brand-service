@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import net from 'net';
 import 'dotenv/config';
 import * as schema from './schema';
+import { restoreDriverErrorMessages } from '../lib/pg-error';
 
 const connectionString = process.env.BRAND_SERVICE_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -46,6 +47,10 @@ const client = postgres(connectionString, {
 
 // Create Drizzle instance with schema
 export const db = drizzle(client, { schema });
+
+// drizzle-orm >= 0.44 puts the SQL text and bound values in a failed query's message: give the
+// error the database's own message back, so no response body or stored field carries them.
+restoreDriverErrorMessages();
 
 // Re-export schema for convenience
 export * from './schema';
