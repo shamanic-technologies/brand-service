@@ -30,14 +30,14 @@
     "@asteasolutions/zod-to-openapi": "^8.4.0",
     "@google/generative-ai": "^0.14.1",
     "@supabase/supabase-js": "^2.57.4",
-    "axios": "^1.12.1",
+    "axios": "^1.20.0",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "express": "^4.21.2",
     "googleapis": "^161.0.0",
     "heic-convert": "^2.1.0",
-    "multer": "^2.0.2",
+    "multer": "^2.3.0",
     "p-retry": "^8.0.0",
     "postgres": "^3.4.8",
     "sharp": "^0.34.4",
@@ -50,13 +50,33 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^24.3.0",
     "@types/supertest": "^6.0.3",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^4.1.12",
     "drizzle-kit": "^0.31.8",
     "nodemon": "^3.1.10",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.2",
-    "vitest": "^4.0.18"
+    "vite": "^7.3.7",
+    "vitest": "^4.1.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "minimatch@^3.0.0": "^3.1.4",
+      "minimatch@^9.0.0": "^9.0.7",
+      "rollup@^4.0.0": "^4.59.0",
+      "path-to-regexp@^0.1.0": "^0.1.13",
+      "picomatch@^2.0.0": "^2.3.2",
+      "picomatch@^4.0.0": "^4.0.4",
+      "vite@^7.0.0": "^7.3.7",
+      "form-data@^4.0.0": "^4.0.6",
+      "ws@^8.0.0": "^8.21.0",
+      "brace-expansion@^2.0.0": "^2.1.6",
+      "brace-expansion@^1.0.0": "^1.1.20",
+      "postcss@^8.0.0": "^8.5.18",
+      "nanoid@^3.0.0": "^3.3.18",
+      "source-map-js@^1.0.0": "^1.2.2",
+      "proxy-addr@^2.0.0": "^2.0.8"
+    }
   }
 }
