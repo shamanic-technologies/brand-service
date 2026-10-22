@@ -87,7 +87,7 @@ async function probeImage(url: string): Promise<{ contentType: string; sizeBytes
       validateStatus: (s) => s < 400,
     });
 
-    const contentType = (response.headers['content-type'] || '').toLowerCase();
+    const contentType = String(response.headers['content-type'] || '').toLowerCase();
     if (!contentType.startsWith('image/')) return null;
 
     // Skip SVGs unless they're likely logos (larger ones)
@@ -96,7 +96,7 @@ async function probeImage(url: string): Promise<{ contentType: string; sizeBytes
       return { contentType, sizeBytes: 0 };
     }
 
-    const sizeBytes = parseInt(response.headers['content-length'] || '0', 10);
+    const sizeBytes = parseInt(String(response.headers['content-length'] || '0'), 10);
     if (sizeBytes > 0 && sizeBytes < MIN_IMAGE_SIZE_BYTES) return null;
 
     return { contentType, sizeBytes };
@@ -109,7 +109,7 @@ async function probeImage(url: string): Promise<{ contentType: string; sizeBytes
         headers: { Range: 'bytes=0-0' },
         validateStatus: (s) => s < 400,
       });
-      const contentType = (response.headers['content-type'] || '').toLowerCase();
+      const contentType = String(response.headers['content-type'] || '').toLowerCase();
       if (!contentType.startsWith('image/')) return null;
       return { contentType, sizeBytes: 0 };
     } catch {
