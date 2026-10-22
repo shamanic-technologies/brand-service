@@ -79,7 +79,7 @@ interface VisionAnalysis {
  * HEAD request to validate an image URL and get metadata.
  * Returns null if the image should be filtered out.
  */
-async function probeImage(url: string): Promise<{ contentType: string; sizeBytes: number } | null> {
+export async function probeImage(url: string): Promise<{ contentType: string; sizeBytes: number } | null> {
   try {
     const response = await axios.head(url, {
       timeout: 5_000,
