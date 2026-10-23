@@ -302,6 +302,25 @@ async function getBrandNameRow(brandId: string): Promise<Brand | null> {
   return row ?? null;
 }
 
+/**
+ * The display name a caller STATED on create (`POST /orgs/brands { url, name }`),
+ * written as a person-set name (`name_set_by_org_at`) so no derivation replaces
+ * it. Only while no person has named the brand yet: a domain is shared across
+ * orgs, and a name another org stated is never overwritten by a create (that
+ * org's correction goes through PATCH). Returns the name the row now carries.
+ */
+export async function stateBrandNameOnCreate(brandId: string, name: string): Promise<string | null> {
+  const [updated] = await db
+    .update(brands)
+    .set({ name, nameSetByOrgAt: new Date().toISOString(), updatedAt: sql`NOW()` })
+    .where(and(eq(brands.id, brandId), isNull(brands.nameSetByOrgAt)))
+    .returning({ name: brands.name });
+  if (updated) return updated.name;
+
+  const [row] = await db.select({ name: brands.name }).from(brands).where(eq(brands.id, brandId)).limit(1);
+  return row?.name ?? null;
+}
+
 async function persistBrandName(brandId: string, name: string): Promise<void> {
   await db
     .update(brands)
