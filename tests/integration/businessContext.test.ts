@@ -76,12 +76,33 @@ describe('Business context & no-website brands', () => {
     expect(res.status).toBe(400);
   });
 
-  it('POST /orgs/brands with both url and name → 400', async () => {
+  it('POST /orgs/brands with both url and name → a website brand carrying that name', async () => {
+    const domain = `both-${randomUUID().slice(0, 8)}.com`;
     const res = await request(app)
       .post('/orgs/brands')
       .set(getAuthHeaders(ownerOrgId))
-      .send({ url: 'https://both.com', name: 'Both' });
-    expect(res.status).toBe(400);
+      .send({ url: `https://${domain}`, name: 'Both Studio' });
+    expect(res.status).toBe(200);
+    expect(res.body.domain).toBe(domain);
+    expect(res.body.name).toBe('Both Studio');
+    createdBrandIds.push(res.body.brandId);
+
+    const [row] = await db
+      .select({ name: brands.name, nameSetByOrgAt: brands.nameSetByOrgAt })
+      .from(brands)
+      .where(eq(brands.id, res.body.brandId));
+    expect(row.name).toBe('Both Studio');
+    expect(row.nameSetByOrgAt).not.toBeNull();
+
+    // Another org creating the same domain with another name never renames it.
+    const again = await request(app)
+      .post('/orgs/brands')
+      .set(getAuthHeaders(otherOrgId))
+      .send({ url: `https://${domain}`, name: 'Someone Else' });
+    expect(again.status).toBe(200);
+    expect(again.body.brandId).toBe(res.body.brandId);
+    expect(again.body.name).toBe('Both Studio');
+    await db.delete(orgBrands).where(eq(orgBrands.orgId, otherOrgId));
   });
 
   it('POST /orgs/brands { url } still works (regression)', async () => {

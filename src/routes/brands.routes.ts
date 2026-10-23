@@ -3,7 +3,7 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld, brandColors } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, createBrandWithoutWebsite, updateBrandIdentity, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
+import { getOrCreateBrand, createBrandWithoutWebsite, stateBrandNameOnCreate, updateBrandIdentity, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
 import { moveBrandBetweenOrgs, OfferNameCollisionError } from '../services/brandOrgMoveService';
 import { rewriteBrandReferences } from '../services/brandMergeService';
 import { getBrandIdentitiesByOrgIds } from '../services/orgBrandIdentityService';
@@ -59,13 +59,10 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'x-run-id header is required' });
     }
 
-    // Exactly one of `url` (website brand) or `name` (no-website brand) must be
-    // supplied. A website brand derives its identity from the URL/domain; a
-    // no-website brand is identified by the user-provided display name and
-    // extracts fields from its pasted business context instead of a scrape.
-    if (url && name) {
-      return res.status(400).json({ error: 'Provide either url (website brand) or name (no-website brand), not both' });
-    }
+    // `url` = a website brand (identity = its domain); `name` alone = a
+    // no-website brand (identity = the org + that name, fields from pasted
+    // business context). Both = a website brand whose display name the caller
+    // states (an API agent sends both; refusing it cost a real signup a retry).
     if (!url && !name) {
       return res.status(400).json({ error: 'Either url (website brand) or name (no-website brand) is required' });
     }
@@ -104,10 +101,12 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
       audienceId: req.audienceId,
     });
 
+    const statedName = name ? await stateBrandNameOnCreate(brand.id, name) : brand.name;
+
     res.json({
       brandId: brand.id,
       domain: brand.domain,
-      name: brand.name,
+      name: statedName,
       created: existing.length === 0,
     });
   } catch (error: unknown) {

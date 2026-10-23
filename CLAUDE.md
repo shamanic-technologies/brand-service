@@ -218,6 +218,7 @@ icon vocabulary `src/lib/offer-icons.ts`, guards
   (`judgeChoice`, chat-service `/orgs/judgments`), which returns its confidence.
   A single offer is never judged (`mainOfferConfidence: null`).
 - **At most 8 offers, GROUPED, never a dead end.** The prompt and the schema (`maxItems`) state the cap and ask a big catalogue to group by buyer + need; an overflow is asked ONCE more to regroup (`TooManyProposedOffersError` → `regroupMessage`), only a second overflow is refused. Never truncated. aldar.com (10 offers, 2026-10-17) showed "Nothing found" in the signed-out onboarding before this. Guard `tests/unit/offerProposalRegroup.test.ts`.
+- **`chosenIndex` is optional for ONE offer** (it is that offer); several offers without it = 400 naming the fix, never guessed (`resolveChosenIndex`). `POST /orgs/brands` takes `url` + `name` together (website brand, `name` stated as a person-set name unless one already exists, `stateBrandNameOnCreate`); an API agent was refused both on 2026-10-22.
 - **The main offer is a preselection HINT, never stored.** There is no primary
   offer; confirm does not record which one was chosen.
 - **Icons are a CLOSED Phosphor vocabulary**, enforced by the split's
