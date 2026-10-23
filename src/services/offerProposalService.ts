@@ -354,6 +354,19 @@ export interface OfferConfirmation {
  * many, a chosen index out of range, two names alike case-insensitively, an
  * icon off the vocabulary, a description over the limit. Pure.
  */
+/**
+ * The offer the customer starts with. A single offer IS the chosen one, so its
+ * index is optional; several offers without an index are refused rather than
+ * guessed. Pure.
+ */
+export function resolveChosenIndex(offerCount: number, chosenIndex: number | undefined): number {
+  if (chosenIndex !== undefined) return chosenIndex;
+  if (offerCount === 1) return 0;
+  throw new OfferConfirmationError(
+    `You sent ${offerCount} offers: add chosenIndex (0 to ${offerCount - 1}) to say which one the customer starts with.`,
+  );
+}
+
 export function normalizeConfirmedOffers(
   input: ConfirmedOfferInput[],
   chosenIndex: number,
@@ -437,8 +450,9 @@ export async function confirmOffers(
   orgId: string,
   brandId: string,
   input: ConfirmedOfferInput[],
-  chosenIndex: number,
+  requestedIndex: number | undefined,
 ): Promise<OfferConfirmation> {
+  const chosenIndex = resolveChosenIndex(input.length, requestedIndex);
   const confirmed = normalizeConfirmedOffers(input, chosenIndex);
 
   return db.transaction(async (tx) => {

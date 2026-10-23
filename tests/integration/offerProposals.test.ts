@@ -213,5 +213,21 @@ describe('Proposing offers from a description, then confirming them', () => {
       .set(getAuthHeaders(orgId))
       .send({ offers: [{ name: 'Tea' }], chosenIndex: 3 });
     expect(idx.status).toBe(400);
+    const severalNoIndex = await request(app)
+      .post(`${base(brandId)}/confirm`)
+      .set(getAuthHeaders(orgId))
+      .send({ offers: [{ name: 'Tea' }, { name: 'Coffee' }] });
+    expect(severalNoIndex.status).toBe(400);
+    expect(severalNoIndex.body.error).toMatch(/add chosenIndex/);
+  });
+
+  it('confirms ONE offer without chosenIndex and hands back its id', async () => {
+    const res = await request(app)
+      .post(`${base(brandId)}/confirm`)
+      .set(getAuthHeaders(orgId))
+      .send({ offers: [{ name: 'Solo Offer' }] });
+    expect(res.status).toBe(200);
+    expect(res.body.offers).toHaveLength(1);
+    expect(res.body.chosenOfferId).toBe(res.body.offers[0].offerId);
   });
 });

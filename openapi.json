@@ -225,18 +225,23 @@
         "type": "object",
         "properties": {
           "brandId": {
-            "type": "string"
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the brand created or returned. Every brand-scoped route takes it as `{brandId}`."
           },
           "domain": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "The website domain. `null` for a no-website brand."
           },
           "name": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "The display name."
           },
           "created": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "`false` when this organization already had this brand."
           }
         },
         "required": [
@@ -281,9 +286,10 @@
             "maxLength": 255
           }
         },
-        "description": "Create or return a brand. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized server-side; rejects localhost/IP literals/no-TLD) OR `name` (no-website brand — a user-provided display name; fields are later extracted from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.",
+        "description": "Create or return a brand. Send `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized server-side; rejects localhost/IP literals/no-TLD), optionally with `name` as its display name. Send `name` ALONE for a no-website brand (fields are later extracted from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). At least one of url/name is required.",
         "example": {
-          "url": "https://acme.com"
+          "url": "https://acme.com",
+          "name": "Acme"
         }
       },
       "SetBrandWebsiteResponse": {
@@ -2240,11 +2246,12 @@
             "items": {
               "$ref": "#/components/schemas/Offer"
             },
-            "description": "The offers, in the order confirmed."
+            "description": "The offers, in the order sent. Each one's `offerId` is the id every offer-scoped route takes as `{offerId}`."
           },
           "chosenOfferId": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "The `offerId` of the offer the customer starts with (the only one when one was sent)."
           },
           "adoptedOfferId": {
             "type": "string",
@@ -2353,13 +2360,20 @@
           "chosenIndex": {
             "type": "integer",
             "minimum": 0,
-            "description": "Index into `offers` of the one the customer starts with."
+            "description": "Index into `offers` of the one the customer starts with. Optional when ONE offer is sent (it is that offer); required when several are sent."
           }
         },
         "required": [
-          "offers",
-          "chosenIndex"
-        ]
+          "offers"
+        ],
+        "example": {
+          "offers": [
+            {
+              "name": "Brand Audit",
+              "description": "A one-week audit of your brand."
+            }
+          ]
+        }
       },
       "OfferName": {
         "type": "string",
@@ -3827,7 +3841,7 @@
     "/orgs/brands": {
       "post": {
         "summary": "Create or return a brand by URL (website) or name (no-website)",
-        "description": "Creates or returns a brand for the given organization. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL) OR `name` (no-website brand — deduped per organization on the case-insensitive name, so repeating the same create returns the same brand with `created: false` instead of stacking duplicates; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required. A website brand's display `name` is resolved on this call (logo.dev company index → landing-page HTML → titlecased domain) and comes back populated; only the index lookup is awaited, so the create never waits on a fetch of the customer's own site.",
+        "description": "Creates or returns a brand for the given organization. Send `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL), optionally with `name` as its display name (kept unless a person already named that brand). Send `name` ALONE for a no-website brand — deduped per organization on the case-insensitive name, so repeating the same create returns the same brand with `created: false` instead of stacking duplicates; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). At least one of url/name is required; the response `brandId` is the id every brand-scoped route takes. Without a stated `name`, a website brand's display `name` is resolved on this call (logo.dev company index → landing-page HTML → titlecased domain) and comes back populated; only the index lookup is awaited, so the create never waits on a fetch of the customer's own site.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3849,7 +3863,7 @@
             }
           },
           "400": {
-            "description": "Invalid/missing URL, or neither/both of url and name provided",
+            "description": "Invalid URL, or neither url nor name provided",
             "content": {
               "application/json": {
                 "schema": {
@@ -6491,7 +6505,7 @@
             }
           },
           "400": {
-            "description": "Invalid brand ID, a bad name, a duplicate name, a bad icon or chosenIndex"
+            "description": "Invalid brand ID, a bad name, a duplicate name, a bad icon, a bad chosenIndex, or several offers sent without chosenIndex"
           },
           "403": {
             "description": "Brand does not belong to the caller's org"

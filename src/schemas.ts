@@ -151,16 +151,18 @@ export const UpsertBrandRequestSchema = z
   })
   .openapi('UpsertBrandRequest', {
     description:
-      'Create or return a brand. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized server-side; rejects localhost/IP literals/no-TLD) OR `name` (no-website brand — a user-provided display name; fields are later extracted from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required.',
-    example: { url: 'https://acme.com' },
+      'Create or return a brand. Send `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized server-side; rejects localhost/IP literals/no-TLD), optionally with `name` as its display name. Send `name` ALONE for a no-website brand (fields are later extracted from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). At least one of url/name is required.',
+    example: { url: 'https://acme.com', name: 'Acme' },
   });
 
 export const UpsertBrandResponseSchema = z
   .object({
-    brandId: z.string(),
-    domain: z.string().nullable(),
-    name: z.string().nullable(),
-    created: z.boolean(),
+    brandId: z.string().uuid().openapi({
+      description: 'The id of the brand created or returned. Every brand-scoped route takes it as `{brandId}`.',
+    }),
+    domain: z.string().nullable().openapi({ description: 'The website domain. `null` for a no-website brand.' }),
+    name: z.string().nullable().openapi({ description: 'The display name.' }),
+    created: z.boolean().openapi({ description: '`false` when this organization already had this brand.' }),
   })
   .openapi('UpsertBrandResponse');
 
@@ -460,12 +462,12 @@ registry.registerPath({
   path: '/orgs/brands',
   summary: 'Create or return a brand by URL (website) or name (no-website)',
   description:
-    'Creates or returns a brand for the given organization. Provide EITHER `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL) OR `name` (no-website brand — deduped per organization on the case-insensitive name, so repeating the same create returns the same brand with `created: false` instead of stacking duplicates; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). Exactly one of url/name is required. A website brand\'s display `name` is resolved on this call (logo.dev company index → landing-page HTML → titlecased domain) and comes back populated; only the index lookup is awaited, so the create never waits on a fetch of the customer\'s own site.',
+    'Creates or returns a brand for the given organization. Send `url` (website brand — bare domain acme.com or full URL https://acme.com, normalized + domain-deduped; rejects localhost/IP/no-TLD with INVALID_URL), optionally with `name` as its display name (kept unless a person already named that brand). Send `name` ALONE for a no-website brand — deduped per organization on the case-insensitive name, so repeating the same create returns the same brand with `created: false` instead of stacking duplicates; extracts fields from the pasted business context set via PUT /orgs/brands/{brandId}/business-context). At least one of url/name is required; the response `brandId` is the id every brand-scoped route takes. Without a stated `name`, a website brand\'s display `name` is resolved on this call (logo.dev company index → landing-page HTML → titlecased domain) and comes back populated; only the index lookup is awaited, so the create never waits on a fetch of the customer\'s own site.',
   request: { body: { content: { 'application/json': { schema: UpsertBrandRequestSchema } } } },
   responses: {
     200: { description: 'Brand found or created', content: { 'application/json': { schema: UpsertBrandResponseSchema } } },
     400: {
-      description: 'Invalid/missing URL, or neither/both of url and name provided',
+      description: 'Invalid URL, or neither url nor name provided',
       content: { 'application/json': { schema: ValidationErrorResponseSchema } },
     },
     500: { description: 'Internal server error' },
@@ -2753,14 +2755,22 @@ export const ConfirmOffersRequestSchema = z
       )
       .min(1)
       .max(8),
-    chosenIndex: z.number().int().min(0).openapi({ description: 'Index into `offers` of the one the customer starts with.' }),
+    chosenIndex: z.number().int().min(0).optional().openapi({
+      description:
+        'Index into `offers` of the one the customer starts with. Optional when ONE offer is sent (it is that offer); ' +
+        'required when several are sent.',
+    }),
   })
-  .openapi('ConfirmOffersRequest');
+  .openapi('ConfirmOffersRequest', { example: { offers: [{ name: 'Brand Audit', description: 'A one-week audit of your brand.' }] } });
 
 export const ConfirmOffersResponseSchema = z
   .object({
-    offers: z.array(OfferSchema).openapi({ description: 'The offers, in the order confirmed.' }),
-    chosenOfferId: z.string().uuid(),
+    offers: z.array(OfferSchema).openapi({
+      description: 'The offers, in the order sent. Each one\'s `offerId` is the id every offer-scoped route takes as `{offerId}`.',
+    }),
+    chosenOfferId: z.string().uuid().openapi({
+      description: 'The `offerId` of the offer the customer starts with (the only one when one was sent).',
+    }),
     adoptedOfferId: z.string().uuid().nullable().openapi({
       description:
         "The brand's implicit offer (created by its first brand-scoped write, named after the brand) that was renamed " +
@@ -2810,7 +2820,7 @@ registry.registerPath({
   },
   responses: {
     200: { description: 'The confirmed offers', content: { 'application/json': { schema: ConfirmOffersResponseSchema } } },
-    400: { description: 'Invalid brand ID, a bad name, a duplicate name, a bad icon or chosenIndex' },
+    400: { description: 'Invalid brand ID, a bad name, a duplicate name, a bad icon, a bad chosenIndex, or several offers sent without chosenIndex' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
     409: { description: 'A concurrent write took one of the names' },

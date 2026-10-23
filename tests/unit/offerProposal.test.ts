@@ -12,6 +12,7 @@ import {
   normalizeConfirmedOffers,
   parseProposedOffers,
   pickImplicitOffer,
+  resolveChosenIndex,
 } from '../../src/services/offerProposalService';
 import { OFFER_ICONS, isOfferIcon } from '../../src/lib/offer-icons';
 
@@ -92,6 +93,18 @@ describe('normalizeConfirmedOffers', () => {
   });
   it('refuses an unknown icon', () => {
     expect(() => normalizeConfirmedOffers([{ name: 'A', icon: 'nope' }], 0)).toThrow(OfferConfirmationError);
+  });
+});
+
+describe('resolveChosenIndex', () => {
+  it('a single offer needs no index', () => {
+    expect(resolveChosenIndex(1, undefined)).toBe(0);
+  });
+  it('keeps a stated index', () => {
+    expect(resolveChosenIndex(3, 2)).toBe(2);
+  });
+  it('refuses several offers without an index, never guessing', () => {
+    expect(() => resolveChosenIndex(2, undefined)).toThrow(/add chosenIndex \(0 to 1\)/);
   });
 });
 
