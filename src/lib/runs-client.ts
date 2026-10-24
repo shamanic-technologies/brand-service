@@ -4,6 +4,7 @@
  */
 
 import { fetchWithRetry } from './fetch-with-retry';
+import { supportForRun, type RunSupport, type SupportFunction } from './support-functions';
 
 const RUNS_SERVICE_URL =
   process.env.RUNS_SERVICE_URL || "https://runs.distribute.you";
@@ -161,10 +162,13 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
   // Only send fields accepted by CreateRunRequest schema in the body.
   // orgId/userId go in x-org-id/x-user-id headers, parentRunId in x-run-id header.
   // audienceId travels as the x-audience-id header (preferred over the deprecated body field).
+  // Every brand-service run is a SUPPORT function (brand setup), marked at
+  // creation so its cost never rides a parent's outcome (support-functions.ts).
   const { orgId, userId, parentRunId, audienceId, ...body } = params;
+  const support = supportForRun(params.serviceName, params.taskName);
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
-    body,
+    body: support ? { ...body, support } : body,
     orgId,
     userId,
     runId: parentRunId,
@@ -352,3 +356,60 @@ export async function listRuns(
     { orgId: params.orgId, userId: params.userId, runId: params.runId }
   );
 }
+
+// ─── Support marks (owner door) ──────────────────────────────────────────────
+//
+// Marks brand-service's OWN past runs SUPPORT in bulk, by selection (tasks +
+// start window). runs-service refuses a run that declared an outcome (counted in
+// `declaresOutcomesCount`, never marked) and is idempotent (`alreadyMarkedCount`).
+// preview writes nothing; apply writes exactly what preview shows.
+
+export interface SupportMarkSelection {
+  kind: SupportFunction;
+  reason: string;
+  markedBy: string;
+  taskNames: string[];
+  startedAfter?: string;
+  startedBefore?: string;
+}
+
+export interface SupportSelectionResult {
+  matchedRunCount: number;
+  toMarkCount: number;
+  alreadyMarkedCount: number;
+  declaresOutcomesCount: number;
+  onOutcomeNowCount: number;
+  spend: { grossCents: string; netCents: string };
+  maxRuns: number;
+  tooMany: boolean;
+}
+
+export interface SupportMarkResult {
+  markedCount: number;
+  alreadyMarkedCount: number;
+  declaresOutcomesCount?: number;
+}
+
+async function supportMarksRequest<T>(step: 'preview' | 'apply', selection: SupportMarkSelection): Promise<T> {
+  const response = await fetchWithRetry(`${RUNS_SERVICE_URL}/v1/platform-runs/support-marks/${step}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': RUNS_SERVICE_API_KEY,
+      'x-service-name': 'brand-service',
+    },
+    body: JSON.stringify(selection),
+    label: `runs-service POST /v1/platform-runs/support-marks/${step}`,
+  });
+  return response.json() as Promise<T>;
+}
+
+export function previewSupportMarks(selection: SupportMarkSelection): Promise<SupportSelectionResult> {
+  return supportMarksRequest<SupportSelectionResult>('preview', selection);
+}
+
+export function applySupportMarks(selection: SupportMarkSelection): Promise<SupportMarkResult> {
+  return supportMarksRequest<SupportMarkResult>('apply', selection);
+}
+
+export type { RunSupport };
