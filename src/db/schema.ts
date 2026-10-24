@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, timestamp, index, unique, uuid, text, uniqueIndex, foreignKey, check, date, jsonb, integer, boolean, bigint, numeric, json, primaryKey, pgView, pgEnum, customType } from "drizzle-orm/pg-core"
+import { pgTable, serial, varchar, timestamp, index, unique, uuid, text, uniqueIndex, foreignKey, check, date, jsonb, integer, boolean, bigint, numeric, real, json, primaryKey, pgView, pgEnum, customType } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 export const belongingConfidenceLevelEnum = pgEnum("belonging_confidence_level_enum", ['found_online', 'guessed', 'user_inputed'])
@@ -1755,7 +1755,17 @@ export const brandCompetitors = pgTable("brand_competitors", {
 	brandId: uuid("brand_id").notNull(),
 	position: integer().notNull(),
 	name: text().notNull(),
-	domain: text().notNull(),
+	// The site JUDGED (Jev) to be this company's own; NULL = none confirmed
+	// (served by name only). Migration 0098, COMPETITOR-SITE-IS-THE-COMPANY-1024.
+	domain: text(),
+	// The model's first guess, provenance only (never served).
+	proposedDomain: text("proposed_domain"),
+	// Jev's probability that `domain` is the company's site; when none was
+	// confirmed, the best probability seen (NULL = nothing could be read).
+	websiteConfidence: real("website_confidence"),
+	// When the site was judged. NULL = stored before the judgment existed:
+	// served by name only until `verifyUncheckedCompetitorWebsites` judges it.
+	websiteCheckedAt: timestamp("website_checked_at", { withTimezone: true, mode: 'string' }),
 	linkedinUrl: text("linkedin_url"),
 	linkedinSource: text("linkedin_source"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
@@ -1767,6 +1777,8 @@ export const brandCompetitors = pgTable("brand_competitors", {
 	}).onDelete("cascade"),
 	uniqueIndex("brand_competitors_brand_domain_key").using("btree", table.brandId.asc().nullsLast().op("uuid_ops"), table.domain.asc().nullsLast().op("text_ops")),
 	check("brand_competitors_linkedin_has_source", sql`(linkedin_url IS NULL) = (linkedin_source IS NULL)`),
+	// A LinkedIn page is read off the company's confirmed site: no site, no page.
+	check("brand_competitors_linkedin_needs_site", sql`domain IS NOT NULL OR linkedin_url IS NULL`),
 ]);
 
 /**

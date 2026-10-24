@@ -52,6 +52,7 @@ import { assertEveryMigrationRan } from './db/verify-migrations';
 import { refreshPendingBrandColors } from './services/brandColorsService';
 import { fillNamelessCompanies } from './services/companyService';
 import { assessUnstatedOfferSteps } from './services/offerStepsService';
+import { verifyUncheckedCompetitorWebsites } from './services/brandCompetitorsService';
 
 const app = express();
 const port = process.env.PORT || 3005;
@@ -254,6 +255,18 @@ function startOfferStepsAssessment(): void {
   setInterval(() => void run('interval'), EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
 }
 
+// A competitor's website is served only once judged THAT company's
+// (COMPETITOR-SITE-IS-THE-COMPANY-1024). Rows stored before the judgment are
+// judged here (Jev, platform-billed): ~60s after boot, then daily. Idempotent.
+function startCompetitorWebsiteCheck(): void {
+  const run = (when: string) =>
+    verifyUncheckedCompetitorWebsites().catch((err) =>
+      console.error(`[brand-service] Competitor website check (${when}) failed:`, err),
+    );
+  setTimeout(() => void run('boot'), EXPIRED_FIELDS_CLEANUP_BOOT_DELAY_MS);
+  setInterval(() => void run('interval'), EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
+}
+
 // ── Boot ─────────────────────────────────────────────────────────
 // The port binds FIRST, then migrations run behind it.
 //
@@ -299,6 +312,7 @@ if (process.env.NODE_ENV === "test") {
       startExpiredFieldsCleanup();
       startNamelessCompaniesFill();
       startOfferStepsAssessment();
+      startCompetitorWebsiteCheck();
       startBrandColorsRefresh();
     })
     .catch((err) => {

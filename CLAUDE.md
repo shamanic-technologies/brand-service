@@ -148,8 +148,19 @@ A campaign IS a sales funnel (campaign-service funnel campaigns, billing funnel 
 - **⚠️ A homepage links OTHER companies** (lemlist.com links ElevenLabs 4x, itself 2x): only a
   slug matching the competitor's name or domain label is taken (`slugMatchesCompany`). No match
   = `linkedinUrl: null`. Never build a URL from a name.
-- A competitor whose website cannot be read at all is DROPPED (treated as invented); the
-  brand's own domain and duplicate registrable domains too.
+- **A site that LOADS is not the company's site: every served site is JUDGED (Jev), never a title/name match
+  (COMPETITOR-SITE-IS-THE-COMPANY-1024, 2026-10-24: onboarding linked "Velo Data" to velo.xyz, another
+  project).** The naming call gives each competitor `domain` + up to 2 `otherDomains`; every candidate homepage
+  is read (only the first guess may cost a scrape), then ONE `judgeNouls` call (org-billed on the discovery
+  run) judges all sites; the first candidate at p >= 0.5 wins (`lib/competitor-website-judgment.ts`). None
+  confirmed = the competitor is served in `competitorsWithoutWebsite` by NAME only (`domain` NULL, no
+  LinkedIn page, the guess kept in `proposed_domain`, never served). A site confirmed for two names goes to
+  the first. Rows from before the judgment (`website_checked_at` NULL) are served by name only until
+  `verifyUncheckedCompetitorWebsites` (~60s after boot, then daily, platform Jev, plain read or saved page,
+  never a new scrape) judges them. `competitors[].domain` stays a non-null string (human-service parses it
+  strictly). Replay deltastrike.vip: velo.xyz p 0.32 refused, 10 served sites all right by eye, ~4.7 s end
+  to end. Migration `0098`. Guards `tests/unit/brandCompetitors.test.ts`, `tests/integration/brandCompetitors.test.ts`.
+- The brand's own domain and duplicate registrable domains are dropped.
 
 ## The brand's OWN LinkedIn company page (`brandLinkedinPageService`)
 
