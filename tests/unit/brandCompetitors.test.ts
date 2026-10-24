@@ -17,9 +17,16 @@ import {
   MAX_COMPETITORS,
   htmlToText,
   parseProposedCompetitors,
-  resolveCompetitorWebsite,
+  resolveCompetitorSites,
+  type WebsiteJudge,
   type WebsiteReader,
 } from '../../src/services/brandCompetitorsService';
+import {
+  JUDGED_PAGE_MAX_CHARS,
+  MIN_WEBSITE_CONFIDENCE,
+  buildWebsiteJudgment,
+  pickConfirmedDomain,
+} from '../../src/lib/competitor-website-judgment';
 
 describe('normalizeCompetitorDomain', () => {
   it('reduces whatever the model wrote to the registrable domain', () => {
@@ -112,9 +119,25 @@ describe('parseProposedCompetitors', () => {
       'distribute.you',
     );
     expect(out).toEqual([
-      { name: 'Lemlist', domain: 'lemlist.com' },
-      { name: 'Instantly', domain: 'instantly.ai' },
+      { name: 'Lemlist', domain: 'lemlist.com', candidates: ['lemlist.com'] },
+      { name: 'Instantly', domain: 'instantly.ai', candidates: ['instantly.ai'] },
     ]);
+  });
+
+  it('keeps the model\'s alternative domains as candidates, first guess first, deduped and capped', () => {
+    const out = parseProposedCompetitors(
+      {
+        competitors: [
+          {
+            name: 'Velo Data',
+            domain: 'velo.xyz',
+            otherDomains: ['https://velodata.app', 'velo.xyz', 'distribute.you', 'velodata.io', 'velodata.com'],
+          },
+        ],
+      },
+      'distribute.you',
+    );
+    expect(out).toEqual([{ name: 'Velo Data', domain: 'velo.xyz', candidates: ['velo.xyz', 'velodata.app', 'velodata.io'] }]);
   });
 
   it('caps the list', () => {
@@ -132,45 +155,115 @@ describe('parseProposedCompetitors', () => {
   });
 });
 
-describe('resolveCompetitorWebsite', () => {
-  const competitor = { name: 'Acme', domain: 'acme.com' };
-  const reader = (home: string | null, scraped: string | null): WebsiteReader & { scrapes: number } => {
+describe('resolveCompetitorSites', () => {
+  const seller = { name: 'DeltaStrike', website: 'deltastrike.vip' };
+  const reader = (pages: Record<string, string | null>, scraped: Record<string, string | null> = {}) => {
     const r = {
-      scrapes: 0,
-      fetchHomepage: vi.fn(async () => home),
-      scrapeHomepage: vi.fn(async () => {
-        r.scrapes += 1;
-        return scraped;
+      scraped: [] as string[],
+      fetchHomepage: vi.fn(async (d: string) => pages[d] ?? null),
+      scrapeHomepage: vi.fn(async (d: string) => {
+        r.scraped.push(d);
+        return scraped[d] ?? null;
       }),
     };
-    return r;
+    return r satisfies WebsiteReader;
+  };
+  /** A judge answering per DOMAIN, and recording what it was asked. */
+  const judgeBy = (byDomain: Record<string, number>) => {
+    const calls: ReturnType<typeof buildWebsiteJudgment>[] = [];
+    const judge: WebsiteJudge = async (j) => {
+      calls.push(j);
+      return Object.fromEntries(Object.entries(j.state.sites).map(([k, site]) => [k, byDomain[site.domain] ?? 0]));
+    };
+    return { judge, calls };
   };
 
-  it('takes the LinkedIn link from the free homepage read, with no scrape', async () => {
-    const r = reader('<a href="https://www.linkedin.com/company/acme">', null);
-    expect(await resolveCompetitorWebsite(competitor, r)).toEqual({
-      name: 'Acme',
-      domain: 'acme.com',
-      linkedinUrl: 'https://www.linkedin.com/company/acme/',
-      linkedinSource: 'competitor_website',
+  it('a site that loads but is ANOTHER company is not served; the alternative judged the company is (velo.xyz)', async () => {
+    const r = reader({
+      'velo.xyz': '<title>Velo</title><p>Velo: a payments network for Asia</p>',
+      'velodata.app': '<title>Velo Data</title><p>Crypto derivatives data</p><a href="https://www.linkedin.com/company/velodata">in</a>',
     });
-    expect(r.scrapes).toBe(0);
+    const { judge, calls } = judgeBy({ 'velo.xyz': 0.04, 'velodata.app': 0.93 });
+    const out = await resolveCompetitorSites(
+      [{ name: 'Velo Data', domain: 'velo.xyz', candidates: ['velo.xyz', 'velodata.app'] }],
+      seller,
+      r,
+      judge,
+    );
+    expect(out).toEqual([{
+      name: 'Velo Data',
+      proposedDomain: 'velo.xyz',
+      domain: 'velodata.app',
+      websiteConfidence: 0.93,
+      linkedinUrl: 'https://www.linkedin.com/company/velodata/',
+    }]);
+    // ONE judgment call for every candidate of every competitor.
+    expect(calls).toHaveLength(1);
+    expect(Object.keys(calls[0].questions)).toEqual(['c0_0', 'c0_1']);
   });
 
-  it('falls back to one scrape when the plain read finds no link', async () => {
-    const r = reader('<div id="root"></div>', '[LinkedIn](https://www.linkedin.com/company/acme-inc)');
-    const out = await resolveCompetitorWebsite(competitor, r);
-    expect(out?.linkedinUrl).toBe('https://www.linkedin.com/company/acme-inc/');
-    expect(r.scrapes).toBe(1);
+  it('no candidate judged the company = served with NO site and no LinkedIn page, never the guess', async () => {
+    const r = reader({ 'velo.xyz': '<p>Velo payments</p><a href="https://www.linkedin.com/company/velo">in</a>' });
+    const { judge } = judgeBy({ 'velo.xyz': 0.1 });
+    const [out] = await resolveCompetitorSites([{ name: 'Velo Data', domain: 'velo.xyz', candidates: ['velo.xyz'] }], seller, r, judge);
+    expect(out).toEqual({ name: 'Velo Data', proposedDomain: 'velo.xyz', domain: null, websiteConfidence: 0.1, linkedinUrl: null });
   });
 
-  it('keeps a readable competitor with no LinkedIn page as an explicit absence', async () => {
-    const out = await resolveCompetitorWebsite(competitor, reader('<p>hi</p>', null));
-    expect(out).toEqual({ name: 'Acme', domain: 'acme.com', linkedinUrl: null, linkedinSource: null });
+  it('an unreadable candidate is never judged nor confirmed; no readable page = no judgment call', async () => {
+    const r = reader({});
+    const { judge, calls } = judgeBy({ 'ghost.com': 0.99 });
+    const [out] = await resolveCompetitorSites([{ name: 'Ghost', domain: 'ghost.com', candidates: ['ghost.com'] }], seller, r, judge);
+    expect(out.domain).toBeNull();
+    expect(out.websiteConfidence).toBeNull();
+    expect(calls).toHaveLength(0);
   });
 
-  it('drops a competitor whose website cannot be read at all', async () => {
-    expect(await resolveCompetitorWebsite(competitor, reader(null, null))).toBeNull();
+  it('only the first guess may cost a scrape; alternatives are free plain reads', async () => {
+    const r = reader({}, { 'acme.com': 'Acme, the CRM' });
+    const { judge } = judgeBy({ 'acme.com': 0.8 });
+    const [out] = await resolveCompetitorSites([{ name: 'Acme', domain: 'acme.com', candidates: ['acme.com', 'acme.io'] }], seller, r, judge);
+    expect(out.domain).toBe('acme.com');
+    expect(r.scraped).toEqual(['acme.com']);
+  });
+
+  it('a confirmed plain page with no LinkedIn link gets one rendered scrape for it', async () => {
+    const r = reader({ 'acme.com': '<p>Acme CRM</p>' }, { 'acme.com': '[LinkedIn](https://www.linkedin.com/company/acme-inc)' });
+    const { judge } = judgeBy({ 'acme.com': 0.9 });
+    const [out] = await resolveCompetitorSites([{ name: 'Acme', domain: 'acme.com', candidates: ['acme.com'] }], seller, r, judge);
+    expect(out.linkedinUrl).toBe('https://www.linkedin.com/company/acme-inc/');
+  });
+
+  it('one site confirmed for two names goes to the first only', async () => {
+    const r = reader({ 'acme.com': '<p>Acme</p>' });
+    const { judge } = judgeBy({ 'acme.com': 0.9 });
+    const out = await resolveCompetitorSites(
+      [
+        { name: 'Acme', domain: 'acme.com', candidates: ['acme.com'] },
+        { name: 'Acme Labs', domain: 'acmelabs.com', candidates: ['acmelabs.com', 'acme.com'] },
+      ],
+      seller,
+      r,
+      judge,
+    );
+    expect(out.map((c) => c.domain)).toEqual(['acme.com', null]);
+  });
+});
+
+describe('website judgment (pure)', () => {
+  it('asks one yes/no per candidate on one state, page text capped', () => {
+    const j = buildWebsiteJudgment({ name: 'S', website: 's.com' }, [
+      { key: 'c0_0', companyName: 'Velo Data', domain: 'velo.xyz', pageText: 'x'.repeat(10_000) },
+    ]);
+    expect(j.questions.c0_0.type).toBe('noul');
+    expect(j.questions.c0_0.instructions).toContain('Velo Data');
+    expect(j.state.sites.c0_0.homepageText).toHaveLength(JUDGED_PAGE_MAX_CHARS);
+  });
+
+  it('picks the first candidate at or above the bar, in the model order', () => {
+    const c = [{ key: 'a', domain: 'a.com' }, { key: 'b', domain: 'b.com' }, { key: 'c', domain: 'c.com' }];
+    expect(pickConfirmedDomain(c, { a: 0.3, b: MIN_WEBSITE_CONFIDENCE, c: 0.99 })).toEqual({ domain: 'b.com', confidence: 0.5 });
+    expect(pickConfirmedDomain(c, { a: 0.3, c: 0.2 })).toEqual({ domain: null, confidence: 0.3 });
+    expect(pickConfirmedDomain(c, {})).toEqual({ domain: null, confidence: null });
   });
 });
 

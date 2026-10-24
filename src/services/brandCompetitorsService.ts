@@ -16,19 +16,26 @@
  *      that will not answer plain HTTP (a bot wall, a JS shell) is read once
  *      through scraping-service, which declares its own cost, cached in
  *      `page_scrape_cache` like every other scrape here.
- *   3. The LinkedIn company page is the one that homepage LINKS to. Nothing is
- *      guessed from a name: no link = `linkedinUrl: null`.
+ *   3. Each site read is JUDGED to be that company's own site (Jev, ONE
+ *      chat-service judgment for the whole discovery,
+ *      COMPETITOR-SITE-IS-THE-COMPANY-1024): a domain that loads but belongs
+ *      to someone else is NOT that company's (velo.xyz is not Velo Data). The
+ *      model gives up to 3 candidate domains per competitor; the first one
+ *      judged the company wins, else the competitor is served WITHOUT a
+ *      website (`competitorsWithoutWebsite`), never with a guessed one.
+ *   4. The LinkedIn company page is the one the CONFIRMED homepage LINKS to.
+ *      Nothing is guessed from a name: no link = `linkedinUrl: null`.
  *
- * A competitor whose website cannot be read at all is DROPPED: a domain nobody
- * serves is most likely one the model made up, and storing it would be storing
- * an invention. The brand's own domain and duplicates are dropped too.
+ * The brand's own domain and duplicates are dropped. Rows stored before the
+ * judgment existed are judged by `verifyUncheckedCompetitorWebsites` (boot +
+ * daily, platform-billed); until then they are served without a website.
  *
  * Stored once and reused: reads never compute. A discovery row with no
  * competitor rows is "computed, nothing found", distinct from "never computed"
  * (no discovery row). Re-running replaces the whole set.
  */
 
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { PAGE_CACHE_TTL_DAYS } from '../lib/page-cache-ttl';
 import {
   db,
@@ -38,7 +45,15 @@ import {
   brandCompetitorDiscoveries,
   brandCompetitors,
 } from '../db';
-import { chat, type OrgCaller } from '../lib/chat-client';
+import { chat, judgeNouls, type OrgCaller, type PlatformCaller } from '../lib/chat-client';
+import { brandSetupSupport } from '../lib/platform-support';
+import {
+  MAX_CANDIDATE_DOMAINS,
+  buildWebsiteJudgment,
+  candidateKey,
+  pickConfirmedDomain,
+  type JudgedCandidate,
+} from '../lib/competitor-website-judgment';
 import { createRun, updateRun } from '../lib/runs-client';
 import { scrapeUrl } from '../lib/scraping-client';
 import { extractLinkedinCompanyUrl, normalizeCompetitorDomain } from '../lib/competitor-linkedin';
@@ -76,8 +91,10 @@ export class CompetitorDiscoveryUnavailableError extends Error {
 
 export interface CompetitorView {
   name: string;
-  /** Registrable domain of the competitor's website (`acme.com`). */
+  /** Registrable domain of the competitor's website (`acme.com`), judged to be THAT company's own site. */
   domain: string;
+  /** Jev's probability that `domain` is the company's own site (>= 0.5). */
+  websiteConfidence: number;
   /** `https://www.linkedin.com/company/<slug>/`, or null when its site links none. */
   linkedinUrl: string | null;
   /** Where `linkedinUrl` was read: `competitor_website`. Null when there is no URL. */
@@ -95,7 +112,20 @@ export interface BrandCompetitorsView {
     proposedCount: number;
     runId: string | null;
   } | null;
+  /** Competitors with a website judged to be theirs. */
   competitors: CompetitorView[];
+  /** Competitors named, whose own website could not be confirmed: served by name only, never with a guessed site. */
+  competitorsWithoutWebsite: { name: string }[];
+}
+
+/** One competitor as resolved by a discovery, before storage. */
+interface ResolvedCompetitor {
+  name: string;
+  /** The model's first guess, kept as provenance (never served). */
+  proposedDomain: string;
+  domain: string | null;
+  websiteConfidence: number | null;
+  linkedinUrl: string | null;
 }
 
 // ─── Read ───────────────────────────────────────────────────────────────────
@@ -119,7 +149,7 @@ export async function readBrandCompetitors(brandId: string): Promise<BrandCompet
     .where(eq(brandCompetitorDiscoveries.brandId, brandId))
     .limit(1);
   if (!discovery) {
-    return { brandId, status: 'not_computed', discoveredAt: null, provenance: null, competitors: [] };
+    return { brandId, status: 'not_computed', discoveredAt: null, provenance: null, competitors: [], competitorsWithoutWebsite: [] };
   }
   const rows = await db
     .select()
@@ -136,18 +166,27 @@ export async function readBrandCompetitors(brandId: string): Promise<BrandCompet
       proposedCount: discovery.proposedCount,
       runId: discovery.runId,
     },
-    competitors: rows.map((r) => ({
-      name: r.name,
-      domain: r.domain,
-      linkedinUrl: r.linkedinUrl,
-      linkedinSource: r.linkedinUrl ? LINKEDIN_SOURCE_COMPETITOR_WEBSITE : null,
-    })),
+    // A site is served only once judged that company's (`website_checked_at`
+    // set by the judgment). A row stored before the judgment, not judged yet,
+    // is served by name only: an unconfirmed site is never a link.
+    competitors: rows
+      .filter((r) => r.domain !== null && r.websiteCheckedAt !== null && r.websiteConfidence !== null)
+      .map((r) => ({
+        name: r.name,
+        domain: r.domain as string,
+        websiteConfidence: r.websiteConfidence as number,
+        linkedinUrl: r.linkedinUrl,
+        linkedinSource: r.linkedinUrl ? LINKEDIN_SOURCE_COMPETITOR_WEBSITE : null,
+      })),
+    competitorsWithoutWebsite: rows
+      .filter((r) => !(r.domain !== null && r.websiteCheckedAt !== null && r.websiteConfidence !== null))
+      .map((r) => ({ name: r.name })),
   };
 }
 
 // ─── Discover ───────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = [
+export const SYSTEM_PROMPT = [
   'You are a B2B market analyst. Given a company profile, name its DIRECT competitors:',
   'companies a buyer of this company would seriously consider INSTEAD of it, because they',
   'sell the same kind of product or service to the same kind of customer, in the same market.',
@@ -156,24 +195,30 @@ const SYSTEM_PROMPT = [
   `- Return at most ${MAX_COMPETITORS} competitors, most direct first. Fewer is fine; none is fine.`,
   '- Only name companies you are confident exist, with their real official website domain',
   '  (e.g. "hubspot.com"). Never invent a company or a domain.',
+  `- "otherDomains": up to ${MAX_CANDIDATE_DOMAINS - 1} OTHER domains the company may really use, when you are`,
+  '  not sure "domain" is right (a .io / .app / .ai variant, a product-name domain). Empty when sure.',
   '- Not the company itself, not its parent or subsidiaries, not marketplaces, directories,',
   '  review sites, generic platforms (Google, Amazon, LinkedIn) or tools it merely uses.',
   '- Prefer competitors of a similar size and market to this company over global giants,',
   '  unless the giants are the real alternatives its buyers compare it with.',
   '- Names and text in English.',
   '',
-  'Return ONLY JSON: { "competitors": [ { "name": string, "domain": string } ] }',
+  'Return ONLY JSON: { "competitors": [ { "name": string, "domain": string, "otherDomains": string[] } ] }',
 ].join('\n');
 
-const RESPONSE_SCHEMA = {
+export const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     competitors: {
       type: 'array',
       items: {
         type: 'object',
-        properties: { name: { type: 'string' }, domain: { type: 'string' } },
-        required: ['name', 'domain'],
+        properties: {
+          name: { type: 'string' },
+          domain: { type: 'string' },
+          otherDomains: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['name', 'domain', 'otherDomains'],
       },
     },
   },
@@ -283,7 +328,10 @@ async function brandContext(
 
 export interface ProposedCompetitor {
   name: string;
+  /** The model's first guess. */
   domain: string;
+  /** Domains to try, in order: `domain` first, then the model's alternatives (deduped, capped). */
+  candidates: string[];
 }
 
 /**
@@ -305,7 +353,15 @@ export function parseProposedCompetitors(raw: unknown, brandDomain: string | nul
     const domain = normalizeCompetitorDomain((item as any).domain);
     if (!name || !domain || domain === own || seen.has(domain)) continue;
     seen.add(domain);
-    out.push({ name: name.slice(0, 120), domain });
+    const candidates = [domain];
+    const others = Array.isArray((item as any).otherDomains) ? (item as any).otherDomains : [];
+    for (const other of others) {
+      const d = normalizeCompetitorDomain(other);
+      if (!d || d === own || candidates.includes(d)) continue;
+      if (candidates.length >= MAX_CANDIDATE_DOMAINS) break;
+      candidates.push(d);
+    }
+    out.push({ name: name.slice(0, 120), domain, candidates });
     if (out.length >= MAX_COMPETITORS) break;
   }
   return out;
@@ -360,33 +416,97 @@ function defaultReader(brandId: string, caller: OrgCaller): WebsiteReader {
   };
 }
 
+/** A candidate site, read: the raw page (HTML or scraped markdown) and its visible text. */
+interface CandidatePage {
+  domain: string;
+  /** HTML (plain read) or markdown (scrape), for the LinkedIn link. */
+  raw: string;
+  /** Whether `raw` came from the plain read (a scrape may still find a client-side link). */
+  plain: boolean;
+  text: string;
+}
+
 /**
- * Read one competitor's website and the LinkedIn page it links. `null` = the
- * website could not be read at all (the competitor is dropped).
+ * Read one candidate domain's homepage: plain HTTP (free), else, only when
+ * `allowScrape`, one cached scrape. Null = could not be read (never judged,
+ * never confirmed).
  */
-export async function resolveCompetitorWebsite(
-  competitor: ProposedCompetitor,
-  reader: WebsiteReader,
-): Promise<CompetitorView | null> {
-  const html = await reader.fetchHomepage(competitor.domain);
-  let linkedinUrl = html ? extractLinkedinCompanyUrl(html, competitor) : null;
-  let readable = html !== null;
-  // A plain read that failed, or found no link on what may be a JS shell: one
-  // rendered scrape, which also catches links injected client-side.
-  if (!linkedinUrl) {
-    const scraped = await reader.scrapeHomepage(competitor.domain);
-    if (scraped) {
-      readable = true;
-      linkedinUrl = extractLinkedinCompanyUrl(scraped, competitor);
-    }
+async function readCandidatePage(domain: string, reader: WebsiteReader, allowScrape: boolean): Promise<CandidatePage | null> {
+  const html = await reader.fetchHomepage(domain);
+  if (html !== null) {
+    const text = htmlToText(html);
+    if (text.length > 0) return { domain, raw: html, plain: true, text };
   }
-  if (!readable) return null;
-  return {
-    name: competitor.name,
-    domain: competitor.domain,
-    linkedinUrl,
-    linkedinSource: linkedinUrl ? LINKEDIN_SOURCE_COMPETITOR_WEBSITE : null,
-  };
+  if (!allowScrape) return null;
+  const scraped = await reader.scrapeHomepage(domain);
+  if (!scraped || scraped.trim().length === 0) return null;
+  return { domain, raw: scraped, plain: false, text: scraped.replace(/\s+/g, ' ').trim() };
+}
+
+/** Asks Jev the questions built by `buildWebsiteJudgment`. Test seam. */
+export type WebsiteJudge = (
+  judgment: ReturnType<typeof buildWebsiteJudgment>,
+) => Promise<Record<string, number>>;
+
+export function jevWebsiteJudge(caller: OrgCaller | PlatformCaller): WebsiteJudge {
+  return (judgment) => judgeNouls(judgment.state, judgment.questions, caller);
+}
+
+/**
+ * Resolve every proposed competitor to a site JUDGED to be its own, or none.
+ * Every candidate is read in parallel (the first guess may fall back to one
+ * scrape; alternatives are plain reads only), then ONE Jev call judges all the
+ * pages. The first candidate judged the company wins; a site confirmed for two
+ * names goes to the first. The LinkedIn link is read off the confirmed site
+ * only (one scrape when the plain read shows none, as before). Exported for tests.
+ */
+export async function resolveCompetitorSites(
+  proposed: ProposedCompetitor[],
+  seller: { name: string | null; website: string | null },
+  reader: WebsiteReader,
+  judge: WebsiteJudge,
+): Promise<ResolvedCompetitor[]> {
+  const pages = await Promise.all(
+    proposed.map((c) => Promise.all(c.candidates.map((d, j) => readCandidatePage(d, reader, j === 0)))),
+  );
+
+  const judged: JudgedCandidate[] = [];
+  proposed.forEach((c, i) => {
+    pages[i].forEach((page, j) => {
+      if (page) judged.push({ key: candidateKey(i, j), companyName: c.name, domain: page.domain, pageText: page.text });
+    });
+  });
+  const probabilities = judged.length > 0 ? await judge(buildWebsiteJudgment(seller, judged)) : {};
+
+  const taken = new Set<string>();
+  return Promise.all(
+    proposed.map(async (c, i) => {
+      const verdict = pickConfirmedDomain(
+        c.candidates.map((d, j) => ({ key: candidateKey(i, j), domain: d })),
+        probabilities,
+      );
+      if (verdict.domain === null || taken.has(verdict.domain)) {
+        return { name: c.name, proposedDomain: c.domain, domain: null, websiteConfidence: verdict.confidence, linkedinUrl: null };
+      }
+      taken.add(verdict.domain);
+      const page = pages[i][c.candidates.indexOf(verdict.domain)] as CandidatePage;
+      const identity = { name: c.name, domain: verdict.domain };
+      let linkedinUrl = extractLinkedinCompanyUrl(page.raw, identity);
+      // A plain read with no link may be a JS shell: one rendered scrape, which
+      // also catches links injected client-side.
+      if (!linkedinUrl && page.plain) {
+        const scraped = await reader.scrapeHomepage(verdict.domain);
+        if (scraped) linkedinUrl = extractLinkedinCompanyUrl(scraped, identity);
+      }
+      return {
+        name: c.name,
+        proposedDomain: c.domain,
+        domain: verdict.domain,
+        websiteConfidence: verdict.confidence,
+        linkedinUrl,
+      };
+    }),
+  );
 }
 
 export interface DiscoverOptions {
@@ -396,6 +516,8 @@ export interface DiscoverOptions {
   refresh?: boolean;
   /** Test seam for the website reads. */
   reader?: WebsiteReader;
+  /** Test seam for the "is this site that company" judgment. Default: Jev, org-billed on the discovery run. */
+  judge?: WebsiteJudge;
 }
 
 /**
@@ -464,8 +586,13 @@ export async function discoverBrandCompetitors(opts: DiscoverOptions): Promise<B
     const raw = result.json ?? JSON.parse((result.content.match(/\{[\s\S]*\}/) ?? ['null'])[0]);
     const proposed = parseProposedCompetitors(raw, brand.domain ?? brand.url);
 
-    const resolved = await Promise.all(proposed.map((c) => resolveCompetitorWebsite(c, reader)));
-    const kept = resolved.filter((c): c is CompetitorView => c !== null);
+    const resolved = await resolveCompetitorSites(
+      proposed,
+      { name: brand.name, website: brand.domain ?? brand.url },
+      reader,
+      opts.judge ?? jevWebsiteJudge(runCaller),
+    );
+    const checkedAt = new Date().toISOString();
 
     await db.transaction(async (tx) => {
       await tx.delete(brandCompetitors).where(eq(brandCompetitors.brandId, brandId));
@@ -481,15 +608,18 @@ export async function discoverBrandCompetitors(opts: DiscoverOptions): Promise<B
         .insert(brandCompetitorDiscoveries)
         .values(values)
         .onConflictDoUpdate({ target: brandCompetitorDiscoveries.brandId, set: values });
-      if (kept.length > 0) {
+      if (resolved.length > 0) {
         await tx.insert(brandCompetitors).values(
-          kept.map((c, position) => ({
+          resolved.map((c, position) => ({
             brandId,
             position,
             name: c.name,
             domain: c.domain,
+            proposedDomain: c.proposedDomain,
+            websiteConfidence: c.websiteConfidence,
+            websiteCheckedAt: checkedAt,
             linkedinUrl: c.linkedinUrl,
-            linkedinSource: c.linkedinSource,
+            linkedinSource: c.linkedinUrl ? LINKEDIN_SOURCE_COMPETITOR_WEBSITE : null,
           })),
         );
       }
@@ -505,4 +635,80 @@ export async function discoverBrandCompetitors(opts: DiscoverOptions): Promise<B
     }
     throw error;
   }
+}
+
+// ─── Judge rows stored before the judgment existed ──────────────────────────
+
+const UNCHECKED_SWEEP_SUPPORT_REASON =
+  'Judging whether competitor websites stored before the check are really those companies (sweep, no user request)';
+
+/**
+ * Judge every stored competitor site never judged (rows from before
+ * COMPETITOR-SITE-IS-THE-COMPANY-1024): one platform-billed Jev call per brand,
+ * on a free plain read or an already-saved page (never a new scrape: no org
+ * pays here). Confirmed = kept; not confirmed or unreadable = the site and its
+ * LinkedIn page (read off that site) are cleared, the name stays. Idempotent:
+ * every row it touches gets `website_checked_at`. Returns rows judged.
+ */
+export async function verifyUncheckedCompetitorWebsites(
+  opts: { reader?: WebsiteReader; judge?: WebsiteJudge } = {},
+): Promise<number> {
+  const rows = await db
+    .select({
+      id: brandCompetitors.id,
+      brandId: brandCompetitors.brandId,
+      name: brandCompetitors.name,
+      domain: brandCompetitors.domain,
+    })
+    .from(brandCompetitors)
+    .where(and(isNull(brandCompetitors.websiteCheckedAt), isNotNull(brandCompetitors.domain)));
+  if (rows.length === 0) return 0;
+
+  const reader: WebsiteReader = opts.reader ?? {
+    fetchHomepage,
+    scrapeHomepage: (domain: string) => getCachedPageContent(`https://${domain}`),
+  };
+  const judge = opts.judge ?? jevWebsiteJudge({ mode: 'platform', support: brandSetupSupport(UNCHECKED_SWEEP_SUPPORT_REASON) });
+
+  const byBrand = new Map<string, typeof rows>();
+  for (const row of rows) byBrand.set(row.brandId, [...(byBrand.get(row.brandId) ?? []), row]);
+
+  let judgedCount = 0;
+  for (const [brandId, brandRows] of byBrand) {
+    try {
+      const [brand] = await db
+        .select({ name: brands.name, domain: brands.domain, url: brands.url })
+        .from(brands)
+        .where(eq(brands.id, brandId))
+        .limit(1);
+      const proposed: ProposedCompetitor[] = brandRows.map((r) => ({
+        name: r.name,
+        domain: r.domain as string,
+        candidates: [r.domain as string],
+      }));
+      const resolved = await resolveCompetitorSites(
+        proposed,
+        { name: brand?.name ?? null, website: brand?.domain ?? brand?.url ?? null },
+        reader,
+        judge,
+      );
+      const checkedAt = new Date().toISOString();
+      await db.transaction(async (tx) => {
+        for (const [i, row] of brandRows.entries()) {
+          const r = resolved[i];
+          const set = r.domain === null
+            ? { domain: null, proposedDomain: row.domain, websiteConfidence: r.websiteConfidence, websiteCheckedAt: checkedAt, linkedinUrl: null, linkedinSource: null }
+            : { proposedDomain: row.domain, websiteConfidence: r.websiteConfidence, websiteCheckedAt: checkedAt };
+          await tx.update(brandCompetitors).set(set).where(eq(brandCompetitors.id, row.id));
+        }
+      });
+      judgedCount += brandRows.length;
+    } catch (error) {
+      // One brand failing (Jev unreachable) leaves its rows unjudged for the next
+      // pass; they stay served by name only meanwhile, never with an unconfirmed site.
+      console.error(`[brand-service] Competitor website check failed for brand ${brandId}:`, error);
+    }
+  }
+  console.log(`[brand-service] Competitor website check: ${judgedCount}/${rows.length} stored sites judged`);
+  return judgedCount;
 }

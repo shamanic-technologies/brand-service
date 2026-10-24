@@ -4111,8 +4111,11 @@ const BRAND_COMPETITORS_DESCRIPTION =
   'Found by brand-service (one cheap model call through chat-service naming the competitors from the ' +
   "brand's extracted profile, then a read of each competitor's homepage), never typed by a client. " +
   '`status: "not_computed"` = never looked for; `status: "computed"` = looked for, and `competitors` may ' +
-  'be empty (nothing found). A competitor whose website could not be read at all is dropped (a domain ' +
-  'nobody serves is treated as invented). `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` as ' +
+  'be empty (nothing found). Every site in `competitors` was JUDGED (Jev, via chat-service) to be that ' +
+  "company's OWN website, not merely a domain that loads (velo.xyz is not Velo Data's site): the model's " +
+  'first guess, else up to 2 alternative domains it gave, first one judged the company wins. A competitor ' +
+  'whose own site could not be confirmed is listed in `competitorsWithoutWebsite` by name only: never a ' +
+  'guessed site. `linkedinUrl` is `https://www.linkedin.com/company/<slug>/` as ' +
   'the competitor website links it FOR ITSELF (the slug must match its name or domain; links to customers ' +
   'or partners are ignored), `linkedinSource: "competitor_website"`; null when no such link exists: ' +
   'never guessed. Brand-wide (a brand is a global identity), not per org or per offer.';
@@ -4127,7 +4130,8 @@ export const DiscoverBrandCompetitorsRequestSchema = z
 export const BrandCompetitorSchema = z
   .object({
     name: z.string(),
-    domain: z.string().describe('Registrable domain of the competitor website, e.g. `acme.com`'),
+    domain: z.string().describe("Registrable domain of the competitor website, e.g. `acme.com`, judged to be that company's own site"),
+    websiteConfidence: z.number().describe("Jev's probability (0.5..1) that `domain` is the company's own site"),
     linkedinUrl: z.string().nullable().describe('`https://www.linkedin.com/company/<slug>/`, or null when its website links none'),
     linkedinSource: z.enum(['competitor_website']).nullable(),
   })
@@ -4146,7 +4150,10 @@ export const BrandCompetitorsSchema = z
         runId: z.string().nullable(),
       })
       .nullable(),
-    competitors: z.array(BrandCompetitorSchema),
+    competitors: z.array(BrandCompetitorSchema).describe('Competitors with a website judged to be theirs, most direct first'),
+    competitorsWithoutWebsite: z
+      .array(z.object({ name: z.string() }))
+      .describe('Competitors named whose own website could not be confirmed: show the name, link nothing'),
   })
   .openapi('BrandCompetitors');
 
@@ -4172,8 +4179,8 @@ registry.registerPath({
   description:
     BRAND_COMPETITORS_DESCRIPTION +
     ' Computes when nothing is stored (or `refresh: true`) and stores the answer; otherwise returns the ' +
-    'stored answer at no cost. Cost (a fraction of a cent of model tokens, plus a scrape only for a ' +
-    'homepage plain HTTP cannot read) is billed to the caller org on a brand-service run, child of `x-run-id`.',
+    'stored answer at no cost. Cost (a fraction of a cent of model tokens, one Jev judgment of the sites, ' +
+    'plus a scrape only for a homepage plain HTTP cannot read) is billed to the caller org on a brand-service run, child of `x-run-id`.',
   request: {
     params: z.object({ brandId: z.string().uuid() }),
     body: { content: { 'application/json': { schema: DiscoverBrandCompetitorsRequestSchema } } },
