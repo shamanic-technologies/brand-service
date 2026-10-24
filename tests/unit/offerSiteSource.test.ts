@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// offerProposalService imports the db module, which throws at import with no DB url (CI unit job).
+vi.mock('../../src/db', () => ({ db: {}, brandOffers: {}, brands: {}, pageScrapeCache: {} }));
 import {
   SITE_HOMEPAGE_MAX_CHARS,
   SITE_PAGE_MAX_CHARS,
