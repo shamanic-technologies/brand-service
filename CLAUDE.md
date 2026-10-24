@@ -216,21 +216,20 @@ icon vocabulary `src/lib/offer-icons.ts`, guards
 `tests/unit/offerProposal.test.ts` + `tests/integration/offerProposals.test.ts`.
 
 - **⚠️ PROPOSE PERSISTS NOTHING.** Only confirm writes.
-- **Two model calls, split by kind.** The split is WRITING → chat-service
-  `/complete` on `flash` (Gemini 3.5 Flash-Lite, measured p50 1.9s / p90 2.1s;
-  it sits inside a modal). The main-offer pick is a CLASSIFICATION → Jev
-  (`judgeChoice`, chat-service `/orgs/judgments`), which returns its confidence.
-  A single offer is never judged (`mainOfferConfidence: null`).
-- **At most 8 offers, GROUPED, never a dead end.** The prompt and the schema (`maxItems`) state the cap and ask a big catalogue to group by buyer + need; an overflow is asked ONCE more to regroup (`TooManyProposedOffersError` → `regroupMessage`), only a second overflow is refused. Never truncated. aldar.com (10 offers, 2026-10-17) showed "Nothing found" in the signed-out onboarding before this. Guard `tests/unit/offerProposalRegroup.test.ts`.
+- **Two model calls, split by kind.** The split is WRITING → chat-service `/complete` on `flash-pro` (Gemini 3.5 Flash, `disableThinking`; Flash-Lite named offers by category, "Cyber Security", "Data AI", in the 2026-10-24 replay). The main-offer pick is a CLASSIFICATION → Jev (`judgeChoice`), which returns its confidence; the picked offer is MOVED to the front (`mainOfferFirst`), so `mainOfferIndex` is 0 when judged. A single offer is never judged (`mainOfferConfidence: null`).
+- **The prompt groups by BUYER, never by input lines, and states its size both ways** (owner 2026-10-24, InoGates: 8 cards, 3 consulting lines one buyer buys apart, the distinctive offer 7th, every description "The buyer receives…"). Deleted, not patched: "List AT MOST 8" (read as a target), "separate only when bought separately" (let every consultancy line stand), "Order them as the text presents them", "ONE plain sentence saying what the buyer gets" (echoed verbatim). Now: one offer = one buyer + need + budget (a one-off project and a monthly service are two budgets), every line lands in exactly one offer, main offer first, names as a buyer asks ("Managed SOC", never a field). Replay OLD vs NEW on 28 prod inputs (both shapes): 91 → ~50 offers, max 8 → 4, 48 → 0 "The buyer…" openings. Never add a retry/validation loop on the writing call to fix its output: fix the sentence that licensed it. Guard `tests/unit/offerSplitSharper.test.ts`.
+- **At most 5 PROPOSED offers, at most 8 CONFIRMED** (`MAX_PROPOSED_OFFERS` / `MAX_CONFIRMED_OFFERS`: a customer may add their own). A big catalogue GROUPS; an overflow is asked ONCE more to regroup (`TooManyProposedOffersError` → `regroupMessage`), only a second overflow is refused. Never truncated. aldar.com (10 offers, 2026-10-17) showed "Nothing found" before the regroup. Guard `tests/unit/offerProposalRegroup.test.ts`.
 - **`chosenIndex` is optional for ONE offer** (it is that offer); several offers without it = 400 naming the fix, never guessed (`resolveChosenIndex`). `POST /orgs/brands` takes `url` + `name` together (website brand, `name` stated as a person-set name unless one already exists, `stateBrandNameOnCreate`); an API agent was refused both on 2026-10-22.
 - **The main offer is a preselection HINT, never stored.** There is no primary
   offer; confirm does not record which one was chosen.
 - **Icons are a CLOSED Phosphor vocabulary**, enforced by the split's
   `responseSchema` enum and by both writes; no DB CHECK, so adding a token is one
   line. Stored on `brand_offers.icon` (+ `description`, migration `0075`).
-- **Names:** a PROPOSED name is one we derive, so it keeps the derived rule (2
-  words, 20 chars, cut by dropping trailing words). A CONFIRMED name is the
-  customer's (they may edit it), so it takes the supplied rule (60 chars).
+- **Names:** a PROPOSED name takes `PROPOSED_OFFER_NAME_LIMITS` (3 words, 30
+  chars, cut by dropping trailing words; the 2-word cut left "Apartments for",
+  "Data AI" on the cards). A CONFIRMED name is the customer's (they may edit
+  it), so it takes the supplied rule (60 chars). The implicit offer keeps the
+  derived 2-word rule.
 - **Confirm leaves exactly the confirmed offers.** A name that already exists is
   reused (retry = no-op). The brand's IMPLICIT offer — the one leftover offer,
   named after the brand (or `Default Offer`), with no description — is RENAMED

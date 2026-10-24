@@ -40,7 +40,7 @@ describe('a big catalogue still gets offers to pick', () => {
   });
 
   it('the model is told the cap, in the prompt and the schema', () => {
-    expect(SPLIT_SYSTEM_PROMPT).toContain(`AT MOST ${MAX_PROPOSED_OFFERS} offers`);
+    expect(SPLIT_SYSTEM_PROMPT).toContain(`never more than ${MAX_PROPOSED_OFFERS}`);
     const offersProp = (SPLIT_RESPONSE_SCHEMA.properties as Record<string, { maxItems?: number }>).offers;
     expect(offersProp.maxItems).toBe(MAX_PROPOSED_OFFERS);
   });
@@ -55,11 +55,11 @@ describe('a big catalogue still gets offers to pick', () => {
     }
   });
 
-  it('10 offers then a regrouped 6: the visitor gets 6', async () => {
+  it('10 offers then a regrouped 4: the visitor gets 4', async () => {
     splitReturns(10);
-    splitReturns(6);
+    splitReturns(4);
     const proposal = await proposeOffers({ brandId: 'b-1', text: 'Aldar develops homes, offices, malls...', caller });
-    expect(proposal.offers).toHaveLength(6);
+    expect(proposal.offers).toHaveLength(4);
     expect(mockChat).toHaveBeenCalledTimes(2);
     const second = mockChat.mock.calls[1][0] as { message: string };
     expect(second.message).toBe(regroupMessage('Aldar develops homes, offices, malls...', 10));
@@ -73,7 +73,7 @@ describe('a big catalogue still gets offers to pick', () => {
     expect(mockChat).toHaveBeenCalledTimes(2);
   });
 
-  it('8 offers ask once, no regroup', async () => {
+  it('the ceiling itself asks once, no regroup', async () => {
     splitReturns(MAX_PROPOSED_OFFERS);
     const proposal = await proposeOffers({ brandId: 'b-1', text: 'x', caller });
     expect(proposal.offers).toHaveLength(MAX_PROPOSED_OFFERS);

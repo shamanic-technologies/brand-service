@@ -39,6 +39,33 @@ export const DERIVED_OFFER_NAME_MAX_WORDS = 2;
 export const DERIVED_OFFER_NAME_MAX_CHARS = 20;
 
 /**
+ * The limits of a name the offer SPLIT proposes (onboarding "Pick your offer").
+ * Wider than the derived rule on purpose (2026-10-24): the model names offers
+ * the way a buyer asks for them ("Digital Wallet Passes", "Apartments for
+ * Sale"), and cutting those to two words left "Digital Wallet", "Apartments
+ * for", "Data AI" on the cards. A proposal is a draft the customer confirms (and
+ * may edit, 60 characters), so it never needs the narrow shape that makes an
+ * INVENTED name safe; it only has to fit a card.
+ */
+export const PROPOSED_OFFER_NAME_LIMITS = { maxWords: 3, maxChars: 30 } as const;
+
+export interface OfferNameLimits {
+  maxWords: number;
+  maxChars: number;
+}
+
+const DERIVED_OFFER_NAME_LIMITS: OfferNameLimits = {
+  maxWords: DERIVED_OFFER_NAME_MAX_WORDS,
+  maxChars: DERIVED_OFFER_NAME_MAX_CHARS,
+};
+
+/** Whether a name already fits `limits` (non-blank, words and characters). Pure. */
+export function fitsOfferNameLimits(input: string, limits: OfferNameLimits): boolean {
+  const normalized = normalizeOfferName(input);
+  return normalized !== '' && offerNameWords(normalized).length <= limits.maxWords && normalized.length <= limits.maxChars;
+}
+
+/**
  * What an offer is called when the brand has not said enough to name it.
  *
  * Owner-picked. Most brands on the platform never filled in a value
@@ -166,14 +193,17 @@ export class OfferNameError extends Error {
  * a brand whose name cannot be generated fails visibly rather than falling back
  * here.
  */
-export function shortenToOfferName(phrase: string): string | null {
+export function shortenToOfferName(
+  phrase: string,
+  limits: OfferNameLimits = DERIVED_OFFER_NAME_LIMITS,
+): string | null {
   const words = offerNameWords(phrase);
   if (words.length === 0) return null;
 
   const kept: string[] = [];
-  for (const word of words.slice(0, DERIVED_OFFER_NAME_MAX_WORDS)) {
+  for (const word of words.slice(0, limits.maxWords)) {
     const candidate = [...kept, word].join(' ');
-    if (candidate.length > DERIVED_OFFER_NAME_MAX_CHARS) break;
+    if (candidate.length > limits.maxChars) break;
     kept.push(word);
   }
   if (kept.length === 0) return null;
