@@ -2715,31 +2715,49 @@ export const OfferIconSchema = z.enum(OFFER_ICONS).openapi('OfferIcon', {
 });
 
 export const ProposeOffersRequestSchema = z
-  .object({
-    description: z.string().trim().min(1).max(20_000).openapi({
-      description: 'What the brand sells, in the customer\'s own words (e.g. prefilled from their website).',
-    }),
-  })
-  .openapi('ProposeOffersRequest');
+  .union([
+    z
+      .object({
+        source: z.literal('site').openapi({
+          description:
+            'Read the brand\'s OWN website instead of a text: its homepage (saved copy, else a free read, else one scrape ' +
+            'billed to the asking org) and every other page of the site already saved by the site read. A brand with no ' +
+            'website reads its pasted business context. No text to send.',
+        }),
+      }),
+    z
+      .object({
+        description: z.string().trim().min(1).max(20_000).openapi({
+          description: 'What the brand sells, in the customer\'s own words ("Something else", typed by a person).',
+        }),
+      }),
+  ])
+  .openapi('ProposeOffersRequest', {
+    description: 'EITHER `{ description }` (a person typed what they sell) OR `{ source: "site" }` (read the brand\'s site), never both.',
+  });
 
 export const ProposedOfferSchema = z
   .object({
-    name: z.string().openapi({ description: 'At most 2 words and 20 characters, in the language of the text.' }),
-    description: z.string().openapi({ description: 'One sentence saying what the buyer gets.' }),
+    name: z.string().openapi({ description: 'At most 3 words and 30 characters, the words a buyer would use to ask for it.' }),
+    description: z.string().openapi({ description: 'One short plain sentence that starts with the thing delivered and says who it is for.' }),
     icon: OfferIconSchema,
   })
   .openapi('ProposedOffer');
 
 export const ProposeOffersResponseSchema = z
   .object({
-    offers: z.array(ProposedOfferSchema).min(1).max(8),
-    mainOfferIndex: z.number().int().openapi({ description: 'Index into `offers` of the likely main offer. Always set.' }),
+    offers: z.array(ProposedOfferSchema).min(1).max(5).openapi({ description: 'The distinct offers, the main one first.' }),
+    mainOfferIndex: z.number().int().openapi({ description: 'Index into `offers` of the likely main offer. Always 0: the main offer is listed first.' }),
     mainOfferConfidence: z.number().nullable().openapi({
       description:
         "Jev's confidence (0..1) in `mainOfferIndex`. `null` when there was only one offer (nothing to judge). " +
         'Low means Jev hesitated between offers.',
     }),
     mainOfferBasis: z.enum(['only_offer', 'judged']),
+    pagesRead: z.array(z.string()).optional().openapi({
+      description:
+        'Only on `{ source: "site" }`: the site pages read, homepage first. Empty for a brand with no website (its pasted business context was read).',
+    }),
   })
   .openapi('ProposeOffersResponse');
 
@@ -2782,9 +2800,11 @@ export const ConfirmOffersResponseSchema = z
 registry.registerPath({
   method: 'post',
   path: '/orgs/brands/{brandId}/offers/proposals',
-  summary: 'Propose the offers a description of what the brand sells describes (persists nothing)',
+  summary: 'Propose the offers a brand sells, from its website or from a typed description (persists nothing)',
   description:
-    'Splits a free-text description into its DISTINCT offers (a single-offer description returns exactly one), each ' +
+    'Body `{ source: "site" }` reads the brand\'s own website in ONE step (homepage first, then the site pages already ' +
+    'saved); body `{ description }` reads what a person typed. Either way the text is split into its DISTINCT offers ' +
+    '(a single-offer business returns exactly one), grouped by buyer, need and budget, the main offer first, each ' +
     'with a short name, one sentence and an icon token, and flags the likely main offer via a Jev typed judgment with ' +
     'its confidence. Nothing is stored; confirm with POST /orgs/brands/{brandId}/offers/confirm. ' +
     'The main offer is a preselection hint only. ' +
@@ -2799,7 +2819,7 @@ registry.registerPath({
     402: { description: 'Insufficient credits (chat-service gate)' + SALES_FUNNEL_CAP_402_NOTE },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'Brand not found' },
-    422: { description: 'The description names nothing the brand sells' },
+    422: { description: 'The description (or the site) names nothing the brand sells, or the site could not be read at all' },
     502: { description: 'The proposal could not be produced' },
   },
 });

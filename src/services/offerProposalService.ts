@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { db, brandOffers, brands } from '../db';
 import { chat, judgeChoice, type OrgCaller } from '../lib/chat-client';
 import { createRun, updateRun } from '../lib/runs-client';
+import { defaultOfferSiteReader, readOfferSiteSource, type OfferSiteReader } from './offerSiteSourceService';
 import { OFFER_ICONS, isOfferIcon, type OfferIcon } from '../lib/offer-icons';
 import {
   DEFAULT_OFFER_NAME,
@@ -256,18 +257,16 @@ function extractJson(content: string): unknown {
 }
 
 /**
- * Propose the offers `text` describes. Persists NOTHING. The chat-service calls
- * nest under a brand-service run (child of the caller's run); chat-service owns
- * every cost and the affordability gate (a 402 propagates as a throw carrying
- * "returned 402").
+ * Open the brand-service run every proposal nests under (child of the caller's
+ * run), hand its chat caller to `work`, and close the run either way.
+ * chat-service owns every model cost and the affordability gate (a 402
+ * propagates as a throw carrying "returned 402").
  */
-export async function proposeOffers(opts: {
-  brandId: string;
-  text: string;
-  caller: OrgCaller;
-}): Promise<OfferProposal> {
-  const { brandId, text, caller } = opts;
-
+async function withProposalRun<T>(
+  brandId: string,
+  caller: OrgCaller,
+  work: (chatCaller: OrgCaller) => Promise<T>,
+): Promise<T> {
   const run = await createRun({
     orgId: caller.orgId,
     userId: caller.userId || undefined,
@@ -292,6 +291,26 @@ export async function proposeOffers(opts: {
     audienceId: caller.audienceId,
   };
 
+  try {
+    const result = await work(chatCaller);
+    await updateRun(run.id, 'completed', identity);
+    return result;
+  } catch (error) {
+    try {
+      await updateRun(run.id, 'failed', identity);
+    } catch (err) {
+      console.warn(`[brand-service] Failed to mark offer-proposal run ${run.id} as failed:`, err);
+    }
+    throw error;
+  }
+}
+
+/**
+ * The split (one completion) then, when it found several offers, the main-offer
+ * judgment (one Jev call), both reading `text`. Shared by the free-text and the
+ * site paths: same prompt, same model, same Jev question.
+ */
+async function proposeFromText(text: string, chatCaller: OrgCaller): Promise<OfferProposal> {
   const split = async (message: string): Promise<ProposedOffer[]> => {
     const result = await chat(
       {
@@ -314,49 +333,87 @@ export async function proposeOffers(opts: {
     return parseProposedOffers(result.json ?? extractJson(result.content));
   };
 
+  let offers: ProposedOffer[];
   try {
-    let offers: ProposedOffer[];
-    try {
-      offers = await split(text);
-    } catch (error) {
-      if (!(error instanceof TooManyProposedOffersError)) throw error;
-      // A big catalogue (aldar.com: 10 offers, 2026-10-17) must still leave the
-      // visitor offers to pick: ask once more to regroup, never truncate.
-      console.warn(`[brand-service] ${error.message}; asking once to regroup`);
-      offers = await split(regroupMessage(text, error.count));
-    }
-
-    let proposal: OfferProposal;
-    if (offers.length === 1) {
-      proposal = { offers, mainOfferIndex: 0, mainOfferConfidence: null, mainOfferBasis: 'only_offer' };
-    } else {
-      const criteria: Record<string, string> = {};
-      offers.forEach((offer, i) => {
-        criteria[mainOfferOptionKey(i)] = `${offer.name}: ${offer.description}`;
-      });
-      const answer = await judgeChoice(
-        text,
-        { type: 'choice', instructions: MAIN_OFFER_INSTRUCTIONS, criteria },
-        chatCaller,
-      );
-      proposal = {
-        offers: mainOfferFirst(offers, mainOfferIndexFromChoice(answer.choice, offers.length)),
-        mainOfferIndex: 0,
-        mainOfferConfidence: answer.confidence,
-        mainOfferBasis: 'judged',
-      };
-    }
-
-    await updateRun(run.id, 'completed', identity);
-    return proposal;
+    offers = await split(text);
   } catch (error) {
-    try {
-      await updateRun(run.id, 'failed', identity);
-    } catch (err) {
-      console.warn(`[brand-service] Failed to mark offer-proposal run ${run.id} as failed:`, err);
-    }
-    throw error;
+    if (!(error instanceof TooManyProposedOffersError)) throw error;
+    // A big catalogue (aldar.com: 10 offers, 2026-10-17) must still leave the
+    // visitor offers to pick: ask once more to regroup, never truncate.
+    console.warn(`[brand-service] ${error.message}; asking once to regroup`);
+    offers = await split(regroupMessage(text, error.count));
   }
+
+  if (offers.length === 1) {
+    return { offers, mainOfferIndex: 0, mainOfferConfidence: null, mainOfferBasis: 'only_offer' };
+  }
+  const criteria: Record<string, string> = {};
+  offers.forEach((offer, i) => {
+    criteria[mainOfferOptionKey(i)] = `${offer.name}: ${offer.description}`;
+  });
+  const answer = await judgeChoice(
+    text,
+    { type: 'choice', instructions: MAIN_OFFER_INSTRUCTIONS, criteria },
+    chatCaller,
+  );
+  return {
+    offers: mainOfferFirst(offers, mainOfferIndexFromChoice(answer.choice, offers.length)),
+    mainOfferIndex: 0,
+    mainOfferConfidence: answer.confidence,
+    mainOfferBasis: 'judged',
+  };
+}
+
+/**
+ * Propose the offers `text` describes (a person typed what they sell). Persists
+ * NOTHING.
+ */
+export async function proposeOffers(opts: {
+  brandId: string;
+  text: string;
+  caller: OrgCaller;
+}): Promise<OfferProposal> {
+  return withProposalRun(opts.brandId, opts.caller, (chatCaller) => proposeFromText(opts.text, chatCaller));
+}
+
+export interface SiteOfferProposal extends OfferProposal {
+  /** The pages read, homepage first. Empty for a no-website brand (its pasted context was read). */
+  pagesRead: string[];
+}
+
+/**
+ * Propose the offers a brand sells by reading its OWN SITE, in one step
+ * (OFFERS-FROM-SITE-1024): the homepage (saved copy, else a free read, else one
+ * scrape billed to the asking org) and every other page of the site already
+ * saved, then the same split and main-offer judgment as the free-text path.
+ * The caller writes nothing in between, so what the homepage leads with reaches
+ * both the split and Jev. Persists NOTHING.
+ */
+export async function proposeOffersFromSite(opts: {
+  brandId: string;
+  caller: OrgCaller;
+  /** Test seam for the site reads. */
+  reader?: (chatCaller: OrgCaller) => OfferSiteReader;
+}): Promise<SiteOfferProposal> {
+  const { brandId, caller } = opts;
+  return withProposalRun(brandId, caller, async (chatCaller) => {
+    const reader = opts.reader
+      ? opts.reader(chatCaller)
+      : defaultOfferSiteReader(chatCaller.orgId, brandId, {
+          brandId,
+          orgId: chatCaller.orgId,
+          userId: chatCaller.userId || undefined,
+          runId: chatCaller.runId || undefined,
+          campaignId: chatCaller.campaignId,
+          featureSlug: chatCaller.featureSlug,
+          brandIdHeader: chatCaller.brandIdHeader,
+          workflowSlug: chatCaller.workflowSlug,
+          audienceId: chatCaller.audienceId,
+        });
+    const source = await readOfferSiteSource(brandId, reader);
+    const proposal = await proposeFromText(source.text, chatCaller);
+    return { ...proposal, pagesRead: source.pagesRead };
+  });
 }
 
 // ── Confirm ──────────────────────────────────────────────────────────────────
