@@ -35,7 +35,7 @@ import {
 } from '../../src/services/fieldExtractionService';
 import type { PlatformCaller } from '../../src/lib/chat-client';
 
-const caller: PlatformCaller = { mode: 'platform' };
+const caller: PlatformCaller = { mode: 'platform', runId: '00000000-0000-4000-8000-000000000001' };
 const pages = [{ url: 'https://acme.com', content: 'We offer widgets and gadgets.' }];
 
 // A representative large profile field set (string + array fields mixed).

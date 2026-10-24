@@ -36,7 +36,7 @@ function unionParamCount(schema: Record<string, unknown>): number {
   return Object.values(props).filter((p) => Array.isArray(p.anyOf) || Array.isArray(p.type)).length;
 }
 
-const caller: PlatformCaller = { mode: 'platform' };
+const caller: PlatformCaller = { mode: 'platform', runId: '00000000-0000-4000-8000-000000000001' };
 const pages = [{ url: 'https://acme.com', content: 'We sell pears to supermarkets.' }];
 const fieldsOf = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ key: `field${i}`, description: `Field ${i}` }));

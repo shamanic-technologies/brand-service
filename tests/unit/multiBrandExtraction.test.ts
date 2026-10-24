@@ -89,7 +89,7 @@ vi.mock('../../src/services/brandOffersService', () => ({
   resolveNamedOffer: vi.fn().mockResolvedValue(null),
 }));
 
-import { multiBrandExtractFields } from '../../src/services/multiBrandFieldExtractionService';
+import { CONSOLIDATION_SUPPORT_REASON, consolidationChatCaller, multiBrandExtractFields } from '../../src/services/multiBrandFieldExtractionService';
 import { multiBrandExtractImages } from '../../src/services/multiBrandImageExtractionService';
 import { extractFields, getBrand } from '../../src/services/fieldExtractionService';
 import { extractImages, getBrandForImages } from '../../src/services/imageExtractionService';
@@ -253,6 +253,32 @@ describe('multiBrandExtractFields', () => {
     expect(params.model).toBe(model);
     expect(params.effort).toBe(effort);
     expect(params.maxTokens).toBe(24000);
+  });
+
+  it('internal (platform) consolidation: no run of ours, so the platform call declares brand_setup support', async () => {
+    mockDbCacheMiss();
+    mockedGetBrand
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
+    mockedExtractFields
+      .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] }])
+      .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] }]);
+    mockedChat.mockResolvedValue({ content: '', json: { industry: 'merged' }, tokensInput: 1, tokensOutput: 1, model: 'm' });
+
+    await multiBrandExtractFields({
+      brandIds: ['brand-1', 'brand-2'],
+      fields: [{ key: 'industry', description: 'test' }],
+      caller: { mode: 'platform' },
+    });
+
+    expect(mockedChat.mock.calls[0][1]).toEqual({
+      mode: 'platform',
+      support: { kind: 'brand_setup', reason: CONSOLIDATION_SUPPORT_REASON },
+    });
+  });
+
+  it('org consolidation keeps the org caller (no support mark)', () => {
+    expect(consolidationChatCaller(orgCaller)).toBe(orgCaller);
   });
 
   it('overlays a confirmed user-facing field and tags provenance confirmed/extracted', async () => {

@@ -9,7 +9,8 @@
 import crypto from 'crypto';
 import { eq, gt, sql, and } from 'drizzle-orm';
 import { extractFields, getBrand, buildFieldsResponseSchema, SUGGEST_MODEL_PARAMS, ANTHROPIC_MAX_UNION_PARAMS, chunkFieldsForAnthropic, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
-import { chat, Caller, OrgCaller, PlatformCaller } from '../lib/chat-client';
+import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
+import { brandSetupSupport } from '../lib/platform-support';
 import { db, consolidatedFieldCache } from '../db';
 import { getConfirmedByOfferId, isUserFacingFieldKey, ConfirmedUserField } from './brandUserFieldsService';
 import { resolveNamedOffer } from './brandOffersService';
@@ -214,10 +215,25 @@ async function setCachedConsolidated(
 /**
  * Consolidate per-brand field values into a merged view using an LLM.
  */
+/**
+ * The chat caller of the cross-brand consolidation. An internal (org-less)
+ * request opens no brand-service run for it (each brand's extraction opened its
+ * own, and the consolidation belongs to none of them), so the platform call
+ * declares its support function: brand setup (PLATFORM-CALLER-RUN-1024).
+ */
+export const CONSOLIDATION_SUPPORT_REASON =
+  'brand-service merges field values extracted from several brands into one view for an internal caller: brand setup, no run of ours stands behind it';
+
+export function consolidationChatCaller(caller: Caller): ChatCaller {
+  return caller.mode === 'org'
+    ? caller
+    : { mode: 'platform', support: brandSetupSupport(CONSOLIDATION_SUPPORT_REASON) };
+}
+
 async function consolidateFields(
   fieldKeys: string[],
   byBrand: Record<string, Record<string, unknown>>,
-  chatCaller: Caller,
+  chatCaller: ChatCaller,
   mode: ExtractionMode = 'extract',
 ): Promise<Record<string, unknown>> {
   // Suggest runs on Opus (SUGGEST_MODEL_PARAMS): batch to Anthropic's union cap.
@@ -385,7 +401,7 @@ export async function multiBrandExtractFields(
       valueMap = cachedConsolidated;
     } else {
       console.log(`[brand-service] Consolidating fields across ${brandIds.length} brands`);
-      valueMap = await consolidateFields(fieldKeys, valuesByDomain, caller, mode);
+      valueMap = await consolidateFields(fieldKeys, valuesByDomain, consolidationChatCaller(caller), mode);
 
       // Cache the consolidated result. Expires at the earliest per-brand expiry.
       const allExpiries = Object.values(byDomain)

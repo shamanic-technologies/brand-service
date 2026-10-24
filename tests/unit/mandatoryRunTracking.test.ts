@@ -145,6 +145,27 @@ describe('Mandatory run tracking — extractFields', () => {
     expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'completed', expect.objectContaining({ orgId: 'org_123' }));
   });
 
+  it('internal (platform) extraction: every platform completion carries THIS brand-service run as x-run-id', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+    ]);
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      caller: { mode: 'platform' },
+    });
+
+    expect(mockCreateRun).toHaveBeenCalledWith(expect.objectContaining({ taskName: 'field-extraction', parentRunId: undefined }));
+    expect(mockChat).toHaveBeenCalled();
+    for (const call of mockChat.mock.calls) {
+      expect(call[1]).toEqual({ mode: 'platform', runId: 'run-123' });
+    }
+  });
+
   it('should return results when updateRun(completed) fails (best-effort)', async () => {
     setDbSequence([
       [],          // no cached fields
