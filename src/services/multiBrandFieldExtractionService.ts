@@ -11,6 +11,7 @@ import { eq, gt, sql, and } from 'drizzle-orm';
 import { extractFields, getBrand, buildFieldsResponseSchema, SUGGEST_MODEL_PARAMS, ANTHROPIC_MAX_UNION_PARAMS, chunkFieldsForAnthropic, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
 import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
 import { brandSetupSupport } from '../lib/platform-support';
+import { withOwnRun } from '../lib/own-run';
 import { db, consolidatedFieldCache } from '../db';
 import { getConfirmedByOfferId, isUserFacingFieldKey, ConfirmedUserField } from './brandUserFieldsService';
 import { resolveNamedOffer } from './brandOffersService';
@@ -224,6 +225,9 @@ async function setCachedConsolidated(
 export const CONSOLIDATION_SUPPORT_REASON =
   'brand-service merges field values extracted from several brands into one view for an internal caller: brand setup, no run of ours stands behind it';
 
+/** The brand-service run an ORG consolidation rides (support: brand setup). */
+export const CONSOLIDATION_TASK = 'field-consolidation';
+
 export function consolidationChatCaller(caller: Caller): ChatCaller {
   return caller.mode === 'org'
     ? caller
@@ -401,7 +405,12 @@ export async function multiBrandExtractFields(
       valueMap = cachedConsolidated;
     } else {
       console.log(`[brand-service] Consolidating fields across ${brandIds.length} brands`);
-      valueMap = await consolidateFields(fieldKeys, valuesByDomain, consolidationChatCaller(caller), mode);
+      // An org request opens OUR run for the consolidation (child of the
+      // caller's), so the spend never rides the caller's outcome (LEDGER-HISTORY-1024).
+      valueMap = caller.mode === 'org'
+        ? await withOwnRun(CONSOLIDATION_TASK, undefined, caller, (own) =>
+            consolidateFields(fieldKeys, valuesByDomain, own, mode))
+        : await consolidateFields(fieldKeys, valuesByDomain, consolidationChatCaller(caller), mode);
 
       // Cache the consolidated result. Expires at the earliest per-brand expiry.
       const allExpiries = Object.values(byDomain)
