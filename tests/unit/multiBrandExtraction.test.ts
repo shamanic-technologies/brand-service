@@ -89,11 +89,12 @@ vi.mock('../../src/services/brandOffersService', () => ({
   resolveNamedOffer: vi.fn().mockResolvedValue(null),
 }));
 
-import { CONSOLIDATION_SUPPORT_REASON, consolidationChatCaller, multiBrandExtractFields } from '../../src/services/multiBrandFieldExtractionService';
+import { CONSOLIDATION_SUPPORT_REASON, CONSOLIDATION_TASK, consolidationChatCaller, multiBrandExtractFields } from '../../src/services/multiBrandFieldExtractionService';
 import { multiBrandExtractImages } from '../../src/services/multiBrandImageExtractionService';
 import { extractFields, getBrand } from '../../src/services/fieldExtractionService';
 import { extractImages, getBrandForImages } from '../../src/services/imageExtractionService';
 import { chat } from '../../src/lib/chat-client';
+import { createRun } from '../../src/lib/runs-client';
 import { getConfirmedByOfferId } from '../../src/services/brandUserFieldsService';
 
 const mockedGetConfirmed = vi.mocked(getConfirmedByOfferId);
@@ -279,6 +280,33 @@ describe('multiBrandExtractFields', () => {
 
   it('org consolidation keeps the org caller (no support mark)', () => {
     expect(consolidationChatCaller(orgCaller)).toBe(orgCaller);
+  });
+
+  it('org consolidation rides OUR support run, never the caller run (LEDGER-HISTORY-1024)', async () => {
+    mockDbCacheMiss();
+    mockedGetBrand
+      .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
+      .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
+    mockedExtractFields
+      .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] }])
+      .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] }]);
+    mockedChat.mockResolvedValue({ content: '', json: { industry: 'merged' }, tokensInput: 1, tokensOutput: 1, model: 'm' });
+
+    await multiBrandExtractFields({
+      brandIds: ['brand-1', 'brand-2'],
+      fields: [{ key: 'industry', description: 'test' }],
+      caller: orgCaller,
+    });
+
+    const chatCaller = mockedChat.mock.calls[0][1] as { mode: string; runId: string };
+    expect(chatCaller.mode).toBe('org');
+    expect(chatCaller.runId).toBe('test-run-id');
+    expect(chatCaller.runId).not.toBe(orgCaller.runId);
+    expect(vi.mocked(createRun)).toHaveBeenCalledWith(expect.objectContaining({
+      serviceName: 'brand-service',
+      taskName: CONSOLIDATION_TASK,
+      parentRunId: orgCaller.runId,
+    }));
   });
 
   it('overlays a confirmed user-facing field and tags provenance confirmed/extracted', async () => {
