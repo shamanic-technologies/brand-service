@@ -26,6 +26,10 @@ Microservice for managing brand information, media assets, organizations, and AI
 - `tests/` — Test files (unit + integration, `*.test.ts`)
 - `openapi.json` — Auto-generated from Zod schemas, do NOT edit manually
 
+## Every brand-service run is a SUPPORT function (`lib/support-functions.ts`, COST-SUPPORT-1024)
+
+Reading a brand (fields, ICP, offers, competitors, LinkedIn page, steps, images) produces no outcome by design. `createRun` sends `support: { kind, reason }` on every `brand-service` run (`brand_setup`; the removed persona tasks `retired_product`), so runs-service reports the cost apart per function instead of letting it ride a parent workflow's outcome (cold-email writing, lead serving). A brand-service task missing from the map THROWS at creation: add one line there. Past runs since 2026-02-02 were marked through runs-service's owner door (`scripts/mark-support-runs.ts`, preview by default, `--apply`, idempotent), never SQL. A run that ever declares an outcome must leave the map. Guard `tests/unit/supportFunctions.test.ts`.
+
 ## A company a LEAD works at is a brand (`companyService`, owner 2026-10-13)
 
 The person lives in human-service, the company here, the lead in lead-service. A prospect's company is a brand row like any other (same domain = same brand id), nobody's client: no `org_brands` claim. Routes `src/routes/companies.routes.ts` (internal, service auth, no org), pure halves `src/lib/company-facts.ts`. Contract lead-service conforms to:
