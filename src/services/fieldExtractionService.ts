@@ -18,7 +18,7 @@ import crypto from 'crypto';
 import { eq, and, gt, inArray, sql, isNull, asc } from 'drizzle-orm';
 import { db, brands, brandExtractedFields, brandOffers, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import { OfferNotFoundError } from './brandOffersService';
-import { chat, Caller, OrgCaller } from '../lib/chat-client';
+import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
 import {
   mapSiteUrls,
   scrapeUrl,
@@ -301,7 +301,7 @@ export const URL_SELECTION_RESPONSE_SCHEMA: Record<string, unknown> = {
 async function selectRelevantUrls(
   allUrls: string[],
   fieldsDescription: string,
-  chatCaller: Caller,
+  chatCaller: ChatCaller,
   campaignContext: string | null,
 ): Promise<string[]> {
   if (allUrls.length <= 10) return allUrls;
@@ -433,7 +433,7 @@ export function buildFieldsResponseSchema(keys: string[]): Record<string, unknow
 export async function extractFieldsFromContent(
   pageContents: { url: string; content: string }[],
   fields: FieldSpec[],
-  chatCaller: Caller,
+  chatCaller: ChatCaller,
   campaignContext: string | null,
   profileContext: string | null,
   urlStrategy: UrlStrategy,
@@ -846,9 +846,11 @@ export async function extractFields(
   // Chat caller for downstream chat-service calls. For org mode we swap
   // caller.runId (upstream run) for our own run.id so the chat-service run
   // becomes a child of THIS brand-service run.
-  const chatCaller: Caller = caller.mode === 'org'
+  const chatCaller: ChatCaller = caller.mode === 'org'
     ? { ...caller, runId: run.id } satisfies OrgCaller
-    : { mode: 'platform' };
+    : // Platform mode: THIS brand-service run is the work's run, so the
+      // platform completion becomes its child (PLATFORM-CALLER-RUN-1024).
+      { mode: 'platform', runId: run.id };
 
   const traceHeaders: Record<string, string | undefined> = {
     'x-org-id': trackingOrgId,

@@ -3,12 +3,17 @@
  *
  * Mirrors the caller-side endpoint convention:
  * - OrgCaller (mode: 'org')      → POST /complete                   (x-org-id, x-user-id, x-run-id + tracking)
- * - PlatformCaller (mode: 'platform') → POST /internal/platform-complete (x-api-key only, no billing, no run tracking)
+ * - PlatformCaller (mode: 'platform') → POST /internal/platform-complete (x-api-key, platform-billed;
+ *   states WHOSE work it is: brand-service's own run in `x-run-id`, or a `support` function)
  *
  * The single public entry point `chat()` dispatches on `caller.mode`.
  */
 
 import { fetchWithRetry } from './fetch-with-retry';
+import type { PlatformSupport } from './platform-support';
+
+export type { PlatformSupport, PlatformSupportKind } from './platform-support';
+export { brandSetupSupport } from './platform-support';
 
 const CHAT_SERVICE_URL =
   process.env.CHAT_SERVICE_URL || 'https://chat.distribute.you';
@@ -124,24 +129,60 @@ export interface OrgCaller {
 }
 
 /**
- * Caller invoked on a brand-service `/internal/*` route. Maps to chat-service
- * `POST /internal/platform-complete` — no org/user/run tracking, platform-billed.
+ * Caller of chat-service's PLATFORM routes (`/internal/platform-complete`,
+ * `/internal/platform-judgments`): platform-billed, no org/user.
+ *
+ * Every platform call states WHOSE work it is (PLATFORM-CALLER-RUN-1024), and
+ * the type makes "neither" and "both" unwritable:
+ * - `runId`: the brand-service run doing the work at that moment (sent as
+ *   `x-run-id`; the platform run becomes its child). Default whenever a run of
+ *   OURS exists. Never an inbound request's `x-run-id`: that run is another
+ *   service's.
+ * - `support`: only when no run stands behind the call by design (a sweep, a
+ *   cross-brand consolidation no run opens); sent as the body `support` field.
  */
-export interface PlatformCaller {
+export type PlatformCaller =
+  | { mode: 'platform'; runId: string; support?: never }
+  | { mode: 'platform'; support: PlatformSupport; runId?: never };
+
+/** Headers + body additions that state whose work a platform call is. Exactly one of the two. */
+export function platformAttribution(caller: PlatformCaller): {
+  headers: Record<string, string>;
+  body: { support?: PlatformSupport };
+} {
+  if (caller.runId && caller.support) {
+    throw new Error('platform caller states both a run and a support function: chat-service refuses both');
+  }
+  if (caller.runId) return { headers: { 'x-run-id': caller.runId }, body: {} };
+  if (caller.support) return { headers: {}, body: { support: caller.support } };
+  throw new Error('platform caller states neither its run nor a support function');
+}
+
+/**
+ * Who ASKED brand-service: an org route (`OrgCaller`) or an internal,
+ * org-less service route. This is the request's origin, not a chat-service
+ * caller: an internal request carries no run of ours yet, so it cannot call a
+ * platform route until the service doing the work has opened its run (or
+ * declared a support function), which turns it into a `PlatformCaller`.
+ */
+export interface InternalRequest {
   mode: 'platform';
 }
 
-export type Caller = OrgCaller | PlatformCaller;
+export type Caller = OrgCaller | InternalRequest;
+
+/** What `chat()` / `judgeNouls()` accept: every platform call says whose work it is. */
+export type ChatCaller = OrgCaller | PlatformCaller;
 
 /**
  * Synchronous LLM completion. Dispatches to chat-service's org-scoped or
  * platform endpoint based on `caller.mode`.
  */
-export async function chat(params: ChatParams, caller: Caller): Promise<ChatResult> {
+export async function chat(params: ChatParams, caller: ChatCaller): Promise<ChatResult> {
   if (caller.mode === 'org') {
     return chatOrg(params, caller);
   }
-  return chatPlatform(params);
+  return chatPlatform(params, caller);
 }
 
 /**
@@ -278,12 +319,13 @@ export async function judgeNouls(
 ): Promise<Record<string, number>> {
   const platform = caller.mode === 'platform';
   const path = platform ? '/internal/platform-judgments' : '/orgs/judgments';
+  const attribution = platform ? platformAttribution(caller) : null;
   const response = await fetchWithRetry(`${CHAT_SERVICE_URL}${path}`, {
     method: 'POST',
-    headers: platform
-      ? { 'Content-Type': 'application/json', 'X-API-Key': CHAT_SERVICE_API_KEY }
+    headers: attribution
+      ? { 'Content-Type': 'application/json', 'X-API-Key': CHAT_SERVICE_API_KEY, ...attribution.headers }
       : buildOrgHeaders(caller as OrgCaller),
-    body: JSON.stringify({ state, questions }),
+    body: JSON.stringify({ state, questions, ...(attribution?.body ?? {}) }),
     label: `chat-service POST ${path}`,
   });
   const body = (await response.json()) as { answers?: Record<string, { type?: unknown; noul?: unknown }> };
@@ -325,16 +367,18 @@ function buildOrgHeaders(caller: OrgCaller): Record<string, string> {
   return headers;
 }
 
-async function chatPlatform(params: ChatParams): Promise<ChatResult> {
+async function chatPlatform(params: ChatParams, caller: PlatformCaller): Promise<ChatResult> {
+  const attribution = platformAttribution(caller);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-API-Key': CHAT_SERVICE_API_KEY,
+    ...attribution.headers,
   };
 
   const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/internal/platform-complete`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(buildBody(params)),
+    body: JSON.stringify({ ...buildBody(params), ...attribution.body }),
     label: `chat-service POST /internal/platform-complete (${params.model})`,
   });
 

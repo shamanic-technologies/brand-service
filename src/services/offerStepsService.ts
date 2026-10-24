@@ -4,6 +4,7 @@ import { assertOfferOnBrand } from './brandOffersService';
 import { fetchStepCatalogue, StepCatalogueUnavailableError } from '../lib/features-step-catalogue';
 import { isInsufficientCredits } from '../lib/insufficient-credits';
 import { judgeNouls, type OrgCaller } from '../lib/chat-client';
+import { brandSetupSupport } from '../lib/platform-support';
 import { createRun, updateRun } from '../lib/runs-client';
 import {
   buildAssessmentState,
@@ -93,6 +94,15 @@ export type StepAssessmentBilling =
   | { mode: 'org'; caller: Omit<OrgCaller, 'mode' | 'runId'> & { runId?: string } }
   | { mode: 'platform' };
 
+/**
+ * A platform-billed assessment (the daily sweep, a service read carrying no
+ * user) has no brand-service run behind it by design, so its judgment declares
+ * its support function (PLATFORM-CALLER-RUN-1024). Org-billed assessments open
+ * their own run instead.
+ */
+export const STEP_ASSESSMENT_SUPPORT_REASON =
+  'brand-service judges which sales steps an offer has (platform sweep or service read, no run of ours): brand setup';
+
 const inFlightAssessments = new Map<string, Promise<void>>();
 
 async function judgeOfferSteps(offerId: string, billing: StepAssessmentBilling): Promise<void> {
@@ -135,7 +145,7 @@ async function judgeOfferSteps(offerId: string, billing: StepAssessmentBilling):
 
   let probabilities: Record<string, number>;
   if (billing.mode === 'platform') {
-    probabilities = await judgeNouls(state, questions, { mode: 'platform' });
+    probabilities = await judgeNouls(state, questions, { mode: 'platform', support: brandSetupSupport(STEP_ASSESSMENT_SUPPORT_REASON) });
   } else {
     const { caller } = billing;
     const run = await createRun({

@@ -233,7 +233,7 @@ describe('chat-client', () => {
   });
 
   describe('PlatformCaller → POST /internal/platform-complete', () => {
-    it('sends only x-api-key header; never sends tracking headers', async () => {
+    it('sends x-api-key + the caller run as x-run-id; never org tracking headers', async () => {
       const { chat } = await importClient();
 
       mockFetch.mockResolvedValueOnce(
@@ -256,7 +256,7 @@ describe('chat-client', () => {
           temperature: 0,
           maxTokens: 4096,
         },
-        { mode: 'platform' },
+        { mode: 'platform', runId: 'b1b1b1b1-0000-4000-8000-000000000001' },
       );
 
       expect(result.json).toEqual({ urls: ['https://x.com'] });
@@ -268,7 +268,8 @@ describe('chat-client', () => {
       expect(headers['X-API-Key']).toBeDefined();
       expect(headers['x-org-id']).toBeUndefined();
       expect(headers['x-user-id']).toBeUndefined();
-      expect(headers['x-run-id']).toBeUndefined();
+      expect(headers['x-run-id']).toBe('b1b1b1b1-0000-4000-8000-000000000001');
+      expect(JSON.parse(calledOpts.body).support).toBeUndefined();
       expect(headers['x-campaign-id']).toBeUndefined();
       expect(headers['x-feature-slug']).toBeUndefined();
       expect(headers['x-brand-id']).toBeUndefined();
@@ -293,7 +294,7 @@ describe('chat-client', () => {
           maxTokens: 24000,
           thinkingBudget: 8000,
         },
-        { mode: 'platform' },
+        { mode: 'platform', runId: 'b1b1b1b1-0000-4000-8000-000000000001' },
       );
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -305,6 +306,30 @@ describe('chat-client', () => {
       expect(body.temperature).toBe(0);
       expect(body.maxTokens).toBe(24000);
       expect(body.thinkingBudget).toBe(8000);
+    });
+
+    it('a support caller sends the body support field and no x-run-id', async () => {
+      const { chat } = await importClient();
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({ content: '{}', json: {}, tokensInput: 1, tokensOutput: 1, model: 'm' }),
+      );
+      await chat(
+        { message: 'm', systemPrompt: 's', provider: 'google', model: 'flash' },
+        { mode: 'platform', support: { kind: 'brand_setup', reason: 'why' } },
+      );
+      const [, opts] = mockFetch.mock.calls[0];
+      expect(opts.headers['x-run-id']).toBeUndefined();
+      expect(JSON.parse(opts.body).support).toEqual({ kind: 'brand_setup', reason: 'why' });
+    });
+
+    it('refuses a platform caller stating neither or both, before any request', async () => {
+      const { chat } = await importClient();
+      const params = { message: 'm', systemPrompt: 's', provider: 'google' as const, model: 'flash' as const };
+      await expect(chat(params, { mode: 'platform' } as never)).rejects.toThrow(/neither/);
+      await expect(
+        chat(params, { mode: 'platform', runId: 'r', support: { kind: 'brand_setup', reason: 'x' } } as never),
+      ).rejects.toThrow(/both/);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 
@@ -425,7 +450,7 @@ describe('chat-client', () => {
 
       const result = await chat(
         { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
-        { mode: 'platform' },
+        { mode: 'platform', runId: 'b1b1b1b1-0000-4000-8000-000000000001' },
       );
 
       expect(result).toEqual(successData);
@@ -440,7 +465,7 @@ describe('chat-client', () => {
       await expect(
         chat(
           { message: 'test', systemPrompt: 'test', provider: 'google', model: 'flash' },
-          { mode: 'platform' },
+          { mode: 'platform', runId: 'b1b1b1b1-0000-4000-8000-000000000001' },
         ),
       ).rejects.toThrow('502');
       // 1 initial + 2 retries

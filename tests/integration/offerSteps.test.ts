@@ -24,7 +24,7 @@ import { fetchStepCatalogue, StepCatalogueUnavailableError } from '../../src/lib
 import { judgeNouls } from '../../src/lib/chat-client';
 import { createRun, updateRun } from '../../src/lib/runs-client';
 import { InsufficientCreditsError } from '../../src/lib/insufficient-credits';
-import { assessUnstatedOfferSteps } from '../../src/services/offerStepsService';
+import { assessUnstatedOfferSteps, STEP_ASSESSMENT_SUPPORT_REASON } from '../../src/services/offerStepsService';
 
 /**
  * THE STEPS AN OFFER'S BUSINESS HAS (owner 2026-10-12): read, add one, remove one,
@@ -214,7 +214,7 @@ describe('Offer steps', () => {
     const res = await request(app).get(stepsPath(platformOfferId)).set(headers);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ stated: true, source: 'assessed' });
-    expect(judge.mock.calls[0][2]).toEqual({ mode: 'platform' });
+    expect(judge.mock.calls[0][2]).toEqual({ mode: 'platform', support: { kind: 'brand_setup', reason: STEP_ASSESSMENT_SUPPORT_REASON } });
     expect(createRun).not.toHaveBeenCalled();
   });
 
@@ -238,7 +238,7 @@ describe('Offer steps', () => {
     const result = await assessUnstatedOfferSteps({ onlyOfferIds: [statedOfferId, legacyOfferId, sweptOfferId] });
     expect(result).toEqual({ assessed: 1, failed: 0 });
     expect(judge).toHaveBeenCalledTimes(1);
-    expect(judge.mock.calls[0][2]).toEqual({ mode: 'platform' });
+    expect(judge.mock.calls[0][2]).toEqual({ mode: 'platform', support: { kind: 'brand_setup', reason: STEP_ASSESSMENT_SUPPORT_REASON } });
 
     const [swept] = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, sweptOfferId));
     expect(swept).toMatchObject({ stepsSource: 'assessed', steps: CONSULTING_STEPS });
