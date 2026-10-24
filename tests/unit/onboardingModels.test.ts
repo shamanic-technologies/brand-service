@@ -11,7 +11,7 @@ import { resolve } from 'path';
  *   - field extraction in SUGGEST mode (the Hormozi draft): anthropic / opus, effort
  *     medium (owner 2026-10-12), batched to Anthropic's 16-union schema cap
  *   - ICP: google / flash-pro (2026-10-06 A/B: as accurate as Opus 5.5 at 1/5 the cost)
- *   - offer proposals: google / flash (Gemini 3.5 Flash-Lite)
+ *   - offer proposals: google / flash-pro (Gemini 3.5 Flash; Flash-Lite named offers by category, 2026-10-24 replay)
  */
 const src = (p: string) => readFileSync(resolve(__dirname, '../../src/services', p), 'utf-8');
 
@@ -30,8 +30,8 @@ describe('onboarding LLM calls run on Gemini', () => {
     expect(src(file)).not.toMatch(/model: 'sonnet'/);
   });
 
-  it('offer proposals run on flash', () => {
-    expect(src('offerProposalService.ts')).toMatch(/provider: 'google'[\s\S]*?model: 'flash',/);
+  it('offer proposals run on flash-pro', () => {
+    expect(src('offerProposalService.ts')).toMatch(/provider: 'google'[\s\S]*?model: 'flash-pro',/);
   });
 
   // 2026-10-06: a prod A/B showed Gemini 3.8 Flash as accurate as Opus 5.5

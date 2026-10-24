@@ -5,10 +5,9 @@ import { createRun, updateRun } from '../lib/runs-client';
 import { OFFER_ICONS, isOfferIcon, type OfferIcon } from '../lib/offer-icons';
 import {
   DEFAULT_OFFER_NAME,
-  DERIVED_OFFER_NAME_MAX_CHARS,
-  DERIVED_OFFER_NAME_MAX_WORDS,
   OfferNameError,
-  derivedOfferNameProblem,
+  PROPOSED_OFFER_NAME_LIMITS,
+  fitsOfferNameLimits,
   normalizeOfferName,
   offerNameForBrand,
   shortenToOfferName,
@@ -48,7 +47,13 @@ import {
  * many offers; an answer over it is asked ONCE more to regroup, and only a second
  * overflow is refused. Never truncated: dropping offers would pick for the client.
  */
-export const MAX_PROPOSED_OFFERS = 8;
+export const MAX_PROPOSED_OFFERS = 5;
+
+/**
+ * The most offers one confirm may store. Above the proposal ceiling on purpose:
+ * the customer may add an offer of their own beside the ones we proposed.
+ */
+export const MAX_CONFIRMED_OFFERS = 8;
 
 /** The longest description text accepted. A website-prefilled box, not a document. */
 export const MAX_OFFER_DESCRIPTION_INPUT_CHARS = 20_000;
@@ -109,18 +114,38 @@ export class OfferConfirmationError extends Error {
   }
 }
 
-export const SPLIT_SYSTEM_PROMPT = `You read a business's own description of what it sells and list the DISTINCT OFFERS it describes.
+/**
+ * The prompt that splits a description into offers. Rewritten 2026-10-24
+ * (InoGates, inogates.com: 8 thin cards, three consulting lines sold to one
+ * buyer listed apart, the company's distinctive offer 7th, descriptions opening
+ * "The buyer receives…"). Each sentence that licensed that output was deleted,
+ * not patched around:
+ *   - "List AT MOST 8" read as a target: the size is now a two-sided invariant
+ *     (every line lands in exactly one offer, an offer only per distinct buyer
+ *     or need), with the usual size stated, and the hard ceiling lowered to
+ *     `MAX_PROPOSED_OFFERS`.
+ *   - "separate only when bought separately for a different need" let every
+ *     line of a consultancy stand alone: offers are now grouped by WHO pays and
+ *     out of WHICH budget, whatever the input's lines or headings.
+ *   - "Order them as the text presents them" mirrored a pre-split input:
+ *     the main offer now comes first.
+ *   - "ONE plain sentence saying what the buyer gets" was echoed verbatim: the
+ *     description now starts on the thing delivered, with an example.
+ */
+export const SPLIT_SYSTEM_PROMPT = `You read what a business sells and write the short list of OFFERS its founder would recognise at a glance and pick from in seconds.
 
-An offer is one distinct thing the business sells to a buyer: a product line, a service, a programme. Two things are separate offers only when a buyer would buy them separately, for a different need. Features, benefits, options, sizes and price tiers of ONE thing are NOT separate offers. A business that sells one thing has exactly one offer.
+An offer is what one kind of buyer pays for, to meet one need, out of one budget. Group by the buyer, never by the lines or headings of the text: services, steps, assessments, add-ons, plans, products and partner resale that the same buyer buys for the same need are ONE offer, even when the text lists them apart. Two offers exist only when the buyer, the need or the budget is truly different: a company protecting its systems and a tech vendor entering a new market are two buyers; a one-off project and a service run for the buyer every month are two budgets.
 
-List AT MOST ${MAX_PROPOSED_OFFERS} offers. A business with a larger catalogue (a developer with many projects, a shop with many products) GROUPS them: things sold to the same kind of buyer for the same need are ONE offer, named after the group ("Residential Homes", not one offer per building).
+Every thing the text sells lands in exactly one offer, and no offer is made of a single minor line: a line with no buyer of its own (generic "solutions", resale, support) joins the offer it serves. A business that sells one thing has exactly one offer. Most businesses have 1 to 3 offers; never more than ${MAX_PROPOSED_OFFERS}.
+
+List the main offer first: the one the business is built around and leads with when it describes itself. Then the others, most important first.
 
 For each offer return:
-- "name": what the business itself calls it, in the language of the text. At most ${DERIVED_OFFER_NAME_MAX_WORDS} words and at most ${DERIVED_OFFER_NAME_MAX_CHARS} characters. Never the business's own name unless that is literally all you have. Every name is different.
-- "description": ONE plain sentence saying what the buyer gets, in the language of the text. No marketing adjectives.
+- "name": the short words a buyer would use to ask for it, usually two words, never more than ${PROPOSED_OFFER_NAME_LIMITS.maxWords} words or ${PROPOSED_OFFER_NAME_LIMITS.maxChars} characters ("Managed SOC", "Market Entry", "Dog Grooming"). Name the thing sold, never the field it belongs to ("Cyber Security", "Data Analytics" are fields), and never the business's own name. Every name is different.
+- "description": one short plain sentence that starts with the thing delivered and says who it is for ("Round-the-clock monitoring and response for your company's systems, run by our security team."). No marketing adjectives.
 - "icon": the closest token from the allowed list.
 
-Never invent an offer the text does not describe. Order them as the text presents them.
+Write in the language of the text. Never invent what the text does not sell.
 
 Answer with JSON only: {"offers":[{"name":"...","description":"...","icon":"..."}]}`;
 
@@ -146,11 +171,11 @@ export const SPLIT_RESPONSE_SCHEMA: Record<string, unknown> = {
 
 export const MAIN_OFFER_INSTRUCTIONS =
   'This text is a business describing what it sells. Which ONE of the listed offers is its main offer: ' +
-  'the one the business is chiefly built around and most likely earns the most from?';
+  'the one the business is built around and leads with when it describes itself?';
 
 /**
- * Validate the model's split and bring every name inside the DERIVED limits
- * (2 words, 20 characters) by dropping trailing words — never by rewriting. A
+ * Validate the model's split and bring every name inside the PROPOSED limits
+ * (3 words, 30 characters) by dropping trailing words — never by rewriting. A
  * name that cannot be brought inside them, a missing sentence or an icon off the
  * list is an ERROR, not something to paper over. Two offers the model named
  * alike (case-insensitively) are ONE offer said twice, so the later is dropped.
@@ -170,8 +195,9 @@ export function parseProposedOffers(raw: unknown): ProposedOffer[] {
     if (typeof o.name !== 'string' || typeof o.description !== 'string') {
       throw new Error('[brand-service] offer proposal failed: an offer lacked its name or description');
     }
-    const name =
-      derivedOfferNameProblem(o.name) === null ? normalizeOfferName(o.name) : shortenToOfferName(o.name);
+    const name = fitsOfferNameLimits(o.name, PROPOSED_OFFER_NAME_LIMITS)
+      ? normalizeOfferName(o.name)
+      : shortenToOfferName(o.name, PROPOSED_OFFER_NAME_LIMITS);
     if (!name) {
       throw new Error(`[brand-service] offer proposal failed: "${o.name}" cannot be cut to an offer name`);
     }
@@ -211,6 +237,16 @@ export function mainOfferIndexFromChoice(choice: string, offerCount: number): nu
     if (mainOfferOptionKey(i) === choice) return i;
   }
   throw new Error(`[brand-service] main-offer judgment answered "${choice}", which names no proposed offer`);
+}
+
+/**
+ * The list with the main offer moved to the front, the others kept in the order
+ * they came. The founder reads the cards top down, so the offer marked Main is
+ * the first one. A reorder only: no offer is renamed, dropped or added. Pure.
+ */
+export function mainOfferFirst<T>(offers: T[], mainIndex: number): T[] {
+  if (mainIndex <= 0) return offers;
+  return [offers[mainIndex], ...offers.slice(0, mainIndex), ...offers.slice(mainIndex + 1)];
 }
 
 function extractJson(content: string): unknown {
@@ -262,10 +298,13 @@ export async function proposeOffers(opts: {
         systemPrompt: SPLIT_SYSTEM_PROMPT,
         message,
         provider: 'google',
-        // `flash` = Gemini 3.5 Flash-Lite: measured p50 1.9s / p90 2.1s on this
-        // fleet (7 days to 2026-09-27) against flash-pro's 2.4s / 4.3s. This sits
-        // inside a modal step, and the split is short structured output.
-        model: 'flash',
+        // `flash-pro` = Gemini 3.5 Flash (was Flash-Lite until 2026-10-24). A
+        // replay of 28 production onboarding inputs on the new prompt: Flash-Lite
+        // still named offers by category ("Cyber Security", "Data AI Solutions",
+        // "IT Consultancy") and split InoGates' overview into consultancy lines;
+        // Flash named them as a buyer asks ("Managed SOC", "Market Entry").
+        // Costs ~0.5s at p50 (2.4s vs 1.9s) inside the step.
+        model: 'flash-pro',
         responseSchema: SPLIT_RESPONSE_SCHEMA,
         maxTokens: 1024,
         disableThinking: true,
@@ -301,8 +340,8 @@ export async function proposeOffers(opts: {
         chatCaller,
       );
       proposal = {
-        offers,
-        mainOfferIndex: mainOfferIndexFromChoice(answer.choice, offers.length),
+        offers: mainOfferFirst(offers, mainOfferIndexFromChoice(answer.choice, offers.length)),
+        mainOfferIndex: 0,
         mainOfferConfidence: answer.confidence,
         mainOfferBasis: 'judged',
       };
@@ -372,8 +411,8 @@ export function normalizeConfirmedOffers(
   chosenIndex: number,
 ): NormalizedConfirmedOffer[] {
   if (input.length === 0) throw new OfferConfirmationError('Confirm at least one offer.');
-  if (input.length > MAX_PROPOSED_OFFERS) {
-    throw new OfferConfirmationError(`At most ${MAX_PROPOSED_OFFERS} offers can be confirmed at once.`);
+  if (input.length > MAX_CONFIRMED_OFFERS) {
+    throw new OfferConfirmationError(`At most ${MAX_CONFIRMED_OFFERS} offers can be confirmed at once.`);
   }
   if (!Number.isInteger(chosenIndex) || chosenIndex < 0 || chosenIndex >= input.length) {
     throw new OfferConfirmationError(`chosenIndex ${chosenIndex} names none of the ${input.length} offers.`);

@@ -24,11 +24,11 @@ describe('parseProposedOffers', () => {
     expect(offers).toEqual([{ name: 'Dog Grooming', description: 'Full grooming for dogs.', icon: 'paw-print' }]);
   });
 
-  it('cuts a long name to the derived limits by dropping trailing words, never rewriting', () => {
+  it('cuts a long name to the proposed limits by dropping trailing words, never rewriting', () => {
     const [offer] = parseProposedOffers({
       offers: [{ name: 'Premium Coffee Beans Subscription', description: 'Beans monthly.', icon: 'coffee' }],
     });
-    expect(offer.name).toBe('Premium Coffee');
+    expect(offer.name).toBe('Premium Coffee Beans');
   });
 
   it('drops a second offer named alike (one offer said twice)', () => {
