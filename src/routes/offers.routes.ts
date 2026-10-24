@@ -43,7 +43,9 @@ import {
   OfferConfirmationError,
   OfferProposalUnavailableError,
   proposeOffers,
+  proposeOffersFromSite,
 } from '../services/offerProposalService';
+import { SiteUnreadableError } from '../services/offerSiteSourceService';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -164,7 +166,9 @@ orgRouter.post('/brands/:brandId/offers', async (req: Request, res: Response) =>
 
 /**
  * POST /orgs/brands/:brandId/offers/proposals
- * Read a free-text description of what the brand sells and answer which DISTINCT
+ * Body `{ source: "site" }`: read the brand's OWN website (homepage first, then
+ * the site pages already saved) in one step (OFFERS-FROM-SITE-1024). Body
+ * `{ description }`: read what a person typed. Either way, answer which DISTINCT
  * offers it describes — each with a short name, one sentence and a Phosphor icon
  * token — plus which one is most likely the main offer (a Jev judgment with its
  * confidence; `null` confidence when there is only one). PERSISTS NOTHING.
@@ -188,24 +192,24 @@ orgRouter.post('/brands/:brandId/offers/proposals', async (req: Request, res: Re
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;
 
-    const proposal = await proposeOffers({
-      brandId,
-      text: parsed.data.description,
-      caller: {
-        mode: 'org',
-        orgId: req.orgId!,
-        userId: req.userId ?? '',
-        runId: req.runId ?? '',
-        campaignId: req.campaignId,
-        featureSlug: req.featureSlug,
-        brandIdHeader: req.brandIdHeader,
-        workflowSlug: req.workflowSlug,
-        audienceId: req.audienceId,
-      },
-    });
+    const caller = {
+      mode: 'org' as const,
+      orgId: req.orgId!,
+      userId: req.userId ?? '',
+      runId: req.runId ?? '',
+      campaignId: req.campaignId,
+      featureSlug: req.featureSlug,
+      brandIdHeader: req.brandIdHeader,
+      workflowSlug: req.workflowSlug,
+      audienceId: req.audienceId,
+    };
+    const proposal =
+      'source' in parsed.data
+        ? await proposeOffersFromSite({ brandId, caller })
+        : await proposeOffers({ brandId, text: parsed.data.description, caller });
     return res.status(200).json(proposal);
   } catch (error: any) {
-    if (error instanceof OfferProposalUnavailableError) {
+    if (error instanceof OfferProposalUnavailableError || error instanceof SiteUnreadableError) {
       return res.status(422).json({ error: error.message });
     }
     if (respondIfInsufficientCredits(res, error)) return;
