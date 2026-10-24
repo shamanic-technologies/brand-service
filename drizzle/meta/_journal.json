@@ -673,6 +673,13 @@
       "when": 1792600000000,
       "tag": "0097_page_cache_3_day_horizon",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0098_competitor_site_judged",
+      "breakpoints": true
     }
   ]
 }
