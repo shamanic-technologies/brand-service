@@ -83,14 +83,25 @@ describe('judgeNouls', () => {
 
   const questions = buildStepQuestions(CATALOGUE.slice(0, 2));
 
-  it('platform-billed: /internal/platform-judgments, no org headers', async () => {
+  const support = { kind: 'brand_setup' as const, reason: 'no run of ours' };
+
+  it('platform-billed: /internal/platform-judgments, no org headers, the declared support in the body', async () => {
     const fetchMock = stubFetch({ answers: { conversation: { type: 'noul', noul: 0.9 }, meeting_booked: { type: 'noul', noul: 0.2 } } });
-    const out = await judgeNouls({ offer: 'x' }, questions, { mode: 'platform' });
+    const out = await judgeNouls({ offer: 'x' }, questions, { mode: 'platform', support });
     expect(out).toEqual({ conversation: 0.9, meeting_booked: 0.2 });
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toMatch(/\/internal\/platform-judgments$/);
     expect(init.headers['x-org-id']).toBeUndefined();
-    expect(JSON.parse(init.body)).toEqual({ state: { offer: 'x' }, questions });
+    expect(init.headers['x-run-id']).toBeUndefined();
+    expect(JSON.parse(init.body)).toEqual({ state: { offer: 'x' }, questions, support });
+  });
+
+  it('platform-billed with a caller run: x-run-id, no support', async () => {
+    const fetchMock = stubFetch({ answers: { conversation: { type: 'noul', noul: 0.9 }, meeting_booked: { type: 'noul', noul: 0.2 } } });
+    await judgeNouls('s', questions, { mode: 'platform', runId: 'run-1' });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers['x-run-id']).toBe('run-1');
+    expect(JSON.parse(init.body).support).toBeUndefined();
   });
 
   it('org-billed: /orgs/judgments with the org identity', async () => {
@@ -103,6 +114,6 @@ describe('judgeNouls', () => {
 
   it('throws when a question comes back without a probability', async () => {
     stubFetch({ answers: { conversation: { type: 'noul', noul: 0.9 } } });
-    await expect(judgeNouls('s', questions, { mode: 'platform' })).rejects.toThrow(/meeting_booked/);
+    await expect(judgeNouls('s', questions, { mode: 'platform', support })).rejects.toThrow(/meeting_booked/);
   });
 });

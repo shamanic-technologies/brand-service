@@ -924,7 +924,7 @@ registry.registerPath({
   summary: 'Extract fields from one or more brands via AI (internal, no x-org-id)',
   description:
     'Mirror of POST /orgs/brands/extract-fields for service-to-service callers without an org identity. ' +
-    'Uses chat-service /internal/platform-complete (platform-billed, no run tracking). ' +
+    'Uses chat-service /internal/platform-complete (platform-billed), each call a child of the brand-service extraction run it opens. ' +
     'Brand IDs are still read from the comma-separated x-brand-id header. ' +
     'Response shape is identical to the orgs route.',
   request: {

@@ -70,9 +70,9 @@ vi.mock('../../src/lib/logo-dev-search', () => ({
 }));
 
 import { ensureBrandName } from '../../src/services/brandService';
-import type { OrgCaller, PlatformCaller } from '../../src/lib/chat-client';
+import type { OrgCaller, InternalRequest } from '../../src/lib/chat-client';
 
-const platformCaller: PlatformCaller = { mode: 'platform' };
+const platformCaller: InternalRequest = { mode: 'platform' };
 
 const orgCaller: OrgCaller = {
   mode: 'org',

@@ -126,8 +126,9 @@ export const internalRouter = Router();
  * POST /internal/brands/extract-fields
  *
  * Mirror of `POST /orgs/brands/extract-fields` for service-to-service callers
- * without an org identity. Uses chat-service `/internal/platform-complete`,
- * skips run tracking, and does not require `x-org-id` / `x-user-id` / `x-run-id`.
+ * without an org identity. Uses chat-service `/internal/platform-complete`
+ * (platform-billed, each call the child of the brand-service run the extraction
+ * opens) and does not require `x-org-id` / `x-user-id` / `x-run-id`.
  * Brand IDs are still read from the comma-separated `x-brand-id` header.
  */
 internalRouter.post('/brands/extract-fields', async (req: Request, res: Response) => {

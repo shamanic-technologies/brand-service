@@ -74,9 +74,9 @@ vi.mock('../../src/lib/logo-dev-search', () => ({
 }));
 
 import { fillBrandNameOnCreate, ensureBrandName } from '../../src/services/brandService';
-import type { PlatformCaller } from '../../src/lib/chat-client';
+import type { InternalRequest } from '../../src/lib/chat-client';
 
-const platformCaller: PlatformCaller = { mode: 'platform' };
+const platformCaller: InternalRequest = { mode: 'platform' };
 const mockFetch = vi.fn();
 
 function htmlResponse(html: string, ok = true, status = 200) {
