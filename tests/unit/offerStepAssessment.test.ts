@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
+  HOW_WE_REACH_BUYERS,
   STEP_PRESENT_THRESHOLD,
   buildAssessmentState,
   buildStepQuestions,
@@ -28,6 +29,25 @@ describe('offer step assessment', () => {
     }
   });
 
+  it('tells Jev we sell every offer by outreach, so a reply to our message is part of how it is bought (OFFER-REPLY-STEP-1024)', () => {
+    // kiyotaka.ai, 2026-10-24: a self-serve offer judged by its website alone came
+    // out without Positive reply, and signup had no campaign to offer.
+    expect(HOW_WE_REACH_BUYERS).toMatch(/write to them first/);
+    expect(HOW_WE_REACH_BUYERS).toMatch(/can answer us/);
+    const { instructions } = buildStepQuestions(CATALOGUE).conversation;
+    expect(instructions).toContain('`howWeReachBuyers`');
+    expect(instructions).toMatch(/self-serve or not/);
+    expect(instructions).toMatch(/it adds steps, it removes none/);
+    // The sentence that licensed dropping it is gone.
+    expect(instructions).not.toMatch(/not what it could add/);
+    // One wording for every step: never a rule naming one step.
+    const names = CATALOGUE.map((s) => s.name);
+    for (const step of CATALOGUE) {
+      const own = buildStepQuestions(CATALOGUE)[step.key].instructions;
+      for (const other of names) if (other !== step.name) expect(own).not.toContain(`"${other}"`);
+    }
+  });
+
   it('keeps the steps judged present, in catalogue order (CeXO: no Direct purchase)', () => {
     const steps = stepsFromAnswers(CATALOGUE, {
       a_step_added_tomorrow: STEP_PRESENT_THRESHOLD,
@@ -50,6 +70,7 @@ describe('offer step assessment', () => {
       answers: [],
     });
     expect(bare).toEqual({
+      howWeReachBuyers: HOW_WE_REACH_BUYERS,
       seller: { name: 'CeXO', website: 'cexoai.com' },
       offer: { name: 'CeXO AI', description: 'Executive scorecards for AI spend for CXOs.', valueOfOneClientUsd: 12000 },
     });

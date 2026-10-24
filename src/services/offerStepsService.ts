@@ -105,7 +105,13 @@ export const STEP_ASSESSMENT_SUPPORT_REASON =
 
 const inFlightAssessments = new Map<string, Promise<void>>();
 
-async function judgeOfferSteps(offerId: string, billing: StepAssessmentBilling): Promise<void> {
+interface OfferStepsJudgment {
+  steps: string[];
+  probabilities: Record<string, number>;
+}
+
+/** Jev's judgment of the offer's steps; null when the offer was deleted meanwhile. Writes nothing. */
+async function judgeOfferSteps(offerId: string, billing: StepAssessmentBilling): Promise<OfferStepsJudgment | null> {
   const [offer] = await db
     .select({
       orgId: brandOffers.orgId,
@@ -120,7 +126,7 @@ async function judgeOfferSteps(offerId: string, billing: StepAssessmentBilling):
     .innerJoin(brands, eq(brands.id, brandOffers.brandId))
     .where(eq(brandOffers.id, offerId))
     .limit(1);
-  if (!offer) return; // deleted meanwhile: nothing to assess
+  if (!offer) return null; // deleted meanwhile: nothing to assess
   const [catalogue, confirmed, suggested, answers] = await Promise.all([
     fetchStepCatalogue(),
     getConfirmedByOfferId(offer.orgId, offer.brandId, offerId),
@@ -172,7 +178,13 @@ async function judgeOfferSteps(offerId: string, billing: StepAssessmentBilling):
     }
   }
 
-  const steps = stepsFromAnswers(catalogue, probabilities);
+  return { steps: stepsFromAnswers(catalogue, probabilities), probabilities };
+}
+
+async function assessAndInsert(offerId: string, billing: StepAssessmentBilling): Promise<void> {
+  const judgment = await judgeOfferSteps(offerId, billing);
+  if (!judgment) return;
+  const { steps, probabilities } = judgment;
   // INSERT only: a row stated meanwhile (by the client or a concurrent
   // assessment) is never overwritten.
   await db
@@ -192,7 +204,7 @@ export async function assessOfferStepsIfUnstated(offerId: string, billing: StepA
   if ((await readRow(offerId)).stated) return;
   let pending = inFlightAssessments.get(offerId);
   if (!pending) {
-    pending = judgeOfferSteps(offerId, billing).finally(() => inFlightAssessments.delete(offerId));
+    pending = assessAndInsert(offerId, billing).finally(() => inFlightAssessments.delete(offerId));
     inFlightAssessments.set(offerId, pending);
   }
   try {
@@ -236,6 +248,36 @@ export async function assessUnstatedOfferSteps(
   }
   if (rows.length > 0) console.log(`[brand-service] offer steps sweep: ${assessed} assessed, ${failed} failed`);
   return { assessed, failed };
+}
+
+/**
+ * RE-JUDGE an offer whose steps brand-service ASSESSED, under today's judgment
+ * (OFFER-REPLY-STEP-1024: 50 assessed offers had been judged without knowing
+ * we sell them by outreach, so none carried Positive reply). Platform-billed.
+ * Only an `assessed` row is rewritten: the UPDATE is guarded on the source, so
+ * a client statement (before or during the judgment) always wins.
+ * Returns the stored list before and after, or null when nothing was written
+ * (no assessed row, offer deleted). `apply: false` judges and writes nothing.
+ */
+export async function reassessAssessedOfferSteps(
+  offerId: string,
+  options: { apply: boolean }
+): Promise<{ before: string[]; after: string[]; written: boolean } | null> {
+  const [row] = await db
+    .select({ steps: brandOfferSalesPaths.steps, source: brandOfferSalesPaths.stepsSource })
+    .from(brandOfferSalesPaths)
+    .where(eq(brandOfferSalesPaths.offerId, offerId))
+    .limit(1);
+  if (!row || row.source !== 'assessed') return null;
+  const judgment = await judgeOfferSteps(offerId, { mode: 'platform' });
+  if (!judgment) return null;
+  if (!options.apply) return { before: row.steps, after: judgment.steps, written: false };
+  const updated = await db
+    .update(brandOfferSalesPaths)
+    .set({ steps: judgment.steps, stepsAssessment: judgment.probabilities, statedAt: sql`now()` })
+    .where(and(eq(brandOfferSalesPaths.offerId, offerId), eq(brandOfferSalesPaths.stepsSource, 'assessed')))
+    .returning({ offerId: brandOfferSalesPaths.offerId });
+  return { before: row.steps, after: judgment.steps, written: updated.length > 0 };
 }
 
 async function assertKnownStep(stepKey: string): Promise<void> {

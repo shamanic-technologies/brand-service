@@ -24,7 +24,7 @@ import { fetchStepCatalogue, StepCatalogueUnavailableError } from '../../src/lib
 import { judgeNouls } from '../../src/lib/chat-client';
 import { createRun, updateRun } from '../../src/lib/runs-client';
 import { InsufficientCreditsError } from '../../src/lib/insufficient-credits';
-import { assessUnstatedOfferSteps, STEP_ASSESSMENT_SUPPORT_REASON } from '../../src/services/offerStepsService';
+import { assessUnstatedOfferSteps, reassessAssessedOfferSteps, STEP_ASSESSMENT_SUPPORT_REASON } from '../../src/services/offerStepsService';
 
 /**
  * THE STEPS AN OFFER'S BUSINESS HAS (owner 2026-10-12): read, add one, remove one,
@@ -247,6 +247,32 @@ describe('Offer steps', () => {
 
     // A second pass finds nothing left.
     expect(await assessUnstatedOfferSteps({ onlyOfferIds: [sweptOfferId] })).toEqual({ assessed: 0, failed: 0 });
+  });
+
+  it('re-judges an ASSESSED offer under today\'s judgment (preview writes nothing), never a client-stated one', async () => {
+    // OFFER-REPLY-STEP-1024: a self-serve offer judged without Positive reply.
+    await db
+      .update(brandOfferSalesPaths)
+      .set({ steps: ['signup', 'website_visit'] })
+      .where(eq(brandOfferSalesPaths.offerId, sweptOfferId));
+
+    const preview = await reassessAssessedOfferSteps(sweptOfferId, { apply: false });
+    expect(preview).toEqual({ before: ['signup', 'website_visit'], after: CONSULTING_STEPS, written: false });
+    const [untouched] = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, sweptOfferId));
+    expect(untouched.steps).toEqual(['signup', 'website_visit']);
+
+    const applied = await reassessAssessedOfferSteps(sweptOfferId, { apply: true });
+    expect(applied).toEqual({ before: ['signup', 'website_visit'], after: CONSULTING_STEPS, written: true });
+    const [rewritten] = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, sweptOfferId));
+    expect(rewritten).toMatchObject({ stepsSource: 'assessed', steps: CONSULTING_STEPS, stepsAssessment: CONSULTING_ANSWERS });
+    expect(judge.mock.calls.every((call) => (call[2] as { mode: string }).mode === 'platform')).toBe(true);
+
+    // The client's statement wins: never re-judged, never rewritten.
+    judge.mockClear();
+    const before = await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, statedOfferId));
+    expect(await reassessAssessedOfferSteps(statedOfferId, { apply: true })).toBeNull();
+    expect(judge).not.toHaveBeenCalled();
+    expect(await db.select().from(brandOfferSalesPaths).where(eq(brandOfferSalesPaths.offerId, statedOfferId))).toEqual(before);
   });
 
   it('reads a legacy row (legs NULL) by its steps', async () => {
