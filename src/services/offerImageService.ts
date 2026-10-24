@@ -3,6 +3,7 @@ import { db, brandOffers } from '../db';
 import type { BrandOffer } from './brandOffersService';
 import { getConfirmedByOfferId } from './brandUserFieldsService';
 import { generateImage, type OrgCaller } from '../lib/chat-client';
+import { withOwnRun } from '../lib/own-run';
 
 /**
  * AN OFFER'S IMAGE — the picture standing for the thing a brand sells.
@@ -156,6 +157,9 @@ export function buildOfferImagePrompt(
  * Regenerating REPLACES what was there: one image per offer, so the previous
  * URL is overwritten rather than kept beside the new one.
  */
+/** The brand-service run an offer image generation rides (support: brand setup). */
+export const OFFER_IMAGE_TASK = 'offer-image-generation';
+
 export async function generateOfferImage(
   orgId: string,
   brandId: string,
@@ -163,7 +167,9 @@ export async function generateOfferImage(
   prompt: string,
   caller: OrgCaller,
 ): Promise<string> {
-  const image = await generateImage(prompt, caller);
+  // OUR run (child of the caller's) carries the generation, so its cost is
+  // brand setup and never rides the caller's outcome (LEDGER-HISTORY-1024).
+  const image = await withOwnRun(OFFER_IMAGE_TASK, brandId, caller, (own) => generateImage(prompt, own));
 
   const [updated] = await db
     .update(brandOffers)

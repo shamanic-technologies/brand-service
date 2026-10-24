@@ -35,6 +35,8 @@ export const LIVE_SUPPORT_TASKS: Readonly<Record<string, SupportFunction>> = {
   'competitor-discovery': 'brand_setup',
   'own-linkedin-page-discovery': 'brand_setup',
   'offer-steps-assessment': 'brand_setup',
+  'field-consolidation': 'brand_setup',
+  'offer-image-generation': 'brand_setup',
 };
 
 /** Tasks brand-service opened in the past and no longer opens (backfill only). */

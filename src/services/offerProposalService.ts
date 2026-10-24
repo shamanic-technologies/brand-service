@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { db, brandOffers, brands } from '../db';
 import { chat, judgeChoice, type OrgCaller } from '../lib/chat-client';
-import { createRun, updateRun } from '../lib/runs-client';
+import { withOwnRun } from '../lib/own-run';
 import { defaultOfferSiteReader, readOfferSiteSource, type OfferSiteReader } from './offerSiteSourceService';
 import { OFFER_ICONS, isOfferIcon, type OfferIcon } from '../lib/offer-icons';
 import {
@@ -262,47 +262,12 @@ function extractJson(content: string): unknown {
  * chat-service owns every model cost and the affordability gate (a 402
  * propagates as a throw carrying "returned 402").
  */
-async function withProposalRun<T>(
+function withProposalRun<T>(
   brandId: string,
   caller: OrgCaller,
   work: (chatCaller: OrgCaller) => Promise<T>,
 ): Promise<T> {
-  const run = await createRun({
-    orgId: caller.orgId,
-    userId: caller.userId || undefined,
-    brandId,
-    campaignId: caller.campaignId,
-    featureSlug: caller.featureSlug,
-    workflowSlug: caller.workflowSlug,
-    audienceId: caller.audienceId,
-    serviceName: 'brand-service',
-    taskName: 'offer-proposal',
-    parentRunId: caller.runId || undefined,
-  });
-  const chatCaller: OrgCaller = { ...caller, runId: run.id };
-  const identity = {
-    orgId: caller.orgId,
-    userId: caller.userId || undefined,
-    runId: run.id,
-    campaignId: caller.campaignId,
-    featureSlug: caller.featureSlug,
-    brandIdHeader: caller.brandIdHeader,
-    workflowSlug: caller.workflowSlug,
-    audienceId: caller.audienceId,
-  };
-
-  try {
-    const result = await work(chatCaller);
-    await updateRun(run.id, 'completed', identity);
-    return result;
-  } catch (error) {
-    try {
-      await updateRun(run.id, 'failed', identity);
-    } catch (err) {
-      console.warn(`[brand-service] Failed to mark offer-proposal run ${run.id} as failed:`, err);
-    }
-    throw error;
-  }
+  return withOwnRun('offer-proposal', brandId, caller, work);
 }
 
 /**

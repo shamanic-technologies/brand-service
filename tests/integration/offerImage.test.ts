@@ -13,6 +13,18 @@ vi.mock('../../src/lib/chat-client', async () => {
   return { ...actual, generateImage: vi.fn() };
 });
 
+// The generation rides OUR support run (child of the caller's), never the
+// caller's run (LEDGER-HISTORY-1024): runs-service is stubbed to hand one back.
+const OWN_RUN_ID = '22222222-2222-4222-8222-222222222222';
+vi.mock('../../src/lib/runs-client', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/runs-client')>('../../src/lib/runs-client');
+  return {
+    ...actual,
+    createRun: vi.fn(async () => ({ id: '22222222-2222-4222-8222-222222222222' })),
+    updateRun: vi.fn(async () => ({})),
+  };
+});
+
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
 import { generateImage, ChatServiceImageGenerationError } from '../../src/lib/chat-client';
 import { db, brands, orgBrands, brandOffers, brandUserFields } from '../../src/db';
@@ -167,6 +179,7 @@ describe("An offer's image", () => {
       const [, caller] = mockGenerateImage.mock.calls[0];
       expect(caller.mode).toBe('org');
       expect(caller.orgId).toBe(orgId);
+      expect(caller.runId).toBe(OWN_RUN_ID);
     });
 
     it('asking AGAIN produces a NEW image on the SAME background colour', async () => {
