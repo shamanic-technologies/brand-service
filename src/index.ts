@@ -50,7 +50,7 @@ import thesisRoutes from './routes/thesis.routes';
 import usersRoutes from './routes/users.routes';
 import { assertEveryMigrationRan } from './db/verify-migrations';
 import { refreshPendingBrandColors } from './services/brandColorsService';
-import { fillNamelessCompanies } from './services/companyService';
+import { cleanSeparatorBrandNames, fillNamelessCompanies } from './services/companyService';
 import { assessUnstatedOfferSteps } from './services/offerStepsService';
 import { verifyUncheckedCompetitorWebsites } from './services/brandCompetitorsService';
 
@@ -236,9 +236,9 @@ function startExpiredFieldsCleanup(): void {
 // theirs here: once ~60s after boot (the 46k backfill), then daily. Idempotent.
 function startNamelessCompaniesFill(): void {
   const run = (when: string) =>
-    fillNamelessCompanies().catch((err) =>
-      console.error(`[brand-service] Nameless-companies fill (${when}) failed:`, err),
-    );
+    fillNamelessCompanies()
+      .then(() => cleanSeparatorBrandNames())
+      .catch((err) => console.error(`[brand-service] Company-names fill (${when}) failed:`, err));
   setTimeout(() => void run('boot'), EXPIRED_FIELDS_CLEANUP_BOOT_DELAY_MS);
   setInterval(() => void run('interval'), EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
 }

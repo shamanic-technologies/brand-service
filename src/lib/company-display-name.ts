@@ -32,9 +32,40 @@ function clean(name: string | null | undefined): string | null {
   return t.length > 0 ? t : null;
 }
 
+/**
+ * Characters a page title uses to glue a tagline onto a name. A derived name
+ * never STARTS or ENDS on one ("GuimsIT Inc. |" from a title cut at its pipe,
+ * "- COYOTE -", "Henceforth,"). BRAND-NAME-SEPARATOR-1026.
+ */
+const EDGE_SEPARATORS = /^[\s|│｜:·•\-–—/\\,;]+|[\s|│｜:·•\-–—/\\,;]+$/g;
+
+/**
+ * Where a title's tail starts: any pipe, `│` or `｜` (no company name carries one), or a
+ * bullet / middle dot with a space on either side ("Summit Roofing • Round
+ * Rock"). A spaced hyphen or dash is NOT cut here: vendor names carry real ones
+ * ("A.P. Moller - Maersk"); only a page <title> is split on those.
+ */
+const TITLE_TAIL = /\s*[|│｜]|\s+[·•]\s*|\s*[·•]\s+/;
+
+/**
+ * The company's name out of a DERIVED string (a page title, og:site_name,
+ * JSON-LD, logo.dev, a data vendor): the leading segment before a pipe or
+ * bullet, without separators on either edge, whitespace collapsed. Null when
+ * nothing is left. Never applied to a name a person typed.
+ */
+export function cleanDerivedName(name: string | null | undefined): string | null {
+  if (typeof name !== 'string') return null;
+  const collapsed = name.replace(/\s+/g, ' ').trim();
+  const edges = (v: string) => v.replace(EDGE_SEPARATORS, '').trim();
+  const lead = edges(collapsed.split(TITLE_TAIL)[0] ?? '');
+  // A cut leaving one character is a letter-spaced name ("8 · S E C O N D S"), not a tail.
+  const t = lead.length >= 2 ? lead : edges(collapsed);
+  return t.length > 0 ? t : null;
+}
+
 /** The name a company created from its domain starts with. */
 export function initialCompanyName(domain: string, statedName?: string | null): string {
-  return clean(statedName) ?? titlecaseDomain(domain);
+  return cleanDerivedName(statedName) ?? titlecaseDomain(domain);
 }
 
 /** True when the stored name is absent or only the titlecased-domain placeholder. */
@@ -53,7 +84,7 @@ export function upgradedCompanyName(
   observedName: unknown,
 ): string | null {
   if (row.nameSetByOrgAt) return null;
-  const next = clean(typeof observedName === 'string' ? observedName : null);
+  const next = cleanDerivedName(typeof observedName === 'string' ? observedName : null);
   if (next === null || next === row.name) return null;
   return isPlaceholderName(row.name, row.domain) ? next : null;
 }

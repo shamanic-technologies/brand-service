@@ -5,7 +5,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { createTestApp, getInternalAuthHeaders } from '../helpers/test-app';
 import { db } from '../../src/db';
 import { brands, orgBrands, companyIdentifiers, companyFacts } from '../../src/db/schema';
-import { fillNamelessCompanies } from '../../src/services/companyService';
+import { cleanSeparatorBrandNames, fillNamelessCompanies } from '../../src/services/companyService';
 import { titlecaseDomain } from '../../src/lib/company-display-name';
 
 const app = createTestApp();
@@ -258,4 +258,29 @@ describe('a company is served with its name (owner 2026-10-17)', () => {
     await putFacts(id, { name: 'Fact Name 2' });
     expect((await batch([id])).body.companies[0].name).toBe('Org Name');
   }, 30000);
+});
+
+describe('a stored name keeps no title separator (BRAND-NAME-SEPARATOR-1026)', () => {
+  it('cleans derived names, never one a person set', async () => {
+    const rows = await db.insert(brands).values([
+      { domain: `guims-${tag}.example.com`, url: `https://guims-${tag}.example.com`, name: 'GuimsIT Inc. |' },
+      { domain: `tail-${tag}.example.com`, url: `https://tail-${tag}.example.com`, name: 'Tail Co | Managed IT' },
+      { domain: `only-sep-${tag}.example.com`, url: `https://only-sep-${tag}.example.com`, name: ' | ' },
+      { domain: `maersk-${tag}.example.com`, url: `https://maersk-${tag}.example.com`, name: 'A.P. Moller - Maersk' },
+      { domain: `typed-${tag}.example.com`, url: `https://typed-${tag}.example.com`, name: 'Typed |', nameSetByOrgAt: new Date().toISOString() },
+    ]).returning({ id: brands.id, domain: brands.domain });
+    remember(rows.map((r) => r.id));
+    await cleanSeparatorBrandNames();
+    const names = await db.select({ domain: brands.domain, name: brands.name }).from(brands).where(inArray(brands.id, rows.map((r) => r.id)));
+    const byDomain = Object.fromEntries(names.map((r) => [r.domain, r.name]));
+    expect(byDomain[`guims-${tag}.example.com`]).toBe('GuimsIT Inc.');
+    expect(byDomain[`tail-${tag}.example.com`]).toBe('Tail Co');
+    expect(byDomain[`only-sep-${tag}.example.com`]).toBe(titlecaseDomain(`only-sep-${tag}.example.com`));
+    expect(byDomain[`maersk-${tag}.example.com`]).toBe('A.P. Moller - Maersk');
+    expect(byDomain[`typed-${tag}.example.com`]).toBe('Typed |');
+    // Idempotent: nothing of ours left to clean.
+    await cleanSeparatorBrandNames();
+    const again = await db.select({ name: brands.name }).from(brands).where(eq(brands.domain, `guims-${tag}.example.com`));
+    expect(again[0].name).toBe('GuimsIT Inc.');
+  }, 60000);
 });

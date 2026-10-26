@@ -53,6 +53,10 @@ Rules:
 - **The company record follows the DOMAIN**: `takeOverDomain` calls `moveCompanyRecord` (identifiers move, facts merge newer-wins), like the colours. Re-resolving the domain then answers the brand holding it.
 - Guards: `tests/unit/companyFacts.test.ts`, `tests/integration/companies.test.ts`, `tests/integration/domainTakeover.test.ts` (prospect holder case).
 
+## A derived brand name keeps no page-title separator (`cleanDerivedName`, BRAND-NAME-SEPARATOR-1026)
+
+guimsit.com's `<title>` is literally `GuimsIT Inc. |`; the title split needed a space after the pipe, so the brand was served as "GuimsIT Inc. |" on the consent line and the org name. Every DERIVED name (og:site_name, `<title>`, JSON-LD, logo.dev, a vendor's resolve `name` / `name` fact) goes through `cleanDerivedName` (`lib/company-display-name.ts`): cut at any `|` `│` `｜` or a spaced `·`/`•`, strip separators (`| : · • - – — / \ , ;`) on both edges, a cut leaving < 2 chars keeps the whole name. A spaced hyphen inside a vendor name stays ("A.P. Moller - Maersk"); only a `<title>` is split on it. A name a person typed (`name_set_by_org_at`) is never cleaned. Stored rows: `cleanSeparatorBrandNames` (after `fillNamelessCompanies`, ~60s after boot then daily, idempotent; prod 2026-10-26: 359 names, 5 with an edge separator). Guards `tests/unit/brandNameSeparator.test.ts`, `tests/integration/companies.test.ts`.
+
 ## The sales funnel is retired — rates per (org, brand, LEG), lifetime revenue per OFFER
 
 A LEG is the move of a lead from one step to another (Positive reply -> Meeting
