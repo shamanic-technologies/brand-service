@@ -267,7 +267,7 @@ describe('a stored name keeps no title separator (BRAND-NAME-SEPARATOR-1026)', (
       { domain: `tail-${tag}.example.com`, url: `https://tail-${tag}.example.com`, name: 'Tail Co | Managed IT' },
       { domain: `only-sep-${tag}.example.com`, url: `https://only-sep-${tag}.example.com`, name: ' | ' },
       { domain: `maersk-${tag}.example.com`, url: `https://maersk-${tag}.example.com`, name: 'A.P. Moller - Maersk' },
-      { domain: `typed-${tag}.example.com`, url: `https://typed-${tag}.example.com`, name: 'Typed |', nameSetByOrgAt: new Date() },
+      { domain: `typed-${tag}.example.com`, url: `https://typed-${tag}.example.com`, name: 'Typed |', nameSetByOrgAt: new Date().toISOString() },
     ]).returning({ id: brands.id, domain: brands.domain });
     remember(rows.map((r) => r.id));
     await cleanSeparatorBrandNames();
