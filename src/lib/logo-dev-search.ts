@@ -34,6 +34,7 @@
  */
 
 import { getPlatformKey } from './keys-service';
+import { cleanDerivedName } from './company-display-name';
 
 const LOGO_DEV_SEARCH_URL = 'https://api.logo.dev/search';
 /** The SECRET key (`sk_...`). `logo-dev` is the publishable token — wrong key here. */
@@ -101,7 +102,9 @@ export async function searchBrandNameByDomain(domain: string): Promise<string | 
         c.name.trim().length > 0,
     );
 
-    if (match) return (match.name as string).trim();
+    // An indexed name can carry a title's separator too (BRAND-NAME-SEPARATOR-1026).
+    const name = match ? cleanDerivedName(match.name as string) : null;
+    if (name) return name;
   }
 
   console.log(

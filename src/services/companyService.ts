@@ -18,7 +18,7 @@ import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { brands, companyFacts, companyIdentifiers } from '../db/schema';
 import { normalizeUrl } from '../lib/url-utils';
-import { initialCompanyName, titlecaseDomain, upgradedCompanyName } from '../lib/company-display-name';
+import { cleanDerivedName, initialCompanyName, titlecaseDomain, upgradedCompanyName } from '../lib/company-display-name';
 import {
   type CompanyFactKey,
   type CompanyIdentifierKind,
@@ -493,7 +493,7 @@ export async function fillNamelessCompanies(batchSize = WRITE_CHUNK): Promise<nu
     if (rows.length === 0) break;
     const changes = rows.map((r) => ({
       id: r.id,
-      to: (typeof r.factName === 'string' && r.factName.trim()) || titlecaseDomain(r.domain!),
+      to: cleanDerivedName(typeof r.factName === 'string' ? r.factName : null) ?? titlecaseDomain(r.domain!),
     }));
     let n = 0;
     for (const part of chunk(changes, WRITE_CHUNK)) {
@@ -511,6 +511,36 @@ export async function fillNamelessCompanies(batchSize = WRITE_CHUNK): Promise<nu
   if (total > 0) console.log(`[brand-service] fillNamelessCompanies: named ${total} companies`);
   return total;
 }
+
+/**
+ * Clean every stored name a page title or a vendor left a separator on
+ * ("GuimsIT Inc. |", "- COYOTE -", "Acme | Home"; BRAND-NAME-SEPARATOR-1026):
+ * the same `cleanDerivedName` every derived name now goes through at write.
+ * Never a name a person set. A name that is ONLY separators falls back to the
+ * titlecased domain (a domain-less one is left). The SQL picks candidates, the
+ * pure function decides; idempotent (a cleaned name is no longer a candidate).
+ */
+export async function cleanSeparatorBrandNames(batchSize = WRITE_CHUNK): Promise<number> {
+  const rows = await db
+    .select({ id: brands.id, name: brands.name, domain: brands.domain })
+    .from(brands)
+    .where(and(
+      isNull(brands.nameSetByOrgAt),
+      sql`${brands.name} ~ ${SEPARATOR_NAME_CANDIDATE}`,
+    ));
+  const changes = rows.flatMap((r) => {
+    const to = cleanDerivedName(r.name) ?? (r.domain ? titlecaseDomain(r.domain) : null);
+    return to && to !== r.name ? [{ id: r.id, from: r.name, to }] : [];
+  });
+  let total = 0;
+  for (const part of chunk(changes, batchSize)) total += await applyNameChanges(part);
+  if (total > 0) console.log(`[brand-service] cleanSeparatorBrandNames: cleaned ${total} names`);
+  return total;
+}
+
+/** Postgres twin of cleanDerivedName's triggers: a pipe, a spaced bullet, or a separator on either edge. */
+const SEPARATOR_NAME_CANDIDATE =
+  '[|│｜]|[[:space:]][·•]|[·•][[:space:]]|^[[:space:]|│｜:·•/\\\\,;–—-]|[[:space:]|│｜:·•/\\\\,;–—-]$';
 
 export interface CompanyView {
   brandId: string;
