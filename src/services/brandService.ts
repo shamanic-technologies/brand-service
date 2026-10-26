@@ -19,7 +19,7 @@
  * created before this — it runs the same chain and guarantees a non-null name.
  */
 
-import { isPlaceholderName, titlecaseDomain } from '../lib/company-display-name';
+import { cleanDerivedName, isPlaceholderName, titlecaseDomain } from '../lib/company-display-name';
 import { eq, and, or, sql, isNull } from 'drizzle-orm';
 import { db, brands, orgBrands, brandClickDestinations, brandWhatsappLinks, brandColors } from '../db';
 import { normalizeUrl, extractDomain } from '../lib/url-utils';
@@ -531,7 +531,9 @@ export { titlecaseDomain };
  *   4. titlecased domain fallback (always non-empty)
  */
 export function parseBrandNameFromHtml(html: string, domain: string): string {
-  const ogSiteName = matchMetaContent(html, 'og:site_name');
+  // Every source goes through cleanDerivedName: a title cut at its separator
+  // must not keep it ("GuimsIT Inc. |", BRAND-NAME-SEPARATOR-1026).
+  const ogSiteName = cleanDerivedName(matchMetaContent(html, 'og:site_name'));
   if (ogSiteName) return ogSiteName;
 
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -539,12 +541,11 @@ export function parseBrandNameFromHtml(html: string, domain: string): string {
     const title = decodeEntities(titleMatch[1]).replace(/\s+/g, ' ').trim();
     // Sites format titles as "Brand | Tagline" / "Brand – Tagline"; take the
     // leading segment when a spaced separator is present.
-    const firstSegment = title.split(/\s*[|–—]\s+|\s+-\s+|:\s+/)[0]?.trim();
+    const firstSegment = cleanDerivedName(title.split(/\s*[|–—]\s+|\s+[–—-]\s+|:\s+/)[0]);
     if (firstSegment) return firstSegment;
-    if (title) return title;
   }
 
-  const jsonLdName = parseJsonLdName(html);
+  const jsonLdName = cleanDerivedName(parseJsonLdName(html));
   if (jsonLdName) return jsonLdName;
 
   return titlecaseDomain(domain);
