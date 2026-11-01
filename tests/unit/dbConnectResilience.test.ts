@@ -31,17 +31,18 @@ describe('db client connect resilience', () => {
   });
 
   /**
-   * postgres.js defaults to `idle_timeout: null` — idle connections are never closed. The
-   * first attempt at the fix above also set `idle_timeout: 60`, reasoning that it kept a
-   * warm cross-region socket alive. It does the opposite: it makes the socket close, so the
-   * next request pays a fresh TCP and TLS handshake to ap-southeast-1 for no benefit. That
-   * reasoning came from node-postgres, whose default really is a 10s idle teardown; this
-   * service is on postgres.js, where there is nothing to lengthen.
+   * PG-CONN-1101: the box Postgres has 300 slots shared by ~30 pools. postgres.js reuses its
+   * open connections in turn, so a pool that once grew to `max` stays at `max` unless
+   * connections are recycled. The pool is capped at 5 and recycled (idle 60s, lifetime 300s).
+   * (The Neon-era rule "never set idle_timeout" kept a cross-region socket warm; the database
+   * is now local to the box, so a reconnect costs nothing.)
    *
    * Asserted against the source rather than the client, which drizzle does not expose.
    */
-  it('does not close idle connections, so a warm cross-region socket is kept', () => {
+  it('caps the pool at 5 and recycles connections (PG-CONN-1101)', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../src/db/index.ts'), 'utf-8');
-    expect(source).not.toMatch(/idle_timeout/);
+    expect(source).toMatch(/max: 5,/);
+    expect(source).toMatch(/idle_timeout: 60,/);
+    expect(source).toMatch(/max_lifetime: 300,/);
   });
 });

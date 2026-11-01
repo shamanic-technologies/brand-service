@@ -40,8 +40,14 @@ export function sslOptionFor(dsn: string): 'require' | false {
 }
 
 // Create postgres client for Drizzle
+// PG-CONN-1101: 5 is this service's share of the box Postgres (300 slots, ~30 pools); measured
+// peak concurrent use 0-2. postgres.js queues beyond max, it does not fail. postgres.js reuses
+// its open connections in turn, so a pool that once grew to max stays at max: max_lifetime
+// recycles them so the pool shrinks back to real need (a running query is never cut).
 const client = postgres(connectionString, {
-  max: 10,
+  max: 5,
+  idle_timeout: 60,
+  max_lifetime: 300,
   ssl: sslOptionFor(connectionString),
 });
 
