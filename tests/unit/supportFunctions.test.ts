@@ -81,4 +81,22 @@ describe('support functions (COST-SUPPORT-1024-BRAND)', () => {
     expect(mockFetch.mock.calls[1][1].headers['x-service-name']).toBe('brand-service');
     expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual(selection);
   });
+
+  it('declareProducedOutcomes posts the produced Unit on the org door as brand-service (OFFER-FIELDS-NO-OPUS-1112)', async () => {
+    const { declareProducedOutcomes } = await importClient();
+    mockFetch.mockResolvedValueOnce(ok({ produced: [] }));
+    await declareProducedOutcomes(
+      'run-9',
+      [{ outcomeKey: 'offer_fields_drafted', subjectService: 'brand-service', subjectId: 'offer-1' }],
+      { orgId: 'org-1', userId: 'user-1' },
+    );
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://runs-test.example.com/v1/runs/run-9/outcomes');
+    expect(init.method).toBe('POST');
+    expect(init.headers['x-org-id']).toBe('org-1');
+    expect(init.headers['x-service-name']).toBe('brand-service');
+    expect(JSON.parse(init.body)).toEqual({
+      produced: [{ outcomeKey: 'offer_fields_drafted', subjectService: 'brand-service', subjectId: 'offer-1' }],
+    });
+  });
 });

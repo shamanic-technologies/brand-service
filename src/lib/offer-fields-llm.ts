@@ -18,6 +18,21 @@ import { pickLlm, type PickedLlm } from './llm-pick-client';
 
 export const OFFER_FIELDS_OUTCOME = 'offer_fields_drafted';
 
+/** The run task of a suggest draft: a PRODUCTION run (support-functions.ts `PRODUCTION_TASKS`). */
+export const OFFER_FIELDS_DRAFT_TASK = 'offer-fields-draft';
+
+/**
+ * The Unit one stored draft produces: subject = the offer it was written for; a draft asked
+ * without naming an offer is the BRAND's draft (onboarding before any offer), so its subject
+ * is the brand. Never a guessed offer.
+ */
+export function offerFieldsDraftedUnit(
+  brandId: string,
+  offerId: string | null | undefined,
+): { outcomeKey: string; subjectService: string; subjectId: string } {
+  return { outcomeKey: OFFER_FIELDS_OUTCOME, subjectService: 'brand-service', subjectId: offerId ?? brandId };
+}
+
 export type OfferFieldsPlace = 'draft' | 'consolidate';
 
 /** Output budget of one draft call (thinking + JSON answer); chat-service provisions against it. */
