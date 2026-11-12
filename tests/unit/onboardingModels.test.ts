@@ -8,19 +8,25 @@ import { resolve } from 'path';
  * broke the 19-field cold-email extraction: Anthropic refuses more than 16
  * union parameters in one structured-output schema).
  *   - field extraction (extract mode) + URL pick: google / flash-pro (Gemini 3.8 Flash)
- *   - field extraction in SUGGEST mode (the Hormozi draft): anthropic / opus, effort
- *     medium (owner 2026-10-12), batched to Anthropic's 16-union schema cap
+ *   - field extraction in SUGGEST mode (the Hormozi draft): the LLM the Rating picks
+ *     (OFFER-FIELDS-NO-OPUS-1112), batched to Anthropic's 16-union schema cap
  *   - ICP: google / flash-pro (2026-10-06 A/B: as accurate as Opus 5.5 at 1/5 the cost)
  *   - offer proposals: google / flash-pro (Gemini 3.5 Flash; Flash-Lite named offers by category, 2026-10-24 replay)
  */
 const src = (p: string) => readFileSync(resolve(__dirname, '../../src/services', p), 'utf-8');
 
 describe('onboarding LLM calls run on Gemini', () => {
-  it('the suggest (Hormozi) draft runs on anthropic/opus at effort medium (owner 2026-10-12)', () => {
-    expect(src('fieldExtractionService.ts')).toMatch(
-      /SUGGEST_MODEL_PARAMS = \{\s*provider: 'anthropic' as const,\s*model: 'opus' as const,\s*effort: 'medium' as const,/,
-    );
-  });
+  it.each([['fieldExtractionService.ts'], ['multiBrandFieldExtractionService.ts']])(
+    '%s: the suggest (Hormozi) draft names no model, the Rating picks it (OFFER-FIELDS-NO-OPUS-1112)',
+    (file) => {
+      const code = src(file);
+      expect(code).not.toMatch(/model: '(opus|fable|sonnet|haiku)'/);
+      expect(code).not.toMatch(/provider: 'anthropic'/);
+      expect(code).not.toContain('SUGGEST_MODEL_PARAMS');
+      expect(code).toContain('pickOfferFieldsLlm');
+      expect(code).toContain('suggestModelParams(llm!)');
+    },
+  );
 
   it.each([
     ['offerProposalService.ts'],

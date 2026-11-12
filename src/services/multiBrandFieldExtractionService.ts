@@ -8,7 +8,9 @@
 
 import crypto from 'crypto';
 import { eq, gt, sql, and } from 'drizzle-orm';
-import { extractFields, getBrand, buildFieldsResponseSchema, SUGGEST_MODEL_PARAMS, ANTHROPIC_MAX_UNION_PARAMS, chunkFieldsForAnthropic, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
+import type { PickedLlm } from '../lib/llm-pick-client';
+import { pickOfferFieldsLlm, suggestModelParams } from '../lib/offer-fields-llm';
+import { extractFields, getBrand, buildFieldsResponseSchema, ANTHROPIC_MAX_UNION_PARAMS, chunkFieldsForAnthropic, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
 import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
 import { brandSetupSupport } from '../lib/platform-support';
 import { withOwnRun } from '../lib/own-run';
@@ -239,11 +241,14 @@ async function consolidateFields(
   byBrand: Record<string, Record<string, unknown>>,
   chatCaller: ChatCaller,
   mode: ExtractionMode = 'extract',
+  suggestLlm?: PickedLlm,
 ): Promise<Record<string, unknown>> {
-  // Suggest runs on Opus (SUGGEST_MODEL_PARAMS): batch to Anthropic's union cap.
+  // Suggest runs on the Rating's pick (OFFER-FIELDS-NO-OPUS-1112), once per consolidation; it may be Claude,
+  // so batch to Anthropic's union cap.
+  const llm = mode === 'suggest' ? (suggestLlm ?? (await pickOfferFieldsLlm(chatCaller, 'consolidate'))) : undefined;
   if (mode === 'suggest' && fieldKeys.length > ANTHROPIC_MAX_UNION_PARAMS) {
     const parts = await Promise.all(
-      chunkFieldsForAnthropic(fieldKeys).map((chunk) => consolidateFields(chunk, byBrand, chatCaller, mode)),
+      chunkFieldsForAnthropic(fieldKeys).map((chunk) => consolidateFields(chunk, byBrand, chatCaller, mode, llm)),
     );
     return Object.assign({}, ...parts);
   }
@@ -281,7 +286,7 @@ async function consolidateFields(
           ? ` NEVER return "Unknown", null, or empty values — always produce a best-effort merged value.`
           : ''),
       ...(mode === 'suggest'
-        ? SUGGEST_MODEL_PARAMS
+        ? suggestModelParams(llm!)
         : { provider: 'google' as const, model: 'flash-pro' as const, maxTokens: 24000 }),
       responseFormat: 'json',
       // Strict schema enforces the output shape server-side so the model can't

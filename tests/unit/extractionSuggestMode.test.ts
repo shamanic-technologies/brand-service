@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import crypto from 'crypto';
 
 const { mockChat } = vi.hoisted(() => ({ mockChat: vi.fn() }));
+const { mockPick } = vi.hoisted(() => ({ mockPick: vi.fn() }));
+
+vi.mock('../../src/lib/llm-pick-client', () => ({
+  pickLlm: (...args: unknown[]) => mockPick(...args),
+}));
+
+const RATED = { provider: 'deepseek', model: 'deepseek-flash', name: 'DeepSeek V4.1 Flash' };
 
 // db throws at import time without a DB url; the pure functions under test
 // (hashFieldDescription) and extractFieldsFromContent (chat-only) never touch it.
@@ -64,6 +71,7 @@ describe('extractFieldsFromContent — mode selects the prompt persona', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockChat.mockResolvedValue({ json: { dreamOutcome: 'x' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
+    mockPick.mockResolvedValue(RATED);
   });
 
   it('default (omitted) mode = extract: keeps the "Unknown" contract, no sampling params', async () => {
@@ -103,19 +111,39 @@ describe('extractFieldsFromContent — mode selects the prompt persona', () => {
   });
 
   it.each(['landing', 'url_map'] as const)(
-    'suggest mode (%s) runs on anthropic/opus at effort medium, thinking not disabled (owner 2026-10-12)',
+    'suggest mode (%s) runs on the LLM the Rating picked, never a model named in code (OFFER-FIELDS-NO-OPUS-1112)',
     async (strategy) => {
       await extractFieldsFromContent(pages, fields, caller, null, null, strategy, 'suggest');
+      expect(mockPick).toHaveBeenCalledTimes(1);
+      expect(mockPick.mock.calls[0][0]).toEqual({
+        outcome: 'offer_fields_drafted',
+        place: 'draft',
+        runId: caller.runId,
+        campaignId: undefined,
+      });
       const params = mockChat.mock.calls[0][0];
-      expect(params.provider).toBe('anthropic');
-      expect(params.model).toBe('opus');
-      expect(params.effort).toBe('medium');
+      expect(params.provider).toBe('deepseek');
+      expect(params.model).toBe('deepseek-flash');
+      expect(params.effort).toBeUndefined();
       expect(params.disableThinking).toBeUndefined();
       expect(params.temperature).toBeUndefined();
       expect(params.maxTokens).toBe(24000);
       expect(params.responseSchema).toBeDefined();
     },
   );
+
+  it('suggest mode: an unanswered Rating fails loud, no chat call on a default model', async () => {
+    mockPick.mockRejectedValueOnce(new Error('The LLM Rating (features-service) gave no LLM'));
+    await expect(extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'suggest')).rejects.toThrow(
+      'gave no LLM',
+    );
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('extract mode never asks the Rating', async () => {
+    await extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'extract');
+    expect(mockPick).not.toHaveBeenCalled();
+  });
 
   it.each(['landing', 'url_map'] as const)('extract mode (%s) stays on google/flash-pro, no effort', async (strategy) => {
     await extractFieldsFromContent(pages, fields, caller, null, null, strategy, 'extract');

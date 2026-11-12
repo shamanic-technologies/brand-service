@@ -19,6 +19,8 @@ import { eq, and, gt, inArray, sql, isNull, asc } from 'drizzle-orm';
 import { db, brands, brandExtractedFields, brandOffers, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import { OfferNotFoundError } from './brandOffersService';
 import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
+import type { PickedLlm } from '../lib/llm-pick-client';
+import { pickOfferFieldsLlm, suggestModelParams } from '../lib/offer-fields-llm';
 import {
   mapSiteUrls,
   scrapeUrl,
@@ -228,9 +230,9 @@ export function hashFieldDescription(
   mode: ExtractionMode = 'extract',
   offerId?: string | null,
 ): string {
-  // The suggest salt names the model that writes it: a draft cached from the
-  // old Gemini tier must not be served once suggest runs on Opus (owner,
-  // 2026-10-12, "too weak"), so the salt moved and those slots stopped matching.
+  // The suggest salt names WHO picks the model: `llm-rating` since the Rating
+  // picks it (OFFER-FIELDS-NO-OPUS-1112), so drafts cached from the Opus era
+  // (`opus-medium`) stopped matching on deploy.
   //
   // A suggest draft is grounded in ONE offer's confirmed words (the profile
   // block), so a named offer salts the key too: without it a brand's second
@@ -389,21 +391,6 @@ export const EXTRACTION_PROVIDER = 'google' as const;
 export const ANTHROPIC_MAX_UNION_PARAMS = 16;
 
 /**
- * The `suggest` (Hormozi) draft, onboarding and new-offer setup, runs on
- * Claude Opus 5.5 at thinking effort `medium` (owner, 2026-10-12: "Mets Opus en
- * medium"; the Gemini Flash draft was too weak). `extract` stays on
- * EXTRACTION_PROVIDER / flash-pro. No `disableThinking` here: it would floor
- * the effort to `low`. maxTokens covers thinking + the JSON answer and is what
- * chat-service provisions against, so it stays bounded.
- */
-export const SUGGEST_MODEL_PARAMS = {
-  provider: 'anthropic' as const,
-  model: 'opus' as const,
-  effort: 'medium' as const,
-  maxTokens: 24000,
-};
-
-/**
  * Split a field list into batches Anthropic accepts as one structured-output
  * schema (one union-typed parameter per field, capped at 16). Every batch is
  * asked in full and the answers merged, so no field is dropped.
@@ -438,11 +425,15 @@ export async function extractFieldsFromContent(
   profileContext: string | null,
   urlStrategy: UrlStrategy,
   mode: ExtractionMode = 'extract',
+  suggestLlm?: PickedLlm,
 ): Promise<Record<string, unknown>> {
+  // `suggest`: the Rating picks the LLM, ONCE per draft (OFFER-FIELDS-NO-OPUS-1112, lib/offer-fields-llm.ts).
+  const llm = mode === 'suggest' ? (suggestLlm ?? (await pickOfferFieldsLlm(chatCaller, 'draft'))) : undefined;
+  // The picked LLM may be Claude, which refuses > 16 union-typed params in one schema: batch every draft.
   if (mode === 'suggest' && fields.length > ANTHROPIC_MAX_UNION_PARAMS) {
     const parts = await Promise.all(
       chunkFieldsForAnthropic(fields).map((chunk) =>
-        extractFieldsFromContent(pageContents, chunk, chatCaller, campaignContext, profileContext, urlStrategy, mode),
+        extractFieldsFromContent(pageContents, chunk, chatCaller, campaignContext, profileContext, urlStrategy, mode, llm),
       ),
     );
     return Object.assign({}, ...parts);
@@ -472,8 +463,8 @@ export async function extractFieldsFromContent(
     : '';
 
   // `extract`: both strategies run on flash-pro (Gemini 3.8 Flash), provider
-  // `google`. `suggest` runs on Opus at effort medium (SUGGEST_MODEL_PARAMS),
-  // its fields batched to Anthropic's union cap above.
+  // `google`. `suggest` runs on the LLM the Rating picked (`llm`), its fields
+  // batched to Anthropic's union cap above.
   //
   // NOT on Claude: the cold-email workflows ask for 19 fields in one call, and
   // every field's schema is a union (string OR string[]). Anthropic refuses a
@@ -558,7 +549,7 @@ export async function extractFieldsFromContent(
 
   const result = await chat(
     mode === 'suggest'
-      ? { systemPrompt, message, responseFormat: 'json', responseSchema, ...SUGGEST_MODEL_PARAMS }
+      ? { systemPrompt, message, responseFormat: 'json', responseSchema, ...suggestModelParams(llm!) }
       : {
           systemPrompt,
           message,
