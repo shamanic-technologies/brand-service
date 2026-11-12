@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { mockChat } = vi.hoisted(() => ({ mockChat: vi.fn() }));
+const { mockPick } = vi.hoisted(() => ({ mockPick: vi.fn() }));
+
+vi.mock('../../src/lib/llm-pick-client', () => ({
+  pickLlm: (...args: unknown[]) => mockPick(...args),
+}));
+
+const RATED = { provider: 'anthropic', model: 'claude-sonnet', name: 'Claude Sonnet 5.5' };
 
 vi.mock('../../src/db', () => ({
   db: {},
@@ -45,6 +52,8 @@ describe('field extraction never sends a schema its provider refuses', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockChat.mockResolvedValue({ json: {}, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
+    // The Rating may pick a Claude: the union cap must hold whatever it picks.
+    mockPick.mockResolvedValue(RATED);
   });
 
   it('the 19-field cold-email request exceeds Anthropic\'s union limit', () => {
@@ -67,18 +76,21 @@ describe('field extraction never sends a schema its provider refuses', () => {
     }
   });
 
-  it.each([1, 7, 16, 17, 19, 40])('suggest mode, %i fields: Opus, every call within the union cap, every field asked once', async (n) => {
+  it.each([1, 7, 16, 17, 19, 40])('suggest mode, %i fields: ONE Rating pick, every call on it within the union cap, every field asked once', async (n) => {
     for (const strategy of ['landing', 'url_map'] as const) {
       mockChat.mockClear();
+      mockPick.mockClear();
       mockChat.mockImplementation(async (p: { responseSchema: { required: string[] } }) => ({
         json: Object.fromEntries(p.responseSchema.required.map((k) => [k, `v-${k}`])),
         content: '', tokensInput: 1, tokensOutput: 1, model: 'm',
       }));
       const out = await extractFieldsFromContent(pages, fieldsOf(n), caller, null, null, strategy, 'suggest');
       expect(mockChat).toHaveBeenCalledTimes(Math.ceil(n / ANTHROPIC_MAX_UNION_PARAMS));
+      expect(mockPick).toHaveBeenCalledTimes(1);
       const asked: string[] = [];
       for (const [params] of mockChat.mock.calls) {
         expect(params.provider).toBe('anthropic');
+        expect(params.model).toBe('claude-sonnet');
         expect(unionParamCount(params.responseSchema)).toBeLessThanOrEqual(ANTHROPIC_MAX_UNION_PARAMS);
         asked.push(...params.responseSchema.required);
       }

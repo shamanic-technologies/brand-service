@@ -57,13 +57,18 @@ vi.mock('drizzle-orm', () => ({
   sql: vi.fn(),
 }));
 
+// The Rating's pick (OFFER-FIELDS-NO-OPUS-1112): suggest consolidation asks it, never names a model.
+const { mockPick } = vi.hoisted(() => ({ mockPick: vi.fn() }));
+vi.mock('../../src/lib/llm-pick-client', () => ({
+  pickLlm: (...args: unknown[]) => mockPick(...args),
+}));
+
 // Mock the field extraction service to avoid DB calls
 vi.mock('../../src/services/fieldExtractionService', () => ({
   extractFields: vi.fn(),
   getBrand: vi.fn(),
   // consolidateFields builds a strict responseSchema from the real helper.
   buildFieldsResponseSchema: (keys: string[]) => ({ type: 'object', properties: {}, required: keys }),
-  SUGGEST_MODEL_PARAMS: { provider: 'anthropic', model: 'opus', effort: 'medium', maxTokens: 24000 },
   ANTHROPIC_MAX_UNION_PARAMS: 16,
   chunkFieldsForAnthropic: <T>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / 16) }, (_, i) => xs.slice(i * 16, i * 16 + 16)),
 }));
@@ -231,9 +236,11 @@ describe('multiBrandExtractFields', () => {
 
   it.each([
     ['extract', 'google', 'flash-pro', undefined],
-    ['suggest', 'anthropic', 'opus', 'medium'],
+    ['suggest', 'zai', 'glm-flash', undefined],
   ] as const)('consolidation in %s mode runs on %s/%s (effort %s)', async (mode, provider, model, effort) => {
     mockDbCacheMiss();
+    mockPick.mockReset();
+    mockPick.mockResolvedValue({ provider: 'zai', model: 'glm-flash', name: 'GLM-5.3 Flash' });
     mockedGetBrand
       .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
       .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
@@ -254,6 +261,12 @@ describe('multiBrandExtractFields', () => {
     expect(params.model).toBe(model);
     expect(params.effort).toBe(effort);
     expect(params.maxTokens).toBe(24000);
+    if (mode === 'suggest') {
+      expect(mockPick).toHaveBeenCalledTimes(1);
+      expect(mockPick.mock.calls[0][0]).toMatchObject({ outcome: 'offer_fields_drafted', place: 'consolidate' });
+    } else {
+      expect(mockPick).not.toHaveBeenCalled();
+    }
   });
 
   it('internal (platform) consolidation: no run of ours, so the platform call declares brand_setup support', async () => {
