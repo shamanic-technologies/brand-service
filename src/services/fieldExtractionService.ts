@@ -20,7 +20,7 @@ import { db, brands, brandExtractedFields, brandOffers, orgBrands, pageScrapeCac
 import { OfferNotFoundError } from './brandOffersService';
 import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
 import type { PickedLlm } from '../lib/llm-pick-client';
-import { pickOfferFieldsLlm, suggestModelParams } from '../lib/offer-fields-llm';
+import { pickOfferFieldsLlm, suggestModelParams, OFFER_FIELDS_DRAFT_TASK, offerFieldsDraftedUnit } from '../lib/offer-fields-llm';
 import {
   mapSiteUrls,
   scrapeUrl,
@@ -28,7 +28,7 @@ import {
 } from '../lib/scraping-client';
 import { getRootDomainUrl, keepBrandDomainUrls } from '../lib/brand-domain';
 import { probeWellKnownSubdomains } from './scrapeOrchestrator';
-import { createRun, updateRun } from '../lib/runs-client';
+import { createRun, updateRun, declareProducedOutcomes } from '../lib/runs-client';
 import { getCampaignFeatureInputs } from '../lib/campaign-client';
 import { traceEvent } from '../lib/trace-event';
 import { brandProfileService } from './brandProfileService';
@@ -240,8 +240,8 @@ export function hashFieldDescription(
   // 2026-10-12). Extract keys stay byte-identical.
   if (mode !== 'suggest') return crypto.createHash('md5').update(description).digest('hex');
   const input = offerId
-    ? `mode:suggest:opus-medium offer:${offerId} ${description}`
-    : `mode:suggest:opus-medium ${description}`;
+    ? `mode:suggest:llm-rating offer:${offerId} ${description}`
+    : `mode:suggest:llm-rating ${description}`;
   return crypto.createHash('md5').update(input).digest('hex');
 }
 
@@ -828,7 +828,9 @@ export async function extractFields(
     brandId,
     campaignId: campaignIdForRun,
     serviceName: 'brand-service',
-    taskName: 'field-extraction',
+    // A suggest draft PRODUCES an `offer_fields_drafted` Unit (production run,
+    // no support mark); an extraction is brand setup (support).
+    taskName: mode === 'suggest' ? OFFER_FIELDS_DRAFT_TASK : 'field-extraction',
     parentRunId,
     workflowSlug,
     audienceId,
@@ -1171,6 +1173,16 @@ export async function extractFields(
       value: extracted[f.key] ?? null,
     }));
     await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, mode, campaignIdForRun, options.offerId);
+
+    // 7b. A stored suggest draft is ONE Unit of the « Offer fields drafted »
+    // Engine, on the run that asked the Rating for its LLM: the Rating's
+    // success signal (OFFER-FIELDS-NO-OPUS-1112). Fail loud.
+    if (mode === 'suggest') {
+      await declareProducedOutcomes(run.id, [offerFieldsDraftedUnit(brandId, options.offerId)], {
+        orgId: trackingOrgId,
+        userId: trackingUserId,
+      });
+    }
 
     // 8. Complete run
     try {

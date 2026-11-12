@@ -39,6 +39,17 @@ export const LIVE_SUPPORT_TASKS: Readonly<Record<string, SupportFunction>> = {
   'offer-image-generation': 'brand_setup',
 };
 
+/**
+ * Tasks that PRODUCE a catalogue outcome: never support-marked, they declare it
+ * on their own run (runs-service refuses a declaration on a support run, 409).
+ * `offer-fields-draft` = the `suggest` (Hormozi) draft of one offer's fields,
+ * whose LLM the Rating picks (OFFER-FIELDS-NO-OPUS-1112, owner 2026-11-12):
+ * one `offer_fields_drafted` Unit per stored draft, the Rating's success signal.
+ */
+export const PRODUCTION_TASKS: Readonly<Record<string, string>> = {
+  'offer-fields-draft': 'offer_fields_drafted',
+};
+
 /** Tasks brand-service opened in the past and no longer opens (backfill only). */
 export const PAST_SUPPORT_TASKS: Readonly<Record<string, SupportFunction>> = {
   'sales-profile-extraction': 'brand_setup',
@@ -73,6 +84,7 @@ export function reasonFor(kind: SupportFunction): string {
  */
 export function supportForRun(serviceName: string, taskName: string): RunSupport | undefined {
   if (serviceName !== BRAND_SERVICE_NAME) return undefined;
+  if (PRODUCTION_TASKS[taskName]) return undefined;
   const kind = ALL_SUPPORT_TASKS[taskName];
   if (!kind) throw new UnclassifiedBrandServiceTaskError(taskName);
   return { kind, reason: reasonFor(kind) };
