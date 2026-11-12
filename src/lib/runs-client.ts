@@ -112,9 +112,9 @@ export interface ListRunsParams {
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string; audienceId?: string } = {}
+  options: { method?: string; body?: unknown; orgId?: string; userId?: string; runId?: string; campaignId?: string; featureSlug?: string; brandIdHeader?: string; workflowSlug?: string; audienceId?: string; serviceName?: string } = {}
 ): Promise<T> {
-  const { method = "GET", body, orgId, userId, runId, campaignId, featureSlug, brandIdHeader, workflowSlug, audienceId } = options;
+  const { method = "GET", body, orgId, userId, runId, campaignId, featureSlug, brandIdHeader, workflowSlug, audienceId, serviceName } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -145,6 +145,9 @@ async function runsRequest<T>(
   if (audienceId) {
     headers["x-audience-id"] = audienceId;
   }
+  if (serviceName) {
+    headers["x-service-name"] = serviceName;
+  }
 
   const response = await fetchWithRetry(`${RUNS_SERVICE_URL}${path}`, {
     method,
@@ -173,6 +176,34 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
     userId,
     runId: parentRunId,
     audienceId,
+  });
+}
+
+/** One occurrence a run PRODUCED (runs-service outcome ledger). */
+export interface ProducedOccurrence {
+  outcomeKey: string;
+  subjectService: string;
+  subjectId: string;
+}
+
+/**
+ * Declare what a brand-service PRODUCTION run produced (runs-service
+ * `POST /v1/runs/{id}/outcomes`, the org door: x-org-id = the run's org,
+ * x-service-name = brand-service). Only a run that is NOT support-marked may
+ * declare (`PRODUCTION_TASKS` in support-functions.ts). Idempotent per
+ * occurrence on runs-service's side; any failure throws (fail loud).
+ */
+export async function declareProducedOutcomes(
+  runId: string,
+  produced: ProducedOccurrence[],
+  identity: { orgId: string; userId?: string },
+): Promise<unknown> {
+  return runsRequest<unknown>(`/v1/runs/${runId}/outcomes`, {
+    method: "POST",
+    body: { produced },
+    orgId: identity.orgId,
+    userId: identity.userId,
+    serviceName: "brand-service",
   });
 }
 
