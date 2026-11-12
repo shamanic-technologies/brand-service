@@ -10,6 +10,7 @@
  */
 
 import { fetchWithRetry } from './fetch-with-retry';
+import type { ChatProvider } from './llm-pick-client';
 import type { PlatformSupport } from './platform-support';
 
 export type { PlatformSupport, PlatformSupportKind } from './platform-support';
@@ -29,17 +30,13 @@ export interface ChatParams {
    * sampling params: `temperature` != 1 and `top_p` both 400 with
    * `unsupported_value`. Never send `temperature` on an `openai` call.
    */
-  provider: 'google' | 'anthropic' | 'openai';
-  /** Model tier — chat-service resolves the versioned model internally. */
-  model:
-    | 'flash'
-    | 'flash-lite'
-    | 'flash-pro'
-    | 'pro'
-    | 'sonnet'
-    | 'haiku'
-    | 'opus'
-    | 'gpt-pro';
+  provider: ChatProvider;
+  /**
+   * Model tier or LLM dynasty slug — chat-service resolves the versioned model
+   * internally. A model the Rating picked (`lib/llm-pick-client.ts`) is a
+   * dynasty slug; a hand-written one is a legacy alias (`flash-pro`).
+   */
+  model: string;
   responseFormat?: 'json';
   /**
    * Optional JSON Schema describing the exact shape of the expected response.
