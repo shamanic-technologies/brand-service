@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { mockChat } = vi.hoisted(() => ({ mockChat: vi.fn() }));
-const { mockPick } = vi.hoisted(() => ({ mockPick: vi.fn() }));
+const { mockMake } = vi.hoisted(() => ({ mockMake: vi.fn() }));
 
-vi.mock('../../src/lib/llm-pick-client', () => ({
-  pickLlm: (...args: unknown[]) => mockPick(...args),
+vi.mock('../../src/lib/engine-make-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/lib/engine-make-client')>()),
+  makeFieldsDraft: (...args: unknown[]) => mockMake(...args),
 }));
-
-const RATED = { provider: 'anthropic', model: 'claude-sonnet', name: 'Claude Sonnet 5.5' };
 
 vi.mock('../../src/db', () => ({
   db: {},
@@ -24,6 +23,7 @@ vi.mock('../../src/lib/chat-client', () => ({
 
 import {
   extractFieldsFromContent,
+  draftFieldsFromContent,
   buildFieldsResponseSchema,
   ANTHROPIC_MAX_UNION_PARAMS,
 } from '../../src/services/fieldExtractionService';
@@ -52,8 +52,6 @@ describe('field extraction never sends a schema its provider refuses', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockChat.mockResolvedValue({ json: {}, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
-    // The Rating may pick a Claude: the union cap must hold whatever it picks.
-    mockPick.mockResolvedValue(RATED);
   });
 
   it('the 19-field cold-email request exceeds Anthropic\'s union limit', () => {
@@ -76,26 +74,32 @@ describe('field extraction never sends a schema its provider refuses', () => {
     }
   });
 
-  it.each([1, 7, 16, 17, 19, 40])('suggest mode, %i fields: ONE Rating pick, every call on it within the union cap, every field asked once', async (n) => {
-    for (const strategy of ['landing', 'url_map'] as const) {
-      mockChat.mockClear();
-      mockPick.mockClear();
-      mockChat.mockImplementation(async (p: { responseSchema: { required: string[] } }) => ({
-        json: Object.fromEntries(p.responseSchema.required.map((k) => [k, `v-${k}`])),
-        content: '', tokensInput: 1, tokensOutput: 1, model: 'm',
-      }));
-      const out = await extractFieldsFromContent(pages, fieldsOf(n), caller, null, null, strategy, 'suggest');
-      expect(mockChat).toHaveBeenCalledTimes(Math.ceil(n / ANTHROPIC_MAX_UNION_PARAMS));
-      expect(mockPick).toHaveBeenCalledTimes(1);
-      const asked: string[] = [];
-      for (const [params] of mockChat.mock.calls) {
-        expect(params.provider).toBe('anthropic');
-        expect(params.model).toBe('claude-sonnet');
-        expect(unionParamCount(params.responseSchema)).toBeLessThanOrEqual(ANTHROPIC_MAX_UNION_PARAMS);
-        asked.push(...params.responseSchema.required);
-      }
-      expect(asked.sort()).toEqual(fieldsOf(n).map((f) => f.key).sort());
-      expect(Object.keys(out).sort()).toEqual(fieldsOf(n).map((f) => f.key).sort());
+  it.each([1, 7, 16, 17, 19, 40])('suggest mode, %i fields: ONE make, every call within the union cap (the script may write with a Claude), every field asked once', async (n) => {
+    mockMake.mockReset();
+    mockMake.mockImplementation(async (req: { calls: Array<{ responseSchema: { required: string[] } }> }) => ({
+      scriptRunId: 'script-run',
+      scriptSlug: 's',
+      answers: req.calls.map((c) => ({
+        place: 'draft',
+        json: Object.fromEntries(c.responseSchema.required.map((k) => [k, `v-${k}`])),
+        content: null,
+        model: 'm',
+      })),
+    }));
+    const out = await draftFieldsFromContent(pages, fieldsOf(n), null, null, {
+      outcome: 'offer_fields_drafted', identity: { runId: 'r' }, billing: 'platform',
+    });
+    expect(mockMake).toHaveBeenCalledTimes(1);
+    const calls = mockMake.mock.calls[0][0].calls;
+    expect(calls).toHaveLength(Math.ceil(n / ANTHROPIC_MAX_UNION_PARAMS));
+    const asked: string[] = [];
+    for (const call of calls) {
+      expect(call.provider).toBeUndefined();
+      expect(unionParamCount(call.responseSchema)).toBeLessThanOrEqual(ANTHROPIC_MAX_UNION_PARAMS);
+      asked.push(...call.responseSchema.required);
     }
+    expect(asked.sort()).toEqual(fieldsOf(n).map((f) => f.key).sort());
+    expect(Object.keys(out.fields).sort()).toEqual(fieldsOf(n).map((f) => f.key).sort());
+    expect(mockChat).not.toHaveBeenCalled();
   });
 });

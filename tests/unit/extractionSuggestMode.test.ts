@@ -2,13 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import crypto from 'crypto';
 
 const { mockChat } = vi.hoisted(() => ({ mockChat: vi.fn() }));
-const { mockPick } = vi.hoisted(() => ({ mockPick: vi.fn() }));
+const { mockMake } = vi.hoisted(() => ({ mockMake: vi.fn() }));
 
-vi.mock('../../src/lib/llm-pick-client', () => ({
-  pickLlm: (...args: unknown[]) => mockPick(...args),
+vi.mock('../../src/lib/engine-make-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/lib/engine-make-client')>()),
+  makeFieldsDraft: (...args: unknown[]) => mockMake(...args),
 }));
-
-const RATED = { provider: 'deepseek', model: 'deepseek-flash', name: 'DeepSeek V4.1 Flash' };
 
 // db throws at import time without a DB url; the pure functions under test
 // (hashFieldDescription) and extractFieldsFromContent (chat-only) never touch it.
@@ -28,6 +27,7 @@ vi.mock('../../src/lib/chat-client', () => ({
 import {
   hashFieldDescription,
   extractFieldsFromContent,
+  draftFieldsFromContent,
 } from '../../src/services/fieldExtractionService';
 import type { PlatformCaller } from '../../src/lib/chat-client';
 
@@ -67,86 +67,72 @@ describe('hashFieldDescription — mode isolates cache slots', () => {
   });
 });
 
-describe('extractFieldsFromContent — mode selects the prompt persona', () => {
+const make = {
+  outcome: 'offer_fields_drafted',
+  identity: { runId: 'our-run', orgId: 'org-1' },
+  billing: 'org' as const,
+  subject: { service: 'brand-service', id: 'offer-1' },
+};
+
+describe('extract vs suggest: who writes and with which prompt', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockChat.mockResolvedValue({ json: { dreamOutcome: 'x' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
-    mockPick.mockResolvedValue(RATED);
+    mockMake.mockImplementation(async (req: { calls: unknown[] }) => ({
+      scriptRunId: 'script-run',
+      scriptSlug: 'script:offer_fields_drafted/dy_fields_draft',
+      answers: req.calls.map(() => ({ place: 'draft', json: { dreamOutcome: 'x' }, content: null, model: 'm' })),
+    }));
   });
 
-  it('default (omitted) mode = extract: keeps the "Unknown" contract, no sampling params', async () => {
+  it('extract: keeps the "Unknown" contract, no sampling params, no Hormozi persona', async () => {
     await extractFieldsFromContent(pages, fields, caller, null, null, 'landing');
     const params = mockChat.mock.calls[0][0];
     expect(params.systemPrompt).toContain('brand information extraction assistant');
     expect(params.systemPrompt).toContain('"Unknown"');
-    // no sampling params — Astra rejects them
     expect(params.temperature).toBeUndefined();
-    // extract prompt does NOT invoke the generative persona
     expect(params.systemPrompt).not.toContain('Hormozi');
+    expect(mockMake).not.toHaveBeenCalled();
   });
 
-  it('extract mode explicit: byte-identical system prompt to the default', async () => {
-    await extractFieldsFromContent(pages, fields, caller, null, null, 'landing');
-    const dflt = mockChat.mock.calls[0][0].systemPrompt;
-    vi.clearAllMocks();
-    mockChat.mockResolvedValue({ json: { dreamOutcome: 'x' }, content: '', tokensInput: 1, tokensOutput: 1, model: 'm' });
-    await extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'extract');
-    expect(mockChat.mock.calls[0][0].systemPrompt).toBe(dflt);
-  });
-
-  it('suggest mode: Hormozi + top-3-expert persona, NEVER "Unknown", no sampling params, keeps the date guard', async () => {
-    await extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'suggest');
-    const params = mockChat.mock.calls[0][0];
-    expect(params.systemPrompt).toContain('Hormozi');
-    expect(params.systemPrompt).toContain('top 3 experts');
-    expect(params.systemPrompt).toContain('NEVER return "Unknown"');
-    // no sampling params — Astra rejects them
-    expect(params.temperature).toBeUndefined();
-    // date guard preserved in both modes (today's date is injected)
+  it('suggest: Hormozi + top-3-expert persona, NEVER "Unknown", no sampling params, keeps the date guard', async () => {
+    await draftFieldsFromContent(pages, fields, null, null, make);
+    const call = mockMake.mock.calls[0][0].calls[0];
+    expect(call.systemPrompt).toContain('Hormozi');
+    expect(call.systemPrompt).toContain('top 3 experts');
+    expect(call.systemPrompt).toContain('NEVER return "Unknown"');
+    expect(call.temperature).toBeUndefined();
     const today = new Date().toISOString().slice(0, 10);
-    expect(params.systemPrompt).toContain(today);
-    // suggest must NOT tell the model to RETURN "Unknown" for absent info
-    expect(params.systemPrompt).not.toContain('return the string "Unknown"');
-    expect(params.message).not.toContain('return the string "Unknown"');
+    expect(call.systemPrompt).toContain(today);
+    expect(call.systemPrompt).not.toContain('return the string "Unknown"');
+    expect(call.message).not.toContain('return the string "Unknown"');
   });
 
-  it.each(['landing', 'url_map'] as const)(
-    'suggest mode (%s) runs on the LLM the Rating picked, never a model named in code (OFFER-FIELDS-NO-OPUS-1112)',
-    async (strategy) => {
-      await extractFieldsFromContent(pages, fields, caller, null, null, strategy, 'suggest');
-      expect(mockPick).toHaveBeenCalledTimes(1);
-      expect(mockPick.mock.calls[0][0]).toEqual({
-        outcome: 'offer_fields_drafted',
-        place: 'draft',
-        runId: caller.runId,
-        campaignId: undefined,
-      });
-      const params = mockChat.mock.calls[0][0];
-      expect(params.provider).toBe('deepseek');
-      expect(params.model).toBe('deepseek-flash');
-      expect(params.effort).toBeUndefined();
-      expect(params.disableThinking).toBeUndefined();
-      expect(params.temperature).toBeUndefined();
-      expect(params.maxTokens).toBe(24000);
-      expect(params.responseSchema).toBeDefined();
-    },
-  );
+  it('suggest: the Engine makes the draft (SCRIPT-VALUE-RATING-1113-WF3): no chat call, no LLM named, its run answered', async () => {
+    const out = await draftFieldsFromContent(pages, fields, null, null, make);
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(mockMake).toHaveBeenCalledTimes(1);
+    const req = mockMake.mock.calls[0][0];
+    expect(req).toMatchObject({ outcome: 'offer_fields_drafted', identity: make.identity, billing: 'org', subject: make.subject });
+    const call = req.calls[0];
+    expect(call.place).toBe('draft');
+    expect(call.provider).toBeUndefined();
+    expect(call.model).toBeUndefined();
+    expect(call.disableThinking).toBeUndefined();
+    expect(call.maxTokens).toBe(24000);
+    expect(call.responseFormat).toBe('json');
+    expect(call.responseSchema).toBeDefined();
+    expect(out).toEqual({ fields: { dreamOutcome: 'x' }, scriptRunId: 'script-run' });
+  });
 
-  it('suggest mode: an unanswered Rating fails loud, no chat call on a default model', async () => {
-    mockPick.mockRejectedValueOnce(new Error('The LLM Rating (features-service) gave no LLM'));
-    await expect(extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'suggest')).rejects.toThrow(
-      'gave no LLM',
-    );
+  it('suggest: an Engine that makes no draft fails loud, no chat call on a model of ours', async () => {
+    mockMake.mockRejectedValueOnce(new Error('The « offer_fields_drafted » Engine made no draft: HTTP 404'));
+    await expect(draftFieldsFromContent(pages, fields, null, null, make)).rejects.toThrow('made no draft');
     expect(mockChat).not.toHaveBeenCalled();
   });
 
-  it('extract mode never asks the Rating', async () => {
-    await extractFieldsFromContent(pages, fields, caller, null, null, 'landing', 'extract');
-    expect(mockPick).not.toHaveBeenCalled();
-  });
-
   it.each(['landing', 'url_map'] as const)('extract mode (%s) stays on google/flash-pro, no effort', async (strategy) => {
-    await extractFieldsFromContent(pages, fields, caller, null, null, strategy, 'extract');
+    await extractFieldsFromContent(pages, fields, caller, null, null, strategy);
     const params = mockChat.mock.calls[0][0];
     expect(params.provider).toBe('google');
     expect(params.model).toBe('flash-pro');

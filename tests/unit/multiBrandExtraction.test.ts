@@ -39,6 +39,8 @@ vi.mock('../../src/lib/scraping-client', () => ({
 vi.mock('../../src/lib/runs-client', () => ({
   createRun: vi.fn().mockResolvedValue({ id: 'test-run-id' }),
   updateRun: vi.fn().mockResolvedValue(undefined),
+  createPlatformRun: vi.fn().mockResolvedValue({ id: 'platform-run-id' }),
+  updatePlatformRun: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../src/lib/campaign-client', () => ({
@@ -57,10 +59,11 @@ vi.mock('drizzle-orm', () => ({
   sql: vi.fn(),
 }));
 
-// The Rating's pick (OFFER-FIELDS-NO-OPUS-1112): suggest consolidation asks it, never names a model.
-const { mockPick } = vi.hoisted(() => ({ mockPick: vi.fn() }));
-vi.mock('../../src/lib/llm-pick-client', () => ({
-  pickLlm: (...args: unknown[]) => mockPick(...args),
+// SCRIPT-VALUE-RATING-1113-WF3: a suggest consolidation is made by a script of the « Offer fields drafted » Engine.
+const { mockMake } = vi.hoisted(() => ({ mockMake: vi.fn() }));
+vi.mock('../../src/lib/engine-make-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/lib/engine-make-client')>()),
+  makeFieldsDraft: (...args: unknown[]) => mockMake(...args),
 }));
 
 // Mock the field extraction service to avoid DB calls
@@ -69,7 +72,7 @@ vi.mock('../../src/services/fieldExtractionService', () => ({
   getBrand: vi.fn(),
   // consolidateFields builds a strict responseSchema from the real helper.
   buildFieldsResponseSchema: (keys: string[]) => ({ type: 'object', properties: {}, required: keys }),
-  ANTHROPIC_MAX_UNION_PARAMS: 16,
+  SUGGEST_MAX_TOKENS: 24000,
   chunkFieldsForAnthropic: <T>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / 16) }, (_, i) => xs.slice(i * 16, i * 16 + 16)),
 }));
 
@@ -241,13 +244,8 @@ describe('multiBrandExtractFields', () => {
     expect(mockInsert).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ['extract', 'google', 'flash-pro', undefined],
-    ['suggest', 'zai', 'glm-flash', undefined],
-  ] as const)('consolidation in %s mode runs on %s/%s (effort %s)', async (mode, provider, model, effort) => {
+  const twoBrands = () => {
     mockDbCacheMiss();
-    mockPick.mockReset();
-    mockPick.mockResolvedValue({ provider: 'zai', model: 'glm-flash', name: 'GLM-5.3 Flash' });
     mockedGetBrand
       .mockResolvedValueOnce({ id: 'brand-1', url: 'https://acme.com', name: 'Acme', domain: 'acme.com', orgId: 'org-1' })
       .mockResolvedValueOnce({ id: 'brand-2', url: 'https://finpay.io', name: 'FinPay', domain: 'finpay.io', orgId: 'org-1' });
@@ -255,25 +253,38 @@ describe('multiBrandExtractFields', () => {
       .mockResolvedValueOnce([{ key: 'industry', value: 'SaaS', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] }])
       .mockResolvedValueOnce([{ key: 'industry', value: 'FinTech', cached: false, extractedAt: '2024-01-01', expiresAt: '2024-02-01', sourceUrls: [] }]);
     mockedChat.mockResolvedValue({ content: '', json: { industry: 'merged' }, tokensInput: 1, tokensOutput: 1, model: 'm' });
+    mockMake.mockReset();
+    mockMake.mockResolvedValue({ scriptRunId: 'script-run', scriptSlug: 's', answers: [{ place: 'consolidate', json: { industry: 'merged' }, content: null, model: 'm' }] });
+  };
 
-    await multiBrandExtractFields({
-      brandIds: ['brand-1', 'brand-2'],
-      fields: [{ key: 'industry', description: 'test' }],
-      caller: orgCaller,
-      mode,
-    });
-
+  it('consolidation in extract mode runs on google/flash-pro, never the Engine', async () => {
+    twoBrands();
+    await multiBrandExtractFields({ brandIds: ['brand-1', 'brand-2'], fields: [{ key: 'industry', description: 'test' }], caller: orgCaller });
     const params = mockedChat.mock.calls[0][0];
-    expect(params.provider).toBe(provider);
-    expect(params.model).toBe(model);
-    expect(params.effort).toBe(effort);
+    expect(params.provider).toBe('google');
+    expect(params.model).toBe('flash-pro');
     expect(params.maxTokens).toBe(24000);
-    if (mode === 'suggest') {
-      expect(mockPick).toHaveBeenCalledTimes(1);
-      expect(mockPick.mock.calls[0][0]).toMatchObject({ outcome: 'offer_fields_drafted', place: 'consolidate' });
-    } else {
-      expect(mockPick).not.toHaveBeenCalled();
-    }
+    expect(mockMake).not.toHaveBeenCalled();
+  });
+
+  it('consolidation in suggest mode (org): made by the « Offer fields drafted » Engine on OUR run, billed to the org, no chat call', async () => {
+    twoBrands();
+    const result = await multiBrandExtractFields({ brandIds: ['brand-1', 'brand-2'], fields: [{ key: 'industry', description: 'test' }], caller: orgCaller, mode: 'suggest' });
+    expect(mockedChat).not.toHaveBeenCalled();
+    expect(mockMake).toHaveBeenCalledTimes(1);
+    const req = mockMake.mock.calls[0][0];
+    expect(req).toMatchObject({ outcome: 'offer_fields_drafted', billing: 'org', identity: { runId: 'test-run-id', orgId: 'org-1', userId: 'user-1' } });
+    expect(req.calls).toHaveLength(1);
+    expect(req.calls[0]).toMatchObject({ place: 'consolidate', responseFormat: 'json', maxTokens: 24000 });
+    expect(req.calls[0].provider).toBeUndefined();
+    expect(result.fields.industry.value).toBe('merged');
+  });
+
+  it('consolidation in suggest mode (internal): the script rides a platform run of ours, billed to the platform', async () => {
+    twoBrands();
+    await multiBrandExtractFields({ brandIds: ['brand-1', 'brand-2'], fields: [{ key: 'industry', description: 'test' }], caller: { mode: 'platform' }, mode: 'suggest' });
+    expect(mockedChat).not.toHaveBeenCalled();
+    expect(mockMake.mock.calls[0][0]).toMatchObject({ billing: 'platform', identity: { runId: 'platform-run-id' } });
   });
 
   it('internal (platform) consolidation: no run of ours, so the platform call declares brand_setup support', async () => {

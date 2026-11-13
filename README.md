@@ -296,7 +296,8 @@ See `.env.example` for all required variables:
 - `FIRECRAWL_API_KEY` - Web scraping
 - `SCRAPING_SERVICE_URL` / `SCRAPING_SERVICE_API_KEY` - Scraping service
 - `CHAT_SERVICE_URL` / `CHAT_SERVICE_API_KEY` - LLM completions (field extraction)
-- `FEATURES_SERVICE_URL` / `FEATURES_SERVICE_API_KEY` - step catalogue + the LLM Rating (`GET /internal/llm-pick`): picks the LLM of the offer-field and brand-field suggest drafts
+- `FEATURES_SERVICE_URL` / `FEATURES_SERVICE_API_KEY` - step catalogue
+- `WORKFLOW_SERVICE_URL` / `WORKFLOW_SERVICE_API_KEY` - the offer-field / brand-field suggest drafts are made by a script of their Engine (`POST /internal/engines/{outcome}/make`)
 - `RUNS_SERVICE_URL` / `RUNS_SERVICE_API_KEY` - Run tracking & cost management
 - `BILLING_SERVICE_URL` / `BILLING_SERVICE_API_KEY` - Credit authorization before paid ops
 - `CAMPAIGN_SERVICE_URL` / `CAMPAIGN_SERVICE_API_KEY` - Campaign context (featureInputs for LLM enrichment)

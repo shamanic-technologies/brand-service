@@ -14,12 +14,12 @@ import { eq } from 'drizzle-orm';
  *    that changes it makes it the client's.
  */
 
-const { mockChat, mockCreateRun, mockDeclare, mockUpdateRun, mockPickLlm } = vi.hoisted(() => ({
+const { mockChat, mockCreateRun, mockDeclare, mockUpdateRun, mockMake } = vi.hoisted(() => ({
   mockChat: vi.fn(),
   mockCreateRun: vi.fn(),
   mockDeclare: vi.fn(),
   mockUpdateRun: vi.fn(),
-  mockPickLlm: vi.fn(),
+  mockMake: vi.fn(),
 }));
 
 vi.mock('../../src/lib/chat-client', async (importOriginal) => ({
@@ -34,9 +34,9 @@ vi.mock('../../src/lib/runs-client', async (importOriginal) => ({
   declareProducedOutcomes: (...args: unknown[]) => mockDeclare(...args),
 }));
 
-vi.mock('../../src/lib/llm-pick-client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/lib/llm-pick-client')>()),
-  pickLlm: (...args: unknown[]) => mockPickLlm(...args),
+vi.mock('../../src/lib/engine-make-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/lib/engine-make-client')>()),
+  makeFieldsDraft: (...args: unknown[]) => mockMake(...args),
 }));
 
 vi.mock('../../src/lib/campaign-client', async (importOriginal) => ({
@@ -66,6 +66,7 @@ describe('which draft a field value came from', () => {
   const brandId = randomUUID();
   const offerId = randomUUID();
   const runIds: string[] = [];
+  const scriptRunIds: string[] = [];
 
   const draftHeaders = () => ({
     ...getAuthHeadersWithTracking(orgId, randomUUID(), randomUUID(), { brandId }),
@@ -100,7 +101,17 @@ describe('which draft a field value came from', () => {
     });
     mockUpdateRun.mockResolvedValue(undefined);
     mockDeclare.mockResolvedValue({});
-    mockPickLlm.mockResolvedValue({ provider: 'google', model: 'gemini-flash', name: 'Gemini Flash' });
+    // The Engine's script writes each call (here: what mockChat answers), on its own run (SCRIPT-VALUE-RATING-1113-WF3).
+    mockMake.mockImplementation(async (req: { calls: Array<{ place: string }> }) => {
+      const answers = [];
+      for (const call of req.calls) {
+        const r = await mockChat();
+        answers.push({ place: call.place, json: r.json ?? null, content: r.content ?? null, model: r.model ?? null });
+      }
+      const scriptRunId = randomUUID();
+      scriptRunIds.push(scriptRunId);
+      return { scriptRunId, scriptSlug: 'script:x/dy_fields_draft', answers };
+    });
     mockChat.mockResolvedValue({ content: '', json: DRAFT, tokensInput: 1, tokensOutput: 1, model: 'm' });
   });
 
@@ -114,11 +125,12 @@ describe('which draft a field value came from', () => {
       .send({ fields: COMPANY_FIELDS, mode: 'suggest' });
 
     expect(res.status).toBe(200);
-    // A production run of its own (never a support run), the Rating asked for ITS Engine with that run.
+    // Our run, then ITS Engine asked to make the draft with that run as the script run's parent.
     expect(mockCreateRun).toHaveBeenCalledTimes(1);
     expect(mockCreateRun.mock.calls[0][0]).toMatchObject({ serviceName: 'brand-service', taskName: 'brand-fields-draft' });
-    const runId = runIds.at(-1)!;
-    expect(mockPickLlm.mock.calls[0][0]).toMatchObject({ outcome: 'brand_fields_drafted', place: 'draft', runId });
+    expect(mockMake.mock.calls[0][0]).toMatchObject({ outcome: 'brand_fields_drafted', identity: { runId: runIds.at(-1)!, orgId } });
+    // The Unit sits on the SCRIPT's run, and every drafted field names it.
+    const runId = scriptRunIds.at(-1)!;
     // ONE Unit for the completed draft, subject = the brand.
     expect(mockDeclare).toHaveBeenCalledTimes(1);
     expect(mockDeclare.mock.calls[0].slice(0, 2)).toEqual([
@@ -200,7 +212,8 @@ describe('which draft a field value came from', () => {
 
     expect(draft.status).toBe(200);
     expect(mockCreateRun.mock.calls[0][0]).toMatchObject({ taskName: 'offer-fields-draft' });
-    expect(mockPickLlm.mock.calls[0][0]).toMatchObject({ outcome: 'offer_fields_drafted', place: 'draft' });
+    expect(mockMake.mock.calls[0][0]).toMatchObject({ outcome: 'offer_fields_drafted', subject: { service: 'brand-service', id: offerId } });
+    expect(mockDeclare.mock.calls[0][0]).toBe(scriptRunIds.at(-1));
     expect(mockDeclare.mock.calls[0][1]).toEqual([
       { outcomeKey: 'offer_fields_drafted', subjectService: 'brand-service', subjectId: offerId },
     ]);
@@ -250,7 +263,7 @@ describe('which draft a field value came from', () => {
     expect(res.status).toBe(200);
     expect(mockCreateRun.mock.calls[0][0]).toMatchObject({ taskName: 'field-extraction' });
     expect(mockDeclare).not.toHaveBeenCalled();
-    expect(mockPickLlm).not.toHaveBeenCalled();
+    expect(mockMake).not.toHaveBeenCalled();
     expect(res.body.drafts.funding).toEqual({ stillOurDraft: true, draftUnit: null });
   });
 });
