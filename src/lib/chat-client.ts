@@ -10,7 +10,6 @@
  */
 
 import { fetchWithRetry } from './fetch-with-retry';
-import type { ChatProvider } from './llm-pick-client';
 import type { PlatformSupport } from './platform-support';
 
 export type { PlatformSupport, PlatformSupportKind } from './platform-support';
@@ -19,6 +18,9 @@ export { brandSetupSupport } from './platform-support';
 const CHAT_SERVICE_URL =
   process.env.CHAT_SERVICE_URL || 'https://chat.distribute.you';
 const CHAT_SERVICE_API_KEY = process.env.CHAT_SERVICE_API_KEY || '';
+
+/** The providers chat-service `/complete` accepts (its `provider` enum). */
+export type ChatProvider = 'anthropic' | 'google' | 'deepseek' | 'zai' | 'moonshot' | 'openai';
 
 export interface ChatParams {
   message: string;
@@ -33,8 +35,8 @@ export interface ChatParams {
   provider: ChatProvider;
   /**
    * Model tier or LLM dynasty slug — chat-service resolves the versioned model
-   * internally. A model the Rating picked (`lib/llm-pick-client.ts`) is a
-   * dynasty slug; a hand-written one is a legacy alias (`flash-pro`).
+   * internally (`flash-pro` = a legacy alias). A suggest draft never calls
+   * chat-service from here: a script of its Engine writes it (lib/engine-make-client.ts).
    */
   model: string;
   responseFormat?: 'json';

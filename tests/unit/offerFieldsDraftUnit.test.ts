@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * OFFER-FIELDS-NO-OPUS-1112: a suggest draft runs on a PRODUCTION run (`offer-fields-draft`, no support
- * mark), asks the Rating for its LLM with THAT run, and declares ONE `offer_fields_drafted` Unit on it once
- * the draft is stored: the Rating's success signal. An extraction stays a support run that declares nothing.
+ * SCRIPT-VALUE-RATING-1113-WF3: a suggest draft is made by a SCRIPT of its Engine (`POST /internal/engines/{outcome}/make`)
+ * on the script's own run, a child of OUR run (`offer-fields-draft` / `brand-fields-draft`, brand setup). brand-service
+ * stores the draft and declares ONE Unit on the SCRIPT's run (the Rating values each dynasty by it), and every stored
+ * value names that run. An extraction stays a support run that declares nothing.
  */
 
 const { mockSelect, mockInsert } = vi.hoisted(() => ({
@@ -37,8 +38,10 @@ vi.mock('../../src/lib/runs-client', () => ({
   declareProducedOutcomes: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('../../src/lib/llm-pick-client', () => ({
-  pickLlm: vi.fn().mockResolvedValue({ provider: 'google', model: 'gemini-flash', name: 'Gemini Flash' }),
+const { mockMake } = vi.hoisted(() => ({ mockMake: vi.fn() }));
+vi.mock('../../src/lib/engine-make-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/lib/engine-make-client')>()),
+  makeFieldsDraft: (...args: unknown[]) => mockMake(...args),
 }));
 
 vi.mock('../../src/lib/campaign-client', () => ({
@@ -72,7 +75,6 @@ vi.mock('drizzle-orm', () => ({
 import { extractFields, hashFieldDescription } from '../../src/services/fieldExtractionService';
 import { chat } from '../../src/lib/chat-client';
 import { createRun, updateRun, declareProducedOutcomes } from '../../src/lib/runs-client';
-import { pickLlm } from '../../src/lib/llm-pick-client';
 import { getBrandBusinessContext } from '../../src/services/brandBusinessContextService';
 import { supportForRun } from '../../src/lib/support-functions';
 import crypto from 'crypto';
@@ -105,16 +107,29 @@ beforeEach(() => {
   mockGetBrand({ id: 'brand-1', url: null, name: 'Bakery', domain: null });
   vi.mocked(getBrandBusinessContext).mockResolvedValue('A bakery in Leeds selling sourdough to cafes.');
   vi.mocked(chat).mockResolvedValue({ content: '', json: { dreamOutcome: 'Fresh bread daily' }, tokensInput: 1, tokensOutput: 1, model: 'm' } as any);
+  mockMake.mockImplementation(async (req: { calls: unknown[] }) => ({
+    scriptRunId: 'script-run',
+    scriptSlug: 'script:offer_fields_drafted/dy_fields_draft',
+    answers: req.calls.map(() => ({ place: 'draft', json: { dreamOutcome: 'Fresh bread daily' }, content: null, model: 'm' })),
+  }));
 });
 
-describe('suggest draft = a production run declaring one offer_fields_drafted Unit', () => {
-  it('a draft naming an offer: opens offer-fields-draft, picks with THAT run, declares one offer_fields_drafted Unit on the offer', async () => {
-    await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest', offerId: 'offer-1' });
+describe('suggest draft = a script run of its Engine, child of ours, carrying the Unit', () => {
+  it('a draft naming an offer: opens offer-fields-draft, asks the Engine with THAT run, declares one offer_fields_drafted Unit on the SCRIPT run', async () => {
+    const results = await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest', offerId: 'offer-1' });
     expect(vi.mocked(createRun).mock.calls[0][0]).toMatchObject({ taskName: 'offer-fields-draft', parentRunId: 'caller-run' });
-    expect(vi.mocked(pickLlm).mock.calls[0][0]).toMatchObject({ outcome: 'offer_fields_drafted', place: 'draft', runId: 'test-run-id' });
+    expect(mockMake).toHaveBeenCalledTimes(1);
+    expect(mockMake.mock.calls[0][0]).toMatchObject({
+      outcome: 'offer_fields_drafted',
+      identity: { runId: 'test-run-id', orgId: 'org-1', userId: 'user-1' },
+      billing: 'org',
+      subject: { service: 'brand-service', id: 'offer-1' },
+    });
+    expect(chat).not.toHaveBeenCalled();
+    expect(results[0].value).toBe('Fresh bread daily');
     expect(vi.mocked(declareProducedOutcomes)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(declareProducedOutcomes).mock.calls[0]).toEqual([
-      'test-run-id',
+      'script-run',
       [{ outcomeKey: 'offer_fields_drafted', subjectService: 'brand-service', subjectId: 'offer-1' }],
       { orgId: 'org-1', userId: 'user-1' },
     ]);
@@ -123,13 +138,13 @@ describe('suggest draft = a production run declaring one offer_fields_drafted Un
 
   // SCRIPT-VALUE-RATING-1113: a draft asked for the BRAND (no offer named: its description, facts, competitors) is its
   // own outcome, on its own production run, with the LLM the Rating picks for THAT Engine.
-  it('a draft naming no offer: opens brand-fields-draft, picks for brand_fields_drafted, declares one Unit on the brand', async () => {
+  it('a draft naming no offer: opens brand-fields-draft, asks the brand_fields_drafted Engine, declares one Unit on the brand', async () => {
     await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest' });
     expect(vi.mocked(createRun).mock.calls[0][0]).toMatchObject({ taskName: 'brand-fields-draft', parentRunId: 'caller-run' });
-    expect(vi.mocked(pickLlm).mock.calls[0][0]).toMatchObject({ outcome: 'brand_fields_drafted', place: 'draft', runId: 'test-run-id' });
+    expect(mockMake.mock.calls[0][0]).toMatchObject({ outcome: 'brand_fields_drafted', subject: { service: 'brand-service', id: 'brand-1' } });
     expect(vi.mocked(declareProducedOutcomes)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(declareProducedOutcomes).mock.calls[0]).toEqual([
-      'test-run-id',
+      'script-run',
       [{ outcomeKey: 'brand_fields_drafted', subjectService: 'brand-service', subjectId: 'brand-1' }],
       { orgId: 'org-1', userId: 'user-1' },
     ]);
@@ -155,8 +170,8 @@ describe('suggest draft = a production run declaring one offer_fields_drafted Un
     // Stored first with the draft named and NO Unit time, declared, then stamped.
     expect(declaredAfter).toEqual([1]);
     expect(stored).toHaveLength(2);
-    expect(stored[0]).toMatchObject({ draftOutcomeKey: 'brand_fields_drafted', draftSubjectId: 'brand-1', draftRunId: 'test-run-id', draftUnitAt: null });
-    expect(stored[1]).toMatchObject({ draftOutcomeKey: 'brand_fields_drafted', draftSubjectId: 'brand-1', draftRunId: 'test-run-id' });
+    expect(stored[0]).toMatchObject({ draftOutcomeKey: 'brand_fields_drafted', draftSubjectId: 'brand-1', draftRunId: 'script-run', draftUnitAt: null });
+    expect(stored[1]).toMatchObject({ draftOutcomeKey: 'brand_fields_drafted', draftSubjectId: 'brand-1', draftRunId: 'script-run' });
     expect(Date.parse(stored[1].draftUnitAt)).toBeGreaterThanOrEqual(before);
 
     expect(results[0].draftUnit).toEqual({
@@ -164,7 +179,7 @@ describe('suggest draft = a production run declaring one offer_fields_drafted Un
       subjectService: 'brand-service',
       subjectId: 'brand-1',
       unitAt: stored[1].draftUnitAt,
-      runId: 'test-run-id',
+      runId: 'script-run',
     });
   });
 
@@ -188,7 +203,7 @@ describe('suggest draft = a production run declaring one offer_fields_drafted Un
     const results = await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true });
     expect(vi.mocked(createRun).mock.calls[0][0]).toMatchObject({ taskName: 'field-extraction' });
     expect(declareProducedOutcomes).not.toHaveBeenCalled();
-    expect(pickLlm).not.toHaveBeenCalled();
+    expect(mockMake).not.toHaveBeenCalled();
     expect(results[0].draftUnit).toBeNull();
   });
 
@@ -200,9 +215,27 @@ describe('suggest draft = a production run declaring one offer_fields_drafted Un
     expect(vi.mocked(updateRun).mock.calls.at(-1)?.[1]).toBe('failed');
   });
 
-  it('offer-fields-draft carries no support mark (a support run cannot declare); field-extraction keeps brand_setup', () => {
-    expect(supportForRun('brand-service', 'offer-fields-draft')).toBeUndefined();
-    expect(supportForRun('brand-service', 'brand-fields-draft')).toBeUndefined();
+  it('an Engine that makes no draft fails it loud: nothing stored, nothing declared, our run failed', async () => {
+    const stored: any[] = [];
+    mockInsert.mockReturnValue({
+      values: vi.fn((row: any) => {
+        stored.push(row);
+        return { onConflictDoUpdate: vi.fn().mockResolvedValue(undefined) };
+      }),
+    });
+    mockMake.mockRejectedValueOnce(new Error('The « brand_fields_drafted » Engine made no draft: HTTP 404 no_runnable_script'));
+    await expect(
+      extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest' }),
+    ).rejects.toThrow('made no draft');
+    expect(stored).toHaveLength(0);
+    expect(declareProducedOutcomes).not.toHaveBeenCalled();
+    expect(chat).not.toHaveBeenCalled();
+    expect(vi.mocked(updateRun).mock.calls.at(-1)?.[1]).toBe('failed');
+  });
+
+  it('our draft run is brand setup (the Unit sits on the script run); field-extraction keeps brand_setup', () => {
+    expect(supportForRun('brand-service', 'offer-fields-draft')?.kind).toBe('brand_setup');
+    expect(supportForRun('brand-service', 'brand-fields-draft')?.kind).toBe('brand_setup');
     expect(supportForRun('brand-service', 'field-extraction')?.kind).toBe('brand_setup');
   });
 

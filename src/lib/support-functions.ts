@@ -37,21 +37,12 @@ export const LIVE_SUPPORT_TASKS: Readonly<Record<string, SupportFunction>> = {
   'offer-steps-assessment': 'brand_setup',
   'field-consolidation': 'brand_setup',
   'offer-image-generation': 'brand_setup',
-};
-
-/**
- * Tasks that PRODUCE a catalogue outcome: never support-marked, they declare it
- * on their own run (runs-service refuses a declaration on a support run, 409).
- * `offer-fields-draft` = the `suggest` (Hormozi) draft of one offer's fields,
- * whose LLM the Rating picks (OFFER-FIELDS-NO-OPUS-1112, owner 2026-11-12):
- * one `offer_fields_drafted` Unit per stored draft, the Rating's success signal.
- * `brand-fields-draft` = the same draft asked for a BRAND, naming no offer (its
- * description, facts, competitors): one `brand_fields_drafted` Unit per stored
- * draft (SCRIPT-VALUE-RATING-1113, lib/field-drafts.ts).
- */
-export const PRODUCTION_TASKS: Readonly<Record<string, string>> = {
-  'offer-fields-draft': 'offer_fields_drafted',
-  'brand-fields-draft': 'brand_fields_drafted',
+  // The `suggest` draft of an offer's / a brand's fields (lib/field-drafts.ts): OUR run scrapes the site and builds
+  // the prompts; the draft itself is written by a script of its Engine on the script's own run, a CHILD of ours,
+  // which is the run the Unit is declared on (SCRIPT-VALUE-RATING-1113-WF3). A support mark stops at a declaring
+  // run, so the script's subtree stays production.
+  'offer-fields-draft': 'brand_setup',
+  'brand-fields-draft': 'brand_setup',
 };
 
 /** Tasks brand-service opened in the past and no longer opens (backfill only). */
@@ -88,7 +79,6 @@ export function reasonFor(kind: SupportFunction): string {
  */
 export function supportForRun(serviceName: string, taskName: string): RunSupport | undefined {
   if (serviceName !== BRAND_SERVICE_NAME) return undefined;
-  if (PRODUCTION_TASKS[taskName]) return undefined;
   const kind = ALL_SUPPORT_TASKS[taskName];
   if (!kind) throw new UnclassifiedBrandServiceTaskError(taskName);
   return { kind, reason: reasonFor(kind) };

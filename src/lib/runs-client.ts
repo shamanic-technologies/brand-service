@@ -187,11 +187,12 @@ export interface ProducedOccurrence {
 }
 
 /**
- * Declare what a brand-service PRODUCTION run produced (runs-service
- * `POST /v1/runs/{id}/outcomes`, the org door: x-org-id = the run's org,
- * x-service-name = brand-service). Only a run that is NOT support-marked may
- * declare (`PRODUCTION_TASKS` in support-functions.ts). Idempotent per
- * occurrence on runs-service's side; any failure throws (fail loud).
+ * Declare what a run produced (runs-service `POST /v1/runs/{id}/outcomes`, the
+ * org door: x-org-id = the run's org, x-service-name = brand-service). Today:
+ * a field draft's Unit, on the workflow-service SCRIPT run that wrote it
+ * (`recordedBy: brand`, SCRIPT-VALUE-RATING-1113-WF3); a support-marked run
+ * never declares (409). Idempotent per occurrence on runs-service's side; any
+ * failure throws (fail loud).
  */
 export async function declareProducedOutcomes(
   runId: string,
@@ -318,7 +319,12 @@ export async function createPlatformRun(
       'X-API-Key': RUNS_SERVICE_API_KEY,
       'x-service-name': params.serviceName,
     },
-    body: JSON.stringify({ serviceName: params.serviceName, taskName: params.taskName }),
+    // Same support mark as an org run (support-functions.ts): a platform run of ours is brand setup too.
+    body: JSON.stringify({
+      serviceName: params.serviceName,
+      taskName: params.taskName,
+      ...(supportForRun(params.serviceName, params.taskName) ? { support: supportForRun(params.serviceName, params.taskName) } : {}),
+    }),
     label: 'runs-service POST /v1/platform-runs',
   });
   return response.json() as Promise<PlatformRun>;
