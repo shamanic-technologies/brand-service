@@ -20,7 +20,8 @@ import { db, brands, brandExtractedFields, brandOffers, orgBrands, pageScrapeCac
 import { OfferNotFoundError } from './brandOffersService';
 import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
 import type { PickedLlm } from '../lib/llm-pick-client';
-import { pickOfferFieldsLlm, suggestModelParams, OFFER_FIELDS_DRAFT_TASK, offerFieldsDraftedUnit } from '../lib/offer-fields-llm';
+import { pickOfferFieldsLlm, suggestModelParams } from '../lib/offer-fields-llm';
+import { fieldDraftKind, draftUnitOfColumns, OFFER_FIELDS_OUTCOME, type DraftUnit } from '../lib/field-drafts';
 import {
   mapSiteUrls,
   scrapeUrl,
@@ -188,6 +189,12 @@ export interface ExtractedFieldResult {
   extractedAt: string;
   expiresAt: string | null;
   sourceUrls: string[] | null;
+  /**
+   * The Unit the `suggest` draft that wrote this value made in the runs ledger
+   * (lib/field-drafts.ts). Null on an `extract` read (no Unit) and on a draft
+   * stored before Units were recorded per field.
+   */
+  draftUnit: DraftUnit | null;
 }
 
 export type UrlStrategy = 'url_map' | 'landing';
@@ -251,7 +258,7 @@ async function getCachedFields(
   mode: ExtractionMode,
   campaignId?: string,
   offerId?: string | null,
-): Promise<Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>> {
+): Promise<Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null; draftUnit: DraftUnit | null }>> {
   if (fields.length === 0) return new Map();
 
   const campaignFilter = campaignId
@@ -278,7 +285,7 @@ async function getCachedFields(
       ),
     );
 
-  const map = new Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null }>();
+  const map = new Map<string, { value: unknown; extractedAt: string; expiresAt: string | null; sourceUrls: string[] | null; draftUnit: DraftUnit | null }>();
   for (const row of rows) {
     // Only accept the row when its (key, description hash) matches the request.
     if (expectedHashByKey.get(row.fieldKey) !== row.fieldDescriptionHash) continue;
@@ -287,6 +294,7 @@ async function getCachedFields(
       extractedAt: row.extractedAt,
       expiresAt: row.expiresAt,
       sourceUrls: (row.sourceUrls as string[] | null) ?? null,
+      draftUnit: draftUnitOfColumns(row),
     });
   }
   return map;
@@ -426,14 +434,16 @@ export async function extractFieldsFromContent(
   urlStrategy: UrlStrategy,
   mode: ExtractionMode = 'extract',
   suggestLlm?: PickedLlm,
+  /** The Engine the draft belongs to (`fieldDraftKind`): offer fields, or brand fields when no offer is named. */
+  suggestOutcome: string = OFFER_FIELDS_OUTCOME,
 ): Promise<Record<string, unknown>> {
   // `suggest`: the Rating picks the LLM, ONCE per draft (OFFER-FIELDS-NO-OPUS-1112, lib/offer-fields-llm.ts).
-  const llm = mode === 'suggest' ? (suggestLlm ?? (await pickOfferFieldsLlm(chatCaller, 'draft'))) : undefined;
+  const llm = mode === 'suggest' ? (suggestLlm ?? (await pickOfferFieldsLlm(chatCaller, 'draft', suggestOutcome))) : undefined;
   // The picked LLM may be Claude, which refuses > 16 union-typed params in one schema: batch every draft.
   if (mode === 'suggest' && fields.length > ANTHROPIC_MAX_UNION_PARAMS) {
     const parts = await Promise.all(
       chunkFieldsForAnthropic(fields).map((chunk) =>
-        extractFieldsFromContent(pageContents, chunk, chatCaller, campaignContext, profileContext, urlStrategy, mode, llm),
+        extractFieldsFromContent(pageContents, chunk, chatCaller, campaignContext, profileContext, urlStrategy, mode, llm, suggestOutcome),
       ),
     );
     return Object.assign({}, ...parts);
@@ -577,8 +587,19 @@ async function upsertExtractedFields(
   mode: ExtractionMode,
   campaignId?: string,
   offerId?: string | null,
+  /**
+   * The Unit this write belongs to (a `suggest` draft); null = an `extract`
+   * read, which makes none. `unitAt` null = the Unit is not declared yet.
+   */
+  draft: { outcomeKey: string; subjectId: string; runId: string; unitAt: string | null } | null = null,
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + CACHE_DURATION_MS).toISOString();
+  const draftColumns = {
+    draftOutcomeKey: draft?.outcomeKey ?? null,
+    draftSubjectId: draft?.subjectId ?? null,
+    draftRunId: draft?.runId ?? null,
+    draftUnitAt: draft?.unitAt ?? null,
+  };
 
   for (const field of fields) {
     const descriptionHash = hashFieldDescription(field.description, mode, offerId);
@@ -593,6 +614,7 @@ async function upsertExtractedFields(
           fieldValue: field.value,
           sourceUrls,
           campaignId,
+          ...draftColumns,
           extractedAt: sql`NOW()`,
           expiresAt,
         })
@@ -603,6 +625,7 @@ async function upsertExtractedFields(
             fieldDescription: field.description,
             fieldValue: field.value,
             sourceUrls,
+            ...draftColumns,
             extractedAt: sql`NOW()`,
             expiresAt,
             updatedAt: sql`NOW()`,
@@ -618,6 +641,7 @@ async function upsertExtractedFields(
           fieldDescriptionHash: descriptionHash,
           fieldValue: field.value,
           sourceUrls,
+          ...draftColumns,
           extractedAt: sql`NOW()`,
           expiresAt,
         })
@@ -628,6 +652,7 @@ async function upsertExtractedFields(
             fieldDescription: field.description,
             fieldValue: field.value,
             sourceUrls,
+            ...draftColumns,
             extractedAt: sql`NOW()`,
             expiresAt,
             updatedAt: sql`NOW()`,
@@ -769,6 +794,7 @@ export async function extractFields(
           extractedAt: hit.extractedAt,
           expiresAt: hit.expiresAt,
           sourceUrls: hit.sourceUrls,
+          draftUnit: hit.draftUnit,
         });
       } else {
         missingFields.push(field);
@@ -821,6 +847,11 @@ export async function extractFields(
   const workflowSlug = caller.mode === 'org' ? caller.workflowSlug : undefined;
   const audienceId = caller.mode === 'org' ? caller.audienceId : undefined;
 
+  // What a suggest draft is, read off the scope it was asked for: an offer's
+  // fields (subject = that offer) or, with no offer named, the brand's own
+  // (subject = the brand). lib/field-drafts.ts.
+  const draftKind = mode === 'suggest' ? fieldDraftKind(brandId, options.offerId) : null;
+
   // Create run
   const run = await createRun({
     orgId: trackingOrgId,
@@ -828,9 +859,10 @@ export async function extractFields(
     brandId,
     campaignId: campaignIdForRun,
     serviceName: 'brand-service',
-    // A suggest draft PRODUCES an `offer_fields_drafted` Unit (production run,
-    // no support mark); an extraction is brand setup (support).
-    taskName: mode === 'suggest' ? OFFER_FIELDS_DRAFT_TASK : 'field-extraction',
+    // A suggest draft PRODUCES a Unit (`offer_fields_drafted` or
+    // `brand_fields_drafted`: production run, no support mark); an extraction
+    // is brand setup (support).
+    taskName: draftKind ? draftKind.taskName : 'field-extraction',
     parentRunId,
     workflowSlug,
     audienceId,
@@ -1081,6 +1113,7 @@ export async function extractFields(
           extractedAt: now,
           expiresAt,
           sourceUrls: [],
+          draftUnit: null,
         }));
 
         traceEvent(run.id, {
@@ -1155,6 +1188,8 @@ export async function extractFields(
       profileContext,
       urlStrategy,
       mode,
+      undefined,
+      draftKind?.outcomeKey,
     );
 
     traceEvent(run.id, {
@@ -1172,16 +1207,41 @@ export async function extractFields(
       description: f.description,
       value: extracted[f.key] ?? null,
     }));
-    await upsertExtractedFields(brandId, fieldsToStore, scrapedSourceUrls, mode, campaignIdForRun, options.offerId);
+    const draftRef = draftKind
+      ? { outcomeKey: draftKind.outcomeKey, subjectId: draftKind.subjectId, runId: run.id }
+      : null;
+    await upsertExtractedFields(
+      brandId, fieldsToStore, scrapedSourceUrls, mode, campaignIdForRun, options.offerId,
+      draftRef ? { ...draftRef, unitAt: null } : null,
+    );
 
-    // 7b. A stored suggest draft is ONE Unit of the « Offer fields drafted »
-    // Engine, on the run that asked the Rating for its LLM: the Rating's
-    // success signal (OFFER-FIELDS-NO-OPUS-1112). Fail loud.
-    if (mode === 'suggest') {
-      await declareProducedOutcomes(run.id, [offerFieldsDraftedUnit(brandId, options.offerId)], {
-        orgId: trackingOrgId,
-        userId: trackingUserId,
-      });
+    // 7b. A stored suggest draft is ONE Unit of its Engine (« Offer fields
+    // drafted », or « Brand fields drafted » when no offer is named), on the
+    // run that asked the Rating for its LLM: the Rating's success signal
+    // (OFFER-FIELDS-NO-OPUS-1112). Fail loud.
+    //
+    // Each stored value then names that Unit (SCRIPT-VALUE-RATING-1113): the
+    // surface where the client edits it reports THIS Unit. `unitAt` is taken
+    // once the ledger holds the Unit, and stamped on the rows only then, so a
+    // value never names a Unit that was not declared.
+    let draftUnit: DraftUnit | null = null;
+    if (draftKind && draftRef) {
+      await declareProducedOutcomes(
+        run.id,
+        [{ outcomeKey: draftKind.outcomeKey, subjectService: draftKind.subjectService, subjectId: draftKind.subjectId }],
+        { orgId: trackingOrgId, userId: trackingUserId },
+      );
+      draftUnit = {
+        outcomeKey: draftKind.outcomeKey,
+        subjectService: draftKind.subjectService,
+        subjectId: draftKind.subjectId,
+        unitAt: new Date().toISOString(),
+        runId: run.id,
+      };
+      await upsertExtractedFields(
+        brandId, fieldsToStore, scrapedSourceUrls, mode, campaignIdForRun, options.offerId,
+        { ...draftRef, unitAt: draftUnit.unitAt },
+      );
     }
 
     // 8. Complete run
@@ -1201,6 +1261,7 @@ export async function extractFields(
       extractedAt: now,
       expiresAt,
       sourceUrls: scrapedSourceUrls,
+      draftUnit,
     }));
 
     traceEvent(run.id, {

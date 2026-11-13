@@ -45,9 +45,13 @@ export const LIVE_SUPPORT_TASKS: Readonly<Record<string, SupportFunction>> = {
  * `offer-fields-draft` = the `suggest` (Hormozi) draft of one offer's fields,
  * whose LLM the Rating picks (OFFER-FIELDS-NO-OPUS-1112, owner 2026-11-12):
  * one `offer_fields_drafted` Unit per stored draft, the Rating's success signal.
+ * `brand-fields-draft` = the same draft asked for a BRAND, naming no offer (its
+ * description, facts, competitors): one `brand_fields_drafted` Unit per stored
+ * draft (SCRIPT-VALUE-RATING-1113, lib/field-drafts.ts).
  */
 export const PRODUCTION_TASKS: Readonly<Record<string, string>> = {
   'offer-fields-draft': 'offer_fields_drafted',
+  'brand-fields-draft': 'brand_fields_drafted',
 };
 
 /** Tasks brand-service opened in the past and no longer opens (backfill only). */
