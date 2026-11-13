@@ -815,12 +815,16 @@ export const FieldDraftStateSchema = z
       description:
         'The served value is what we drafted, unchanged by the client. A save that changes nothing keeps it true; a save that changes the value makes it false (the client\'s own words). False on an empty value.',
     }),
-    draftUnit: DraftUnitSchema.nullable().openapi({
-      description:
-        'The Unit that draft made. Null when the value is the client\'s own, or when no Unit was declared for the draft (an `extract` read, a merge of several brands, a draft stored before Units were recorded per field).',
-    }),
+    // The Unit that draft made. Null when the value is the client's own, or when
+    // no Unit was declared for the draft (an `extract` read, a merge of several
+    // brands, a draft stored before Units were recorded per field). No
+    // `.openapi()` here: metadata on a nullable ref leaks onto the component.
+    draftUnit: DraftUnitSchema.nullable(),
   })
-  .openapi('FieldDraftState');
+  .openapi('FieldDraftState', {
+    description:
+      'Whether a served value is still what we drafted, and the Unit that draft made (`draftUnit`: null when the value is the client\'s own, or when no Unit was declared for the draft: an `extract` read, a merge of several brands, a draft stored before Units were recorded per field).',
+  });
 
 export const BrandFieldDetailSchema = z
   .object({
@@ -2395,12 +2399,10 @@ export const UserFieldViewSchema = z
     provenance: UserFieldProvenanceSchema,
     stillOurDraft: z.boolean().openapi({
       description:
-        'The value is what we drafted, unchanged by the client. Always true for a non-empty `suggested` prefill. For a `confirmed` value: true while the client saved our draft as is (saving it again unchanged keeps it true), false once a save changed it. Decided at every write; a value confirmed before 2026-11-13 reads false (not recorded).',
+        'The value is what we drafted, unchanged by the client. Always true for a non-empty `suggested` prefill. For a `confirmed` value: true while the client saved our draft as is (saving it again unchanged keeps it true), false once a save changed it. Decided at every write; a value confirmed before 2026-11-13 reads false (not recorded). ' +
+        '`draftUnit` beside it is the Unit that draft made in the runs ledger: what an edit of this value reports (features-service `POST /orgs/unit-reports`, kind `edited`); null when `stillOurDraft` is false, or when no Unit was declared for the draft.',
     }),
-    draftUnit: DraftUnitSchema.nullable().openapi({
-      description:
-        'The Unit that draft made in the runs ledger: what an edit of this value reports (features-service `POST /orgs/unit-reports`, kind `edited`). Null when `stillOurDraft` is false, or when no Unit was declared for the draft.',
-    }),
+    draftUnit: DraftUnitSchema.nullable(),
   })
   .openapi('UserFieldView');
 

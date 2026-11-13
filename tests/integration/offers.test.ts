@@ -173,10 +173,14 @@ describe('Offers', () => {
       expect(selfServe.body.fields.dreamOutcome).toEqual({
         value: 'Ship in an afternoon',
         provenance: 'confirmed',
+        stillOurDraft: false,
+        draftUnit: null,
       });
       expect(enterprise.body.fields.dreamOutcome).toEqual({
         value: 'Cut procurement risk',
         provenance: 'confirmed',
+        stillOurDraft: false,
+        draftUnit: null,
       });
     });
 
@@ -372,6 +376,8 @@ describe('Offers', () => {
       expect(res.body.fields.dreamOutcome).toEqual({
         value: 'Never miss a renewal',
         provenance: 'confirmed',
+        stillOurDraft: false,
+        draftUnit: null,
       });
     });
 
