@@ -82,6 +82,14 @@ describe('pickOfferFieldsLlm — the offer-field draft is the « Offer fields dr
     expect(init.headers['x-run-id']).toBe('our-run');
   });
 
+  it('a brand-field draft asks the Rating for ITS Engine (SCRIPT-VALUE-RATING-1113)', async () => {
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(answer(200, PICK));
+    await pickOfferFieldsLlm({ mode: 'org', orgId: 'o', userId: 'u', runId: 'our-run' }, 'draft', 'brand_fields_drafted');
+    expect(fetchMock.mock.calls[0][0]).toContain('outcome=brand_fields_drafted&place=draft');
+  });
+
   it('suggestModelParams carries only what the Rating named + the output budget', () => {
     expect(suggestModelParams({ provider: 'google', model: 'gemini-flash', name: 'Gemini' })).toEqual({
       provider: 'google',

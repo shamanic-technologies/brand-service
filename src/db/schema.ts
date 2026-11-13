@@ -487,6 +487,19 @@ export const brandUserFields = pgTable("brand_user_fields", {
 	offerId: uuid("offer_id"),
 	fieldKey: text("field_key").notNull(),
 	value: jsonb(),
+	// WHICH DRAFT this confirmed value came from (SCRIPT-VALUE-RATING-1113,
+	// lib/field-drafts.ts). `from_draft` = the stored value is still what we
+	// drafted (the client saved our prefill as is, or saved again without
+	// changing it); false = the client's own words. The four columns name the
+	// Unit that draft made in the runs ledger (outcome key, subject id, the run
+	// that declared it, when); NULL when no Unit was declared for it. Decided at
+	// every write by `savedDraftState`, never by a field's name. Rows confirmed
+	// before this column existed read false: nobody recorded it.
+	fromDraft: boolean("from_draft").default(false).notNull(),
+	draftOutcomeKey: text("draft_outcome_key"),
+	draftSubjectId: text("draft_subject_id"),
+	draftRunId: uuid("draft_run_id"),
+	draftUnitAt: timestamp("draft_unit_at", { withTimezone: true, mode: 'string' }),
 	confirmedAt: timestamp("confirmed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
@@ -758,6 +771,16 @@ export const brandExtractedFields = pgTable("brand_extracted_fields", {
 	fieldValue: jsonb("field_value"),
 	sourceUrls: jsonb("source_urls"),
 	campaignId: uuid("campaign_id"),
+	// The Unit a `suggest` draft made when it stored this value
+	// (SCRIPT-VALUE-RATING-1113, lib/field-drafts.ts): outcome key, subject (the
+	// offer, else the brand), the run that declared it, and the time it was
+	// declared (`draft_unit_at`, stamped only once the declaration succeeded).
+	// All NULL on an `extract` read (a support run, no Unit) and on rows stored
+	// before these columns existed.
+	draftOutcomeKey: text("draft_outcome_key"),
+	draftSubjectId: text("draft_subject_id"),
+	draftRunId: uuid("draft_run_id"),
+	draftUnitAt: timestamp("draft_unit_at", { withTimezone: true, mode: 'string' }),
 	extractedAt: timestamp("extracted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),

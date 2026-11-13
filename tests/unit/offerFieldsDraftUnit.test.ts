@@ -15,6 +15,7 @@ vi.mock('../../src/db', () => ({
   db: { select: mockSelect, insert: mockInsert },
   brands: {},
   brandExtractedFields: {},
+  brandOffers: {},
   pageScrapeCache: {},
   urlMapCache: {},
   orgBrands: {},
@@ -107,25 +108,88 @@ beforeEach(() => {
 });
 
 describe('suggest draft = a production run declaring one offer_fields_drafted Unit', () => {
-  it('opens offer-fields-draft, picks with THAT run, declares one Unit on it (subject = the brand when no offer is named)', async () => {
-    await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest' });
+  it('a draft naming an offer: opens offer-fields-draft, picks with THAT run, declares one offer_fields_drafted Unit on the offer', async () => {
+    await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest', offerId: 'offer-1' });
     expect(vi.mocked(createRun).mock.calls[0][0]).toMatchObject({ taskName: 'offer-fields-draft', parentRunId: 'caller-run' });
     expect(vi.mocked(pickLlm).mock.calls[0][0]).toMatchObject({ outcome: 'offer_fields_drafted', place: 'draft', runId: 'test-run-id' });
     expect(vi.mocked(declareProducedOutcomes)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(declareProducedOutcomes).mock.calls[0]).toEqual([
       'test-run-id',
-      [{ outcomeKey: 'offer_fields_drafted', subjectService: 'brand-service', subjectId: 'brand-1' }],
+      [{ outcomeKey: 'offer_fields_drafted', subjectService: 'brand-service', subjectId: 'offer-1' }],
       { orgId: 'org-1', userId: 'user-1' },
     ]);
     expect(vi.mocked(updateRun).mock.calls[0][1]).toBe('completed');
   });
 
+  // SCRIPT-VALUE-RATING-1113: a draft asked for the BRAND (no offer named: its description, facts, competitors) is its
+  // own outcome, on its own production run, with the LLM the Rating picks for THAT Engine.
+  it('a draft naming no offer: opens brand-fields-draft, picks for brand_fields_drafted, declares one Unit on the brand', async () => {
+    await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest' });
+    expect(vi.mocked(createRun).mock.calls[0][0]).toMatchObject({ taskName: 'brand-fields-draft', parentRunId: 'caller-run' });
+    expect(vi.mocked(pickLlm).mock.calls[0][0]).toMatchObject({ outcome: 'brand_fields_drafted', place: 'draft', runId: 'test-run-id' });
+    expect(vi.mocked(declareProducedOutcomes)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(declareProducedOutcomes).mock.calls[0]).toEqual([
+      'test-run-id',
+      [{ outcomeKey: 'brand_fields_drafted', subjectService: 'brand-service', subjectId: 'brand-1' }],
+      { orgId: 'org-1', userId: 'user-1' },
+    ]);
+    expect(vi.mocked(updateRun).mock.calls[0][1]).toBe('completed');
+  });
+
+  it('every drafted field names the Unit: returned with the draft, and stamped on the stored row only once declared', async () => {
+    const stored: any[] = [];
+    mockInsert.mockReturnValue({
+      values: vi.fn((row: any) => {
+        stored.push(row);
+        return { onConflictDoUpdate: vi.fn().mockResolvedValue(undefined) };
+      }),
+    });
+    const declaredAfter: number[] = [];
+    vi.mocked(declareProducedOutcomes).mockImplementationOnce(async () => {
+      declaredAfter.push(stored.length);
+      return {};
+    });
+    const before = Date.now();
+    const results = await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest' });
+
+    // Stored first with the draft named and NO Unit time, declared, then stamped.
+    expect(declaredAfter).toEqual([1]);
+    expect(stored).toHaveLength(2);
+    expect(stored[0]).toMatchObject({ draftOutcomeKey: 'brand_fields_drafted', draftSubjectId: 'brand-1', draftRunId: 'test-run-id', draftUnitAt: null });
+    expect(stored[1]).toMatchObject({ draftOutcomeKey: 'brand_fields_drafted', draftSubjectId: 'brand-1', draftRunId: 'test-run-id' });
+    expect(Date.parse(stored[1].draftUnitAt)).toBeGreaterThanOrEqual(before);
+
+    expect(results[0].draftUnit).toEqual({
+      outcomeKey: 'brand_fields_drafted',
+      subjectService: 'brand-service',
+      subjectId: 'brand-1',
+      unitAt: stored[1].draftUnitAt,
+      runId: 'test-run-id',
+    });
+  });
+
+  it('a Unit that cannot be declared leaves no stored value naming it', async () => {
+    const stored: any[] = [];
+    mockInsert.mockReturnValue({
+      values: vi.fn((row: any) => {
+        stored.push(row);
+        return { onConflictDoUpdate: vi.fn().mockResolvedValue(undefined) };
+      }),
+    });
+    vi.mocked(declareProducedOutcomes).mockRejectedValueOnce(new Error('runs-service 502'));
+    await expect(
+      extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest' }),
+    ).rejects.toThrow('runs-service 502');
+    expect(stored.every((row) => row.draftUnitAt === null)).toBe(true);
+  });
+
   it('extract mode stays a field-extraction support run and declares nothing', async () => {
     vi.mocked(chat).mockResolvedValue({ content: '', json: { dreamOutcome: 'x' }, tokensInput: 1, tokensOutput: 1, model: 'm' } as any);
-    await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true });
+    const results = await extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true });
     expect(vi.mocked(createRun).mock.calls[0][0]).toMatchObject({ taskName: 'field-extraction' });
     expect(declareProducedOutcomes).not.toHaveBeenCalled();
     expect(pickLlm).not.toHaveBeenCalled();
+    expect(results[0].draftUnit).toBeNull();
   });
 
   it('a Unit that cannot be declared fails the draft loud (run marked failed)', async () => {
@@ -138,6 +202,7 @@ describe('suggest draft = a production run declaring one offer_fields_drafted Un
 
   it('offer-fields-draft carries no support mark (a support run cannot declare); field-extraction keeps brand_setup', () => {
     expect(supportForRun('brand-service', 'offer-fields-draft')).toBeUndefined();
+    expect(supportForRun('brand-service', 'brand-fields-draft')).toBeUndefined();
     expect(supportForRun('brand-service', 'field-extraction')?.kind).toBe('brand_setup');
   });
 

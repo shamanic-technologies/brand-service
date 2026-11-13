@@ -17,6 +17,7 @@ import { withOwnRun } from '../lib/own-run';
 import { db, consolidatedFieldCache } from '../db';
 import { getConfirmedByOfferId, isUserFacingFieldKey, ConfirmedUserField } from './brandUserFieldsService';
 import { resolveNamedOffer } from './brandOffersService';
+import { confirmedDraftState, suggestedDraftState, type DraftUnit, type FieldDraftState } from '../lib/field-drafts';
 
 interface Brand {
   id: string;
@@ -145,6 +146,13 @@ export interface MultiBrandFieldsResponse {
   }>;
   /** Per requested field key → provenance tag (sibling to `fields`, additive). */
   provenance: Record<string, FieldProvenance>;
+  /**
+   * Per requested field key → is the value in `fields[key].value` still what we
+   * drafted, and which Unit drafted it (sibling to `fields`, additive;
+   * SCRIPT-VALUE-RATING-1113, lib/field-drafts.ts). A surface that lets the
+   * client edit the value reports `draftUnit` when the client changes it.
+   */
+  drafts: Record<string, FieldDraftState>;
 }
 
 // ─── DB-backed consolidated fields cache ────────────────────────────────────
@@ -477,6 +485,21 @@ export async function multiBrandExtractFields(
     }),
   );
 
+  // The Unit of the draft behind each returned value. One brand: the Unit its
+  // own draft made (none on an `extract` read). Several brands: the value is a
+  // merge of several drafts, which is no single Unit.
+  const drafts: Record<string, FieldDraftState> = {};
+  for (const key of fieldKeys) {
+    const draftUnit: DraftUnit | null =
+      brandIds.length === 1 ? (byDomain[brandsMeta[0].domain]?.[key]?.draftUnit ?? null) : null;
+    drafts[key] = suggestedDraftState(
+      responseFields[key].value,
+      draftUnit
+        ? { draftOutcomeKey: draftUnit.outcomeKey, draftSubjectId: draftUnit.subjectId, draftRunId: draftUnit.runId, draftUnitAt: draftUnit.unitAt }
+        : null,
+    );
+  }
+
   const provenance: Record<string, FieldProvenance> = {};
   for (const key of fieldKeys) {
     if (!isUserFacingFieldKey(key)) {
@@ -504,9 +527,13 @@ export async function multiBrandExtractFields(
 
     if (allConfirmed && brandIds.length === 1) {
       const entry = confirmedByBrandId.get(brandsMeta[0].brandId)?.get(key);
-      if (entry) responseFields[key].value = entry.value;
+      if (entry) {
+        responseFields[key].value = entry.value;
+        // The value served is now the confirmed one: its own draft state.
+        drafts[key] = confirmedDraftState(entry.draft);
+      }
     }
   }
 
-  return { brands: brandsMeta, fields: responseFields, provenance };
+  return { brands: brandsMeta, fields: responseFields, provenance, drafts };
 }
