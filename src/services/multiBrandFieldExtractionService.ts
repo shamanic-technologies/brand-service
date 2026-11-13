@@ -8,9 +8,10 @@
 
 import crypto from 'crypto';
 import { eq, gt, sql, and } from 'drizzle-orm';
-import type { PickedLlm } from '../lib/llm-pick-client';
-import { pickOfferFieldsLlm, suggestModelParams } from '../lib/offer-fields-llm';
-import { extractFields, getBrand, buildFieldsResponseSchema, ANTHROPIC_MAX_UNION_PARAMS, chunkFieldsForAnthropic, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
+import { makeFieldsDraft, answerJson, type DraftCall, type EngineMakeIdentity } from '../lib/engine-make-client';
+import { createPlatformRun, updatePlatformRun } from '../lib/runs-client';
+import { OFFER_FIELDS_OUTCOME } from '../lib/field-drafts';
+import { extractFields, getBrand, buildFieldsResponseSchema, chunkFieldsForAnthropic, SUGGEST_MAX_TOKENS, FieldSpec, ExtractedFieldResult, UrlStrategy, ExtractionMode } from './fieldExtractionService';
 import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
 import { brandSetupSupport } from '../lib/platform-support';
 import { withOwnRun } from '../lib/own-run';
@@ -244,23 +245,12 @@ export function consolidationChatCaller(caller: Caller): ChatCaller {
     : { mode: 'platform', support: brandSetupSupport(CONSOLIDATION_SUPPORT_REASON) };
 }
 
-async function consolidateFields(
+/** The chat request of one consolidation batch: prompts + strict schema (the LLM is set by whoever writes it). */
+export function buildConsolidationCall(
   fieldKeys: string[],
   byBrand: Record<string, Record<string, unknown>>,
-  chatCaller: ChatCaller,
-  mode: ExtractionMode = 'extract',
-  suggestLlm?: PickedLlm,
-): Promise<Record<string, unknown>> {
-  // Suggest runs on the Rating's pick (OFFER-FIELDS-NO-OPUS-1112), once per consolidation; it may be Claude,
-  // so batch to Anthropic's union cap.
-  const llm = mode === 'suggest' ? (suggestLlm ?? (await pickOfferFieldsLlm(chatCaller, 'consolidate'))) : undefined;
-  if (mode === 'suggest' && fieldKeys.length > ANTHROPIC_MAX_UNION_PARAMS) {
-    const parts = await Promise.all(
-      chunkFieldsForAnthropic(fieldKeys).map((chunk) => consolidateFields(chunk, byBrand, chatCaller, mode, llm)),
-    );
-    return Object.assign({}, ...parts);
-  }
-
+  mode: ExtractionMode,
+): { systemPrompt: string; message: string; responseSchema: Record<string, unknown> } {
   const perBrandSummary = Object.entries(byBrand)
     .map(([domain, fields]) => `Brand "${domain}":\n${JSON.stringify(fields, null, 2)}`)
     .join('\n\n');
@@ -279,30 +269,36 @@ async function consolidateFields(
         'produce a single consolidated view that merges insights across all brands. ' +
         'Return ONLY valid JSON with the requested field keys.';
 
+  return {
+    systemPrompt,
+    message:
+      `Consolidate the following field values across multiple brands into a single merged view.\n\n` +
+      `Fields to consolidate: ${fieldKeys.join(', ')}\n\n` +
+      `Per-brand values:\n${perBrandSummary}\n\n` +
+      `Return a JSON object with exactly these keys: ${fieldKeys.map((k) => `"${k}"`).join(', ')}. ` +
+      `For each field, produce a consolidated value that combines insights from all brands. ` +
+      `For string fields, write a merged summary. For array fields, merge and deduplicate. ` +
+      `For object fields, merge sensibly.` +
+      (mode === 'suggest'
+        ? ` NEVER return "Unknown", null, or empty values — always produce a best-effort merged value.`
+        : ''),
+    // Strict schema enforces the output shape server-side so the model can't
+    // emit malformed/truncated JSON across the consolidated field set (same
+    // chat-service 502 class as the per-brand extraction). `thinkingBudget`
+    // was dead config — chat-service /complete never honored it.
+    responseSchema: buildFieldsResponseSchema(fieldKeys),
+  };
+}
+
+/** `extract`: the consolidation on Gemini, as before. */
+async function consolidateFields(
+  fieldKeys: string[],
+  byBrand: Record<string, Record<string, unknown>>,
+  chatCaller: ChatCaller,
+): Promise<Record<string, unknown>> {
+  const call = buildConsolidationCall(fieldKeys, byBrand, 'extract');
   const result = await chat(
-    {
-      systemPrompt,
-      message:
-        `Consolidate the following field values across multiple brands into a single merged view.\n\n` +
-        `Fields to consolidate: ${fieldKeys.join(', ')}\n\n` +
-        `Per-brand values:\n${perBrandSummary}\n\n` +
-        `Return a JSON object with exactly these keys: ${fieldKeys.map((k) => `"${k}"`).join(', ')}. ` +
-        `For each field, produce a consolidated value that combines insights from all brands. ` +
-        `For string fields, write a merged summary. For array fields, merge and deduplicate. ` +
-        `For object fields, merge sensibly.` +
-        (mode === 'suggest'
-          ? ` NEVER return "Unknown", null, or empty values — always produce a best-effort merged value.`
-          : ''),
-      ...(mode === 'suggest'
-        ? suggestModelParams(llm!)
-        : { provider: 'google' as const, model: 'flash-pro' as const, maxTokens: 24000 }),
-      responseFormat: 'json',
-      // Strict schema enforces the output shape server-side so the model can't
-      // emit malformed/truncated JSON across the consolidated field set (same
-      // chat-service 502 class as the per-brand extraction). `thinkingBudget`
-      // was dead config — chat-service /complete never honored it.
-      responseSchema: buildFieldsResponseSchema(fieldKeys),
-    },
+    { ...call, provider: 'google', model: 'flash-pro', maxTokens: 24000, responseFormat: 'json' },
     chatCaller,
   );
 
@@ -311,6 +307,63 @@ async function consolidateFields(
   const match = result.content.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('Failed to parse consolidation response as JSON');
   return JSON.parse(match[0]);
+}
+
+/**
+ * `suggest`: the consolidation is written by a script of the « Offer fields drafted » Engine (place `consolidate`),
+ * never an LLM brand-service picks (SCRIPT-VALUE-RATING-1113-WF3). One call per ≤16-field batch (the script's LLM may
+ * be a Claude). The merged view names no single offer, so no Unit is declared (as before the port).
+ */
+export async function draftConsolidation(
+  fieldKeys: string[],
+  byBrand: Record<string, Record<string, unknown>>,
+  identity: EngineMakeIdentity,
+  billing: 'org' | 'platform',
+): Promise<Record<string, unknown>> {
+  const calls: DraftCall[] = chunkFieldsForAnthropic(fieldKeys).map((chunk) => ({
+    place: 'consolidate',
+    ...buildConsolidationCall(chunk, byBrand, 'suggest'),
+    responseFormat: 'json',
+    maxTokens: SUGGEST_MAX_TOKENS,
+  }));
+  const made = await makeFieldsDraft({ outcome: OFFER_FIELDS_OUTCOME, calls, identity, billing });
+  return Object.assign({}, ...made.answers.map(answerJson));
+}
+
+function orgMakeIdentity(own: OrgCaller): EngineMakeIdentity {
+  return {
+    runId: own.runId,
+    orgId: own.orgId,
+    userId: own.userId || undefined,
+    campaignId: own.campaignId,
+    brandIdHeader: own.brandIdHeader,
+    featureSlug: own.featureSlug,
+    workflowSlug: own.workflowSlug,
+    audienceId: own.audienceId,
+  };
+}
+
+/**
+ * An internal (org-less) suggest consolidation: the script's run needs a parent run of ours, so it rides a platform
+ * run (brand setup), billed to the platform as the chat call was.
+ */
+async function draftConsolidationOnPlatformRun(
+  fieldKeys: string[],
+  byBrand: Record<string, Record<string, unknown>>,
+): Promise<Record<string, unknown>> {
+  const run = await createPlatformRun({ serviceName: 'brand-service', taskName: CONSOLIDATION_TASK });
+  try {
+    const result = await draftConsolidation(fieldKeys, byBrand, { runId: run.id }, 'platform');
+    await updatePlatformRun(run.id, 'completed', 'brand-service');
+    return result;
+  } catch (error) {
+    try {
+      await updatePlatformRun(run.id, 'failed', 'brand-service');
+    } catch (err) {
+      console.warn(`[brand-service] Failed to mark consolidation platform run ${run.id} as failed:`, err);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -420,10 +473,18 @@ export async function multiBrandExtractFields(
       console.log(`[brand-service] Consolidating fields across ${brandIds.length} brands`);
       // An org request opens OUR run for the consolidation (child of the
       // caller's), so the spend never rides the caller's outcome (LEDGER-HISTORY-1024).
-      valueMap = caller.mode === 'org'
-        ? await withOwnRun(CONSOLIDATION_TASK, undefined, caller, (own) =>
-            consolidateFields(fieldKeys, valuesByDomain, own, mode))
-        : await consolidateFields(fieldKeys, valuesByDomain, consolidationChatCaller(caller), mode);
+      // `suggest`: a script of the « Offer fields drafted » Engine writes it (SCRIPT-VALUE-RATING-1113-WF3).
+      if (mode === 'suggest') {
+        valueMap = caller.mode === 'org'
+          ? await withOwnRun(CONSOLIDATION_TASK, undefined, caller, (own) =>
+              draftConsolidation(fieldKeys, valuesByDomain, orgMakeIdentity(own), 'org'))
+          : await draftConsolidationOnPlatformRun(fieldKeys, valuesByDomain);
+      } else {
+        valueMap = caller.mode === 'org'
+          ? await withOwnRun(CONSOLIDATION_TASK, undefined, caller, (own) =>
+              consolidateFields(fieldKeys, valuesByDomain, own))
+          : await consolidateFields(fieldKeys, valuesByDomain, consolidationChatCaller(caller));
+      }
 
       // Cache the consolidated result. Expires at the earliest per-brand expiry.
       const allExpiries = Object.values(byDomain)

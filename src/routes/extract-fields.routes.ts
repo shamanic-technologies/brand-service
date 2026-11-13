@@ -1,5 +1,5 @@
 import { respondIfInsufficientCredits } from '../lib/insufficient-credits';
-import { LlmPickUnavailableError } from '../lib/llm-pick-client';
+import { EngineMakeUnavailableError } from '../lib/engine-make-client';
 import { Router, Request, Response } from 'express';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getBrand } from '../services/fieldExtractionService';
@@ -94,9 +94,10 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
     console.error('[brand-service] Extract fields (multi-brand) error:', error?.message, error);
     // The org cannot pay (a 402 from chat-service or scraping-service): 402.
     if (respondIfInsufficientCredits(res, error)) return;
-    // The LLM Rating gave no LLM for the suggest draft: nothing was written, retry later (OFFER-FIELDS-NO-OPUS-1112).
-    if (error instanceof LlmPickUnavailableError) {
-      return res.status(502).json({ error: error.message, reason: 'llm_pick_unavailable' });
+    // The draft's Engine made no draft (no runnable script, the script failed): nothing was written, retry later
+    // (SCRIPT-VALUE-RATING-1113-WF3).
+    if (error instanceof EngineMakeUnavailableError) {
+      return res.status(502).json({ error: error.message, reason: 'engine_make_unavailable' });
     }
     // A named offer that does not exist (404), and the deliberate 409 for a
     // brand holding several offers when the caller named none. Neither is
@@ -175,9 +176,10 @@ internalRouter.post('/brands/extract-fields', async (req: Request, res: Response
     // `error?.message` explicitly — see the org-scoped handler above.
     console.error('[brand-service] Extract fields (internal multi-brand) error:', error?.message, error);
     if (respondIfInsufficientCredits(res, error)) return;
-    // The LLM Rating gave no LLM for the suggest draft: nothing was written, retry later (OFFER-FIELDS-NO-OPUS-1112).
-    if (error instanceof LlmPickUnavailableError) {
-      return res.status(502).json({ error: error.message, reason: 'llm_pick_unavailable' });
+    // The draft's Engine made no draft (no runnable script, the script failed): nothing was written, retry later
+    // (SCRIPT-VALUE-RATING-1113-WF3).
+    if (error instanceof EngineMakeUnavailableError) {
+      return res.status(502).json({ error: error.message, reason: 'engine_make_unavailable' });
     }
     // A named offer that does not exist (404), and the deliberate 409 for a
     // brand holding several offers when the caller named none. Neither is

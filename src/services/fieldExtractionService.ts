@@ -19,8 +19,7 @@ import { eq, and, gt, inArray, sql, isNull, asc } from 'drizzle-orm';
 import { db, brands, brandExtractedFields, brandOffers, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import { OfferNotFoundError } from './brandOffersService';
 import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
-import type { PickedLlm } from '../lib/llm-pick-client';
-import { pickOfferFieldsLlm, suggestModelParams } from '../lib/offer-fields-llm';
+import { makeFieldsDraft, answerJson, type DraftCall, type EngineMakeRequest } from '../lib/engine-make-client';
 import { fieldDraftKind, draftUnitOfColumns, OFFER_FIELDS_OUTCOME, type DraftUnit } from '../lib/field-drafts';
 import {
   mapSiteUrls,
@@ -425,30 +424,20 @@ export function buildFieldsResponseSchema(keys: string[]): Record<string, unknow
 
 // ─── Field extraction via chat-service ──────────────────────────────────────
 
-export async function extractFieldsFromContent(
+/** The chat request of one field batch: prompts + strict schema (the LLM is set by the caller, never here). */
+export interface FieldsCall {
+  systemPrompt: string;
+  message: string;
+  responseSchema: Record<string, unknown>;
+}
+
+export function buildFieldsCall(
   pageContents: { url: string; content: string }[],
   fields: FieldSpec[],
-  chatCaller: ChatCaller,
   campaignContext: string | null,
   profileContext: string | null,
-  urlStrategy: UrlStrategy,
   mode: ExtractionMode = 'extract',
-  suggestLlm?: PickedLlm,
-  /** The Engine the draft belongs to (`fieldDraftKind`): offer fields, or brand fields when no offer is named. */
-  suggestOutcome: string = OFFER_FIELDS_OUTCOME,
-): Promise<Record<string, unknown>> {
-  // `suggest`: the Rating picks the LLM, ONCE per draft (OFFER-FIELDS-NO-OPUS-1112, lib/offer-fields-llm.ts).
-  const llm = mode === 'suggest' ? (suggestLlm ?? (await pickOfferFieldsLlm(chatCaller, 'draft', suggestOutcome))) : undefined;
-  // The picked LLM may be Claude, which refuses > 16 union-typed params in one schema: batch every draft.
-  if (mode === 'suggest' && fields.length > ANTHROPIC_MAX_UNION_PARAMS) {
-    const parts = await Promise.all(
-      chunkFieldsForAnthropic(fields).map((chunk) =>
-        extractFieldsFromContent(pageContents, chunk, chatCaller, campaignContext, profileContext, urlStrategy, mode, llm, suggestOutcome),
-      ),
-    );
-    return Object.assign({}, ...parts);
-  }
-
+): FieldsCall {
   // Per-page cap is generous (100k chars ≈ 25k tokens) so services listed lower
   // on a long landing/pricing page still reach the model. Page counts are
   // bounded (landing = 1 page, url_map ≤ 10), so worst case url_map is
@@ -471,38 +460,6 @@ export async function extractFieldsFromContent(
   const contextBlock = campaignContext
     ? `\n\nCampaign context (HIGHEST PRIORITY — overrides both the brand profile and the website content; use it to guide and refine your extraction):\n${campaignContext}\n`
     : '';
-
-  // `extract`: both strategies run on flash-pro (Gemini 3.8 Flash), provider
-  // `google`. `suggest` runs on the LLM the Rating picked (`llm`), its fields
-  // batched to Anthropic's union cap above.
-  //
-  // NOT on Claude: the cold-email workflows ask for 19 fields in one call, and
-  // every field's schema is a union (string OR string[]). Anthropic refuses a
-  // structured-output schema with more than 16 union-typed parameters ("Schemas
-  // contains too many parameters with union types"), so chat-service answers
-  // 502 and every cold-email run fails at the brand step once its extraction
-  // cache expires. It ran on Sonnet 5.5 for a few hours on 2026-09-29 and went
-  // back here (owner decision). tests/unit/extractionSchemaProviderLimit.test.ts
-  // pins that a large field count never reaches a provider that refuses it.
-  //
-  // This is also the onboarding prefill path: an anonymous org is seeded with
-  // $5 of trial credit and chat-service PROVISIONS the caller's worst case
-  // (maxTokens x the output price) before the call, so the budget stays bounded.
-  // The single landing page (onboarding "what services do you offer", name
-  // fill) keeps `disableThinking: true`, which floors reasoning to `low` — the
-  // sellable-services vs internal-steps
-  // discrimination needs judgment, not a long deliberation. The url_map
-  // full-profile extraction keeps chat-service's default bounded reasoning.
-  //
-  // A strict responseSchema is sent on BOTH paths so the provider enforces the
-  // output shape server-side — this is what stops the model from emitting
-  // malformed/truncated JSON on the 19-field url_map extraction (chat-service
-  // 502 "Model returned malformed or truncated JSON"). `thinkingBudget` was
-  // dead config — chat-service /complete never honored it (only `disableThinking`).
-  const modelParams =
-    urlStrategy === 'landing'
-      ? { model: 'flash-pro' as const, maxTokens: 24000, disableThinking: true }
-      : { model: 'flash-pro' as const, maxTokens: 24000 };
 
   const responseSchema = buildFieldsResponseSchema(fields.map((f) => f.key));
 
@@ -557,17 +514,60 @@ export async function extractFieldsFromContent(
     message = `Analyze the following website content and extract these fields:\n\n${fieldDescriptions}${profileBlock}${contextBlock}\n\nToday's date is ${today}. Treat any time-sensitive or urgency claim as current ONLY if its date is on or after ${today}; if a deadline or countdown has already passed, treat it as expired and return "Unknown" for that field rather than presenting the stale deadline as live urgency.\n\nWebsite content:\n${combinedContent}\n\nReturn a JSON object with exactly these keys: ${fields.map((f) => `"${f.key}"`).join(', ')}. NEVER return null, undefined, or empty strings/arrays. If a field's information is not present in the content, return the string "Unknown" for that field. For array fields, return arrays of strings; if no values can be found, return ["Unknown"] (never an empty array).`;
   }
 
+  return { systemPrompt, message, responseSchema };
+}
+
+/** `extract` mode: the site-grounded read, on Gemini (support run, read by every cold-email run). */
+export async function extractFieldsFromContent(
+  pageContents: { url: string; content: string }[],
+  fields: FieldSpec[],
+  chatCaller: ChatCaller,
+  campaignContext: string | null,
+  profileContext: string | null,
+  urlStrategy: UrlStrategy,
+): Promise<Record<string, unknown>> {
+  // `extract`: both strategies run on flash-pro (Gemini 3.8 Flash), provider
+  // `google`. `suggest` is never asked here: a draft is made by a script
+  // of its Engine (draftFieldsFromContent).
+  //
+  // NOT on Claude: the cold-email workflows ask for 19 fields in one call, and
+  // every field's schema is a union (string OR string[]). Anthropic refuses a
+  // structured-output schema with more than 16 union-typed parameters ("Schemas
+  // contains too many parameters with union types"), so chat-service answers
+  // 502 and every cold-email run fails at the brand step once its extraction
+  // cache expires. It ran on Sonnet 5.5 for a few hours on 2026-09-29 and went
+  // back here (owner decision). tests/unit/extractionSchemaProviderLimit.test.ts
+  // pins that a large field count never reaches a provider that refuses it.
+  //
+  // This is also the onboarding prefill path: an anonymous org is seeded with
+  // $5 of trial credit and chat-service PROVISIONS the caller's worst case
+  // (maxTokens x the output price) before the call, so the budget stays bounded.
+  // The single landing page (onboarding "what services do you offer", name
+  // fill) keeps `disableThinking: true`, which floors reasoning to `low` — the
+  // sellable-services vs internal-steps
+  // discrimination needs judgment, not a long deliberation. The url_map
+  // full-profile extraction keeps chat-service's default bounded reasoning.
+  //
+  // A strict responseSchema is sent on BOTH paths so the provider enforces the
+  // output shape server-side — this is what stops the model from emitting
+  // malformed/truncated JSON on the 19-field url_map extraction (chat-service
+  // 502 "Model returned malformed or truncated JSON"). `thinkingBudget` was
+  // dead config — chat-service /complete never honored it (only `disableThinking`).
+  const modelParams =
+    urlStrategy === 'landing'
+      ? { model: 'flash-pro' as const, maxTokens: 24000, disableThinking: true }
+      : { model: 'flash-pro' as const, maxTokens: 24000 };
+
+  const { systemPrompt, message, responseSchema } = buildFieldsCall(pageContents, fields, campaignContext, profileContext, 'extract');
   const result = await chat(
-    mode === 'suggest'
-      ? { systemPrompt, message, responseFormat: 'json', responseSchema, ...suggestModelParams(llm!) }
-      : {
-          systemPrompt,
-          message,
-          provider: EXTRACTION_PROVIDER,
-          responseFormat: 'json',
-          responseSchema,
-          ...modelParams,
-        },
+    {
+      systemPrompt,
+      message,
+      provider: EXTRACTION_PROVIDER,
+      responseFormat: 'json',
+      responseSchema,
+      ...modelParams,
+    },
     chatCaller,
   );
 
@@ -576,6 +576,32 @@ export async function extractFieldsFromContent(
   const match = result.content.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('Failed to parse AI response as JSON');
   return JSON.parse(match[0]);
+}
+
+/** Output budget of one draft call (thinking + JSON answer); chat-service provisions against it. */
+export const SUGGEST_MAX_TOKENS = 24000;
+
+/**
+ * `suggest` mode: the draft is made by a SCRIPT of its Engine (« Offer fields drafted » / « Brand fields drafted »),
+ * never an LLM brand-service picks (SCRIPT-VALUE-RATING-1113-WF3). The draft's calls = one per ≤16-field batch (the
+ * script's LLM may be a Claude, which refuses > 16 union-typed params in one schema), each asked once; the script
+ * writes them in order with the LLM its tactics state, and its run (a child of ours) is the Unit's run.
+ */
+export async function draftFieldsFromContent(
+  pageContents: { url: string; content: string }[],
+  fields: FieldSpec[],
+  campaignContext: string | null,
+  profileContext: string | null,
+  make: Omit<EngineMakeRequest, 'calls'>,
+): Promise<{ fields: Record<string, unknown>; scriptRunId: string }> {
+  const calls: DraftCall[] = chunkFieldsForAnthropic(fields).map((chunk) => ({
+    place: 'draft',
+    ...buildFieldsCall(pageContents, chunk, campaignContext, profileContext, 'suggest'),
+    responseFormat: 'json',
+    maxTokens: SUGGEST_MAX_TOKENS,
+  }));
+  const made = await makeFieldsDraft({ ...make, calls });
+  return { fields: Object.assign({}, ...made.answers.map(answerJson)), scriptRunId: made.scriptRunId };
 }
 
 // ─── Upsert results ─────────────────────────────────────────────────────────
@@ -1180,17 +1206,38 @@ export async function extractFields(
 
     // 6. Extract fields via chat-service
     console.log(`[brand-service] [${brandId}] Extracting ${missingFields.length} fields with AI (cache miss: ${formatFieldPreview(missingFields.map(f => f.key))})`);
-    const extracted = await extractFieldsFromContent(
-      successfulScrapes,
-      missingFields,
-      chatCaller,
-      campaignContext,
-      profileContext,
-      urlStrategy,
-      mode,
-      undefined,
-      draftKind?.outcomeKey,
-    );
+    // `suggest`: a script of the draft's Engine writes it, on its own run (a child of ours), and that run is the
+    // Unit's run (SCRIPT-VALUE-RATING-1113-WF3). `extract`: the site read on Gemini, as before.
+    let extracted: Record<string, unknown>;
+    let scriptRunId: string | null = null;
+    if (draftKind) {
+      const made = await draftFieldsFromContent(successfulScrapes, missingFields, campaignContext, profileContext, {
+        outcome: draftKind.outcomeKey,
+        identity: {
+          runId: run.id,
+          orgId: trackingOrgId,
+          userId: trackingUserId,
+          campaignId: campaignIdForRun,
+          brandIdHeader,
+          featureSlug,
+          workflowSlug,
+          audienceId,
+        },
+        billing: caller.mode === 'org' ? 'org' : 'platform',
+        subject: { service: draftKind.subjectService, id: draftKind.subjectId },
+      });
+      extracted = made.fields;
+      scriptRunId = made.scriptRunId;
+    } else {
+      extracted = await extractFieldsFromContent(
+        successfulScrapes,
+        missingFields,
+        chatCaller,
+        campaignContext,
+        profileContext,
+        urlStrategy,
+      );
+    }
 
     traceEvent(run.id, {
       service: 'brand-service',
@@ -1207,8 +1254,8 @@ export async function extractFields(
       description: f.description,
       value: extracted[f.key] ?? null,
     }));
-    const draftRef = draftKind
-      ? { outcomeKey: draftKind.outcomeKey, subjectId: draftKind.subjectId, runId: run.id }
+    const draftRef = draftKind && scriptRunId
+      ? { outcomeKey: draftKind.outcomeKey, subjectId: draftKind.subjectId, runId: scriptRunId }
       : null;
     await upsertExtractedFields(
       brandId, fieldsToStore, scrapedSourceUrls, mode, campaignIdForRun, options.offerId,
@@ -1216,9 +1263,10 @@ export async function extractFields(
     );
 
     // 7b. A stored suggest draft is ONE Unit of its Engine (« Offer fields
-    // drafted », or « Brand fields drafted » when no offer is named), on the
-    // run that asked the Rating for its LLM: the Rating's success signal
-    // (OFFER-FIELDS-NO-OPUS-1112). Fail loud.
+    // drafted », or « Brand fields drafted » when no offer is named), declared
+    // on the SCRIPT's run that wrote it (its dynasty is what the Rating values;
+    // the script runs `recordedBy: brand`, so it declares nothing itself).
+    // Fail loud.
     //
     // Each stored value then names that Unit (SCRIPT-VALUE-RATING-1113): the
     // surface where the client edits it reports THIS Unit. `unitAt` is taken
@@ -1227,7 +1275,7 @@ export async function extractFields(
     let draftUnit: DraftUnit | null = null;
     if (draftKind && draftRef) {
       await declareProducedOutcomes(
-        run.id,
+        draftRef.runId,
         [{ outcomeKey: draftKind.outcomeKey, subjectService: draftKind.subjectService, subjectId: draftKind.subjectId }],
         { orgId: trackingOrgId, userId: trackingUserId },
       );
@@ -1236,7 +1284,7 @@ export async function extractFields(
         subjectService: draftKind.subjectService,
         subjectId: draftKind.subjectId,
         unitAt: new Date().toISOString(),
-        runId: run.id,
+        runId: draftRef.runId,
       };
       await upsertExtractedFields(
         brandId, fieldsToStore, scrapedSourceUrls, mode, campaignIdForRun, options.offerId,

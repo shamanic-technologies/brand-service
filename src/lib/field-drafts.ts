@@ -6,7 +6,8 @@
  * `POST /orgs/unit-reports`). brand-service sends no report; it states the two facts the surface needs,
  * per field: is the stored value still what we drafted, and which Unit (the ledger's naming) drafted it.
  *
- * A `suggest` draft is one Unit, on a production run of its own:
+ * A `suggest` draft is one Unit of its Engine, made by a script of that Engine on the script's own run (a child of
+ * ours, SCRIPT-VALUE-RATING-1113-WF3), where brand-service declares it:
  * - it names an offer  -> `offer_fields_drafted`, subject = that offer (OFFER-FIELDS-NO-OPUS-1112);
  * - it names no offer  -> `brand_fields_drafted`, subject = the brand (the company's own description,
  *   facts, competitors... asked before any offer exists). Never a guessed offer, never a field-name rule:
@@ -18,7 +19,7 @@
 export const OFFER_FIELDS_OUTCOME = 'offer_fields_drafted';
 export const BRAND_FIELDS_OUTCOME = 'brand_fields_drafted';
 
-/** Run tasks of a suggest draft: PRODUCTION runs (support-functions.ts `PRODUCTION_TASKS`). */
+/** Run tasks of a suggest draft: OUR run (brand setup, support); the Unit is declared on the script's child run. */
 export const OFFER_FIELDS_DRAFT_TASK = 'offer-fields-draft';
 export const BRAND_FIELDS_DRAFT_TASK = 'brand-fields-draft';
 

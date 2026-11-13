@@ -109,13 +109,13 @@ describe('multi-brand consolidation — sends a strict responseSchema, no dead t
     'utf-8',
   );
 
-  it('consolidateFields call passes responseSchema and drops thinkingBudget', () => {
-    const consolidationBlock = multiBrandSrc.match(
-      /consolidateFields[\s\S]*?model:\s*'flash-pro'[\s\S]*?\},\s*\n\s*chatCaller/,
-    );
-    expect(consolidationBlock).not.toBeNull();
-    expect(consolidationBlock![0]).toContain('responseSchema: buildFieldsResponseSchema(fieldKeys)');
+  it('every consolidation call (extract on Gemini, suggest by the Engine) carries a strict responseSchema, no thinkingBudget', () => {
+    // Both modes build the call in ONE place (buildConsolidationCall), so the schema rides both.
+    const builder = multiBrandSrc.match(/export function buildConsolidationCall[\s\S]*?\n}\n/);
+    expect(builder).not.toBeNull();
+    expect(builder![0]).toContain('responseSchema: buildFieldsResponseSchema(fieldKeys)');
+    expect(multiBrandSrc).toMatch(/consolidateFields[\s\S]*?buildConsolidationCall\(fieldKeys, byBrand, 'extract'\)[\s\S]*?model: 'flash-pro'/);
     // The dead `thinkingBudget:` PARAM must be gone (the word may still appear in a comment).
-    expect(consolidationBlock![0]).not.toMatch(/thinkingBudget\s*:/);
+    expect(multiBrandSrc).not.toMatch(/thinkingBudget\s*:/);
   });
 });

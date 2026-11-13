@@ -8,7 +8,7 @@ import {
   draftUnitOfColumns,
   CLIENT_OWN_VALUE,
 } from '../../src/lib/field-drafts';
-import { PRODUCTION_TASKS } from '../../src/lib/support-functions';
+import { supportForRun } from '../../src/lib/support-functions';
 
 /**
  * SCRIPT-VALUE-RATING-1113 (owner 2026-11-13): when a client edits what we drafted, the surface reports the Unit
@@ -41,9 +41,9 @@ describe('fieldDraftKind: what a suggest draft is, read off the scope it was ask
     }
   });
 
-  it('each draft task is a production task declaring its own outcome', () => {
+  it('our draft run is brand setup: the Unit is declared on the script\'s child run, never ours', () => {
     for (const kind of [fieldDraftKind('b', 'o'), fieldDraftKind('b', null)]) {
-      expect(PRODUCTION_TASKS[kind.taskName]).toBe(kind.outcomeKey);
+      expect(supportForRun('brand-service', kind.taskName)?.kind).toBe('brand_setup');
     }
   });
 });
