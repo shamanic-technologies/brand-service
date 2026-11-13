@@ -17,6 +17,8 @@
  * fleet's `InsufficientCreditsError` (402). No fallback to an LLM call of our own, no default model, no retry
  * (a make SPENDS: a retry would write the draft twice).
  */
+import http from 'node:http';
+import https from 'node:https';
 import { InsufficientCreditsError } from './insufficient-credits';
 
 const WORKFLOW_SERVICE_URL = process.env.WORKFLOW_SERVICE_URL || 'http://workflow-service:8080';
@@ -89,6 +91,34 @@ export class EngineMakeUnavailableError extends Error {
 
 const CHAT_402 = /\b402\b|insufficient credits/i;
 
+/**
+ * How long we wait for the script's answer. The script writes its calls one after the other, and a script whose LLM
+ * uses tools (a brand with an MCP server plugged) takes minutes: Node's `fetch` gives up on response headers at 300 s
+ * while the script keeps writing (a draft billed, never stored). The client is waiting on THIS draft, so we wait.
+ */
+export const MAKE_TIMEOUT_MS = 15 * 60_000;
+
+/** A POST with no 300 s header cutoff (node:http, one explicit deadline). */
+function postJson(url: string, headers: Record<string, string>, body: string, timeoutMs: number): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const lib = target.protocol === 'https:' ? https : http;
+    const req = lib.request(
+      target,
+      { method: 'POST', headers: { ...headers, 'Content-Length': Buffer.byteLength(body).toString() } },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
+        res.on('error', reject);
+      },
+    );
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`no answer within ${Math.round(timeoutMs / 1000)}s`)));
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 function identityHeaders(identity: EngineMakeIdentity): Record<string, string> {
   const headers: Record<string, string> = { 'x-run-id': identity.runId };
   const optional: Array<[string, string | undefined]> = [
@@ -153,18 +183,19 @@ export async function makeFieldsDraft(request: EngineMakeRequest): Promise<MadeD
   if (calls.length === 0) throw new Error('a draft states at least one call');
   const started = Date.now();
 
-  let response: Response;
+  let response: { status: number; text: string };
   try {
-    response = await fetch(`${WORKFLOW_SERVICE_URL}/internal/engines/${encodeURIComponent(outcome)}/make`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': WORKFLOW_SERVICE_API_KEY, ...identityHeaders(identity) },
-      body: JSON.stringify(buildMakeBody(request)),
-    });
+    response = await postJson(
+      `${WORKFLOW_SERVICE_URL}/internal/engines/${encodeURIComponent(outcome)}/make`,
+      { 'Content-Type': 'application/json', 'x-api-key': WORKFLOW_SERVICE_API_KEY, ...identityHeaders(identity) },
+      JSON.stringify(buildMakeBody(request)),
+      MAKE_TIMEOUT_MS,
+    );
   } catch (error: any) {
     throw new EngineMakeUnavailableError(outcome, `workflow-service unreachable: ${error?.message ?? String(error)}`);
   }
-  const text = await response.text();
-  if (!response.ok) {
+  const text = response.text;
+  if (response.status < 200 || response.status >= 300) {
     if (response.status === 402 || CHAT_402.test(text)) {
       throw new InsufficientCreditsError(`workflow-service engine make ${outcome} returned 402: ${text.slice(0, 500)}`);
     }
