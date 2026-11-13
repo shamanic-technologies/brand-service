@@ -109,7 +109,7 @@ describe('clearing a confirmed offer field', () => {
       .send({ fields: { riskReversal: null, scarcity: '   ', socialProof: null } });
     expect(put.status).toBe(200);
     for (const key of KEYS) {
-      expect(put.body.fields[key]).toEqual({ value: SITE[key], provenance: 'suggested' });
+      expect(put.body.fields[key]).toEqual({ value: SITE[key], provenance: 'suggested', stillOurDraft: true, draftUnit: null });
     }
 
     // No confirmed row survives the clear.
@@ -141,7 +141,7 @@ describe('clearing a confirmed offer field', () => {
     await db.insert(brandUserFields).values({ orgId, brandId, offerId, fieldKey: 'scarcity', value: null });
 
     const view = await request(app).get(ufPath()).set(getAuthHeaders(orgId));
-    expect(view.body.fields.scarcity).toEqual({ value: SITE.scarcity, provenance: 'suggested' });
+    expect(view.body.fields.scarcity).toEqual({ value: SITE.scarcity, provenance: 'suggested', stillOurDraft: true, draftUnit: null });
 
     const profile = await brandProfileService.getByBrandId(orgId, brandId, offerId);
     expect(profile.current.fields.scarcity).toBe(SITE.scarcity);
@@ -154,6 +154,6 @@ describe('clearing a confirmed offer field', () => {
   it('an EMPTY LIST stays a confirmed "nothing" (not a clear)', async () => {
     const put = await request(app).put(ufPath()).set(getAuthHeaders(orgId)).send({ fields: { giveForFree: [] } });
     expect(put.status).toBe(200);
-    expect(put.body.fields.giveForFree).toEqual({ value: [], provenance: 'confirmed' });
+    expect(put.body.fields.giveForFree).toEqual({ value: [], provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
   });
 });

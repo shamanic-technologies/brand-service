@@ -181,6 +181,11 @@ describe('multiBrandExtractFields', () => {
         },
       },
       provenance: { industry: 'extracted', size: 'extracted' },
+      // An `extract` read is ours and makes no Unit (SCRIPT-VALUE-RATING-1113).
+      drafts: {
+        industry: { stillOurDraft: true, draftUnit: null },
+        size: { stillOurDraft: true, draftUnit: null },
+      },
     });
   });
 
@@ -228,6 +233,8 @@ describe('multiBrandExtractFields', () => {
         },
       },
       provenance: { industry: 'extracted' },
+      // A merge of several brands' values is no single draft's Unit.
+      drafts: { industry: { stillOurDraft: true, draftUnit: null } },
     });
 
     // Verify consolidated result was persisted to DB

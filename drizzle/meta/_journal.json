@@ -680,6 +680,13 @@
       "when": 1792700000000,
       "tag": "0098_competitor_site_judged",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0099_field_draft_units",
+      "breakpoints": true
     }
   ]
 }

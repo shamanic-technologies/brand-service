@@ -1,6 +1,15 @@
 import { eq, and, isNull, or, gt, desc, inArray, sql } from 'drizzle-orm';
 import { db, brandUserFields, brandExtractedFields } from '../db';
 import { offerScope, resolveOfferForWrite, resolveSoleOffer } from './brandOffersService';
+import {
+  confirmedDraftState,
+  savedDraftState,
+  suggestedDraftState,
+  type DraftCandidate,
+  type DraftColumns,
+  type DraftUnit,
+  type SavedDraftState,
+} from '../lib/field-drafts';
 
 /**
  * The 8 user-facing "confirmed" field keys. A value the user validates in the
@@ -71,6 +80,11 @@ export function isClearedUserFieldValue(value: unknown): boolean {
 export interface ConfirmedUserField {
   value: unknown;
   confirmedAt: string;
+  /**
+   * Which draft the confirmed value came from, as recorded at the write
+   * (lib/field-drafts.ts). Absent / `fromDraft: false` = the client's own words.
+   */
+  draft?: SavedDraftState;
 }
 
 /**
@@ -96,6 +110,11 @@ export async function getConfirmedByOfferId(
       fieldKey: brandUserFields.fieldKey,
       value: brandUserFields.value,
       confirmedAt: brandUserFields.confirmedAt,
+      fromDraft: brandUserFields.fromDraft,
+      draftOutcomeKey: brandUserFields.draftOutcomeKey,
+      draftSubjectId: brandUserFields.draftSubjectId,
+      draftRunId: brandUserFields.draftRunId,
+      draftUnitAt: brandUserFields.draftUnitAt,
     })
     .from(brandUserFields)
     .where(
@@ -112,7 +131,17 @@ export async function getConfirmedByOfferId(
     // nothing: skip it so EVERY reader (profile, extract-fields overlay, the
     // user-fields view) falls back to the site value alike.
     if (isClearedUserFieldValue(row.value)) continue;
-    map.set(row.fieldKey, { value: row.value, confirmedAt: row.confirmedAt });
+    map.set(row.fieldKey, {
+      value: row.value,
+      confirmedAt: row.confirmedAt,
+      draft: {
+        fromDraft: row.fromDraft === true,
+        draftOutcomeKey: row.draftOutcomeKey ?? null,
+        draftSubjectId: row.draftSubjectId ?? null,
+        draftRunId: row.draftRunId ?? null,
+        draftUnitAt: row.draftUnitAt ?? null,
+      },
+    });
   }
   return map;
 }
@@ -122,24 +151,48 @@ export type FieldProvenance = 'confirmed' | 'suggested';
 export interface UserFieldView {
   value: unknown;
   provenance: FieldProvenance;
+  /**
+   * The served value is what we drafted, unchanged by the client: always for a
+   * non-empty `suggested` prefill; for a `confirmed` value, only while the
+   * client saved our draft as is (a save that changes nothing keeps it true, a
+   * save that changes it makes it the client's). SCRIPT-VALUE-RATING-1113.
+   */
+  stillOurDraft: boolean;
+  /**
+   * The Unit that draft made, as the runs ledger names it: what an edit of
+   * this value reports. Null when the value is the client's own, or when no
+   * Unit was declared for the draft (an `extract` read, a draft stored before
+   * Units were recorded per field).
+   */
+  draftUnit: DraftUnit | null;
+}
+
+/** One stored prefill: its value and the draft columns its row carries. */
+export interface SuggestedUserField {
+  value: unknown;
+  draft?: Partial<DraftColumns> | null;
 }
 
 /**
  * Pure merge: for each of the 7 user-facing keys, a confirmed value wins
  * (provenance `confirmed`); otherwise the most-recent non-expired auto-extract
- * prefill is returned (provenance `suggested`, value defaults to null). Unit-tested.
+ * prefill is returned (provenance `suggested`, value defaults to null). Each
+ * field also states whether its value is still our draft and which Unit
+ * drafted it. Unit-tested.
  */
 export function buildUserFieldsView(
   confirmed: Map<string, ConfirmedUserField>,
-  suggestedByKey: Map<string, unknown>,
+  suggestedByKey: Map<string, SuggestedUserField>,
 ): Record<string, UserFieldView> {
   const out: Record<string, UserFieldView> = {};
   for (const key of USER_FACING_FIELD_KEYS) {
     const c = confirmed.get(key);
     if (c) {
-      out[key] = { value: c.value, provenance: 'confirmed' };
+      out[key] = { value: c.value, provenance: 'confirmed', ...confirmedDraftState(c.draft) };
     } else {
-      out[key] = { value: suggestedByKey.get(key) ?? null, provenance: 'suggested' };
+      const suggested = suggestedByKey.get(key);
+      const value = suggested?.value ?? null;
+      out[key] = { value, provenance: 'suggested', ...suggestedDraftState(value, suggested?.draft) };
     }
   }
   return out;
@@ -152,11 +205,24 @@ export function buildUserFieldsView(
  * expires. Returns a Map<key, value> — keys with no usable row are absent.
  */
 export async function getSuggestedByBrandId(orgId: string, brandId: string): Promise<Map<string, unknown>> {
+  const drafts = await getSuggestedDraftsByBrandId(orgId, brandId);
+  return new Map([...drafts].map(([key, suggested]) => [key, suggested.value]));
+}
+
+/** The same prefills, each with the draft columns its row carries (which Unit drafted it). */
+export async function getSuggestedDraftsByBrandId(
+  _orgId: string,
+  brandId: string,
+): Promise<Map<string, SuggestedUserField>> {
   const rows = await db
     .select({
       fieldKey: brandExtractedFields.fieldKey,
       fieldValue: brandExtractedFields.fieldValue,
       extractedAt: brandExtractedFields.extractedAt,
+      draftOutcomeKey: brandExtractedFields.draftOutcomeKey,
+      draftSubjectId: brandExtractedFields.draftSubjectId,
+      draftRunId: brandExtractedFields.draftRunId,
+      draftUnitAt: brandExtractedFields.draftUnitAt,
     })
     .from(brandExtractedFields)
     .where(
@@ -170,9 +236,59 @@ export async function getSuggestedByBrandId(orgId: string, brandId: string): Pro
     .orderBy(desc(brandExtractedFields.extractedAt));
 
   // Rows are newest-first; keep the FIRST seen value per key.
-  const map = new Map<string, unknown>();
+  const map = new Map<string, SuggestedUserField>();
   for (const row of rows) {
-    if (!map.has(row.fieldKey)) map.set(row.fieldKey, row.fieldValue);
+    if (map.has(row.fieldKey)) continue;
+    map.set(row.fieldKey, {
+      value: row.fieldValue,
+      draft: {
+        draftOutcomeKey: row.draftOutcomeKey ?? null,
+        draftSubjectId: row.draftSubjectId ?? null,
+        draftRunId: row.draftRunId ?? null,
+        draftUnitAt: row.draftUnitAt ?? null,
+      },
+    });
+  }
+  return map;
+}
+
+/**
+ * Every draft we stored for these fields of the brand, newest first, whatever
+ * its age: what a saved value is compared against to know whether the client
+ * saved our draft as is (`savedDraftState`). Expiry is a cache rule, not a
+ * statement that we never wrote the value, so an expired draft still counts.
+ */
+export async function getStoredDraftsByKey(brandId: string, fieldKeys: string[]): Promise<Map<string, DraftCandidate[]>> {
+  const map = new Map<string, DraftCandidate[]>();
+  if (fieldKeys.length === 0) return map;
+  const rows = await db
+    .select({
+      fieldKey: brandExtractedFields.fieldKey,
+      fieldValue: brandExtractedFields.fieldValue,
+      draftOutcomeKey: brandExtractedFields.draftOutcomeKey,
+      draftSubjectId: brandExtractedFields.draftSubjectId,
+      draftRunId: brandExtractedFields.draftRunId,
+      draftUnitAt: brandExtractedFields.draftUnitAt,
+    })
+    .from(brandExtractedFields)
+    .where(
+      and(
+        eq(brandExtractedFields.brandId, brandId),
+        isNull(brandExtractedFields.campaignId),
+        inArray(brandExtractedFields.fieldKey, fieldKeys),
+      ),
+    )
+    .orderBy(desc(brandExtractedFields.extractedAt));
+  for (const row of rows) {
+    const list = map.get(row.fieldKey) ?? [];
+    list.push({
+      value: row.fieldValue,
+      draftOutcomeKey: row.draftOutcomeKey ?? null,
+      draftSubjectId: row.draftSubjectId ?? null,
+      draftRunId: row.draftRunId ?? null,
+      draftUnitAt: row.draftUnitAt ?? null,
+    });
+    map.set(row.fieldKey, list);
   }
   return map;
 }
@@ -203,7 +319,7 @@ export async function getUserFieldsViewByOfferId(
 ): Promise<Record<string, UserFieldView>> {
   const [confirmed, suggested] = await Promise.all([
     getConfirmedByOfferId(orgId, brandId, offerId),
-    getSuggestedByBrandId(orgId, brandId),
+    getSuggestedDraftsByBrandId(orgId, brandId),
   ]);
   return buildUserFieldsView(confirmed, suggested);
 }
@@ -260,6 +376,16 @@ export async function upsertUserFieldsByOfferId(
 
   const nowIso = new Date().toISOString();
 
+  // Is each saved value still what we drafted? Decided here, at the write, from
+  // what the offer already holds and the drafts we stored for the brand
+  // (SCRIPT-VALUE-RATING-1113, lib/field-drafts.ts `savedDraftState`): a save
+  // that changes nothing keeps a draft ours, a save that changes it makes the
+  // value the client's. Same rule for every field, never keyed on its name.
+  const savedKeys = entries.filter(([, value]) => !isClearedUserFieldValue(value)).map(([key]) => key);
+  const [existingByKey, draftsByKey] = savedKeys.length > 0
+    ? await Promise.all([getConfirmedByOfferId(orgId, brandId, offerId), getStoredDraftsByKey(brandId, savedKeys)])
+    : [new Map<string, ConfirmedUserField>(), new Map<string, DraftCandidate[]>()];
+
   for (const [fieldKey, value] of entries) {
     // Clearing removes the confirmation (no NULL `confirmed` row): the site
     // value takes over on every read.
@@ -276,6 +402,12 @@ export async function upsertUserFieldsByOfferId(
         );
       continue;
     }
+    const existing = existingByKey.get(fieldKey);
+    const draft = savedDraftState(
+      value,
+      existing?.draft ? { value: existing.value, ...existing.draft } : null,
+      draftsByKey.get(fieldKey) ?? [],
+    );
     await db
       .insert(brandUserFields)
       .values({
@@ -284,6 +416,7 @@ export async function upsertUserFieldsByOfferId(
         offerId,
         fieldKey,
         value: value as any,
+        ...draft,
         confirmedAt: nowIso,
         updatedAt: nowIso,
       })
@@ -293,6 +426,7 @@ export async function upsertUserFieldsByOfferId(
         target: [brandUserFields.offerId, brandUserFields.fieldKey],
         set: {
           value: value as any,
+          ...draft,
           confirmedAt: nowIso,
           updatedAt: nowIso,
         },

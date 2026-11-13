@@ -71,11 +71,11 @@ describe('User fields endpoints', () => {
       ['dreamOutcome', 'perceivedLikelihood', 'riskReversal', 'scarcity', 'services', 'socialProof', 'urgency', 'targetAudience', 'giveForFree', 'neverGive'].sort(),
     );
     // Non-expired prefill → suggested.
-    expect(fields.urgency).toEqual({ value: 'Ends Friday', provenance: 'suggested' });
+    expect(fields.urgency).toEqual({ value: 'Ends Friday', provenance: 'suggested', stillOurDraft: true, draftUnit: null });
     // Expired prefill ignored → null suggested.
-    expect(fields.scarcity).toEqual({ value: null, provenance: 'suggested' });
+    expect(fields.scarcity).toEqual({ value: null, provenance: 'suggested', stillOurDraft: false, draftUnit: null });
     // No data at all → null suggested.
-    expect(fields.services).toEqual({ value: null, provenance: 'suggested' });
+    expect(fields.services).toEqual({ value: null, provenance: 'suggested', stillOurDraft: false, draftUnit: null });
   });
 
   it('PUT confirms fields and GET then returns them as confirmed', async () => {
@@ -85,15 +85,15 @@ describe('User fields endpoints', () => {
       .send({ fields: { services: ['Consulting', 'Audit'], dreamOutcome: 'Grow revenue faster' } });
 
     expect(putRes.status).toBe(200);
-    expect(putRes.body.fields.services).toEqual({ value: ['Consulting', 'Audit'], provenance: 'confirmed' });
-    expect(putRes.body.fields.dreamOutcome).toEqual({ value: 'Grow revenue faster', provenance: 'confirmed' });
+    expect(putRes.body.fields.services).toEqual({ value: ['Consulting', 'Audit'], provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
+    expect(putRes.body.fields.dreamOutcome).toEqual({ value: 'Grow revenue faster', provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
     // A still-unconfirmed key stays suggested (prefill preserved).
-    expect(putRes.body.fields.urgency).toEqual({ value: 'Ends Friday', provenance: 'suggested' });
+    expect(putRes.body.fields.urgency).toEqual({ value: 'Ends Friday', provenance: 'suggested', stillOurDraft: true, draftUnit: null });
 
     const getRes = await request(app).get(ufPath(brandId)).set(getAuthHeaders(ownerOrgId));
     expect(getRes.status).toBe(200);
-    expect(getRes.body.fields.services).toEqual({ value: ['Consulting', 'Audit'], provenance: 'confirmed' });
-    expect(getRes.body.fields.dreamOutcome).toEqual({ value: 'Grow revenue faster', provenance: 'confirmed' });
+    expect(getRes.body.fields.services).toEqual({ value: ['Consulting', 'Audit'], provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
+    expect(getRes.body.fields.dreamOutcome).toEqual({ value: 'Grow revenue faster', provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
   });
 
   it('PUT confirms the two offer give lists and GET serves them back', async () => {
@@ -104,8 +104,8 @@ describe('User fields endpoints', () => {
 
     expect(putRes.status).toBe(200);
     const getRes = await request(app).get(ufPath(brandId)).set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.fields.giveForFree).toEqual({ value: ['A free audit', '14-day trial'], provenance: 'confirmed' });
-    expect(getRes.body.fields.neverGive).toEqual({ value: ['Discounts'], provenance: 'confirmed' });
+    expect(getRes.body.fields.giveForFree).toEqual({ value: ['A free audit', '14-day trial'], provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
+    expect(getRes.body.fields.neverGive).toEqual({ value: ['Discounts'], provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
   });
 
   it('PUT upserts (re-confirming replaces the value)', async () => {
@@ -115,7 +115,7 @@ describe('User fields endpoints', () => {
       .send({ fields: { services: ['Only one'] } });
 
     const getRes = await request(app).get(ufPath(brandId)).set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.fields.services).toEqual({ value: ['Only one'], provenance: 'confirmed' });
+    expect(getRes.body.fields.services).toEqual({ value: ['Only one'], provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
   });
 
   it('PUT with an unknown key → 400 and writes nothing', async () => {
@@ -129,7 +129,7 @@ describe('User fields endpoints', () => {
 
     // The valid key in the same request must NOT have been written.
     const getRes = await request(app).get(ufPath(brandId)).set(getAuthHeaders(ownerOrgId));
-    expect(getRes.body.fields.services).toEqual({ value: ['Only one'], provenance: 'confirmed' });
+    expect(getRes.body.fields.services).toEqual({ value: ['Only one'], provenance: 'confirmed', stillOurDraft: false, draftUnit: null });
   });
 
   it('enforces ownership and id validation', async () => {

@@ -784,6 +784,48 @@ export const BrandMetaSchema = z
 
 const FieldValueType = z.union([z.string(), z.array(z.unknown()), z.record(z.string(), z.unknown()), z.null()]);
 
+// The Unit a draft made, named as the runs ledger names it (SCRIPT-VALUE-RATING-1113).
+// A surface where the client edits a drafted value sends exactly these four
+// fields (outcomeKey, subjectService, subjectId, unitAt) to features-service
+// `POST /orgs/unit-reports` (gateway `/v1/features/unit-reports`), kind `edited`.
+export const DraftUnitSchema = z
+  .object({
+    outcomeKey: z.string().openapi({
+      description:
+        '`offer_fields_drafted` (a draft asked for one offer) or `brand_fields_drafted` (a draft asked for the brand, naming no offer).',
+      example: 'brand_fields_drafted',
+    }),
+    subjectService: z.string().openapi({ description: 'Always `brand-service`.', example: 'brand-service' }),
+    subjectId: z.string().openapi({
+      description: 'The offer id for `offer_fields_drafted`, the brand id for `brand_fields_drafted`.',
+      example: '550e8400-e29b-41d4-a716-446655440000',
+    }),
+    unitAt: z.string().openapi({
+      description:
+        'ISO time taken once the ledger held the Unit. One subject holds one Unit per re-draft: send it as the report\'s `unitAt` so the ledger resolves THIS draft.',
+      example: '2026-11-13T10:00:00.000Z',
+    }),
+    runId: z.string().nullable().openapi({ description: 'The brand-service run that declared the Unit.' }),
+  })
+  .openapi('DraftUnit');
+
+export const FieldDraftStateSchema = z
+  .object({
+    stillOurDraft: z.boolean().openapi({
+      description:
+        'The served value is what we drafted, unchanged by the client. A save that changes nothing keeps it true; a save that changes the value makes it false (the client\'s own words). False on an empty value.',
+    }),
+    // The Unit that draft made. Null when the value is the client's own, or when
+    // no Unit was declared for the draft (an `extract` read, a merge of several
+    // brands, a draft stored before Units were recorded per field). No
+    // `.openapi()` here: metadata on a nullable ref leaks onto the component.
+    draftUnit: DraftUnitSchema.nullable(),
+  })
+  .openapi('FieldDraftState', {
+    description:
+      'Whether a served value is still what we drafted, and the Unit that draft made (`draftUnit`: null when the value is the client\'s own, or when no Unit was declared for the draft: an `extract` read, a merge of several brands, a draft stored before Units were recorded per field).',
+  });
+
 export const BrandFieldDetailSchema = z
   .object({
     value: FieldValueType.openapi({ description: 'Extracted value for this brand', example: 'SaaS productivity tools' }),
@@ -825,6 +867,12 @@ export const MultiBrandExtractFieldsResponseSchema = z
         '`confirmed` = a user-facing field with a user-validated value (overlaid into `fields`/`byBrand`); ' +
         '`suggested` = a user-facing field not yet confirmed (value = auto-extract prefill); ' +
         '`extracted` = a pure backend field.',
+    }),
+    drafts: z.record(z.string(), FieldDraftStateSchema).openapi({
+      description:
+        'Per requested field key → whether `fields[key].value` is still what we drafted and which Unit drafted it (sibling to `fields`, additive). ' +
+        'A `suggest` draft is one Unit: `offer_fields_drafted` / the offer when `offerId` is sent, `brand_fields_drafted` / the brand when it is not. ' +
+        'When the client changes a value whose `draftUnit` is set, the surface reports that Unit as `edited`.',
     }),
   })
   .openapi('MultiBrandExtractFieldsResponse');
@@ -2349,6 +2397,12 @@ export const UserFieldViewSchema = z
   .object({
     value: UserFieldValueType.openapi({ description: 'Confirmed value, or the auto-extract prefill (may be null)' }),
     provenance: UserFieldProvenanceSchema,
+    stillOurDraft: z.boolean().openapi({
+      description:
+        'The value is what we drafted, unchanged by the client. Always true for a non-empty `suggested` prefill. For a `confirmed` value: true while the client saved our draft as is (saving it again unchanged keeps it true), false once a save changed it. Decided at every write; a value confirmed before 2026-11-13 reads false (not recorded). ' +
+        '`draftUnit` beside it is the Unit that draft made in the runs ledger: what an edit of this value reports (features-service `POST /orgs/unit-reports`, kind `edited`); null when `stillOurDraft` is false, or when no Unit was declared for the draft.',
+    }),
+    draftUnit: DraftUnitSchema.nullable(),
   })
   .openapi('UserFieldView');
 

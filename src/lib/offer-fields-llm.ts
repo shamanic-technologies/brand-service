@@ -15,23 +15,15 @@
  */
 import type { ChatCaller } from './chat-client';
 import { pickLlm, type PickedLlm } from './llm-pick-client';
+import { OFFER_FIELDS_OUTCOME } from './field-drafts';
 
-export const OFFER_FIELDS_OUTCOME = 'offer_fields_drafted';
-
-/** The run task of a suggest draft: a PRODUCTION run (support-functions.ts `PRODUCTION_TASKS`). */
-export const OFFER_FIELDS_DRAFT_TASK = 'offer-fields-draft';
-
-/**
- * The Unit one stored draft produces: subject = the offer it was written for; a draft asked
- * without naming an offer is the BRAND's draft (onboarding before any offer), so its subject
- * is the brand. Never a guessed offer.
- */
-export function offerFieldsDraftedUnit(
-  brandId: string,
-  offerId: string | null | undefined,
-): { outcomeKey: string; subjectService: string; subjectId: string } {
-  return { outcomeKey: OFFER_FIELDS_OUTCOME, subjectService: 'brand-service', subjectId: offerId ?? brandId };
-}
+export {
+  OFFER_FIELDS_OUTCOME,
+  BRAND_FIELDS_OUTCOME,
+  OFFER_FIELDS_DRAFT_TASK,
+  BRAND_FIELDS_DRAFT_TASK,
+  fieldDraftKind,
+} from './field-drafts';
 
 export type OfferFieldsPlace = 'draft' | 'consolidate';
 
@@ -43,9 +35,17 @@ export function runIdOfCaller(caller: ChatCaller): string | undefined {
   return caller.runId ?? undefined;
 }
 
-export async function pickOfferFieldsLlm(caller: ChatCaller, place: OfferFieldsPlace): Promise<PickedLlm> {
+/**
+ * `outcome` = the Engine the draft belongs to: « Offer fields drafted » (a draft naming an offer, and the
+ * cross-brand consolidation) or « Brand fields drafted » (a draft naming none, `fieldDraftKind`).
+ */
+export async function pickOfferFieldsLlm(
+  caller: ChatCaller,
+  place: OfferFieldsPlace,
+  outcome: string = OFFER_FIELDS_OUTCOME,
+): Promise<PickedLlm> {
   return pickLlm({
-    outcome: OFFER_FIELDS_OUTCOME,
+    outcome,
     place,
     runId: runIdOfCaller(caller),
     campaignId: caller.mode === 'org' ? caller.campaignId : undefined,
