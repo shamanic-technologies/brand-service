@@ -28,6 +28,7 @@ vi.mock('../../src/lib/chat-client', () => ({
 
 vi.mock('../../src/lib/scraping-client', () => ({
   mapSiteUrls: vi.fn(),
+  scrapePage: async (...a: unknown[]) => ({ content: await (await import('../../src/lib/scraping-client')).scrapeUrl(...(a as [string])) }),
   scrapeUrl: vi.fn(),
   SiteMapError: class SiteMapError extends Error {},
 }));

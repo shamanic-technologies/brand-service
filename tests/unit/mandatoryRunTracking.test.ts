@@ -21,8 +21,10 @@ vi.mock('../../src/lib/chat-client', () => ({
 
 const mockMapSiteUrls = vi.fn();
 const mockScrapeUrl = vi.fn();
+const mockScrapePage = vi.fn(async (...args: unknown[]) => ({ content: await mockScrapeUrl(...args) }));
 vi.mock('../../src/lib/scraping-client', () => ({
   mapSiteUrls: (...args: unknown[]) => mockMapSiteUrls(...args),
+  scrapePage: (...args: unknown[]) => mockScrapePage(...args),
   scrapeUrl: (...args: unknown[]) => mockScrapeUrl(...args),
   SiteMapError: class SiteMapError extends Error { name = 'SiteMapError'; },
 }));
@@ -432,6 +434,36 @@ describe('Mandatory run tracking — extractFields', () => {
 
     expect(mockScrapeUrl).not.toHaveBeenCalled();
     expect(mockUpdateRun).toHaveBeenCalledWith('run-123', 'failed', expect.objectContaining({ orgId: 'org_123' }));
+  });
+
+  // PREVIEW-EMAIL-WRONG-BRAND-1119: pressbeat.io is forwarded to distribute.you; its pages
+  // were stored as PressBeat's facts. Every page landing off-site = a named, client-recoverable refusal.
+  it('refuses with a SiteMapError naming the redirect when every page lands on another site', async () => {
+    setDbSequence([
+      [],          // no cached fields
+      [brandRow],  // getBrand
+    ]);
+    mockMapSiteUrls.mockResolvedValue(
+      Array.from({ length: 11 }, (_, i) => `https://example.com/page-${i + 1}`),
+    );
+    mockChat.mockResolvedValueOnce({
+      content: '{"urls":["https://example.com/page-1","https://example.com/page-2"]}',
+      json: { urls: ['https://example.com/page-1', 'https://example.com/page-2'] },
+    });
+    mockScrapePage
+      .mockResolvedValueOnce({ content: null, offSiteTo: 'https://distribute.you/' })
+      .mockResolvedValueOnce({ content: null, offSiteTo: 'https://distribute.you/' });
+
+    const { extractFields } = await import('../../src/services/fieldExtractionService');
+
+    const err = await extractFields({
+      brandId: 'brand-1',
+      fields: [{ key: 'industry', description: 'Brand industry' }],
+      caller: orgCaller,
+    }).catch((e) => e);
+    expect(err.name).toBe('SiteMapError');
+    expect(err.message).toMatch(/redirects to another site \(https:\/\/distribute\.you\/\)/);
+    expect(mockChat).toHaveBeenCalledTimes(1); // URL selection only: no extraction from another site's pages
   });
 
   it('should fail with scrape diagnostics when selected URLs produce no content', async () => {
