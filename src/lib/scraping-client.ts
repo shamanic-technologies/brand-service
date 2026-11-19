@@ -4,6 +4,7 @@
 
 import { rethrowIfInsufficientCredits } from './insufficient-credits';
 import { fetchWithRetry } from './fetch-with-retry';
+import { keepBrandDomainUrls } from './brand-domain';
 
 const SCRAPING_SERVICE_URL =
   process.env.SCRAPING_SERVICE_URL || 'http://localhost:3010';
@@ -88,10 +89,38 @@ export async function mapSiteUrls(
   }
 }
 
-export async function scrapeUrl(
+/**
+ * True when a page asked for at `requestedUrl` was served from another
+ * registrable domain (`resolvedUrl`, the final URL after redirects). Its
+ * content belongs to that other site, never to the owner of `requestedUrl`.
+ *
+ * Example (PREVIEW-EMAIL-WRONG-BRAND-1119): pressbeat.io is forwarded (301) to
+ * distribute.you; its "homepage" was distribute.you's, stored as PressBeat's
+ * facts, and PressBeat's first email pitched distribute.you's case studies.
+ * A redirect within the same registrable domain (http to https, www., a
+ * docs. subdomain) stays the site's own page.
+ */
+export function landedOffSite(requestedUrl: string, resolvedUrl: string | null | undefined): boolean {
+  if (!resolvedUrl) return false;
+  return keepBrandDomainUrls([resolvedUrl], requestedUrl).length === 0;
+}
+
+/** One scraped page: its content, or where it went when it redirected to another site. */
+export interface ScrapedPageResult {
+  content: string | null;
+  /** Set when the page redirected to another registrable domain; `content` is then null. */
+  offSiteTo?: string;
+}
+
+/**
+ * Scrape one page. `content` is null when the page could not be read, and when
+ * it redirected to another registrable domain (`offSiteTo`): what that serves
+ * is another site's content, so no caller may attribute it to `url`'s owner.
+ */
+export async function scrapePage(
   url: string,
   tracking?: ScrapingTrackingContext,
-): Promise<string | null> {
+): Promise<ScrapedPageResult> {
   try {
     const response = await fetchWithRetry(
       `${SCRAPING_SERVICE_URL}/scrape`,
@@ -109,12 +138,28 @@ export async function scrapeUrl(
         label: 'scraping-service POST /scrape',
       },
     );
-    const data = await response.json() as { result?: { rawMarkdown?: string } };
-    return data.result?.rawMarkdown || null;
+    const data = await response.json() as { result?: { rawMarkdown?: string; resolvedUrl?: string | null } };
+    const resolvedUrl = data.result?.resolvedUrl;
+    if (resolvedUrl === undefined) {
+      console.warn(`[brand-service] scraping-service returned no resolvedUrl for ${url}: cannot tell whether it redirected off-site`);
+    }
+    if (resolvedUrl && landedOffSite(url, resolvedUrl)) {
+      console.warn(`[brand-service] ${url} redirects off-site to ${resolvedUrl}: content dropped, it is not this site's page`);
+      return { content: null, offSiteTo: resolvedUrl };
+    }
+    return { content: data.result?.rawMarkdown || null };
   } catch (error: any) {
     console.error(`Scrape error for ${url}:`, error.message);
     // A refusal for money is not "no content": it must reach the caller.
     rethrowIfInsufficientCredits(error);
-    return null;
+    return { content: null };
   }
+}
+
+/** `scrapePage`'s content alone (null when unreadable or served by another site). */
+export async function scrapeUrl(
+  url: string,
+  tracking?: ScrapingTrackingContext,
+): Promise<string | null> {
+  return (await scrapePage(url, tracking)).content;
 }

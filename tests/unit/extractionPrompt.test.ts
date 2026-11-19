@@ -9,6 +9,7 @@ const mockMapSiteUrls = vi.fn();
 const mockScrapeUrl = vi.fn();
 vi.mock('../../src/lib/scraping-client', () => ({
   mapSiteUrls: (...args: unknown[]) => mockMapSiteUrls(...args),
+  scrapePage: async (...a: unknown[]) => ({ content: await (await import('../../src/lib/scraping-client')).scrapeUrl(...(a as [string])) }),
   scrapeUrl: (...args: unknown[]) => mockScrapeUrl(...args),
   SiteMapError: class SiteMapError extends Error {
     name = 'SiteMapError';
