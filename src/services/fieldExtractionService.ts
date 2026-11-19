@@ -23,8 +23,9 @@ import { makeFieldsDraft, answerJson, type DraftCall, type EngineMakeRequest } f
 import { fieldDraftKind, draftUnitOfColumns, OFFER_FIELDS_OUTCOME, type DraftUnit } from '../lib/field-drafts';
 import {
   mapSiteUrls,
-  scrapeUrl,
+  scrapePage,
   ScrapingTrackingContext,
+  SiteMapError,
 } from '../lib/scraping-client';
 import { getRootDomainUrl, keepBrandDomainUrls } from '../lib/brand-domain';
 import { probeWellKnownSubdomains } from './scrapeOrchestrator';
@@ -1172,8 +1173,10 @@ export async function extractFields(
       } else {
         console.log(`[brand-service] [${brandId}] All ${selectedUrls.length} pages served from cache`);
       }
+      const offSite: { url: string; to: string }[] = [];
       const scrapePromises = urlsToScrape.map((url) =>
-        scrapeUrl(url, scrapingTracking).then(async (content) => {
+        scrapePage(url, scrapingTracking).then(async ({ content, offSiteTo }) => {
+          if (offSiteTo) offSite.push({ url, to: offSiteTo });
           if (content) {
             await upsertPageContent(url, content, scrapeTtlDays).catch((err) =>
               console.warn(`[brand-service] [${brandId}] Failed to cache page content for ${url}: ${err.message}`),
@@ -1194,6 +1197,13 @@ export async function extractFields(
         data: { scraped: successfulScrapes.length, total: selectedUrls.length, cached: cachedPages.length, fresh: urlsToScrape.length },
       }, traceHeaders).catch(() => {});
 
+      if (successfulScrapes.length === 0 && offSite.length > 0) {
+        // The brand's site is forwarded to another company's (PREVIEW-EMAIL-WRONG-BRAND-1119:
+        // pressbeat.io → distribute.you): nothing there describes this brand. Client-recoverable.
+        throw new SiteMapError(
+          `The brand's website ${offSite[0].url} redirects to another site (${offSite[0].to}), so none of its pages describe this brand. Set the brand's real website.`,
+        );
+      }
       if (successfulScrapes.length === 0) {
         const emptyUrls = pageContents
           .filter((p) => !p.content)
