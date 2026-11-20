@@ -14,6 +14,7 @@ import { htmlToText } from './brandCompetitorsService';
 import { getBrandBusinessContext } from './brandBusinessContextService';
 import { OfferNotFoundError } from './brandOffersService';
 import { getCachedPageContent, normalizeUrl, upsertPageContent } from './scrapeOrchestrator';
+import { safePublicFetch } from '../lib/safe-fetch';
 
 /**
  * Reads a brand's own site for the one-step offer proposal, cheapest first:
@@ -52,8 +53,7 @@ export interface OfferSiteReader {
 
 async function plainPage(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
-      redirect: 'follow',
+    const res = await safePublicFetch(url, {
       signal: AbortSignal.timeout(HOMEPAGE_TIMEOUT_MS),
       headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml' },
     });

@@ -17,6 +17,7 @@ import {
 } from '../lib/scraping-client';
 import { getRootDomainUrl, keepBrandDomainUrls, registrableDomain } from '../lib/brand-domain';
 import { pageCacheCutoff, pageCacheExpiresAt } from '../lib/page-cache-ttl';
+import { safePublicFetch } from '../lib/safe-fetch';
 
 // ─── URL normalization ──────────────────────────────────────────────────────
 
@@ -315,9 +316,8 @@ function mapCoversHost(mappedUrls: string[], host: string): boolean {
 async function subdomainLanding(rootUrl: string, brandUrl: string, brandId: string): Promise<string | null> {
   let res: Response;
   try {
-    res = await fetch(rootUrl, {
+    res = await safePublicFetch(rootUrl, {
       method: 'GET',
-      redirect: 'follow',
       signal: AbortSignal.timeout(SUBDOMAIN_EXISTS_TIMEOUT_MS),
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DistributeBot/1.0; +https://distribute.you)' },
     });

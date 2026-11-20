@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders, getInternalAuthHeaders } from '../helpers/test-app';
 import { db, brands, orgBrands, brandBusinessContext } from '../../src/db';
 import { eq, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
+
+// client-service owns which orgs are REAL; every claimant is real here.
+vi.mock('../../src/lib/client-client', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/client-client')>('../../src/lib/client-client');
+  return { ...actual, getRealOrgIds: async (orgIds: string[]) => orgIds };
+});
 
 /**
  * No-website brand lifecycle:
@@ -94,14 +100,16 @@ describe('Business context & no-website brands', () => {
     expect(row.name).toBe('Both Studio');
     expect(row.nameSetByOrgAt).not.toBeNull();
 
-    // Another org creating the same domain with another name never renames it.
+    // Another org creating the same domain is refused (SEC-BRAND-TAKEOVER-1120)
+    // and never renames it.
     const again = await request(app)
       .post('/orgs/brands')
       .set(getAuthHeaders(otherOrgId))
       .send({ url: `https://${domain}`, name: 'Someone Else' });
-    expect(again.status).toBe(200);
-    expect(again.body.brandId).toBe(res.body.brandId);
-    expect(again.body.name).toBe('Both Studio');
+    expect(again.status).toBe(409);
+    expect(again.body.code).toBe('DOMAIN_CLAIMED_BY_ANOTHER_ORG');
+    const [stored] = await db.select({ name: brands.name }).from(brands).where(eq(brands.id, res.body.brandId));
+    expect(stored.name).toBe('Both Studio');
     await db.delete(orgBrands).where(eq(orgBrands.orgId, otherOrgId));
   });
 

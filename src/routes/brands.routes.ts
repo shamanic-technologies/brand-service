@@ -3,7 +3,7 @@ import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db, brands, orgBrands, brandsOld, brandColors } from '../db';
 import { query } from '../db/utils';
 import { listRuns } from '../lib/runs-client';
-import { getOrCreateBrand, createBrandWithoutWebsite, stateBrandNameOnCreate, updateBrandIdentity, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
+import { getOrCreateBrand, BrandClaimedByAnotherOrgError, createBrandWithoutWebsite, stateBrandNameOnCreate, updateBrandIdentity, BrandDomainConflictError, getBrandDetail, resolveBrandByDomain, titlecaseDomain } from '../services/brandService';
 import { moveBrandBetweenOrgs, OfferNameCollisionError } from '../services/brandOrgMoveService';
 import { rewriteBrandReferences } from '../services/brandMergeService';
 import { getBrandIdentitiesByOrgIds } from '../services/orgBrandIdentityService';
@@ -117,6 +117,13 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
         field: error.field,
         message: error.message,
       });
+    }
+    if (error instanceof BrandClaimedByAnotherOrgError) {
+      return res.status(409).json({ error: error.message, code: error.code, domain: error.domain });
+    }
+    if (error instanceof OrgRealityUnavailableError) {
+      console.error('[brand-service] Upsert brand: org reality unavailable:', error);
+      return res.status(502).json({ error: error.message, code: error.code });
     }
     console.error('[brand-service] Upsert brand error:', error);
     const message = error instanceof Error ? error.message : 'Failed to upsert brand';
