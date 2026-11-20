@@ -3,6 +3,12 @@ import request from 'supertest';
 
 // DB stays real; chat, runs and scraping HTTP are stubbed, and the free
 // homepage read goes through a stubbed global fetch.
+// safePublicFetch adds a DNS check + hand-followed redirects (tests/unit/safeFetch.test.ts);
+// here the stubbed global fetch stands in for the network, so delegate to it.
+vi.mock('../../src/lib/safe-fetch', () => ({
+  safePublicFetch: (url: string, init?: RequestInit) => fetch(url, init),
+}));
+
 vi.mock('../../src/lib/chat-client', () => ({ chat: vi.fn(), judgeNouls: vi.fn() }));
 vi.mock('../../src/lib/runs-client', () => ({
   createRun: vi.fn(async () => ({ id: 'test-competitor-run' })),
