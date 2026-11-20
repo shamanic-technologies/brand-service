@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // drizzle operators become inspectable tuples so the cache predicate can be asserted.
+// safePublicFetch adds a DNS check + hand-followed redirects (tests/unit/safeFetch.test.ts);
+// here the stubbed global fetch stands in for the network, so delegate to it.
+vi.mock('../../src/lib/safe-fetch', () => ({
+  safePublicFetch: (url: string, init?: RequestInit) => fetch(url, init),
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq: (col: unknown, val: unknown) => ['eq', col, val],
   gt: (col: unknown, val: unknown) => ['gt', col, val],
