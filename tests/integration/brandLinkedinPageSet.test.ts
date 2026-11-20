@@ -2,6 +2,12 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import request from 'supertest';
 
 // DB stays real; every paid/remote read is stubbed so a discover is free and deterministic.
+// safePublicFetch adds a DNS check + hand-followed redirects (tests/unit/safeFetch.test.ts);
+// here the stubbed global fetch stands in for the network, so delegate to it.
+vi.mock('../../src/lib/safe-fetch', () => ({
+  safePublicFetch: (url: string, init?: RequestInit) => fetch(url, init),
+}));
+
 vi.mock('../../src/lib/runs-client', () => ({
   createRun: vi.fn(async () => ({ id: 'test-linkedin-page-run' })),
   updateRun: vi.fn(async () => ({})),
