@@ -1,11 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import { db } from '../../src/db';
 import { brands, orgBrands } from '../../src/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { deleteBrandsByOrgIds } from '../helpers/test-db';
-import { getOrCreateBrand, getBrand } from '../../src/services/brandService';
 import type { OrgCaller } from '../../src/lib/chat-client';
+
+// client-service owns which orgs are REAL; stubbed at the HTTP boundary.
+// Default: every claimant is real (an ordinary customer org).
+const realityMock = vi.hoisted(() => ({ getRealOrgIds: vi.fn() }));
+vi.mock('../../src/lib/client-client', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/client-client')>('../../src/lib/client-client');
+  return { ...actual, getRealOrgIds: realityMock.getRealOrgIds };
+});
+const { getOrCreateBrand, getBrand, BrandClaimedByAnotherOrgError } = await import('../../src/services/brandService');
+const { OrgRealityUnavailableError } = await import('../../src/lib/client-client');
 
 /**
  * CRITICAL UNIT TESTS for getOrCreateBrand under the silver/gold layering.
@@ -26,6 +35,11 @@ function caller(orgId: string): OrgCaller {
 
 describe('getOrCreateBrand - CRITICAL', () => {
   const createdOrgIds: string[] = [];
+
+  beforeEach(() => {
+    realityMock.getRealOrgIds.mockReset();
+    realityMock.getRealOrgIds.mockImplementation(async (orgIds: string[]) => orgIds);
+  });
 
   afterEach(async () => {
     try {
@@ -164,30 +178,55 @@ describe('getOrCreateBrand - CRITICAL', () => {
     expect(memberships.length).toBe(1);
   }, 20000);
 
-  it('two different orgs claiming the same domain share a single silver brand row + two memberships', async () => {
+  // SEC-BRAND-TAKEOVER-1120: typing a domain a REAL org already claims never
+  // hands the brand over (prod 2026-11-20: an API signup claimed distribute.you).
+  it('REFUSES a second org on a domain a real org already claims: no membership, url untouched', async () => {
     const orgId1 = randomUUID();
     const orgId2 = randomUUID();
     createdOrgIds.push(orgId1, orgId2);
-    const uniqueDomain = `shared-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.example.com`;
+    const uniqueDomain = `taken-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.example.com`;
+
+    const brandA = await getOrCreateBrand(orgId1, `https://${uniqueDomain}`, caller(orgId1));
+
+    await expect(
+      getOrCreateBrand(orgId2, `https://${uniqueDomain}/hijack`, caller(orgId2)),
+    ).rejects.toBeInstanceOf(BrandClaimedByAnotherOrgError);
+
+    const memberships = await db.select().from(orgBrands).where(eq(orgBrands.brandId, brandA.id));
+    expect(memberships.map((m) => m.orgId)).toEqual([orgId1]);
+    const [row] = await db.select().from(brands).where(eq(brands.id, brandA.id));
+    expect(row.url).toBe(`https://${uniqueDomain}`);
+  }, 15000);
+
+  it('lets a second org join a brand only ANONYMOUS orgs claim (abandoned onboarding walk)', async () => {
+    const ghostOrg = randomUUID();
+    const realOrg = randomUUID();
+    createdOrgIds.push(ghostOrg, realOrg);
+    const uniqueDomain = `ghost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.example.com`;
     const url = `https://${uniqueDomain}`;
-    const expectedDomain = uniqueDomain;
 
-    const brandA = await getOrCreateBrand(orgId1, url, caller(orgId1));
-    expect(brandA.domain).toBe(expectedDomain);
-
-    const brandB = await getOrCreateBrand(orgId2, url, caller(orgId2));
-    expect(brandB.domain).toBe(expectedDomain);
+    const brandA = await getOrCreateBrand(ghostOrg, url, caller(ghostOrg));
+    realityMock.getRealOrgIds.mockImplementation(async () => []);
+    const brandB = await getOrCreateBrand(realOrg, url, caller(realOrg));
     expect(brandB.id).toBe(brandA.id);
 
-    const silverRows = await db.select().from(brands).where(eq(brands.domain, expectedDomain));
-    expect(silverRows.length).toBe(1);
+    const memberships = await db.select().from(orgBrands).where(eq(orgBrands.brandId, brandA.id));
+    expect(memberships.map((m) => m.orgId).sort()).toEqual([ghostOrg, realOrg].sort());
+  }, 15000);
 
-    const memberships = await db
-      .select()
-      .from(orgBrands)
-      .where(eq(orgBrands.brandId, brandA.id));
-    const memberOrgIds = memberships.map((m) => m.orgId).sort();
-    expect(memberOrgIds).toEqual([orgId1, orgId2].sort());
+  it('fails CLOSED when client-service cannot say who is real', async () => {
+    const orgId1 = randomUUID();
+    const orgId2 = randomUUID();
+    createdOrgIds.push(orgId1, orgId2);
+    const uniqueDomain = `closed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.example.com`;
+    const url = `https://${uniqueDomain}`;
+
+    const brandA = await getOrCreateBrand(orgId1, url, caller(orgId1));
+    realityMock.getRealOrgIds.mockRejectedValue(new OrgRealityUnavailableError('down'));
+    await expect(getOrCreateBrand(orgId2, url, caller(orgId2))).rejects.toBeInstanceOf(OrgRealityUnavailableError);
+
+    const memberships = await db.select().from(orgBrands).where(eq(orgBrands.brandId, brandA.id));
+    expect(memberships.map((m) => m.orgId)).toEqual([orgId1]);
   }, 15000);
 });
 

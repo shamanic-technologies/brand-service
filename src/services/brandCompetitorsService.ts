@@ -59,6 +59,7 @@ import { scrapeUrl } from '../lib/scraping-client';
 import { extractLinkedinCompanyUrl, normalizeCompetitorDomain } from '../lib/competitor-linkedin';
 import { getCachedPageContent, upsertPageContent } from './scrapeOrchestrator';
 import { listOffers } from './brandOffersService';
+import { safePublicFetch } from '../lib/safe-fetch';
 
 /** At most this many competitors are asked for, and kept. */
 export const MAX_COMPETITORS = 8;
@@ -370,8 +371,7 @@ export function parseProposedCompetitors(raw: unknown, brandDomain: string | nul
 /** The homepage over plain HTTP, or null when it does not answer with a page. */
 async function fetchHomepage(domain: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://${domain}`, {
-      redirect: 'follow',
+    const res = await safePublicFetch(`https://${domain}`, {
       signal: AbortSignal.timeout(HOMEPAGE_TIMEOUT_MS),
       headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml' },
     });

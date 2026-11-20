@@ -27,11 +27,12 @@ import { normalizeLogoUrl } from '../lib/logo-url';
 import { Caller, OrgCaller } from '../lib/chat-client';
 import { buildLogoDevUrl } from '../lib/logo-dev';
 import { searchBrandNameByDomain } from '../lib/logo-dev-search';
-import { getBrandCheckoutStatus } from '../lib/client-client';
+import { getBrandCheckoutStatus, getRealOrgIds } from '../lib/client-client';
 import { rewriteBrandReferences } from './brandMergeService';
 import { enqueueBrandColors, forgetBrandColors, resetBrandColorsForNewDomain } from './brandColorsService';
 import { moveCompanyRecord } from './companyService';
 import { salesRepService } from './salesRepService';
+import { safePublicFetch } from '../lib/safe-fetch';
 
 interface Brand {
   id: string;
@@ -499,9 +500,8 @@ async function fetchLandingHtml(url: string): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BRAND_NAME_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
+    const res = await safePublicFetch(url, {
       signal: controller.signal,
-      redirect: 'follow',
       headers: {
         'User-Agent': BRAND_NAME_USER_AGENT,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -703,6 +703,52 @@ export async function resolveBrandByDomain(
 }
 
 /**
+ * Thrown when an org asks for a brand (by its domain) that a DIFFERENT, REAL
+ * organisation already claims (SEC-BRAND-TAKEOVER-1120). The route answers 409
+ * `DOMAIN_CLAIMED_BY_ANOTHER_ORG`; nothing about the claimant crosses.
+ */
+export class BrandClaimedByAnotherOrgError extends Error {
+  readonly code = 'DOMAIN_CLAIMED_BY_ANOTHER_ORG';
+  constructor(readonly domain: string) {
+    super(`The website "${domain}" is already registered by another organization. Contact support if it is yours.`);
+    this.name = 'BrandClaimedByAnotherOrgError';
+  }
+}
+
+/**
+ * SEC-BRAND-TAKEOVER-1120. An org gains an `org_brands` row on an EXISTING
+ * brand only when no REAL organisation other than itself claims it. Every
+ * brand-scoped route in the fleet authorizes on that row, so handing it out
+ * for typing a domain handed out the brand (prod 2026-11-20: an API signup
+ * claimed distribute.you's own brand).
+ *
+ * - caller already claims it -> ok (idempotent re-create);
+ * - nobody claims it, or only anonymous orgs that never became real -> ok
+ *   (same doctrine as `isDomainClaimed`: an abandoned anonymous walk is no
+ *   claimant, and the global row of an unclaimed domain is free);
+ * - a real other org claims it -> `BrandClaimedByAnotherOrgError`.
+ *
+ * Fails CLOSED: client-service unreachable throws `OrgRealityUnavailableError`
+ * (route 502), never a defaulted "nobody real".
+ */
+export async function assertBrandClaimableBy(orgId: string, brandId: string, domain: string): Promise<void> {
+  const claims = await db
+    .select({ orgId: orgBrands.orgId })
+    .from(orgBrands)
+    .where(eq(orgBrands.brandId, brandId));
+  const claimants = [...new Set(claims.map((c) => c.orgId))];
+  if (claimants.includes(orgId)) return;
+  if (claimants.length === 0) return;
+  const realOthers = await getRealOrgIds(claimants);
+  if (realOthers.length > 0) {
+    console.warn(
+      `[brand-service] SEC-BRAND-TAKEOVER: org ${orgId} refused a claim on brand ${brandId} (${domain}), held by ${realOthers.length} real org(s)`,
+    );
+    throw new BrandClaimedByAnotherOrgError(domain);
+  }
+}
+
+/**
  * Find the silver brand row for a normalized domain or create it, then
  * ensure `org_brands` membership exists for `(orgId, brand.id)` and
  * lazy-fill the brand name.
@@ -733,6 +779,10 @@ export async function getOrCreateBrand(
   let brand: Brand;
   if (existing.length > 0) {
     brand = existing[0];
+    // SEC-BRAND-TAKEOVER-1120: typing a domain never hands its brand to the
+    // caller when a REAL org already claims it. Checked BEFORE any write (the
+    // url update below is a write on the shared row too).
+    await assertBrandClaimableBy(orgId, brand.id, domain);
     if (brand.url !== normalizedUrl) {
       await db.update(brands).set({ url: normalizedUrl, updatedAt: sql`NOW()` }).where(eq(brands.id, brand.id));
       brand.url = normalizedUrl;

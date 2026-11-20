@@ -59,6 +59,7 @@ import {
 } from '../lib/competitor-linkedin';
 import { lookupApolloCompany } from '../lib/apollo-client';
 import { getCachedPageContent, upsertPageContent } from './scrapeOrchestrator';
+import { safePublicFetch } from '../lib/safe-fetch';
 
 /** Where a found URL came from. */
 export const LINKEDIN_SOURCE_BRAND_WEBSITE = 'brand_website' as const;
@@ -200,8 +201,7 @@ export function isOnDomain(url: string, domain: string): boolean {
 
 async function fetchPage(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, {
-      redirect: 'follow',
+    const res = await safePublicFetch(url, {
       signal: AbortSignal.timeout(HOMEPAGE_TIMEOUT_MS),
       headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml' },
     });

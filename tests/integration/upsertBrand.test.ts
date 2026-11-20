@@ -1,7 +1,13 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
+
+// client-service owns which orgs are REAL; every claimant is real here.
+vi.mock('../../src/lib/client-client', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/client-client')>('../../src/lib/client-client');
+  return { ...actual, getRealOrgIds: async (orgIds: string[]) => orgIds };
+});
 import { db } from '../../src/db';
 import { brands, orgBrands } from '../../src/db/schema';
 import { eq, and } from 'drizzle-orm';
@@ -157,7 +163,10 @@ describe('POST /brands - Upsert Brand', () => {
     expect(memberships.length).toBe(2);
   }, 10000);
 
-  it('two orgs upserting the same domain share one silver brand + two memberships', async () => {
+  // SEC-BRAND-TAKEOVER-1120: prod 2026-11-20, an API signup POSTed
+  // distribute.you and was handed our brand. A domain a real org claims is
+  // refused 409, and nothing about the claimant crosses.
+  it('refuses 409 DOMAIN_CLAIMED_BY_ANOTHER_ORG when a real org already claims the domain', async () => {
     const orgId1 = randomUUID();
     const orgId2 = randomUUID();
     createdOrgIds.push(orgId1, orgId2);
@@ -168,28 +177,26 @@ describe('POST /brands - Upsert Brand', () => {
       .post('/orgs/brands')
       .set(getAuthHeaders(orgId1, randomUUID()))
       .send({ url });
-
     expect(first.status).toBe(200);
-    expect(first.body.created).toBe(true);
 
     const second = await request(app)
       .post('/orgs/brands')
       .set(getAuthHeaders(orgId2, randomUUID()))
-      .send({ url });
+      .send({ url, name: 'Hijacked' });
 
-    expect(second.status).toBe(200);
-    expect(second.body.created).toBe(true);
-    // Same canonical silver brand under the new silver model.
-    expect(second.body.brandId).toBe(first.body.brandId);
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('DOMAIN_CLAIMED_BY_ANOTHER_ORG');
     expect(second.body.domain).toBe(uniqueDomain);
+    expect(second.body.brandId).toBeUndefined();
+    expect(JSON.stringify(second.body)).not.toContain(orgId1);
 
-    // Two memberships exist on the shared brand.
     const memberships = await db
       .select()
       .from(orgBrands)
       .where(eq(orgBrands.brandId, first.body.brandId));
-    const memberOrgIds = memberships.map((m) => m.orgId).sort();
-    expect(memberOrgIds).toEqual([orgId1, orgId2].sort());
+    expect(memberships.map((m) => m.orgId)).toEqual([orgId1]);
+    const [row] = await db.select().from(brands).where(eq(brands.id, first.body.brandId));
+    expect(row.name).not.toBe('Hijacked');
   }, 10000);
 
   it('accepts a bare domain and normalizes URL + domain', async () => {
