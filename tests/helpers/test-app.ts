@@ -21,6 +21,7 @@ import { orgRouter as salesRepOrgRoutes } from '../../src/routes/sales-rep.route
 import { orgRouter as businessContextOrgRoutes } from '../../src/routes/business-context.routes';
 import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from '../../src/routes/share-token.routes';
 import { internalRouter as orgTeardownInternalRoutes } from '../../src/routes/org-teardown.routes';
+import { orgRouter as brandProofOrgRoutes, publicRouter as brandProofPublicRoutes } from '../../src/routes/brand-proof.routes';
 import { internalRouter as companiesInternalRoutes, companiesBodyParser } from '../../src/routes/companies.routes';
 import { orgRouter as offersOrgRoutes, internalRouter as offersInternalRoutes } from '../../src/routes/offers.routes';
 import { orgRouter as offerStepsOrgRoutes } from '../../src/routes/offer-steps.routes';
@@ -64,6 +65,7 @@ export function createTestApp() {
 
   // ── Public brand-info routes (no auth) ───────────────────────
   app.use('/public', brandsPublicRoutes);
+app.use('/public', brandProofPublicRoutes);
 
   // ── Internal routes (API key only) ───────────────────────────
   app.use('/internal', apiKeyAuth, brandsInternalRoutes);
@@ -104,6 +106,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, salesRepOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, offersOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, offerStepsOrgRoutes);
   app.use('/orgs', apiKeyAuth, requireOrgId, offerDocumentsOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, brandProofOrgRoutes);
   app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
   return app;

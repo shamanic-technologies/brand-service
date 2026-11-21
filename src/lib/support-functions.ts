@@ -45,6 +45,15 @@ export const LIVE_SUPPORT_TASKS: Readonly<Record<string, SupportFunction>> = {
   'brand-fields-draft': 'brand_setup',
 };
 
+/**
+ * The ONE kind of brand-service run that is PRODUCTION, never support
+ * (BRAND-PROOF-LOGOS-1121): the notoriety + traffic read of the companies a
+ * proof Unit names, opened as a child of the workflow-service SCRIPT run that
+ * stores the Unit and declares it. Its spend is part of what that Unit cost to
+ * produce, so it carries no support mark and rides the script's outcome.
+ */
+export const PRODUCTION_TASKS: ReadonlySet<string> = new Set(['brand-proof-notoriety']);
+
 /** Tasks brand-service opened in the past and no longer opens (backfill only). */
 export const PAST_SUPPORT_TASKS: Readonly<Record<string, SupportFunction>> = {
   'sales-profile-extraction': 'brand_setup',
@@ -79,6 +88,7 @@ export function reasonFor(kind: SupportFunction): string {
  */
 export function supportForRun(serviceName: string, taskName: string): RunSupport | undefined {
   if (serviceName !== BRAND_SERVICE_NAME) return undefined;
+  if (PRODUCTION_TASKS.has(taskName)) return undefined;
   const kind = ALL_SUPPORT_TASKS[taskName];
   if (!kind) throw new UnclassifiedBrandServiceTaskError(taskName);
   return { kind, reason: reasonFor(kind) };

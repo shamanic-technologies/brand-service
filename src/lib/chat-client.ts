@@ -339,6 +339,58 @@ export async function judgeNouls(
   return out;
 }
 
+/** One rating question for chat-service's typed judgments (Jev): ordered levels, low end first. */
+export interface ScoreJudgmentQuestion {
+  type: 'score';
+  instructions: string;
+  criteria: string[];
+}
+
+/** A `score` answer, verbatim: the weighted level, its confidence, distribution and legend. */
+export interface ScoreJudgmentAnswer {
+  type: 'score';
+  score: number;
+  confidence: number;
+  probabilities: Record<string, number>;
+  legend: Record<string, string>;
+}
+
+/**
+ * Several RATING questions on ONE state, in one ORG-billed Jev call
+ * (`/orgs/judgments`, input tokens only; chat-service gates affordability, a
+ * 402 surfaces as an `InsufficientCreditsError`). Fail-loud: every asked key
+ * must come back as a `score` with its confidence, distribution and legend.
+ */
+export async function judgeScores(
+  state: unknown,
+  questions: Record<string, ScoreJudgmentQuestion>,
+  caller: OrgCaller,
+): Promise<Record<string, ScoreJudgmentAnswer>> {
+  const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/orgs/judgments`, {
+    method: 'POST',
+    headers: buildOrgHeaders(caller),
+    body: JSON.stringify({ state, questions }),
+    label: 'chat-service POST /orgs/judgments',
+  });
+  const body = (await response.json()) as { answers?: Record<string, Partial<ScoreJudgmentAnswer>> };
+  const out: Record<string, ScoreJudgmentAnswer> = {};
+  for (const key of Object.keys(questions)) {
+    const a = body.answers?.[key];
+    if (
+      !a
+      || a.type !== 'score'
+      || typeof a.score !== 'number'
+      || typeof a.confidence !== 'number'
+      || !a.probabilities || typeof a.probabilities !== 'object'
+      || !a.legend || typeof a.legend !== 'object'
+    ) {
+      throw new Error(`chat-service judgment answered "${key}" without a score, confidence, distribution or legend`);
+    }
+    out[key] = { type: 'score', score: a.score, confidence: a.confidence, probabilities: a.probabilities, legend: a.legend };
+  }
+  return out;
+}
+
 async function chatOrg(params: ChatParams, caller: OrgCaller): Promise<ChatResult> {
   const response = await fetchWithRetry(`${CHAT_SERVICE_URL}/complete`, {
     method: 'POST',
