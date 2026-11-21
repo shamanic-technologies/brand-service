@@ -49,6 +49,8 @@ export const ORG_SCOPED_BRAND_TABLES = [
   'brand_user_fields',
   'brand_offer_answers',
   'brand_offer_documents',
+  'brand_proof_employers',
+  'brand_proof_press_features',
 ] as const;
 
 /** One row per (org_id, brand_id): the PK is exactly that pair. */
@@ -216,6 +218,40 @@ export async function moveBrandBetweenOrgs(
         sql`UPDATE brand_offer_documents SET org_id = ${targetOrgId}, updated_at = now() WHERE org_id = ${sourceOrgId} AND brand_id = ${brandId} RETURNING 1`,
       ),
     });
+
+    // Brand proof Units (BRAND-PROOF-LOGOS-1121): unique per (org, brand,
+    // company) / (org, brand, article URL); a target row on the same key is
+    // replaced by the source's (its Unit was declared under the source's run).
+    {
+      const replaced = await count(
+        tx,
+        sql`DELETE FROM brand_proof_employers t WHERE t.org_id = ${targetOrgId} AND t.brand_id = ${brandId}
+              AND EXISTS (SELECT 1 FROM brand_proof_employers s WHERE s.org_id = ${sourceOrgId} AND s.brand_id = ${brandId}
+                            AND s.company_brand_id = t.company_brand_id)
+            RETURNING 1`,
+      );
+      const moved = await count(
+        tx,
+        sql`UPDATE brand_proof_employers SET org_id = ${targetOrgId}, updated_at = now() WHERE org_id = ${sourceOrgId} AND brand_id = ${brandId} RETURNING 1`,
+      );
+      result.push({ tableName: 'brand_proof_employers', count: moved });
+      if (replaced > 0) result.push({ tableName: 'brand_proof_employers.replaced_in_target', count: replaced });
+    }
+    {
+      const replaced = await count(
+        tx,
+        sql`DELETE FROM brand_proof_press_features t WHERE t.org_id = ${targetOrgId} AND t.brand_id = ${brandId}
+              AND EXISTS (SELECT 1 FROM brand_proof_press_features s WHERE s.org_id = ${sourceOrgId} AND s.brand_id = ${brandId}
+                            AND s.article_url = t.article_url)
+            RETURNING 1`,
+      );
+      const moved = await count(
+        tx,
+        sql`UPDATE brand_proof_press_features SET org_id = ${targetOrgId}, updated_at = now() WHERE org_id = ${sourceOrgId} AND brand_id = ${brandId} RETURNING 1`,
+      );
+      result.push({ tableName: 'brand_proof_press_features', count: moved });
+      if (replaced > 0) result.push({ tableName: 'brand_proof_press_features.replaced_in_target', count: replaced });
+    }
 
     return result;
   });

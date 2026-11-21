@@ -1893,3 +1893,113 @@ export const companyFacts = pgTable("company_facts", {
 		name: "company_facts_brand_id_fkey",
 	}).onDelete("cascade"),
 ]);
+
+/**
+ * How well-known a COMPANY is (BRAND-PROOF-LOGOS-1121): "would a B2B founder
+ * recognise this logo in one second?", judged ONCE per company by Jev (score
+ * question, chat-service) and persisted. Cross-org, keyed on the company's
+ * brand row alone: a company is the same for every brand that shows it. The
+ * row is born `pending` when a proof Unit names the company; the notoriety
+ * sweep reads its website traffic (treg, DataForSEO), then judges it, billed
+ * to the org whose Unit asked first (requester_*). Never re-judged on read.
+ */
+export const companyNotoriety = pgTable("company_notoriety", {
+	brandId: uuid("brand_id").primaryKey().notNull(),
+	status: text().default('pending').notNull(),
+	score: integer(),
+	confidence: real(),
+	judgeScore: real("judge_score"),
+	judgeLevels: integer("judge_levels"),
+	probabilities: jsonb(),
+	monthlyTraffic: bigint("monthly_traffic", { mode: 'number' }),
+	trafficMeasuredAt: timestamp("traffic_measured_at", { withTimezone: true, mode: 'string' }),
+	trafficSource: text("traffic_source"),
+	judgedAt: timestamp("judged_at", { withTimezone: true, mode: 'string' }),
+	attempts: integer().default(0).notNull(),
+	lastError: text("last_error"),
+	requesterOrgId: uuid("requester_org_id").notNull(),
+	requesterUserId: text("requester_user_id"),
+	requesterRunId: text("requester_run_id"),
+	requestedAt: timestamp("requested_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("company_notoriety_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "company_notoriety_brand_id_fkey",
+	}).onDelete("cascade"),
+	check("company_notoriety_status_check", sql`status IN ('pending', 'judged', 'failed')`),
+	check("company_notoriety_score_check", sql`score IS NULL OR (score >= 0 AND score <= 100)`),
+]);
+
+/**
+ * One Unit of « Client past employer found » (BRAND-PROOF-LOGOS-1121): a
+ * company where a paying client of the brand worked (past or current), stored
+ * by a workflow-service script. One row per (org, brand, company); `trace`
+ * lists which of the brand's clients justify it ({ leadId, role }), merged on
+ * every write. The company is a brand row (`companyService`).
+ */
+export const brandProofEmployers = pgTable("brand_proof_employers", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	companyBrandId: uuid("company_brand_id").notNull(),
+	trace: jsonb().default([]).notNull(),
+	outcomeKey: text("outcome_key"),
+	unitRunId: text("unit_run_id"),
+	unitDeclaredAt: timestamp("unit_declared_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("brand_proof_employers_org_brand_company_key").using("btree", table.orgId.asc().nullsLast().op("uuid_ops"), table.brandId.asc().nullsLast().op("uuid_ops"), table.companyBrandId.asc().nullsLast().op("uuid_ops")),
+	index("brand_proof_employers_brand_idx").using("btree", table.brandId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_proof_employers_brand_id_fkey",
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.companyBrandId],
+		foreignColumns: [brands.id],
+		name: "brand_proof_employers_company_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
+
+/**
+ * One Unit of « Press feature found » (BRAND-PROOF-LOGOS-1121): a published
+ * article quoting the brand, stored by a workflow-service script. One row per
+ * (org, brand, article URL); the outlet is a brand row (`companyService`),
+ * or none when the script states the publication has no own site
+ * (`outlet.domain: null`, platform-hosted): kept by name, never judged, never
+ * on the public wall (no logo of its own; the host's would be a lie).
+ */
+export const brandProofPressFeatures = pgTable("brand_proof_press_features", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id").notNull(),
+	brandId: uuid("brand_id").notNull(),
+	/** NULL when the publication has no own site (platform-hosted: a LinkedIn newsletter, a Substack). */
+	outletBrandId: uuid("outlet_brand_id"),
+	outletName: text("outlet_name"),
+	articleUrl: text("article_url").notNull(),
+	title: text(),
+	publishedAt: date("published_at", { mode: 'string' }),
+	outcomeKey: text("outcome_key"),
+	unitRunId: text("unit_run_id"),
+	unitDeclaredAt: timestamp("unit_declared_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("brand_proof_press_features_org_brand_url_key").using("btree", table.orgId.asc().nullsLast().op("uuid_ops"), table.brandId.asc().nullsLast().op("uuid_ops"), table.articleUrl.asc().nullsLast().op("text_ops")),
+	index("brand_proof_press_features_brand_idx").using("btree", table.brandId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "brand_proof_press_features_brand_id_fkey",
+	}).onDelete("cascade"),
+	foreignKey({
+		columns: [table.outletBrandId],
+		foreignColumns: [brands.id],
+		name: "brand_proof_press_features_outlet_brand_id_fkey",
+	}).onDelete("cascade"),
+]);
