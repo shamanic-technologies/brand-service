@@ -3768,6 +3768,355 @@
         "required": [
           "brandIds"
         ]
+      },
+      "ProofStoreResponse": {
+        "type": "object",
+        "properties": {
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "unitId": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "uuid",
+                  "description": "Our stored row = the Unit subject (subjectService brand-service)."
+                },
+                "companyId": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "uuid",
+                  "description": "The company / outlet brand id."
+                },
+                "newUnit": {
+                  "type": "boolean",
+                  "description": "True when THIS call declared the Unit on the caller's run."
+                },
+                "unresolvedReason": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "notoriety": {
+                  "$ref": "#/components/schemas/ProofNotoriety"
+                }
+              },
+              "required": [
+                "index",
+                "unitId",
+                "companyId",
+                "newUnit",
+                "unresolvedReason",
+                "notoriety"
+              ]
+            }
+          }
+        },
+        "required": [
+          "units"
+        ]
+      },
+      "ProofNotoriety": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "judged",
+              "failed"
+            ]
+          },
+          "score": {
+            "type": "integer",
+            "nullable": true
+          },
+          "confidence": {
+            "type": "number",
+            "nullable": true
+          },
+          "monthlyTraffic": {
+            "type": "integer",
+            "nullable": true
+          },
+          "judgedAt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "status",
+          "score",
+          "confidence",
+          "monthlyTraffic",
+          "judgedAt"
+        ]
+      },
+      "ProofEmployersStoreRequest": {
+        "type": "object",
+        "properties": {
+          "outcomeKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The Engine outcome each NEW Unit is declared under on the caller's run (x-run-id), e.g. `client_past_employer_found` / `press_feature_found`. Stored again = no second Unit.",
+            "example": "client_past_employer_found"
+          },
+          "employers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "company": {
+                  "type": "object",
+                  "properties": {
+                    "domain": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "linkedinUrl": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "apolloOrganizationId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "description": "The company: a domain, else a LinkedIn company page, else an Apollo organization id. A name alone never identifies it."
+                },
+                "trace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "leadId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "role": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "leadId"
+                    ]
+                  },
+                  "minItems": 1,
+                  "description": "Which of the brand's clients (lead-service lead ids) worked there, with their role. Merged on every store."
+                }
+              },
+              "required": [
+                "company",
+                "trace"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "outcomeKey",
+          "employers"
+        ]
+      },
+      "ProofPressFeaturesStoreRequest": {
+        "type": "object",
+        "properties": {
+          "outcomeKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The Engine outcome each NEW Unit is declared under on the caller's run (x-run-id), e.g. `client_past_employer_found` / `press_feature_found`. Stored again = no second Unit.",
+            "example": "client_past_employer_found"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "articleUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "title": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "publishedAt": {
+                  "type": "string",
+                  "nullable": true,
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                  "description": "YYYY-MM-DD"
+                },
+                "outlet": {
+                  "type": "object",
+                  "nullable": true,
+                  "properties": {
+                    "domain": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "description": "The publication. `domain` = its OWN site; omitted = the article URL's host; stated `null` = platform-hosted, no own site (LinkedIn newsletter, Substack): kept by `name` (required then), never judged, never on the public wall."
+                }
+              },
+              "required": [
+                "articleUrl"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "outcomeKey",
+          "features"
+        ]
+      },
+      "PublicProofResponse": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain": {
+            "type": "string",
+            "nullable": true
+          },
+          "minScore": {
+            "type": "integer"
+          },
+          "minMonthlyTraffic": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "employers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "companyId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "domain": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "logoUrl": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "notorietyScore": {
+                  "type": "integer"
+                },
+                "monthlyTraffic": {
+                  "type": "integer",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "companyId",
+                "name",
+                "domain",
+                "logoUrl",
+                "notorietyScore",
+                "monthlyTraffic"
+              ]
+            }
+          },
+          "press": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "companyId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "domain": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "logoUrl": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "notorietyScore": {
+                  "type": "integer"
+                },
+                "monthlyTraffic": {
+                  "type": "integer",
+                  "nullable": true
+                },
+                "article": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "publishedAt": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "title",
+                    "publishedAt"
+                  ]
+                }
+              },
+              "required": [
+                "companyId",
+                "name",
+                "domain",
+                "logoUrl",
+                "notorietyScore",
+                "monthlyTraffic",
+                "article"
+              ]
+            }
+          }
+        },
+        "required": [
+          "brandId",
+          "domain",
+          "minScore",
+          "minMonthlyTraffic",
+          "limit",
+          "employers",
+          "press"
+        ]
       }
     },
     "parameters": {
@@ -9103,6 +9452,267 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/proof/employers": {
+      "put": {
+        "summary": "Store « Client past employer found » Units for a brand, declared on the caller's run",
+        "description": "Brand proof logos: the companies where a paying client of the brand worked (past or current) and the outlets that published an article quoting the brand, each with its NOTORIETY (0..100, \"would a B2B founder recognise this logo in one second?\", judged once per company by Jev and persisted, cross-org) and its worldwide monthly organic website visits (DataForSEO through treg). Idempotent per (org, brand, company): a new row is declared once under `outcomeKey` on x-run-id; the trace merges. Every company not yet judged gets its traffic read and its notoriety judged, billed on a run of ours child of x-run-id.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "x-org-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "x-user-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The script run each new Unit is declared on."
+            },
+            "required": true,
+            "description": "The script run each new Unit is declared on.",
+            "name": "x-run-id",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProofEmployersStoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Units stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProofStoreResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body or missing x-user-id / x-run-id"
+          },
+          "402": {
+            "description": "The org cannot pay the notoriety judgment (Units stored and declared; re-store retries)"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "502": {
+            "description": "notoriety_unavailable (Units stored and declared; re-store retries) or a downstream failure"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/proof/press-features": {
+      "put": {
+        "summary": "Store « Press feature found » Units for a brand, declared on the caller's run",
+        "description": "Brand proof logos: the companies where a paying client of the brand worked (past or current) and the outlets that published an article quoting the brand, each with its NOTORIETY (0..100, \"would a B2B founder recognise this logo in one second?\", judged once per company by Jev and persisted, cross-org) and its worldwide monthly organic website visits (DataForSEO through treg). Idempotent per (org, brand, article URL): a new row is declared once under `outcomeKey` on x-run-id. The outlet's notoriety is judged once, billed on a run of ours child of x-run-id.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "x-org-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "x-user-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The script run each new Unit is declared on."
+            },
+            "required": true,
+            "description": "The script run each new Unit is declared on.",
+            "name": "x-run-id",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProofPressFeaturesStoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Units stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProofStoreResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body or missing x-user-id / x-run-id"
+          },
+          "402": {
+            "description": "The org cannot pay the notoriety judgment"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          },
+          "502": {
+            "description": "notoriety_unavailable or a downstream failure"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/proof": {
+      "get": {
+        "summary": "Everything the org stored as brand proof, with traces and every notoriety state",
+        "description": "Brand proof logos: the companies where a paying client of the brand worked (past or current) and the outlets that published an article quoting the brand, each with its NOTORIETY (0..100, \"would a B2B founder recognise this logo in one second?\", judged once per company by Jev and persisted, cross-org) and its worldwide monthly organic website visits (DataForSEO through treg). Unfiltered, best first. Pure read.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The org's proof Units"
+          },
+          "403": {
+            "description": "Brand does not belong to the caller's org"
+          },
+          "404": {
+            "description": "Brand not found"
+          }
+        }
+      }
+    },
+    "/public/brand-proof": {
+      "get": {
+        "summary": "Public \"trusted by / featured in\" logos of a brand, ranked by notoriety",
+        "description": "Brand proof logos: the companies where a paying client of the brand worked (past or current) and the outlets that published an article quoting the brand, each with its NOTORIETY (0..100, \"would a B2B founder recognise this logo in one second?\", judged once per company by Jev and persisted, cross-org) and its worldwide monthly organic website visits (DataForSEO through treg). No auth. Only judged companies with notorietyScore >= minScore (default 80) and not a measured tiny site (monthlyTraffic < minMonthlyTraffic, default 10000; unknown traffic passes), best first (score, then traffic), at most `limit` (default 24) per list, one entry per company / outlet. Units of orgs that claim the brand only.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "name": "brandId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "name": "domain",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "minScore",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0
+            },
+            "required": false,
+            "name": "minMonthlyTraffic",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked logos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProofResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "404": {
+            "description": "Brand not found"
           }
         }
       }

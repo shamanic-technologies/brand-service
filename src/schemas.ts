@@ -4586,3 +4586,206 @@ registry.registerPath({
     500: { description: 'Internal server error' },
   },
 });
+
+// ─── Brand proof logos (BRAND-PROOF-LOGOS-1121) ─────────────────────────────
+
+const PROOF_DESCRIPTION =
+  'Brand proof logos: the companies where a paying client of the brand worked (past or current) and the outlets ' +
+  'that published an article quoting the brand, each with its NOTORIETY (0..100, "would a B2B founder recognise ' +
+  'this logo in one second?", judged once per company by Jev and persisted, cross-org) and its worldwide monthly ' +
+  'organic website visits (DataForSEO through treg).';
+
+const ProofOutcomeKeySchema = z.string().min(1).max(120).openapi({
+  description:
+    'The Engine outcome each NEW Unit is declared under on the caller\'s run (x-run-id), e.g. ' +
+    '`client_past_employer_found` / `press_feature_found`. Stored again = no second Unit.',
+  example: 'client_past_employer_found',
+});
+
+export const ProofEmployersStoreRequestSchema = z
+  .object({
+    outcomeKey: ProofOutcomeKeySchema,
+    employers: z
+      .array(
+        z.object({
+          company: z
+            .object({
+              domain: z.string().nullable().optional(),
+              linkedinUrl: z.string().nullable().optional(),
+              apolloOrganizationId: z.string().nullable().optional(),
+              name: z.string().nullable().optional(),
+            })
+            .openapi({ description: 'The company: a domain, else a LinkedIn company page, else an Apollo organization id. A name alone never identifies it.' }),
+          trace: z
+            .array(z.object({ leadId: z.string().min(1), role: z.string().nullable().optional() }))
+            .min(1)
+            .openapi({ description: 'Which of the brand\'s clients (lead-service lead ids) worked there, with their role. Merged on every store.' }),
+        }),
+      )
+      .min(1)
+      .max(200),
+  })
+  .openapi('ProofEmployersStoreRequest');
+
+export const ProofPressFeaturesStoreRequestSchema = z
+  .object({
+    outcomeKey: ProofOutcomeKeySchema,
+    features: z
+      .array(
+        z.object({
+          articleUrl: z.string().url(),
+          title: z.string().nullable().optional(),
+          publishedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional().openapi({ description: 'YYYY-MM-DD' }),
+          outlet: z
+            .object({ domain: z.string().nullable().optional(), name: z.string().nullable().optional() })
+            .nullable()
+            .optional()
+            .openapi({ description: 'The publication. `domain` = its OWN site; omitted = the article URL\'s host; stated `null` = platform-hosted, no own site (LinkedIn newsletter, Substack): kept by `name` (required then), never judged, never on the public wall.' }),
+        }),
+      )
+      .min(1)
+      .max(200),
+  })
+  .openapi('ProofPressFeaturesStoreRequest');
+
+const ProofNotorietySchema = z
+  .object({
+    status: z.enum(['pending', 'judged', 'failed']),
+    score: z.number().int().nullable(),
+    confidence: z.number().nullable(),
+    monthlyTraffic: z.number().int().nullable(),
+    judgedAt: z.string().nullable(),
+  })
+  .openapi('ProofNotoriety');
+
+export const ProofStoreResponseSchema = z
+  .object({
+    units: z.array(
+      z.object({
+        index: z.number().int(),
+        unitId: z.string().uuid().nullable().openapi({ description: 'Our stored row = the Unit subject (subjectService brand-service).' }),
+        companyId: z.string().uuid().nullable().openapi({ description: 'The company / outlet brand id.' }),
+        newUnit: z.boolean().openapi({ description: 'True when THIS call declared the Unit on the caller\'s run.' }),
+        unresolvedReason: z.string().nullable(),
+        notoriety: ProofNotorietySchema.nullable(),
+      }),
+    ),
+  })
+  .openapi('ProofStoreResponse');
+
+const PublicProofCompanySchema = z.object({
+  companyId: z.string().uuid(),
+  name: z.string().nullable(),
+  domain: z.string().nullable(),
+  logoUrl: z.string().nullable(),
+  notorietyScore: z.number().int(),
+  monthlyTraffic: z.number().int().nullable(),
+});
+
+export const PublicProofResponseSchema = z
+  .object({
+    brandId: z.string().uuid(),
+    domain: z.string().nullable(),
+    minScore: z.number().int(),
+    minMonthlyTraffic: z.number().int(),
+    limit: z.number().int(),
+    employers: z.array(PublicProofCompanySchema),
+    press: z.array(
+      PublicProofCompanySchema.extend({
+        article: z.object({ url: z.string(), title: z.string().nullable(), publishedAt: z.string().nullable() }),
+      }),
+    ),
+  })
+  .openapi('PublicProofResponse');
+
+export const PublicProofQuerySchema = z
+  .object({
+    brandId: z.string().uuid().optional(),
+    domain: z.string().min(1).optional(),
+    minScore: z.coerce.number().int().min(0).max(100).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    minMonthlyTraffic: z.coerce.number().int().min(0).optional(),
+  })
+  .openapi({ description: 'Send exactly one of brandId or domain.' });
+
+const ProofStoreHeaders = z.object({
+  'x-org-id': z.string(),
+  'x-user-id': z.string(),
+  'x-run-id': z.string().openapi({ description: 'The script run each new Unit is declared on.' }),
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/proof/employers',
+  summary: 'Store « Client past employer found » Units for a brand, declared on the caller\'s run',
+  description:
+    PROOF_DESCRIPTION +
+    ' Idempotent per (org, brand, company): a new row is declared once under `outcomeKey` on x-run-id; the trace merges. ' +
+    'Every company not yet judged gets its traffic read and its notoriety judged, billed on a run of ours child of x-run-id.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    headers: ProofStoreHeaders,
+    body: { content: { 'application/json': { schema: ProofEmployersStoreRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Units stored', content: { 'application/json': { schema: ProofStoreResponseSchema } } },
+    400: { description: 'Invalid body or missing x-user-id / x-run-id' },
+    402: { description: 'The org cannot pay the notoriety judgment (Units stored and declared; re-store retries)' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    502: { description: 'notoriety_unavailable (Units stored and declared; re-store retries) or a downstream failure' },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/orgs/brands/{brandId}/proof/press-features',
+  summary: 'Store « Press feature found » Units for a brand, declared on the caller\'s run',
+  description:
+    PROOF_DESCRIPTION +
+    ' Idempotent per (org, brand, article URL): a new row is declared once under `outcomeKey` on x-run-id. The outlet\'s ' +
+    'notoriety is judged once, billed on a run of ours child of x-run-id.',
+  request: {
+    params: z.object({ brandId: z.string().uuid() }),
+    headers: ProofStoreHeaders,
+    body: { content: { 'application/json': { schema: ProofPressFeaturesStoreRequestSchema } } },
+  },
+  responses: {
+    200: { description: 'Units stored', content: { 'application/json': { schema: ProofStoreResponseSchema } } },
+    400: { description: 'Invalid body or missing x-user-id / x-run-id' },
+    402: { description: 'The org cannot pay the notoriety judgment' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+    502: { description: 'notoriety_unavailable or a downstream failure' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/brands/{brandId}/proof',
+  summary: "Everything the org stored as brand proof, with traces and every notoriety state",
+  description: PROOF_DESCRIPTION + ' Unfiltered, best first. Pure read.',
+  request: { params: z.object({ brandId: z.string().uuid() }) },
+  responses: {
+    200: { description: 'The org\'s proof Units' },
+    403: { description: "Brand does not belong to the caller's org" },
+    404: { description: 'Brand not found' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/public/brand-proof',
+  summary: 'Public "trusted by / featured in" logos of a brand, ranked by notoriety',
+  description:
+    PROOF_DESCRIPTION +
+    ' No auth. Only judged companies with notorietyScore >= minScore (default 80) and not a measured tiny site ' +
+    '(monthlyTraffic < minMonthlyTraffic, default 10000; unknown traffic passes), best first (score, then traffic), ' +
+    'at most `limit` (default 24) per list, one entry per company / outlet. Units of orgs that claim the brand only.',
+  request: { query: PublicProofQuerySchema },
+  responses: {
+    200: { description: 'Ranked logos', content: { 'application/json': { schema: PublicProofResponseSchema } } },
+    400: { description: 'Invalid query' },
+    404: { description: 'Brand not found' },
+  },
+});
