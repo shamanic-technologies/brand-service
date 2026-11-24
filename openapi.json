@@ -4117,6 +4117,512 @@
           "employers",
           "press"
         ]
+      },
+      "ClientPastEmployerFoundUnitsResponse": {
+        "type": "object",
+        "properties": {
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "unitId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The Unit's id = our stored row = its ledger subject id."
+                },
+                "outcomeKey": {
+                  "type": "string",
+                  "description": "Always `client_past_employer_found`.",
+                  "example": "client_past_employer_found"
+                },
+                "subject": {
+                  "type": "object",
+                  "properties": {
+                    "subjectService": {
+                      "type": "string",
+                      "description": "The service that owns the subject. Always `brand-service` here.",
+                      "example": "brand-service"
+                    },
+                    "subjectId": {
+                      "type": "string",
+                      "description": "The id the Unit was declared under on the runs ledger."
+                    }
+                  },
+                  "required": [
+                    "subjectService",
+                    "subjectId"
+                  ],
+                  "description": "The Unit's subject exactly as declared on the runs ledger (with `outcomeKey`, it names the Unit there)."
+                },
+                "brandId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The brand whose client worked at the company."
+                },
+                "unitAt": {
+                  "type": "string",
+                  "description": "When the Unit was declared on the ledger (ISO datetime, UTC)."
+                },
+                "runId": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "The script run that made the Unit (the run it was declared on)."
+                },
+                "company": {
+                  "type": "object",
+                  "properties": {
+                    "companyId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "description": "The company's brand id."
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "domain": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "The company's website domain, null when only a LinkedIn page / Apollo id identifies it."
+                    },
+                    "logoUrl": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "A logo image URL, null when none is stored yet."
+                    }
+                  },
+                  "required": [
+                    "companyId",
+                    "name",
+                    "domain",
+                    "logoUrl"
+                  ],
+                  "description": "The company where the brand's client(s) worked (past or current)."
+                },
+                "trace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "leadId": {
+                        "type": "string"
+                      },
+                      "role": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    },
+                    "required": [
+                      "leadId",
+                      "role"
+                    ]
+                  },
+                  "description": "Which of the brand's clients justify the Unit: each lead (lead-service lead id) that worked there, with the role held (null when unknown). Grows when a later store names another client."
+                },
+                "notoriety": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProofNotoriety"
+                    },
+                    {
+                      "description": "How well-known the company is, judged once per company (cross-org) and stored. `status`: `pending` (not judged yet), `judged`, `failed`. `score`: 0..100 (80 = \"Famous\"), null until judged. `confidence`: 0..1. `monthlyTraffic`: worldwide monthly organic website visits, null when not measured. `judgedAt`: ISO datetime. Null when the company was never queued for a judgment."
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "description": "When the row was first stored (ISO datetime, UTC)."
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "description": "When the row last changed, e.g. a client added to `trace` (ISO datetime, UTC)."
+                }
+              },
+              "required": [
+                "unitId",
+                "outcomeKey",
+                "subject",
+                "brandId",
+                "unitAt",
+                "runId",
+                "company",
+                "trace",
+                "notoriety",
+                "createdAt",
+                "updatedAt"
+              ]
+            }
+          },
+          "nextBefore": {
+            "type": "string",
+            "nullable": true,
+            "description": "Send as `before` to get the next (older) page. Null when this is the last page."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "True when older Units remain after this page."
+          }
+        },
+        "required": [
+          "units",
+          "nextBefore",
+          "hasMore"
+        ]
+      },
+      "PressFeatureFoundUnitsResponse": {
+        "type": "object",
+        "properties": {
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "unitId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The Unit's id = our stored row = its ledger subject id."
+                },
+                "outcomeKey": {
+                  "type": "string",
+                  "description": "Always `press_feature_found`.",
+                  "example": "press_feature_found"
+                },
+                "subject": {
+                  "type": "object",
+                  "properties": {
+                    "subjectService": {
+                      "type": "string",
+                      "description": "The service that owns the subject. Always `brand-service` here.",
+                      "example": "brand-service"
+                    },
+                    "subjectId": {
+                      "type": "string",
+                      "description": "The id the Unit was declared under on the runs ledger."
+                    }
+                  },
+                  "required": [
+                    "subjectService",
+                    "subjectId"
+                  ],
+                  "description": "The Unit's subject exactly as declared on the runs ledger (with `outcomeKey`, it names the Unit there)."
+                },
+                "brandId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The brand the article quotes."
+                },
+                "unitAt": {
+                  "type": "string",
+                  "description": "When the Unit was declared on the ledger (ISO datetime, UTC)."
+                },
+                "runId": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "The script run that made the Unit (the run it was declared on)."
+                },
+                "article": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "publishedAt": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Publication day, YYYY-MM-DD, null when unknown."
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "title",
+                    "publishedAt"
+                  ],
+                  "description": "The published article quoting the brand."
+                },
+                "outlet": {
+                  "type": "object",
+                  "properties": {
+                    "companyId": {
+                      "type": "string",
+                      "nullable": true,
+                      "format": "uuid",
+                      "description": "The outlet's brand id. Null for a platform-hosted publication with no site of its own (a LinkedIn newsletter, a Substack)."
+                    },
+                    "name": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "domain": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "The outlet's own website domain, null when platform-hosted."
+                    },
+                    "logoUrl": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "A logo image URL, null when none (always null when platform-hosted)."
+                    }
+                  },
+                  "required": [
+                    "companyId",
+                    "name",
+                    "domain",
+                    "logoUrl"
+                  ],
+                  "description": "The publication that ran the article."
+                },
+                "notoriety": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ProofNotoriety"
+                    },
+                    {
+                      "description": "How well-known the company is, judged once per company (cross-org) and stored. `status`: `pending` (not judged yet), `judged`, `failed`. `score`: 0..100 (80 = \"Famous\"), null until judged. `confidence`: 0..1. `monthlyTraffic`: worldwide monthly organic website visits, null when not measured. `judgedAt`: ISO datetime. Null when the company was never queued for a judgment."
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "description": "When the row was first stored (ISO datetime, UTC)."
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "description": "When the row last changed (ISO datetime, UTC)."
+                }
+              },
+              "required": [
+                "unitId",
+                "outcomeKey",
+                "subject",
+                "brandId",
+                "unitAt",
+                "runId",
+                "article",
+                "outlet",
+                "notoriety",
+                "createdAt",
+                "updatedAt"
+              ]
+            }
+          },
+          "nextBefore": {
+            "type": "string",
+            "nullable": true,
+            "description": "Send as `before` to get the next (older) page. Null when this is the last page."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "True when older Units remain after this page."
+          }
+        },
+        "required": [
+          "units",
+          "nextBefore",
+          "hasMore"
+        ]
+      },
+      "OfferFieldsDraftedUnitsResponse": {
+        "type": "object",
+        "properties": {
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "unitId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The id of our record of this Unit."
+                },
+                "outcomeKey": {
+                  "type": "string",
+                  "description": "Always `offer_fields_drafted`.",
+                  "example": "offer_fields_drafted"
+                },
+                "subject": {
+                  "type": "object",
+                  "properties": {
+                    "subjectService": {
+                      "type": "string",
+                      "description": "The service that owns the subject. Always `brand-service` here.",
+                      "example": "brand-service"
+                    },
+                    "subjectId": {
+                      "type": "string",
+                      "description": "The id the Unit was declared under on the runs ledger."
+                    }
+                  },
+                  "required": [
+                    "subjectService",
+                    "subjectId"
+                  ],
+                  "description": "The Unit's subject exactly as declared on the runs ledger: `subjectId` is the offer id."
+                },
+                "brandId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The brand the fields describe."
+                },
+                "offerId": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "uuid",
+                  "description": "The offer the draft was written for; null when the draft named no offer (the brand's own fields)."
+                },
+                "unitAt": {
+                  "type": "string",
+                  "description": "When the Unit was declared on the ledger (ISO datetime, UTC)."
+                },
+                "runId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The script run that wrote the draft (the run the Unit was declared on)."
+                },
+                "fields": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "nullable": true
+                  },
+                  "description": "The drafted values: field key -> value (a text, a list of texts, or null). The keys are the ones the caller asked a draft for, e.g. `dreamOutcome`, `services`.",
+                  "example": {
+                    "dreamOutcome": "Fresh bread on every cafe counter by 7am",
+                    "services": [
+                      "Daily sourdough delivery"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "unitId",
+                "outcomeKey",
+                "subject",
+                "brandId",
+                "offerId",
+                "unitAt",
+                "runId",
+                "fields"
+              ]
+            }
+          },
+          "nextBefore": {
+            "type": "string",
+            "nullable": true,
+            "description": "Send as `before` to get the next (older) page. Null when this is the last page."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "True when older Units remain after this page."
+          }
+        },
+        "required": [
+          "units",
+          "nextBefore",
+          "hasMore"
+        ]
+      },
+      "BrandFieldsDraftedUnitsResponse": {
+        "type": "object",
+        "properties": {
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "unitId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The id of our record of this Unit."
+                },
+                "outcomeKey": {
+                  "type": "string",
+                  "description": "Always `brand_fields_drafted`.",
+                  "example": "brand_fields_drafted"
+                },
+                "subject": {
+                  "type": "object",
+                  "properties": {
+                    "subjectService": {
+                      "type": "string",
+                      "description": "The service that owns the subject. Always `brand-service` here.",
+                      "example": "brand-service"
+                    },
+                    "subjectId": {
+                      "type": "string",
+                      "description": "The id the Unit was declared under on the runs ledger."
+                    }
+                  },
+                  "required": [
+                    "subjectService",
+                    "subjectId"
+                  ],
+                  "description": "The Unit's subject exactly as declared on the runs ledger: `subjectId` is the brand id."
+                },
+                "brandId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The brand the fields describe."
+                },
+                "offerId": {
+                  "type": "string",
+                  "nullable": true,
+                  "format": "uuid",
+                  "description": "The offer the draft was written for; null when the draft named no offer (the brand's own fields)."
+                },
+                "unitAt": {
+                  "type": "string",
+                  "description": "When the Unit was declared on the ledger (ISO datetime, UTC)."
+                },
+                "runId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The script run that wrote the draft (the run the Unit was declared on)."
+                },
+                "fields": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "nullable": true
+                  },
+                  "description": "The drafted values: field key -> value (a text, a list of texts, or null). The keys are the ones the caller asked a draft for, e.g. `dreamOutcome`, `services`.",
+                  "example": {
+                    "dreamOutcome": "Fresh bread on every cafe counter by 7am",
+                    "services": [
+                      "Daily sourdough delivery"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "unitId",
+                "outcomeKey",
+                "subject",
+                "brandId",
+                "offerId",
+                "unitAt",
+                "runId",
+                "fields"
+              ]
+            }
+          },
+          "nextBefore": {
+            "type": "string",
+            "nullable": true,
+            "description": "Send as `before` to get the next (older) page. Null when this is the last page."
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "True when older Units remain after this page."
+          }
+        },
+        "required": [
+          "units",
+          "nextBefore",
+          "hasMore"
+        ]
       }
     },
     "parameters": {
@@ -9713,6 +10219,483 @@
           },
           "404": {
             "description": "Brand not found"
+          }
+        }
+      }
+    },
+    "/orgs/units/client-past-employer-found": {
+      "get": {
+        "operationId": "listClientPastEmployerFoundUnits",
+        "tags": [
+          "provider:client_past_employer_found"
+        ],
+        "summary": "Provider read: the org's « Client past employer found » Units",
+        "description": "Every Unit of outcome `client_past_employer_found` the org holds: a company where a paying client of one of its brands worked (past or current), with which clients justify it and how well-known the company is. Org-scoped: only Units of the calling org (x-org-id) are returned, never another org's. Read-only: the call spends nothing, opens no run and calls no other service. Old Units are returned too (there is no expiry). Newest first (by `unitAt`, then `unitId`). Nothing matching, or a filter naming a brand, offer or company we do not know, answers 200 with `units: []`, never 404. Paging: when `hasMore` is true, call again with the same filters and `before` = the `nextBefore` you just received.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only Units of this brand (brand id, uuid): the brand whose clients worked at the company. Omitted = every brand of the org."
+            },
+            "required": false,
+            "description": "Only Units of this brand (brand id, uuid): the brand whose clients worked at the company. Omitted = every brand of the org.",
+            "name": "brandId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only Units naming this company (the company's brand id, uuid; `company.companyId` in the answer)."
+            },
+            "required": false,
+            "description": "Only Units naming this company (the company's brand id, uuid; `company.companyId` in the answer).",
+            "name": "companyId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "Only Units whose `trace` contains this lead (lead-service lead id): the companies where THIS client worked."
+            },
+            "required": false,
+            "description": "Only Units whose `trace` contains this lead (lead-service lead id): the companies where THIS client worked.",
+            "name": "leadId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. `2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.",
+              "example": "2026-11-01T00:00:00Z"
+            },
+            "required": false,
+            "description": "Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. `2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.",
+            "name": "since",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "description": "How many Units at most in this page, 1 to 500. Default 100.",
+              "example": 100
+            },
+            "required": false,
+            "description": "How many Units at most in this page, 1 to 500. Default 100.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400,
+              "description": "Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page."
+            },
+            "required": false,
+            "description": "Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page.",
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The org whose Units are read (internal org uuid). Required."
+            },
+            "required": true,
+            "description": "The org whose Units are read (internal org uuid). Required.",
+            "name": "x-org-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The user the script acts for. Not used by the read."
+            },
+            "required": false,
+            "description": "The user the script acts for. Not used by the read.",
+            "name": "x-user-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The calling script's run. Not used by the read (nothing is spent or declared)."
+            },
+            "required": false,
+            "description": "The calling script's run. Not used by the read (nothing is spent or declared).",
+            "name": "x-run-id",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of Units, newest first (`units: []` when nothing matches)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientPastEmployerFoundUnitsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A filter is malformed (`brandId` / `offerId` / `companyId` / `outletId` not a uuid, `since` not an ISO datetime with offset, `limit` out of 1-500), `before` is not a cursor we issued, or x-org-id is missing or not a uuid"
+          }
+        }
+      }
+    },
+    "/orgs/units/press-feature-found": {
+      "get": {
+        "operationId": "listPressFeatureFoundUnits",
+        "tags": [
+          "provider:press_feature_found"
+        ],
+        "summary": "Provider read: the org's « Press feature found » Units",
+        "description": "Every Unit of outcome `press_feature_found` the org holds: a published article quoting one of its brands, with the outlet that ran it and how well-known that outlet is. Org-scoped: only Units of the calling org (x-org-id) are returned, never another org's. Read-only: the call spends nothing, opens no run and calls no other service. Old Units are returned too (there is no expiry). Newest first (by `unitAt`, then `unitId`). Nothing matching, or a filter naming a brand, offer or company we do not know, answers 200 with `units: []`, never 404. Paging: when `hasMore` is true, call again with the same filters and `before` = the `nextBefore` you just received.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only Units of this brand (brand id, uuid): the brand the article quotes. Omitted = every brand of the org."
+            },
+            "required": false,
+            "description": "Only Units of this brand (brand id, uuid): the brand the article quotes. Omitted = every brand of the org.",
+            "name": "brandId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only Units published by this outlet (the outlet's brand id, uuid; `outlet.companyId` in the answer)."
+            },
+            "required": false,
+            "description": "Only Units published by this outlet (the outlet's brand id, uuid; `outlet.companyId` in the answer).",
+            "name": "outletId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "description": "Only the Unit of this article: exact match on the stored article URL."
+            },
+            "required": false,
+            "description": "Only the Unit of this article: exact match on the stored article URL.",
+            "name": "articleUrl",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. `2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.",
+              "example": "2026-11-01T00:00:00Z"
+            },
+            "required": false,
+            "description": "Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. `2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.",
+            "name": "since",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "description": "How many Units at most in this page, 1 to 500. Default 100.",
+              "example": 100
+            },
+            "required": false,
+            "description": "How many Units at most in this page, 1 to 500. Default 100.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400,
+              "description": "Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page."
+            },
+            "required": false,
+            "description": "Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page.",
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The org whose Units are read (internal org uuid). Required."
+            },
+            "required": true,
+            "description": "The org whose Units are read (internal org uuid). Required.",
+            "name": "x-org-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The user the script acts for. Not used by the read."
+            },
+            "required": false,
+            "description": "The user the script acts for. Not used by the read.",
+            "name": "x-user-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The calling script's run. Not used by the read (nothing is spent or declared)."
+            },
+            "required": false,
+            "description": "The calling script's run. Not used by the read (nothing is spent or declared).",
+            "name": "x-run-id",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of Units, newest first (`units: []` when nothing matches)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PressFeatureFoundUnitsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A filter is malformed (`brandId` / `offerId` / `companyId` / `outletId` not a uuid, `since` not an ISO datetime with offset, `limit` out of 1-500), `before` is not a cursor we issued, or x-org-id is missing or not a uuid"
+          }
+        }
+      }
+    },
+    "/orgs/units/offer-fields-drafted": {
+      "get": {
+        "operationId": "listOfferFieldsDraftedUnits",
+        "tags": [
+          "provider:offer_fields_drafted"
+        ],
+        "summary": "Provider read: the org's « Offer fields drafted » Units",
+        "description": "Every Unit of outcome `offer_fields_drafted` the org holds: a draft of an offer's fields (dream outcome, proof, risk reversal...) we wrote for one of its offers. One Unit per draft: each time we draft a set of fields, that is one Unit holding every value of that draft. `fields` is what WE drafted; the client may since have edited or replaced those values, and what the client confirmed is read at `GET /orgs/brands/{brandId}/user-fields`. Drafts made before 2026-11-21 are not held (except the ones the client had saved unchanged). Org-scoped: only Units of the calling org (x-org-id) are returned, never another org's. Read-only: the call spends nothing, opens no run and calls no other service. Old Units are returned too (there is no expiry). Newest first (by `unitAt`, then `unitId`). Nothing matching, or a filter naming a brand, offer or company we do not know, answers 200 with `units: []`, never 404. Paging: when `hasMore` is true, call again with the same filters and `before` = the `nextBefore` you just received.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only the drafts written for this offer (offer id, uuid). Omitted = every offer of the org."
+            },
+            "required": false,
+            "description": "Only the drafts written for this offer (offer id, uuid). Omitted = every offer of the org.",
+            "name": "offerId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only Units of this brand (brand id, uuid): the brand that sells the offer. Omitted = every brand of the org."
+            },
+            "required": false,
+            "description": "Only Units of this brand (brand id, uuid): the brand that sells the offer. Omitted = every brand of the org.",
+            "name": "brandId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. `2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.",
+              "example": "2026-11-01T00:00:00Z"
+            },
+            "required": false,
+            "description": "Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. `2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.",
+            "name": "since",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "description": "How many Units at most in this page, 1 to 500. Default 100.",
+              "example": 100
+            },
+            "required": false,
+            "description": "How many Units at most in this page, 1 to 500. Default 100.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400,
+              "description": "Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page."
+            },
+            "required": false,
+            "description": "Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page.",
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The org whose Units are read (internal org uuid). Required."
+            },
+            "required": true,
+            "description": "The org whose Units are read (internal org uuid). Required.",
+            "name": "x-org-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The user the script acts for. Not used by the read."
+            },
+            "required": false,
+            "description": "The user the script acts for. Not used by the read.",
+            "name": "x-user-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The calling script's run. Not used by the read (nothing is spent or declared)."
+            },
+            "required": false,
+            "description": "The calling script's run. Not used by the read (nothing is spent or declared).",
+            "name": "x-run-id",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of Units, newest first (`units: []` when nothing matches)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfferFieldsDraftedUnitsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A filter is malformed (`brandId` / `offerId` / `companyId` / `outletId` not a uuid, `since` not an ISO datetime with offset, `limit` out of 1-500), `before` is not a cursor we issued, or x-org-id is missing or not a uuid"
+          }
+        }
+      }
+    },
+    "/orgs/units/brand-fields-drafted": {
+      "get": {
+        "operationId": "listBrandFieldsDraftedUnits",
+        "tags": [
+          "provider:brand_fields_drafted"
+        ],
+        "summary": "Provider read: the org's « Brand fields drafted » Units",
+        "description": "Every Unit of outcome `brand_fields_drafted` the org holds: a draft of a brand's own fields (company description, facts, competitors...) we wrote with no offer named. One Unit per draft: each time we draft a set of fields, that is one Unit holding every value of that draft. `fields` is what WE drafted; the client may since have edited or replaced those values, and what the client confirmed is read at `GET /orgs/brands/{brandId}/user-fields`. Drafts made before 2026-11-21 are not held (except the ones the client had saved unchanged). Org-scoped: only Units of the calling org (x-org-id) are returned, never another org's. Read-only: the call spends nothing, opens no run and calls no other service. Old Units are returned too (there is no expiry). Newest first (by `unitAt`, then `unitId`). Nothing matching, or a filter naming a brand, offer or company we do not know, answers 200 with `units: []`, never 404. Paging: when `hasMore` is true, call again with the same filters and `before` = the `nextBefore` you just received.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only Units of this brand (brand id, uuid): the brand the fields describe. Omitted = every brand of the org."
+            },
+            "required": false,
+            "description": "Only Units of this brand (brand id, uuid): the brand the fields describe. Omitted = every brand of the org.",
+            "name": "brandId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. `2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.",
+              "example": "2026-11-01T00:00:00Z"
+            },
+            "required": false,
+            "description": "Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. `2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.",
+            "name": "since",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "description": "How many Units at most in this page, 1 to 500. Default 100.",
+              "example": 100
+            },
+            "required": false,
+            "description": "How many Units at most in this page, 1 to 500. Default 100.",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400,
+              "description": "Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page."
+            },
+            "required": false,
+            "description": "Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page.",
+            "name": "before",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The org whose Units are read (internal org uuid). Required."
+            },
+            "required": true,
+            "description": "The org whose Units are read (internal org uuid). Required.",
+            "name": "x-org-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The user the script acts for. Not used by the read."
+            },
+            "required": false,
+            "description": "The user the script acts for. Not used by the read.",
+            "name": "x-user-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The calling script's run. Not used by the read (nothing is spent or declared)."
+            },
+            "required": false,
+            "description": "The calling script's run. Not used by the read (nothing is spent or declared).",
+            "name": "x-run-id",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of Units, newest first (`units: []` when nothing matches)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandFieldsDraftedUnitsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A filter is malformed (`brandId` / `offerId` / `companyId` / `outletId` not a uuid, `since` not an ISO datetime with offset, `limit` out of 1-500), `before` is not a cursor we issued, or x-org-id is missing or not a uuid"
           }
         }
       }

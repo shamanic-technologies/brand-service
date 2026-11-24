@@ -17,7 +17,7 @@
  *
  * See CLAUDE.md "Brand proof logos".
  */
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { db } from '../db';
 import { brands, brandProofEmployers, brandProofPressFeatures, companyNotoriety } from '../db/schema';
 import { resolveCompanies, getCompanies, type CompanyResolution } from './companyService';
@@ -39,6 +39,7 @@ import {
   type EmployerTraceEntry,
   type ProofFilter,
 } from '../lib/brand-proof';
+import { PROVIDER_READS, pageOfUnits, type UnitCursor, type UnitPage } from '../lib/provider-reads';
 
 export const PROOF_SUBJECT_SERVICE = 'brand-service';
 export const NOTORIETY_TASK = 'brand-proof-notoriety';
@@ -556,4 +557,175 @@ export async function getPublicProof(q: PublicProofQuery) {
     employers,
     press,
   };
+}
+
+// ─── Provider reads (ENGINE-GET-ASK-1123) ────────────────────────────────────
+
+/** What every Provider read of proof Units filters on. */
+interface ProofUnitsQueryBase {
+  brandId?: string;
+  /** Units at or after this time (ISO datetime). */
+  since?: string;
+  limit: number;
+  /** Where the previous page ended. */
+  before?: UnitCursor;
+}
+
+const isoMs = (column: unknown) => sql<string>`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+/** Microseconds: the keyset position must be exactly what Postgres holds. */
+const isoUs = (column: unknown) => sql<string>`to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+export interface ClientPastEmployerFoundUnit {
+  unitId: string;
+  outcomeKey: string;
+  subject: { subjectService: string; subjectId: string };
+  brandId: string;
+  unitAt: string;
+  runId: string | null;
+  company: { companyId: string; name: string | null; domain: string | null; logoUrl: string | null };
+  trace: EmployerTraceEntry[];
+  notoriety: NotorietyView | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The org's « Client past employer found » Units, newest first. Pure read: a
+ * Unit is a row the store declared (`unit_declared_at`), whatever its age.
+ */
+export async function listClientPastEmployerFoundUnits(
+  orgId: string,
+  q: ProofUnitsQueryBase & { companyId?: string; leadId?: string },
+): Promise<UnitPage<ClientPastEmployerFoundUnit>> {
+  const t = brandProofEmployers;
+  const where: SQL[] = [
+    eq(t.orgId, orgId),
+    eq(t.outcomeKey, PROVIDER_READS.clientPastEmployerFound.outcomeKey),
+    isNotNull(t.unitDeclaredAt),
+  ];
+  if (q.brandId) where.push(eq(t.brandId, q.brandId));
+  if (q.companyId) where.push(eq(t.companyBrandId, q.companyId));
+  if (q.leadId) where.push(sql`${t.trace} @> ${JSON.stringify([{ leadId: q.leadId }])}::jsonb`);
+  if (q.since) where.push(sql`${t.unitDeclaredAt} >= ${q.since}::timestamptz`);
+  if (q.before) where.push(sql`(${t.unitDeclaredAt}, ${t.id}) < (${q.before.unitAt}::timestamptz, ${q.before.id}::uuid)`);
+
+  const rows = await db
+    .select({
+      id: t.id,
+      brandId: t.brandId,
+      companyId: t.companyBrandId,
+      trace: t.trace,
+      outcomeKey: t.outcomeKey,
+      runId: t.unitRunId,
+      unitAt: isoMs(t.unitDeclaredAt),
+      cursorAt: isoUs(t.unitDeclaredAt),
+      createdAt: isoMs(t.createdAt),
+      updatedAt: isoMs(t.updatedAt),
+      name: brands.name,
+      domain: brands.domain,
+      logoUrl: brands.logoUrl,
+    })
+    .from(t)
+    .innerJoin(brands, eq(brands.id, t.companyBrandId))
+    .where(and(...where))
+    .orderBy(desc(t.unitDeclaredAt), desc(t.id))
+    .limit(q.limit + 1);
+
+  const notoriety = await readNotoriety([...new Set(rows.slice(0, q.limit).map((r) => r.companyId))]);
+  return pageOfUnits(
+    rows,
+    q.limit,
+    (r) => ({ unitAt: r.cursorAt, id: r.id }),
+    (r) => ({
+      unitId: r.id,
+      outcomeKey: r.outcomeKey as string,
+      subject: { subjectService: PROOF_SUBJECT_SERVICE, subjectId: r.id },
+      brandId: r.brandId,
+      unitAt: r.unitAt,
+      runId: r.runId,
+      company: { companyId: r.companyId, name: r.name, domain: r.domain, logoUrl: r.logoUrl },
+      trace: ((r.trace as EmployerTraceEntry[]) ?? []).map((e) => ({ leadId: e.leadId, role: e.role ?? null })),
+      notoriety: notoriety.get(r.companyId) ?? null,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }),
+  );
+}
+
+export interface PressFeatureFoundUnit {
+  unitId: string;
+  outcomeKey: string;
+  subject: { subjectService: string; subjectId: string };
+  brandId: string;
+  unitAt: string;
+  runId: string | null;
+  article: { url: string; title: string | null; publishedAt: string | null };
+  outlet: { companyId: string | null; name: string | null; domain: string | null; logoUrl: string | null };
+  notoriety: NotorietyView | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The org's « Press feature found » Units, newest first. Pure read. */
+export async function listPressFeatureFoundUnits(
+  orgId: string,
+  q: ProofUnitsQueryBase & { outletId?: string; articleUrl?: string },
+): Promise<UnitPage<PressFeatureFoundUnit>> {
+  const t = brandProofPressFeatures;
+  const where: SQL[] = [
+    eq(t.orgId, orgId),
+    eq(t.outcomeKey, PROVIDER_READS.pressFeatureFound.outcomeKey),
+    isNotNull(t.unitDeclaredAt),
+  ];
+  if (q.brandId) where.push(eq(t.brandId, q.brandId));
+  if (q.outletId) where.push(eq(t.outletBrandId, q.outletId));
+  if (q.articleUrl) where.push(eq(t.articleUrl, q.articleUrl));
+  if (q.since) where.push(sql`${t.unitDeclaredAt} >= ${q.since}::timestamptz`);
+  if (q.before) where.push(sql`(${t.unitDeclaredAt}, ${t.id}) < (${q.before.unitAt}::timestamptz, ${q.before.id}::uuid)`);
+
+  const rows = await db
+    .select({
+      id: t.id,
+      brandId: t.brandId,
+      outletId: t.outletBrandId,
+      articleUrl: t.articleUrl,
+      title: t.title,
+      publishedAt: t.publishedAt,
+      outcomeKey: t.outcomeKey,
+      runId: t.unitRunId,
+      unitAt: isoMs(t.unitDeclaredAt),
+      cursorAt: isoUs(t.unitDeclaredAt),
+      createdAt: isoMs(t.createdAt),
+      updatedAt: isoMs(t.updatedAt),
+      name: sql<string | null>`COALESCE(${brands.name}, ${t.outletName})`,
+      domain: brands.domain,
+      logoUrl: brands.logoUrl,
+    })
+    .from(t)
+    .leftJoin(brands, eq(brands.id, t.outletBrandId))
+    .where(and(...where))
+    .orderBy(desc(t.unitDeclaredAt), desc(t.id))
+    .limit(q.limit + 1);
+
+  const notoriety = await readNotoriety([
+    ...new Set(rows.slice(0, q.limit).map((r) => r.outletId).filter((id): id is string => id !== null)),
+  ]);
+  return pageOfUnits(
+    rows,
+    q.limit,
+    (r) => ({ unitAt: r.cursorAt, id: r.id }),
+    (r) => ({
+      unitId: r.id,
+      outcomeKey: r.outcomeKey as string,
+      subject: { subjectService: PROOF_SUBJECT_SERVICE, subjectId: r.id },
+      brandId: r.brandId,
+      unitAt: r.unitAt,
+      runId: r.runId,
+      article: { url: r.articleUrl, title: r.title, publishedAt: r.publishedAt ? String(r.publishedAt).slice(0, 10) : null },
+      outlet: { companyId: r.outletId, name: r.name, domain: r.domain, logoUrl: r.logoUrl },
+      notoriety: r.outletId ? notoriety.get(r.outletId) ?? null : null,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }),
+  );
 }

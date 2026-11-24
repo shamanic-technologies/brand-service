@@ -48,6 +48,8 @@ describe('DELETE /internal/org-brands/by-org/:orgId', () => {
       VALUES (${orgId}, ${brandId}, ${brandId}, '[]'::jsonb)`);
     await db.execute(sql`INSERT INTO brand_proof_press_features (org_id, brand_id, outlet_brand_id, article_url)
       VALUES (${orgId}, ${brandId}, ${brandId}, ${'https://news.example.com/' + tag})`);
+    await db.execute(sql`INSERT INTO field_draft_units (org_id, brand_id, outcome_key, subject_id, run_id, unit_at, fields)
+      VALUES (${orgId}, ${brandId}, 'brand_fields_drafted', ${brandId}, ${randomUUID()}, now(), '{"services":["x"]}'::jsonb)`);
   }
 
   async function countsFor(orgId: string): Promise<Record<string, number>> {
