@@ -40,6 +40,7 @@ import { ORG_SCOPED_BRAND_TABLES } from './brandOrgMoveService';
 const DELETE_ORDER: readonly (typeof ORG_SCOPED_BRAND_TABLES)[number][] = [
   'brand_proof_employers',
   'brand_proof_press_features',
+  'field_draft_units',
   'brand_user_fields',
   'brand_offer_answers',
   'brand_offer_documents',

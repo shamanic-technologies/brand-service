@@ -4789,3 +4789,252 @@ registry.registerPath({
     404: { description: 'Brand not found' },
   },
 });
+
+// ─── Provider reads of our Units (ENGINE-GET-ASK-1123) ──────────────────────
+// A workflow-service Script finds the read of an outcome by the TAG
+// `provider:<outcome>` and calls it AS its run. NEVER rename an operationId or
+// a tag here: the tag is the lookup key.
+
+import { PROVIDER_READS, PROVIDER_READ_DEFAULT_LIMIT, PROVIDER_READ_MAX_LIMIT } from './lib/provider-reads';
+
+const PROVIDER_READ_COMMON =
+  ' Org-scoped: only Units of the calling org (x-org-id) are returned, never another org\'s. Read-only: the call ' +
+  'spends nothing, opens no run and calls no other service. Old Units are returned too (there is no expiry). ' +
+  'Newest first (by `unitAt`, then `unitId`). Nothing matching, or a filter naming a brand, offer or company we do ' +
+  'not know, answers 200 with `units: []`, never 404. Paging: when `hasMore` is true, call again with the same ' +
+  'filters and `before` = the `nextBefore` you just received.';
+
+const UnitSinceSchema = z.string().datetime({ offset: true }).optional().openapi({
+  description:
+    'Only Units made at or after this time (`unitAt` >= since). ISO 8601 datetime WITH an offset, e.g. ' +
+    '`2026-11-01T00:00:00Z` or `2026-11-01T09:00:00+01:00`. Omitted = since the beginning.',
+  example: '2026-11-01T00:00:00Z',
+});
+const UnitLimitSchema = z.coerce.number().int().min(1).max(PROVIDER_READ_MAX_LIMIT).optional().openapi({
+  description: `How many Units at most in this page, 1 to ${PROVIDER_READ_MAX_LIMIT}. Default ${PROVIDER_READ_DEFAULT_LIMIT}.`,
+  example: PROVIDER_READ_DEFAULT_LIMIT,
+});
+const UnitBeforeSchema = z.string().min(1).max(400).optional().openapi({
+  description:
+    'Paging cursor: the `nextBefore` of the previous page, sent back unchanged. Returns the Units OLDER than the ' +
+    'last one of that page. Opaque: do not build or edit it (400 when invalid). Omitted = the first (newest) page.',
+});
+const unitBrandIdFilter = (what: string) =>
+  z.string().uuid().optional().openapi({ description: `Only Units of this brand (brand id, uuid): ${what}. Omitted = every brand of the org.` });
+
+const UnitSubjectSchema = z
+  .object({
+    subjectService: z.string().openapi({ description: 'The service that owns the subject. Always `brand-service` here.', example: 'brand-service' }),
+    subjectId: z.string().openapi({ description: 'The id the Unit was declared under on the runs ledger.' }),
+  })
+  .openapi({ description: 'The Unit\'s subject exactly as declared on the runs ledger (with `outcomeKey`, it names the Unit there).' });
+
+const unitPageFields = {
+  nextBefore: z.string().nullable().openapi({
+    description: 'Send as `before` to get the next (older) page. Null when this is the last page.',
+  }),
+  hasMore: z.boolean().openapi({ description: 'True when older Units remain after this page.' }),
+};
+
+const UnitNotorietySchema = ProofNotorietySchema.nullable().openapi({
+  description:
+    'How well-known the company is, judged once per company (cross-org) and stored. `status`: `pending` (not judged ' +
+    'yet), `judged`, `failed`. `score`: 0..100 (80 = "Famous"), null until judged. `confidence`: 0..1. ' +
+    '`monthlyTraffic`: worldwide monthly organic website visits, null when not measured. `judgedAt`: ISO datetime. ' +
+    'Null when the company was never queued for a judgment.',
+});
+
+export const ClientPastEmployerFoundUnitsQuerySchema = z.object({
+  brandId: unitBrandIdFilter('the brand whose clients worked at the company'),
+  companyId: z.string().uuid().optional().openapi({ description: 'Only Units naming this company (the company\'s brand id, uuid; `company.companyId` in the answer).' }),
+  leadId: z.string().min(1).max(200).optional().openapi({ description: 'Only Units whose `trace` contains this lead (lead-service lead id): the companies where THIS client worked.' }),
+  since: UnitSinceSchema,
+  limit: UnitLimitSchema,
+  before: UnitBeforeSchema,
+});
+
+export const ClientPastEmployerFoundUnitsResponseSchema = z
+  .object({
+    units: z.array(
+      z.object({
+        unitId: z.string().uuid().openapi({ description: 'The Unit\'s id = our stored row = its ledger subject id.' }),
+        outcomeKey: z.string().openapi({ description: 'Always `client_past_employer_found`.', example: 'client_past_employer_found' }),
+        subject: UnitSubjectSchema,
+        brandId: z.string().uuid().openapi({ description: 'The brand whose client worked at the company.' }),
+        unitAt: z.string().openapi({ description: 'When the Unit was declared on the ledger (ISO datetime, UTC).' }),
+        runId: z.string().nullable().openapi({ description: 'The script run that made the Unit (the run it was declared on).' }),
+        company: z
+          .object({
+            companyId: z.string().uuid().openapi({ description: 'The company\'s brand id.' }),
+            name: z.string().nullable(),
+            domain: z.string().nullable().openapi({ description: 'The company\'s website domain, null when only a LinkedIn page / Apollo id identifies it.' }),
+            logoUrl: z.string().nullable().openapi({ description: 'A logo image URL, null when none is stored yet.' }),
+          })
+          .openapi({ description: 'The company where the brand\'s client(s) worked (past or current).' }),
+        trace: z
+          .array(z.object({ leadId: z.string(), role: z.string().nullable() }))
+          .openapi({ description: 'Which of the brand\'s clients justify the Unit: each lead (lead-service lead id) that worked there, with the role held (null when unknown). Grows when a later store names another client.' }),
+        notoriety: UnitNotorietySchema,
+        createdAt: z.string().openapi({ description: 'When the row was first stored (ISO datetime, UTC).' }),
+        updatedAt: z.string().openapi({ description: 'When the row last changed, e.g. a client added to `trace` (ISO datetime, UTC).' }),
+      }),
+    ),
+    ...unitPageFields,
+  })
+  .openapi('ClientPastEmployerFoundUnitsResponse');
+
+export const PressFeatureFoundUnitsQuerySchema = z.object({
+  brandId: unitBrandIdFilter('the brand the article quotes'),
+  outletId: z.string().uuid().optional().openapi({ description: 'Only Units published by this outlet (the outlet\'s brand id, uuid; `outlet.companyId` in the answer).' }),
+  articleUrl: z.string().min(1).max(4000).optional().openapi({ description: 'Only the Unit of this article: exact match on the stored article URL.' }),
+  since: UnitSinceSchema,
+  limit: UnitLimitSchema,
+  before: UnitBeforeSchema,
+});
+
+export const PressFeatureFoundUnitsResponseSchema = z
+  .object({
+    units: z.array(
+      z.object({
+        unitId: z.string().uuid().openapi({ description: 'The Unit\'s id = our stored row = its ledger subject id.' }),
+        outcomeKey: z.string().openapi({ description: 'Always `press_feature_found`.', example: 'press_feature_found' }),
+        subject: UnitSubjectSchema,
+        brandId: z.string().uuid().openapi({ description: 'The brand the article quotes.' }),
+        unitAt: z.string().openapi({ description: 'When the Unit was declared on the ledger (ISO datetime, UTC).' }),
+        runId: z.string().nullable().openapi({ description: 'The script run that made the Unit (the run it was declared on).' }),
+        article: z
+          .object({
+            url: z.string(),
+            title: z.string().nullable(),
+            publishedAt: z.string().nullable().openapi({ description: 'Publication day, YYYY-MM-DD, null when unknown.' }),
+          })
+          .openapi({ description: 'The published article quoting the brand.' }),
+        outlet: z
+          .object({
+            companyId: z.string().uuid().nullable().openapi({ description: 'The outlet\'s brand id. Null for a platform-hosted publication with no site of its own (a LinkedIn newsletter, a Substack).' }),
+            name: z.string().nullable(),
+            domain: z.string().nullable().openapi({ description: 'The outlet\'s own website domain, null when platform-hosted.' }),
+            logoUrl: z.string().nullable().openapi({ description: 'A logo image URL, null when none (always null when platform-hosted).' }),
+          })
+          .openapi({ description: 'The publication that ran the article.' }),
+        notoriety: UnitNotorietySchema,
+        createdAt: z.string().openapi({ description: 'When the row was first stored (ISO datetime, UTC).' }),
+        updatedAt: z.string().openapi({ description: 'When the row last changed (ISO datetime, UTC).' }),
+      }),
+    ),
+    ...unitPageFields,
+  })
+  .openapi('PressFeatureFoundUnitsResponse');
+
+const FIELDS_DRAFTED_NOTE =
+  ' One Unit per draft: each time we draft a set of fields, that is one Unit holding every value of that draft. ' +
+  '`fields` is what WE drafted; the client may since have edited or replaced those values, and what the client ' +
+  'confirmed is read at `GET /orgs/brands/{brandId}/user-fields`. Drafts made before 2026-11-21 are not held ' +
+  '(except the ones the client had saved unchanged).';
+
+const fieldsDraftedUnitSchema = (outcomeKey: string, subjectIs: string) =>
+  z.object({
+    unitId: z.string().uuid().openapi({ description: 'The id of our record of this Unit.' }),
+    outcomeKey: z.string().openapi({ description: `Always \`${outcomeKey}\`.`, example: outcomeKey }),
+    subject: UnitSubjectSchema.openapi({ description: `The Unit's subject exactly as declared on the runs ledger: \`subjectId\` is ${subjectIs}.` }),
+    brandId: z.string().uuid().openapi({ description: 'The brand the fields describe.' }),
+    offerId: z.string().uuid().nullable().openapi({ description: 'The offer the draft was written for; null when the draft named no offer (the brand\'s own fields).' }),
+    unitAt: z.string().openapi({ description: 'When the Unit was declared on the ledger (ISO datetime, UTC).' }),
+    runId: z.string().uuid().openapi({ description: 'The script run that wrote the draft (the run the Unit was declared on).' }),
+    fields: z.record(z.string(), z.unknown()).openapi({
+      description: 'The drafted values: field key -> value (a text, a list of texts, or null). The keys are the ones the caller asked a draft for, e.g. `dreamOutcome`, `services`.',
+      example: { dreamOutcome: 'Fresh bread on every cafe counter by 7am', services: ['Daily sourdough delivery'] },
+    }),
+  });
+
+export const OfferFieldsDraftedUnitsQuerySchema = z.object({
+  offerId: z.string().uuid().optional().openapi({ description: 'Only the drafts written for this offer (offer id, uuid). Omitted = every offer of the org.' }),
+  brandId: unitBrandIdFilter('the brand that sells the offer'),
+  since: UnitSinceSchema,
+  limit: UnitLimitSchema,
+  before: UnitBeforeSchema,
+});
+
+export const OfferFieldsDraftedUnitsResponseSchema = z
+  .object({ units: z.array(fieldsDraftedUnitSchema('offer_fields_drafted', 'the offer id')), ...unitPageFields })
+  .openapi('OfferFieldsDraftedUnitsResponse');
+
+export const BrandFieldsDraftedUnitsQuerySchema = z.object({
+  brandId: unitBrandIdFilter('the brand the fields describe'),
+  since: UnitSinceSchema,
+  limit: UnitLimitSchema,
+  before: UnitBeforeSchema,
+});
+
+export const BrandFieldsDraftedUnitsResponseSchema = z
+  .object({ units: z.array(fieldsDraftedUnitSchema('brand_fields_drafted', 'the brand id')), ...unitPageFields })
+  .openapi('BrandFieldsDraftedUnitsResponse');
+
+const ProviderReadHeaders = z.object({
+  'x-org-id': z.string().openapi({ description: 'The org whose Units are read (internal org uuid). Required.' }),
+  'x-user-id': z.string().optional().openapi({ description: 'The user the script acts for. Not used by the read.' }),
+  'x-run-id': z.string().optional().openapi({ description: 'The calling script\'s run. Not used by the read (nothing is spent or declared).' }),
+});
+
+const providerReadResponses = (schema: z.ZodTypeAny) => ({
+  200: { description: 'A page of Units, newest first (`units: []` when nothing matches)', content: { 'application/json': { schema } } },
+  400: { description: 'A filter is malformed (`brandId` / `offerId` / `companyId` / `outletId` not a uuid, `since` not an ISO datetime with offset, `limit` out of 1-500), `before` is not a cursor we issued, or x-org-id is missing or not a uuid' },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: `/orgs${PROVIDER_READS.clientPastEmployerFound.path}`,
+  operationId: PROVIDER_READS.clientPastEmployerFound.operationId,
+  tags: [PROVIDER_READS.clientPastEmployerFound.tag],
+  summary: 'Provider read: the org\'s « Client past employer found » Units',
+  description:
+    'Every Unit of outcome `client_past_employer_found` the org holds: a company where a paying client of one of its ' +
+    'brands worked (past or current), with which clients justify it and how well-known the company is.' +
+    PROVIDER_READ_COMMON,
+  request: { headers: ProviderReadHeaders, query: ClientPastEmployerFoundUnitsQuerySchema },
+  responses: providerReadResponses(ClientPastEmployerFoundUnitsResponseSchema),
+});
+
+registry.registerPath({
+  method: 'get',
+  path: `/orgs${PROVIDER_READS.pressFeatureFound.path}`,
+  operationId: PROVIDER_READS.pressFeatureFound.operationId,
+  tags: [PROVIDER_READS.pressFeatureFound.tag],
+  summary: 'Provider read: the org\'s « Press feature found » Units',
+  description:
+    'Every Unit of outcome `press_feature_found` the org holds: a published article quoting one of its brands, with ' +
+    'the outlet that ran it and how well-known that outlet is.' +
+    PROVIDER_READ_COMMON,
+  request: { headers: ProviderReadHeaders, query: PressFeatureFoundUnitsQuerySchema },
+  responses: providerReadResponses(PressFeatureFoundUnitsResponseSchema),
+});
+
+registry.registerPath({
+  method: 'get',
+  path: `/orgs${PROVIDER_READS.offerFieldsDrafted.path}`,
+  operationId: PROVIDER_READS.offerFieldsDrafted.operationId,
+  tags: [PROVIDER_READS.offerFieldsDrafted.tag],
+  summary: 'Provider read: the org\'s « Offer fields drafted » Units',
+  description:
+    'Every Unit of outcome `offer_fields_drafted` the org holds: a draft of an offer\'s fields (dream outcome, proof, ' +
+    'risk reversal...) we wrote for one of its offers.' +
+    FIELDS_DRAFTED_NOTE +
+    PROVIDER_READ_COMMON,
+  request: { headers: ProviderReadHeaders, query: OfferFieldsDraftedUnitsQuerySchema },
+  responses: providerReadResponses(OfferFieldsDraftedUnitsResponseSchema),
+});
+
+registry.registerPath({
+  method: 'get',
+  path: `/orgs${PROVIDER_READS.brandFieldsDrafted.path}`,
+  operationId: PROVIDER_READS.brandFieldsDrafted.operationId,
+  tags: [PROVIDER_READS.brandFieldsDrafted.tag],
+  summary: 'Provider read: the org\'s « Brand fields drafted » Units',
+  description:
+    'Every Unit of outcome `brand_fields_drafted` the org holds: a draft of a brand\'s own fields (company ' +
+    'description, facts, competitors...) we wrote with no offer named.' +
+    FIELDS_DRAFTED_NOTE +
+    PROVIDER_READ_COMMON,
+  request: { headers: ProviderReadHeaders, query: BrandFieldsDraftedUnitsQuerySchema },
+  responses: providerReadResponses(BrandFieldsDraftedUnitsResponseSchema),
+});

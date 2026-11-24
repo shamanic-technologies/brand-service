@@ -36,6 +36,7 @@ import { orgRouter as businessContextOrgRoutes } from './routes/business-context
 import { orgRouter as shareTokenOrgRoutes, internalRouter as shareTokenInternalRoutes } from './routes/share-token.routes';
 import { internalRouter as orgTeardownInternalRoutes } from './routes/org-teardown.routes';
 import { orgRouter as brandProofOrgRoutes, publicRouter as brandProofPublicRoutes } from './routes/brand-proof.routes';
+import { orgRouter as providerReadsOrgRoutes } from './routes/provider-reads.routes';
 import { internalRouter as companiesInternalRoutes, companiesBodyParser } from './routes/companies.routes';
 import { orgRouter as offerStepsOrgRoutes } from './routes/offer-steps.routes';
 import { orgRouter as offerDocumentsOrgRoutes, internalRouter as offerDocumentsInternalRoutes, offerDocumentsBodyParser } from './routes/offer-documents.routes';
@@ -169,6 +170,7 @@ app.use('/orgs', apiKeyAuth, requireOrgId, offersOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, offerStepsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, offerDocumentsOrgRoutes);
 app.use('/orgs', apiKeyAuth, requireOrgId, brandProofOrgRoutes);
+app.use('/orgs', apiKeyAuth, requireOrgId, providerReadsOrgRoutes);
 app.use('/orgs/media-assets', apiKeyAuth, requireOrgId, analyzeRoutes);
 
 // ── Expired extracted-fields cleanup cron ────────────────────────

@@ -16,11 +16,12 @@ import { rethrowIfInsufficientCredits } from '../lib/insufficient-credits';
 import { PAGE_CACHE_TTL_DAYS, pageCacheExpiresAt } from '../lib/page-cache-ttl';
 import crypto from 'crypto';
 import { eq, and, gt, inArray, sql, isNull, asc } from 'drizzle-orm';
-import { db, brands, brandExtractedFields, brandOffers, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
+import { db, brands, brandExtractedFields, brandOffers, fieldDraftUnits, orgBrands, pageScrapeCache, urlMapCache as urlMapCacheTable } from '../db';
 import { OfferNotFoundError } from './brandOffersService';
 import { chat, Caller, ChatCaller, OrgCaller } from '../lib/chat-client';
 import { makeFieldsDraft, answerJson, type DraftCall, type EngineMakeRequest } from '../lib/engine-make-client';
 import { fieldDraftKind, draftUnitOfColumns, OFFER_FIELDS_OUTCOME, type DraftUnit } from '../lib/field-drafts';
+import { buildFieldDraftUnitRow } from '../lib/field-draft-units';
 import {
   mapSiteUrls,
   scrapePage,
@@ -1300,6 +1301,19 @@ export async function extractFields(
         brandId, fieldsToStore, scrapedSourceUrls, mode, campaignIdForRun, options.offerId,
         { ...draftRef, unitAt: draftUnit.unitAt },
       );
+      // The Unit's durable record (ENGINE-GET-ASK-1123): the rows above are a
+      // 3-day cache, this one is what the Provider read serves later. One row
+      // per declaration, never updated. Fail loud.
+      await db
+        .insert(fieldDraftUnits)
+        .values(buildFieldDraftUnitRow({
+          orgId: trackingOrgId,
+          brandId,
+          offerId: options.offerId,
+          unit: draftUnit,
+          stored: fieldsToStore,
+        }))
+        .onConflictDoNothing();
     }
 
     // 8. Complete run
