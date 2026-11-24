@@ -2003,3 +2003,36 @@ export const brandProofPressFeatures = pgTable("brand_proof_press_features", {
 		name: "brand_proof_press_features_outlet_brand_id_fkey",
 	}).onDelete("cascade"),
 ]);
+
+/**
+ * The durable, append-only record of a suggest draft's Unit
+ * (ENGINE-GET-ASK-1123): « Offer fields drafted » / « Brand fields drafted ».
+ * The drafted values themselves sit in `brand_extracted_fields`, a 3-day cache
+ * the daily cron empties and which carries no org, so without this row an old
+ * Unit could not be read back. One row per declaration, written right after
+ * the runs ledger took it (`fieldExtractionService`), never updated.
+ * `org_id` NULL = no org was known at draft time; such a row is never served.
+ */
+export const fieldDraftUnits = pgTable("field_draft_units", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	orgId: uuid("org_id"),
+	brandId: uuid("brand_id").notNull(),
+	offerId: uuid("offer_id"),
+	outcomeKey: text("outcome_key").notNull(),
+	subjectService: text("subject_service").default('brand-service').notNull(),
+	subjectId: text("subject_id").notNull(),
+	/** The SCRIPT run the Unit was declared on. */
+	runId: uuid("run_id").notNull(),
+	unitAt: timestamp("unit_at", { withTimezone: true, mode: 'string' }).notNull(),
+	/** Field key -> the value we drafted. */
+	fields: jsonb().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	uniqueIndex("field_draft_units_run_outcome_subject_key").on(table.runId, table.outcomeKey, table.subjectId),
+	index("field_draft_units_org_outcome_unit_at_idx").on(table.orgId, table.outcomeKey, table.unitAt.desc()),
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "field_draft_units_brand_id_fkey",
+	}).onDelete("cascade"),
+]);

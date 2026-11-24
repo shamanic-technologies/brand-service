@@ -51,6 +51,7 @@ export const ORG_SCOPED_BRAND_TABLES = [
   'brand_offer_documents',
   'brand_proof_employers',
   'brand_proof_press_features',
+  'field_draft_units',
 ] as const;
 
 /** One row per (org_id, brand_id): the PK is exactly that pair. */
@@ -252,6 +253,16 @@ export async function moveBrandBetweenOrgs(
       result.push({ tableName: 'brand_proof_press_features', count: moved });
       if (replaced > 0) result.push({ tableName: 'brand_proof_press_features.replaced_in_target', count: replaced });
     }
+
+    // Field draft Units (ENGINE-GET-ASK-1123): append-only, unique per
+    // declaration (run, outcome, subject), so nothing in the target collides.
+    result.push({
+      tableName: 'field_draft_units',
+      count: await count(
+        tx,
+        sql`UPDATE field_draft_units SET org_id = ${targetOrgId} WHERE org_id = ${sourceOrgId} AND brand_id = ${brandId} RETURNING 1`,
+      ),
+    });
 
     return result;
   });

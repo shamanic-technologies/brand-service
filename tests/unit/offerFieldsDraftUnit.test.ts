@@ -7,13 +7,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * value names that run. An extraction stays a support run that declares nothing.
  */
 
-const { mockSelect, mockInsert } = vi.hoisted(() => ({
+const { mockSelect, mockInsert, FIELD_DRAFT_UNITS, recordedUnits } = vi.hoisted(() => ({
   mockSelect: vi.fn(),
   mockInsert: vi.fn(),
+  FIELD_DRAFT_UNITS: { table: 'field_draft_units' },
+  recordedUnits: [] as any[],
 }));
 
 vi.mock('../../src/db', () => ({
-  db: { select: mockSelect, insert: mockInsert },
+  db: {
+    select: mockSelect,
+    // The Unit's durable record (ENGINE-GET-ASK-1123) goes to its own spy.
+    insert: (table: unknown) =>
+      table === FIELD_DRAFT_UNITS
+        ? { values: (row: any) => { recordedUnits.push(row); return { onConflictDoNothing: () => Promise.resolve(undefined) }; } }
+        : mockInsert(table),
+  },
+  fieldDraftUnits: FIELD_DRAFT_UNITS,
   brands: {},
   brandExtractedFields: {},
   brandOffers: {},
@@ -105,6 +115,7 @@ const fields = [{ key: 'dreamOutcome', description: 'the dream outcome' }];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  recordedUnits.length = 0;
   mockGetBrand({ id: 'brand-1', url: null, name: 'Bakery', domain: null });
   vi.mocked(getBrandBusinessContext).mockResolvedValue('A bakery in Leeds selling sourdough to cafes.');
   vi.mocked(chat).mockResolvedValue({ content: '', json: { dreamOutcome: 'Fresh bread daily' }, tokensInput: 1, tokensOutput: 1, model: 'm' } as any);
@@ -135,6 +146,17 @@ describe('suggest draft = a script run of its Engine, child of ours, carrying th
       { orgId: 'org-1', userId: 'user-1' },
     ]);
     expect(vi.mocked(updateRun).mock.calls[0][1]).toBe('completed');
+    // ENGINE-GET-ASK-1123: the declared Unit leaves ONE durable record the Provider read serves later.
+    expect(recordedUnits).toHaveLength(1);
+    expect(recordedUnits[0]).toMatchObject({
+      brandId: 'brand-1',
+      offerId: 'offer-1',
+      outcomeKey: 'offer_fields_drafted',
+      subjectService: 'brand-service',
+      subjectId: 'offer-1',
+      runId: 'script-run',
+      fields: { dreamOutcome: 'Fresh bread daily' },
+    });
   });
 
   // SCRIPT-VALUE-RATING-1113: a draft asked for the BRAND (no offer named: its description, facts, competitors) is its
@@ -197,6 +219,7 @@ describe('suggest draft = a script run of its Engine, child of ours, carrying th
       extractFields({ brandId: 'brand-1', fields, caller: orgCaller, resetCache: true, mode: 'suggest' }),
     ).rejects.toThrow('runs-service 502');
     expect(stored.every((row) => row.draftUnitAt === null)).toBe(true);
+    expect(recordedUnits).toHaveLength(0);
   });
 
   it('extract mode stays a field-extraction support run and declares nothing', async () => {
