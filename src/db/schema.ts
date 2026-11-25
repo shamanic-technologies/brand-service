@@ -1922,6 +1922,11 @@ export const companyNotoriety = pgTable("company_notoriety", {
 	requesterRunId: text("requester_run_id"),
 	requestedAt: timestamp("requested_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	/** PROOF-LOGOS-MISSING-1125: the company's LinkedIn page was read for its website (once). */
+	domainLookupAt: timestamp("domain_lookup_at", { withTimezone: true, mode: 'string' }),
+	/** found | merged | no_website | no_page | invalid_domain */
+	domainLookupOutcome: text("domain_lookup_outcome"),
+	domainLookupDomain: text("domain_lookup_domain"),
 }, (table) => [
 	index("company_notoriety_status_idx").using("btree", table.status.asc().nullsLast().op("text_ops")),
 	foreignKey({

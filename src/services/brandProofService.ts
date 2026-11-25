@@ -26,6 +26,7 @@ import { declareProducedOutcomes } from '../lib/runs-client';
 import { judgeScores, type OrgCaller, type ScoreJudgmentQuestion } from '../lib/chat-client';
 import { withOwnRun } from '../lib/own-run';
 import { readMonthlyOrganicTraffic } from '../lib/treg-traffic';
+import { readLinkedinCompanyWebsites } from '../lib/treg-linkedin-company';
 import { extractDomain } from '../lib/url-utils';
 import {
   NOTORIETY_COMPANIES_PER_JUDGMENT,
@@ -263,10 +264,163 @@ export async function ensureNotoriety(companyIds: string[], brandId: string, cal
   }
 }
 
-/** Notoriety step of a store: Units are already declared, so a failure here is told apart. */
-async function judgeAfterStore(companyIds: string[], brandId: string, caller: ProofCaller): Promise<void> {
+// ─── Company domain (PROOF-LOGOS-MISSING-1125) ────────────────────────────────
+
+/**
+ * Move every proof row of company `from` onto company `to` (the brand already
+ * holding the domain `from`'s LinkedIn page states: one company, one id). A
+ * (org, brand) holding both keeps its OLDER row with both traces merged. The
+ * notoriety verdict follows when `to` has none (same company, judged once).
+ */
+export async function moveProofCompany(from: string, to: string): Promise<void> {
+  if (from === to) return;
+  await db.transaction(async (tx) => {
+    const fromRows = await tx.select().from(brandProofEmployers).where(eq(brandProofEmployers.companyBrandId, from));
+    for (const row of fromRows) {
+      const [twin] = await tx
+        .select()
+        .from(brandProofEmployers)
+        .where(and(eq(brandProofEmployers.orgId, row.orgId), eq(brandProofEmployers.brandId, row.brandId), eq(brandProofEmployers.companyBrandId, to)));
+      if (!twin) {
+        await tx.update(brandProofEmployers).set({ companyBrandId: to, updatedAt: sql`NOW()` }).where(eq(brandProofEmployers.id, row.id));
+        continue;
+      }
+      const [keep, drop] = new Date(row.createdAt) < new Date(twin.createdAt) ? [row, twin] : [twin, row];
+      const trace = mergeEmployerTrace((keep.trace as EmployerTraceEntry[]) ?? [], (drop.trace as EmployerTraceEntry[]) ?? []);
+      await tx.delete(brandProofEmployers).where(eq(brandProofEmployers.id, drop.id));
+      await tx.update(brandProofEmployers).set({ companyBrandId: to, trace, updatedAt: sql`NOW()` }).where(eq(brandProofEmployers.id, keep.id));
+    }
+    await tx.execute(sql`
+      INSERT INTO company_notoriety (brand_id, status, score, confidence, judge_score, judge_levels, probabilities, judged_at,
+                                     requester_org_id, requester_user_id, requester_run_id)
+      SELECT ${to}::uuid, status, score, confidence, judge_score, judge_levels, probabilities, judged_at,
+             requester_org_id, requester_user_id, requester_run_id
+        FROM company_notoriety WHERE brand_id = ${from}::uuid
+      ON CONFLICT (brand_id) DO NOTHING`);
+  });
+}
+
+async function markDomainLookup(companyId: string, outcome: string, domain: string | null): Promise<void> {
+  await db
+    .update(companyNotoriety)
+    .set({ domainLookupAt: sql`NOW()`, domainLookupOutcome: outcome, domainLookupDomain: domain, updatedAt: sql`NOW()` })
+    .where(eq(companyNotoriety.brandId, companyId));
+}
+
+/**
+ * Every company here known only by its LinkedIn page gets the domain that page
+ * states (treg, ~$0.001 a page, read ONCE per company whatever it answered),
+ * then its logo.dev logo. The domain lands through the company resolution:
+ * nobody holds it -> this company takes it (`adoptDomain`); a brand already
+ * holds it -> the proof rows move onto that brand. The spend rides a
+ * PRODUCTION run of ours, child of the caller's (script) run, like the
+ * notoriety. Returns old company id -> the id now holding its rows.
+ */
+export async function ensureProofCompanyDomains(companyIds: string[], brandId: string, caller: ProofCaller): Promise<Map<string, string>> {
+  const remap = new Map<string, string>();
+  const ids = [...new Set(companyIds)];
+  if (ids.length === 0) return remap;
+  // The lookup is recorded on the notoriety row: make sure it exists.
+  await db
+    .insert(companyNotoriety)
+    .values(ids.map((id) => ({ brandId: id, requesterOrgId: caller.orgId, requesterUserId: caller.userId, requesterRunId: caller.runId })))
+    .onConflictDoNothing({ target: companyNotoriety.brandId });
+  const idList = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
+  const todo = (await db.execute(sql`
+    SELECT b.id AS company_id, min(ci.value) AS linkedin_url
+      FROM brands b
+      JOIN company_identifiers ci ON ci.brand_id = b.id AND ci.kind = 'linkedin_company'
+      JOIN company_notoriety n ON n.brand_id = b.id AND n.domain_lookup_at IS NULL
+     WHERE b.id IN (${idList}) AND b.domain IS NULL
+     GROUP BY b.id
+  `)) as unknown as { company_id: string; linkedin_url: string }[];
+  if (todo.length === 0) return remap;
+
+  await withOwnRun(NOTORIETY_TASK, brandId, orgCallerOf(caller), async (own) => {
+    const sites = await readLinkedinCompanyWebsites(
+      todo.map((t) => t.linkedin_url),
+      { orgId: caller.orgId, userId: caller.userId, runId: own.runId!, brandId },
+    );
+    for (const t of todo) {
+      const site = sites.get(t.linkedin_url);
+      if (!site || site.status !== 'found') {
+        await markDomainLookup(t.company_id, site?.status ?? 'no_page', null);
+        continue;
+      }
+      const [resolved] = await resolveCompanies([{ domain: site.domain, linkedinUrl: t.linkedin_url }]);
+      if (!resolved.brandId || !resolved.domain) {
+        await markDomainLookup(t.company_id, 'invalid_domain', site.domain);
+        continue;
+      }
+      if (resolved.brandId !== t.company_id) {
+        await moveProofCompany(t.company_id, resolved.brandId);
+        remap.set(t.company_id, resolved.brandId);
+      }
+      await ensureBrandLogoUrl(resolved.brandId);
+      await markDomainLookup(t.company_id, resolved.brandId === t.company_id ? 'found' : 'merged', resolved.domain);
+    }
+  });
+  return remap;
+}
+
+/**
+ * Backfill + safety net (~60s after boot, then daily): every proof employer
+ * with no domain whose LinkedIn page was never read gets the lookup above,
+ * billed to the org and run that first asked its judgment (the script run is
+ * the parent of our production run, as on the store). A proof company with a
+ * domain and no logo gets its logo. Idempotent.
+ */
+export async function fillProofCompanyDomains(): Promise<{ looked: number; logos: number }> {
+  const rows = (await db.execute(sql`
+    SELECT DISTINCT ON (b.id) b.id AS company_id, e.brand_id,
+           n.requester_org_id AS org_id, n.requester_user_id AS user_id, n.requester_run_id AS run_id
+      FROM brand_proof_employers e
+      JOIN brands b ON b.id = e.company_brand_id AND b.domain IS NULL
+      JOIN company_notoriety n ON n.brand_id = b.id AND n.domain_lookup_at IS NULL
+     WHERE EXISTS (SELECT 1 FROM company_identifiers ci WHERE ci.brand_id = b.id AND ci.kind = 'linkedin_company')
+     ORDER BY b.id, e.created_at
+  `)) as unknown as { company_id: string; brand_id: string; org_id: string; user_id: string | null; run_id: string | null }[];
+
+  const groups = new Map<string, { caller: ProofCaller; brandId: string; ids: string[] }>();
+  for (const r of rows) {
+    if (!r.user_id || !r.run_id) {
+      console.warn(`[brand-service] proof domain fill: company ${r.company_id} has no requester user/run, skipped`);
+      continue;
+    }
+    const key = `${r.org_id}|${r.user_id}|${r.run_id}|${r.brand_id}`;
+    const g = groups.get(key) ?? { caller: { orgId: r.org_id, userId: r.user_id, runId: r.run_id }, brandId: r.brand_id, ids: [] };
+    g.ids.push(r.company_id);
+    groups.set(key, g);
+  }
+  let looked = 0;
+  for (const g of groups.values()) {
+    for (let i = 0; i < g.ids.length; i += 100) {
+      const part = g.ids.slice(i, i + 100);
+      await ensureProofCompanyDomains(part, g.brandId, g.caller);
+      looked += part.length;
+    }
+  }
+
+  const logoless = (await db.execute(sql`
+    SELECT DISTINCT b.id FROM brand_proof_employers e JOIN brands b ON b.id = e.company_brand_id
+     WHERE b.domain IS NOT NULL AND b.logo_url IS NULL
+  `)) as unknown as { id: string }[];
+  for (const l of logoless) await ensureBrandLogoUrl(l.id);
+  if (looked > 0 || logoless.length > 0) {
+    console.log(`[brand-service] proof domain fill: ${looked} LinkedIn page(s) read, ${logoless.length} logo(s) filled`);
+  }
+  return { looked, logos: logoless.length };
+}
+
+/**
+ * Domain + notoriety steps of a store: Units are already declared, so a failure
+ * here is told apart. Returns old company id -> the id now holding its rows.
+ */
+async function judgeAfterStore(companyIds: string[], brandId: string, caller: ProofCaller): Promise<Map<string, string>> {
   try {
-    await ensureNotoriety(companyIds, brandId, caller);
+    const remap = await ensureProofCompanyDomains(companyIds, brandId, caller);
+    await ensureNotoriety([...new Set(companyIds.map((id) => remap.get(id) ?? id))], brandId, caller);
+    return remap;
   } catch (error) {
     throw new NotorietyUnavailableError(error instanceof Error ? error.message : String(error), error);
   }
@@ -317,8 +471,18 @@ export async function storeEmployers(
   }
 
   const declared = await declareNewUnits(brandProofEmployers, [...rowIdByCompany.values()], outcomeKey, caller);
-  await judgeAfterStore(companyIds, brandId, caller);
-  const notoriety = await readNotoriety(companyIds);
+  const remap = await judgeAfterStore(companyIds, brandId, caller);
+  const finalOf = (id: string) => remap.get(id) ?? id;
+  if (remap.size > 0) {
+    // A company that moved onto the brand holding its domain: its row now names that brand.
+    const moved = await db
+      .select({ id: brandProofEmployers.id, companyBrandId: brandProofEmployers.companyBrandId })
+      .from(brandProofEmployers)
+      .where(and(eq(brandProofEmployers.orgId, caller.orgId), eq(brandProofEmployers.brandId, brandId), inArray(brandProofEmployers.companyBrandId, [...remap.values()])));
+    const byFinal = new Map(moved.map((m) => [m.companyBrandId, m.id]));
+    for (const [from, to] of remap) if (byFinal.has(to)) rowIdByCompany.set(from, byFinal.get(to)!);
+  }
+  const notoriety = await readNotoriety([...new Set(companyIds.map(finalOf))]);
 
   const firstIndex = new Map<string, number>();
   return resolutions.map((r, index) => {
@@ -331,10 +495,10 @@ export async function storeEmployers(
     return {
       index,
       unitId,
-      companyId: r.brandId,
+      companyId: r.brandId ? finalOf(r.brandId) : null,
       newUnit,
       unresolvedReason: r.unresolvedReason,
-      notoriety: r.brandId ? notoriety.get(r.brandId) ?? null : null,
+      notoriety: r.brandId ? notoriety.get(finalOf(r.brandId)) ?? null : null,
     };
   });
 }
