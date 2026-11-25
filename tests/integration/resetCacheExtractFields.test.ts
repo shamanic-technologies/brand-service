@@ -43,6 +43,6 @@ describe('POST /orgs/brands/extract-fields — resetCache validation', () => {
       .send({ ...validBody, resetCache: 'yes' });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Invalid request');
+    expect(res.body.error).toMatch(/^Invalid request: /);
   });
 });

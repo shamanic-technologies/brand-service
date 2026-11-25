@@ -4,6 +4,7 @@ import { startImportJob } from '../services/importMediaService';
 import { uploadMediaFile } from '../services/uploadMediaService';
 import { getJob } from '../services/jobTrackingService';
 import { ImportFromGDriveRequestSchema } from '../schemas';
+import { invalidRequestBody } from '../lib/validation-error';
 
 const router = Router();
 
@@ -33,7 +34,7 @@ const upload = multer({
 router.post('/import-from-google-drive', async (req: Request, res: Response) => {
   const parsed = ImportFromGDriveRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { external_organization_id, google_drive_url } = parsed.data;
 

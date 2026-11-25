@@ -133,7 +133,7 @@ describe('POST /internal/brands/resolve-by-domain', () => {
       .send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Invalid request');
+    expect(res.body.error).toMatch(/^Invalid request: /);
   });
 
   it('returns 400 when domains is empty', async () => {

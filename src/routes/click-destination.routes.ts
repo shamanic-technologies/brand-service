@@ -13,6 +13,7 @@ import {
 } from '../services/clickDestinationService';
 import { getBrand } from '../services/brandService';
 import { tryNormalizeWhatsAppLink } from '../services/whatsAppLinkService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 
@@ -43,7 +44,7 @@ orgRouter.put('/brands/:brandId/click-destination', async (req: Request, res: Re
 
     const parsed = UpsertClickDestinationRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     // Ownership already proven the brand exists + belongs to the org; read its

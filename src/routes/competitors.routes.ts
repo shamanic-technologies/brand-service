@@ -8,6 +8,7 @@ import {
   discoverBrandCompetitors,
   readBrandCompetitors,
 } from '../services/brandCompetitorsService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -46,7 +47,7 @@ orgRouter.post('/brands/:brandId/competitors/discover', async (req: Request, res
     if (badBrandId(res, brandId)) return;
     const parsed = DiscoverBrandCompetitorsRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
     if (rejectOwnership(res, ownership)) return;

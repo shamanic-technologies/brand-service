@@ -7,6 +7,7 @@ import {
 } from '../services/brandUserFieldsService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { rejectOfferProblem } from '../lib/offer-scope';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 
@@ -55,7 +56,7 @@ orgRouter.put('/brands/:brandId/user-fields', async (req: Request, res: Response
 
     const parsed = PutUserFieldsRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);

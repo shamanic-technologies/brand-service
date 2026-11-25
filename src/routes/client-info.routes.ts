@@ -5,6 +5,7 @@ import { db, brandsOld as brands } from '../db';
 import { getOrganizationIdByOrgId } from '../services/organizationUpsertService';
 import { InvalidUrlError, UrlRequiredError } from '../lib/url-utils';
 import { TriggerWorkflowRequestSchema } from '../schemas';
+import { describeValidationError } from '../lib/validation-error';
 
 const router = Router();
 
@@ -20,7 +21,7 @@ router.post('/trigger-client-info-workflow', async (req: Request, res: Response)
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return res.status(400).json({
-      error: 'Invalid request',
+      error: describeValidationError(parsed.error),
       code: 'INVALID_REQUEST',
       field: issue?.path?.join('.') ?? null,
       message: issue?.message ?? 'Invalid request',
