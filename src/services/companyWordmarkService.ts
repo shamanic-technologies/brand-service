@@ -24,7 +24,7 @@ import { and, eq, gte, ne, sql } from 'drizzle-orm';
 import { db, companyWordmarks, logoDevBrandCalls } from '../db';
 import { getPlatformKey } from '../lib/keys-service';
 import { uploadPlatformBase64ToCloudflare } from '../lib/cloudflare-client';
-import { DEFAULT_MIN_MONTHLY_TRAFFIC, DEFAULT_MIN_NOTORIETY, type ProofFilter } from '../lib/brand-proof';
+import { type ProofFilter } from '../lib/brand-proof';
 import {
   describeCredits,
   downloadWordmarkPng,
@@ -51,8 +51,12 @@ export const WORDMARK_LEDGER_ROUTE = 'brandmark';
 export const WORDMARK_MAX_ATTEMPTS = 5;
 /** Lookups one pass may spend. */
 export const WORDMARK_PER_RUN_LIMIT = 10;
-/** Lookups a CALENDAR MONTH may spend (3 credits each, shared with the colours). */
-export const WORDMARK_MONTHLY_CALL_BUDGET = 30;
+/**
+ * Lookups a CALENDAR MONTH may spend (3 credits each, shared with the colours):
+ * 120 = 360 credits, enough to backfill the ~107 wall companies in one month
+ * (logo.dev reported ~1,997 credits left on 2026-11-25). A 402 still stops.
+ */
+export const WORDMARK_MONTHLY_CALL_BUDGET = 120;
 
 export const WORDMARK_FOLDER = 'brand-wordmarks';
 const WORDMARK_SUPPORT = {
@@ -60,10 +64,16 @@ const WORDMARK_SUPPORT = {
   reason: 'Brand proof wall wordmark (BRANDMARK-WALL-1125)',
 };
 
-/** The public read's own defaults: the pass serves exactly the wall it shows. */
+/**
+ * EVERY judged proof company with a domain. The landing asks the public read
+ * with `minScore=0&minMonthlyTraffic=0` (it ranks and cuts its own wall), so a
+ * work list at the read's DEFAULT threshold (80) looked up 2 of 107 companies
+ * on prod (2026-11-25). Best first is unchanged: the top of the wall fills
+ * first.
+ */
 export const WORDMARK_WALL_FILTER: ProofFilter = {
-  minScore: DEFAULT_MIN_NOTORIETY,
-  minMonthlyTraffic: DEFAULT_MIN_MONTHLY_TRAFFIC,
+  minScore: 0,
+  minMonthlyTraffic: 0,
 };
 
 export interface WordmarkRowState {
@@ -288,7 +298,7 @@ export async function wordmarkCallsThisMonth(): Promise<number> {
 }
 
 /**
- * Every company the public wall can serve at its default threshold, with the
+ * Every judged company a public read can serve (any threshold), with the
  * wordmark row it holds. Same joins as `getPublicProof` (Units of orgs that
  * claim the brand, judged companies, never the brand itself), all brands.
  */

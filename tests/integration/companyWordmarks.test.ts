@@ -120,9 +120,9 @@ describe('Company wordmarks on the public proof wall', () => {
     expect(res.body.press[0]).toMatchObject({ companyId: outletId, wordmarkUrl: null, wordmarkDarkUrl: null });
   });
 
-  it('the work list is the wall: judged at or above the public score, with the row each company holds', async () => {
+  it('the work list is every judged proof company the landing can show (it reads at minScore=0), with the row each company holds', async () => {
     const mine = (await listWallCompanies()).filter((r) => companyIds.includes(r.companyId));
-    expect(mine.map((r) => r.companyId).sort()).toEqual([famousId, outletId].sort());
+    expect(mine.map((r) => r.companyId).sort()).toEqual([famousId, outletId, smallId].sort());
     expect(mine.find((r) => r.companyId === famousId)).toMatchObject({ domain: famous, notorietyScore: 100, monthlyTraffic: 5_000_000, wordmark: null });
   });
 
@@ -134,8 +134,8 @@ describe('Company wordmarks on the public proof wall', () => {
     );
     const before = await wordmarkCallsThisMonth();
     const summary = await refreshCompanyWordmarks({ companyIds });
-    expect(summary).toMatchObject({ called: 2, found: 1, none: 1, stoppedReason: null });
-    expect(await wordmarkCallsThisMonth()).toBeGreaterThanOrEqual(before + 2);
+    expect(summary).toMatchObject({ called: 3, found: 1, none: 2, stoppedReason: null });
+    expect(await wordmarkCallsThisMonth()).toBeGreaterThanOrEqual(before + 3);
 
     const [row] = await db.select().from(companyWordmarks).where(eq(companyWordmarks.brandId, famousId));
     expect(row).toMatchObject({ domain: famous, status: 'found', attempts: 1, etag: 'abcdef0123456789' });
@@ -145,8 +145,8 @@ describe('Company wordmarks on the public proof wall', () => {
     const [none] = await db.select().from(companyWordmarks).where(eq(companyWordmarks.brandId, outletId));
     expect(none).toMatchObject({ status: 'none', lightUrl: null, darkUrl: null });
 
-    const ledger = await db.select().from(logoDevBrandCalls).where(inArray(logoDevBrandCalls.domain, [famous, outlet]));
-    expect(ledger.map((l) => `${l.route}:${l.outcome}`).sort()).toEqual([`${WORDMARK_LEDGER_ROUTE}:found`, `${WORDMARK_LEDGER_ROUTE}:none`]);
+    const ledger = await db.select().from(logoDevBrandCalls).where(inArray(logoDevBrandCalls.domain, [famous, outlet, small]));
+    expect(ledger.map((l) => `${l.route}:${l.outcome}`).sort()).toEqual([`${WORDMARK_LEDGER_ROUTE}:found`, `${WORDMARK_LEDGER_ROUTE}:none`, `${WORDMARK_LEDGER_ROUTE}:none`]);
     expect(ledger.find((l) => l.outcome === 'found')!.detail).toContain('credits charged=3 remaining=497');
 
     const res = await publicRead();

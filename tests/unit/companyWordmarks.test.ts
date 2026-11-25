@@ -31,7 +31,6 @@ import {
   type WordmarkRowState,
 } from '../../src/services/companyWordmarkService';
 import { COLOURS_LEDGER_ROUTE, callsThisMonth } from '../../src/services/brandColorsService';
-import { DEFAULT_MIN_MONTHLY_TRAFFIC, DEFAULT_MIN_NOTORIETY } from '../../src/lib/brand-proof';
 import type { LogoDevBrandmarkOutcome, WallCompanyRow, WordmarkDownload, WordmarkTheme } from '../../src/lib/logo-dev-brandmark';
 
 /**
@@ -178,7 +177,7 @@ describe('runWordmarkPass', () => {
   });
 
   it('stops at the monthly budget, and spends only what is left of it', async () => {
-    expect(WORDMARK_MONTHLY_CALL_BUDGET).toBe(30);
+    expect(WORDMARK_MONTHLY_CALL_BUDGET).toBe(120);
     const w = world(['a.com', 'b.com', 'c.com', 'd.com']);
     w.setMonthBase(WORDMARK_MONTHLY_CALL_BUDGET - 2);
     expect(await runWordmarkPass(w.deps)).toMatchObject({ called: 2, stoppedReason: null });
@@ -258,8 +257,8 @@ describe('runWordmarkPass', () => {
     expect(w.deps.lookup.mock.calls.map((c) => c[0])).toEqual(['b.com']);
   });
 
-  it('serves the wall the public read shows: its own default filter', () => {
-    expect(WORDMARK_WALL_FILTER).toEqual({ minScore: DEFAULT_MIN_NOTORIETY, minMonthlyTraffic: DEFAULT_MIN_MONTHLY_TRAFFIC });
+  it('serves every company the landing can show: it reads at minScore=0, minMonthlyTraffic=0', () => {
+    expect(WORDMARK_WALL_FILTER).toEqual({ minScore: 0, minMonthlyTraffic: 0 });
   });
 });
 
