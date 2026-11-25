@@ -207,4 +207,46 @@ describe('cloudflare-client', () => {
     expect(result.id).toBe('ok');
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
+  it('platform upload: /internal/upload/base64 with the service name, the support mark and no org', async () => {
+    const { uploadPlatformBase64ToCloudflare } = await importClient();
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({ id: 'f', url: 'https://cloudflare.distribute.you/brand-wordmarks/ibm-com-abc-light.png', size: 12, contentType: 'image/png' }),
+    );
+    const result = await uploadPlatformBase64ToCloudflare({
+      contentBase64: 'iVBORw0KGgo=',
+      folder: 'brand-wordmarks',
+      filename: 'ibm-com-abc-light.png',
+      contentType: 'image/png',
+      support: { kind: 'brand_setup', reason: 'Brand proof wall wordmark (BRANDMARK-WALL-1125)' },
+    });
+    expect(result.url).toBe('https://cloudflare.distribute.you/brand-wordmarks/ibm-com-abc-light.png');
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('https://cloudflare.test/internal/upload/base64');
+    expect(init.headers).toEqual({
+      'X-API-Key': 'test-cf-key',
+      'x-service-name': 'brand-service',
+      'Content-Type': 'application/json',
+    });
+    expect(JSON.parse(init.body)).toEqual({
+      contentBase64: 'iVBORw0KGgo=',
+      folder: 'brand-wordmarks',
+      filename: 'ibm-com-abc-light.png',
+      contentType: 'image/png',
+      support: { kind: 'brand_setup', reason: 'Brand proof wall wordmark (BRANDMARK-WALL-1125)' },
+    });
+  });
+
+  it('platform upload: an answer without a url is an error, never a stored blank', async () => {
+    const { uploadPlatformBase64ToCloudflare } = await importClient();
+    mockFetch.mockResolvedValueOnce(mockResponse({ id: 'f' }));
+    await expect(
+      uploadPlatformBase64ToCloudflare({
+        contentBase64: 'iVBORw0KGgo=',
+        folder: 'brand-wordmarks',
+        filename: 'x.png',
+        contentType: 'image/png',
+        support: { kind: 'brand_setup', reason: 'r' },
+      }),
+    ).rejects.toThrow('answered without a url');
+  });
 });

@@ -121,3 +121,50 @@ export async function uploadBase64ToCloudflare(
 
   return response.json() as Promise<CloudflareUploadResult>;
 }
+
+export interface CloudflarePlatformUploadParams extends CloudflareUploadBase64Params {
+  /** Whose work the upload is when no run of ours stands behind it (cost ledger). */
+  support: { kind: 'brand_setup' | 'retired_product'; reason: string };
+}
+
+/**
+ * Platform upload: no org or user stands behind the file (a company's
+ * wordmark is identity, cross-org). cloudflare-service `POST
+ * /internal/upload/base64` opens its own platform run, marked with `support`.
+ */
+export async function uploadPlatformBase64ToCloudflare(
+  params: CloudflarePlatformUploadParams,
+): Promise<CloudflareUploadResult> {
+  if (!CLOUDFLARE_SERVICE_URL) {
+    throw new Error('CLOUDFLARE_SERVICE_URL is not configured');
+  }
+  if (!CLOUDFLARE_SERVICE_API_KEY) {
+    throw new Error('CLOUDFLARE_SERVICE_API_KEY is not configured');
+  }
+
+  const response = await fetchWithRetry(
+    `${CLOUDFLARE_SERVICE_URL}/internal/upload/base64`,
+    {
+      method: 'POST',
+      headers: {
+        'X-API-Key': CLOUDFLARE_SERVICE_API_KEY,
+        'x-service-name': 'brand-service',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contentBase64: params.contentBase64,
+        folder: params.folder,
+        filename: params.filename,
+        contentType: params.contentType,
+        support: params.support,
+      }),
+      label: 'cloudflare-service POST /internal/upload/base64',
+    },
+  );
+
+  const body = (await response.json()) as Partial<CloudflareUploadResult> | null;
+  if (!body || typeof body.url !== 'string' || body.url.trim() === '') {
+    throw new Error('cloudflare-service POST /internal/upload/base64 answered without a url');
+  }
+  return body as CloudflareUploadResult;
+}
