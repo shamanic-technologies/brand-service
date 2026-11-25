@@ -11,6 +11,7 @@ import {
   resolveCompanies,
   writeCompanyFacts,
 } from '../services/companyService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 /**
  * The company a LEAD works at (owner 2026-10-13). Internal, service auth, no
@@ -27,7 +28,7 @@ export const companiesBodyParser = express.json({ limit: '10mb' });
 internalRouter.post('/companies/resolve', async (req: Request, res: Response) => {
   const parsed = CompanyResolveRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   try {
     const companies = await resolveCompanies(parsed.data.companies);
@@ -41,7 +42,7 @@ internalRouter.post('/companies/resolve', async (req: Request, res: Response) =>
 internalRouter.put('/companies/facts', async (req: Request, res: Response) => {
   const parsed = CompanyFactsWriteRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   try {
     const result = await writeCompanyFacts(parsed.data.companies);
@@ -61,7 +62,7 @@ internalRouter.put('/companies/facts', async (req: Request, res: Response) => {
 internalRouter.post('/companies/batch', async (req: Request, res: Response) => {
   const parsed = CompanyBatchRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   try {
     const companies = await getCompanies(parsed.data.brandIds);

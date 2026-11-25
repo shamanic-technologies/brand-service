@@ -10,6 +10,7 @@ import { db, brandsOld as brands, mediaAssets, supabaseStorage } from '../db';
 import { AnalyzeRequestSchema } from '../schemas';
 import { authorizeCredits } from '../lib/billing-client';
 import { insufficientCreditsBody } from '../lib/insufficient-credits';
+import { invalidRequestBody } from '../lib/validation-error';
 
 const router = Router();
 
@@ -39,7 +40,7 @@ router.post('/:id/analyze', async (req: Request, res: Response) => {
   const parsed = AnalyzeRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     console.error(`❌ [ENDPOINT] Invalid request`);
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { organization_id } = parsed.data;
 
@@ -154,7 +155,7 @@ router.post('/analyze-batch', async (req: Request, res: Response) => {
   const parsed = AnalyzeRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     console.error(`❌ [BATCH ANALYZE] Invalid request`);
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { organization_id } = parsed.data;
 

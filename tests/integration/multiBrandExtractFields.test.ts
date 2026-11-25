@@ -42,7 +42,7 @@ describe('POST /brands/extract-fields (multi-brand, header-based)', () => {
       .send({ fields: [] });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Invalid request');
+    expect(res.body.error).toMatch(/^Invalid request: /);
   });
 
   it('should return 404 for non-existent brand', async () => {
@@ -78,7 +78,7 @@ describe('POST /brands/extract-fields (multi-brand, header-based)', () => {
       .send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Invalid request');
+    expect(res.body.error).toMatch(/^Invalid request: /);
   });
 
   it('should return 401 without auth headers', async () => {

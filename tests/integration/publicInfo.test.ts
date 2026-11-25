@@ -36,7 +36,7 @@ describe('Public Information Endpoints', () => {
         .send({});
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
+      expect(response.body.error).toMatch(/^Invalid request: /);
     });
 
     it('should reject non-array selected_urls', async () => {
@@ -46,7 +46,7 @@ describe('Public Information Endpoints', () => {
         .send({ selected_urls: 'not-an-array' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
+      expect(response.body.error).toMatch(/^Invalid request: /);
     });
 
     it('should accept valid request with empty array', async () => {
@@ -84,7 +84,7 @@ describe('Public Information Endpoints', () => {
         });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
+      expect(response.body.error).toMatch(/^Invalid request: /);
     });
   });
 });

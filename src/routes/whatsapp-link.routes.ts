@@ -10,6 +10,7 @@ import {
   normalizeWhatsAppLink,
   WhatsAppLinkValidationError,
 } from '../services/whatsAppLinkService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 
@@ -41,7 +42,7 @@ orgRouter.put('/brands/:brandId/whatsapp-link', async (req: Request, res: Respon
 
     const parsed = UpsertWhatsAppLinkRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     let whatsAppLink: string;

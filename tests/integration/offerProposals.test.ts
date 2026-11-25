@@ -119,6 +119,32 @@ describe('Proposing offers from a description, then confirming them', () => {
     expect(res.status).toBe(402);
   });
 
+  it('an empty body is a 400 naming both accepted shapes on its top-level line (AGENT-SIGNUP-UX-1125)', async () => {
+    const res = await request(app).post(`${base(brandId)}/proposals`).set(getAuthHeaders(orgId)).send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/^Invalid request: body matches none of the accepted shapes/);
+    expect(res.body.error).toContain('source');
+    expect(res.body.error).toContain('description');
+    expect(res.body.error).toContain('{ "source": "site" }');
+    expect(res.body.details).toBeDefined();
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('a confirm with no body is a 400 naming `offers` and the proposals call it comes from (AGENT-SIGNUP-UX-1125)', async () => {
+    const res = await request(app).post(`${base(brandId)}/confirm`).set(getAuthHeaders(orgId));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/^Invalid request: offers: .*expected array/);
+    expect(res.body.error).toContain('/offers/proposals');
+    expect(res.body.details.fieldErrors.offers).toBeDefined();
+  });
+
+  it('the split call leaves room for the model\'s thinking (no 1024 cap, AGENT-SIGNUP-UX-1125)', async () => {
+    splitReturns([{ name: 'Dog Grooming', description: 'Full grooming for dogs.', icon: 'paw-print' }]);
+    const res = await request(app).post(`${base(brandId)}/proposals`).set(getAuthHeaders(orgId)).send({ description: 'We groom dogs.' });
+    expect(res.status).toBe(200);
+    expect(mockChat.mock.calls[0][0].maxTokens).toBe(8192);
+  });
+
   it('refuses an empty description', async () => {
     const res = await request(app).post(`${base(brandId)}/proposals`).set(getAuthHeaders(orgId)).send({ description: ' ' });
     expect(res.status).toBe(400);

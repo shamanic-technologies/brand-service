@@ -16,6 +16,7 @@ import {
 } from '../lib/provider-reads';
 import { listClientPastEmployerFoundUnits, listPressFeatureFoundUnits } from '../services/brandProofService';
 import { listBrandFieldsDraftedUnits, listOfferFieldsDraftedUnits } from '../services/fieldDraftUnitService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 /**
  * Provider reads of our Units (ENGINE-GET-ASK-1123): one GET per outcome
@@ -42,7 +43,7 @@ function provide<S extends z.ZodType<PageQuery>>(
     const orgId = req.orgId!;
     if (!UUID_REGEX.test(orgId)) return res.status(400).json({ error: 'x-org-id must be the internal org uuid' });
     const parsed = schema.safeParse(req.query);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid query', details: parsed.error.flatten() });
+    if (!parsed.success) return res.status(400).json(invalidRequestBody(parsed.error));
     const { limit, before, ...filters } = parsed.data;
     let cursor: UnitCursor | undefined;
     try {

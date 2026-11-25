@@ -13,6 +13,7 @@ import { extractDomain, InvalidUrlError, UrlRequiredError, parseZodIssueCode } f
 import { InvalidLogoUrlError, parseLogoUrlIssue } from '../lib/logo-url';
 import { ListBrandsQuerySchema, GetBrandQuerySchema, BrandRunsQuerySchema, UpsertBrandRequestSchema, UpdateBrandRequestSchema, TransferBrandRequestSchema, ResolveByDomainRequestSchema, OrgBrandIdentityRequestSchema, DomainClaimRequestSchema } from '../schemas';
 import { resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
+import { invalidRequestBody, describeValidationError } from '../lib/validation-error';
 
 /** Max brand ids accepted per batch request. ~3.7KB query string at 36-char UUIDs. */
 const MAX_BATCH_IDS = 100;
@@ -43,7 +44,7 @@ orgRouter.post('/brands', async (req: Request, res: Response) => {
       const issue = parsed.error.issues[0];
       const { code, message } = parseZodIssueCode(issue?.message);
       return res.status(400).json({
-        error: 'Invalid request',
+        error: describeValidationError(parsed.error),
         code,
         field: issue?.path?.join('.') ?? 'url',
         message,
@@ -196,7 +197,7 @@ orgRouter.patch('/brands/:brandId', async (req: Request, res: Response) => {
       const logoIssue = parseLogoUrlIssue(issue?.message);
       const { code, message } = logoIssue ?? parseZodIssueCode(issue?.message);
       return res.status(400).json({
-        error: 'Invalid request',
+        error: describeValidationError(parsed.error),
         code,
         field: issue?.path?.join('.') || (logoIssue ? 'logoUrl' : 'url'),
         message,
@@ -275,7 +276,7 @@ internalRouter.post('/brands/resolve-by-domain', async (req: Request, res: Respo
   try {
     const parsed = ResolveByDomainRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     const { domains } = parsed.data;
     if (domains.length > MAX_BATCH_DOMAINS) {
@@ -333,7 +334,7 @@ internalRouter.post('/brands/identity-by-org', async (req: Request, res: Respons
   try {
     const parsed = OrgBrandIdentityRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     const { orgIds } = parsed.data;
     if (orgIds.length > MAX_BATCH_ORG_IDS) {
@@ -395,7 +396,7 @@ internalRouter.post('/brands/domain-claimed', async (req: Request, res: Response
       const issue = parsed.error.issues[0];
       const { code, message } = parseZodIssueCode(issue?.message);
       return res.status(400).json({
-        error: 'Invalid request',
+        error: describeValidationError(parsed.error),
         code,
         field: issue?.path?.join('.') ?? 'domain',
         message,
@@ -460,7 +461,7 @@ async function handleGetBrand(req: Request, res: Response, internal = false) {
     }
     const parsed = GetBrandQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     const brand = await getBrandDetail(id, { mode: 'platform' }, {
@@ -583,7 +584,7 @@ internalRouter.get('/brands/:id/runs', async (req: Request, res: Response) => {
     }
     const parsed = BrandRunsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     const { taskName } = parsed.data;
     const limit = parsed.data.limit ? parseInt(parsed.data.limit, 10) : undefined;
@@ -640,7 +641,7 @@ internalRouter.post('/transfer-brand', async (req: Request, res: Response) => {
   try {
     const parsed = TransferBrandRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     const { sourceBrandId, sourceOrgId, targetOrgId, targetBrandId } = parsed.data;
 

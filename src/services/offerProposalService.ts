@@ -250,6 +250,9 @@ export function mainOfferFirst<T>(offers: T[], mainIndex: number): T[] {
   return [offers[mainIndex], ...offers.slice(0, mainIndex), ...offers.slice(mainIndex + 1)];
 }
 
+/** Output budget of the split call, thinking included. See the call site. */
+export const OFFER_SPLIT_MAX_TOKENS = 8192;
+
 function extractJson(content: string): unknown {
   const match = content.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('[brand-service] offer proposal failed: response was not JSON');
@@ -290,7 +293,14 @@ async function proposeFromText(text: string, chatCaller: OrgCaller): Promise<Off
         // Costs ~0.5s at p50 (2.4s vs 1.9s) inside the step.
         model: 'flash-pro',
         responseSchema: SPLIT_RESPONSE_SCHEMA,
-        maxTokens: 1024,
+        // The cap counts the model's THINKING tokens too: `disableThinking`
+        // only floors them on Gemini 3+ (no full-off). At 1024 the split ran
+        // out of budget before its JSON on the flash-pro model of 2026-11-25
+        // (`MAX_TOKENS hit | tokensOutput=1024`, 502 on a first `source: site`
+        // call, AGENT-SIGNUP-UX-1125). A split of at most 5 offers answers in a
+        // few hundred tokens; 8192 leaves the floor thinking room and is billed
+        // only for what is used.
+        maxTokens: OFFER_SPLIT_MAX_TOKENS,
         disableThinking: true,
       },
       chatCaller,

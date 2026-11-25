@@ -38,7 +38,7 @@ describe('POST /internal/brands/extract-fields (mirror, no x-org-id required)', 
       .send({ fields: [] });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Invalid request');
+    expect(res.body.error).toMatch(/^Invalid request: /);
   });
 
   it('returns 404 for non-existent brand (still routes to extractor)', async () => {

@@ -12,6 +12,7 @@ import {
   writeOfferEconomics,
   LegRateInvalidError,
 } from '../services/brandLegRatesService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -55,7 +56,7 @@ orgRouter.put('/brands/:brandId/leg-rates', async (req: Request, res: Response) 
 
     const parsed = PutLegRatesRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     try {
       const legRates = await writeLegRates(req.orgId!, brandId, parsed.data.legRates);
@@ -97,7 +98,7 @@ orgRouter.put('/brands/:brandId/offers/:offerId/economics', async (req: Request,
 
     const parsed = PutOfferEconomicsRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     try {
       return res.status(200).json(await writeOfferEconomics(req.orgId!, brandId, offerId, parsed.data));

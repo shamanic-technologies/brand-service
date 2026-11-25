@@ -4,6 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 // LEGACY: reads brands_old for org_id / external_organization_id semantics.
 import { db, brandsOld as brands, brandThesis } from '../db';
 import { TriggerWorkflowRequestSchema } from '../schemas';
+import { invalidRequestBody } from '../lib/validation-error';
 
 const router = Router();
 
@@ -18,7 +19,7 @@ router.post('/trigger-thesis-generation', async (req: Request, res: Response) =>
   console.log(`[${new Date().toISOString()}] Request body for /trigger-thesis-generation:`, req.body);
   const parsed = TriggerWorkflowRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { organization_id } = parsed.data;
 

@@ -5,6 +5,7 @@ import {
   upsertBrandBusinessContext,
 } from '../services/brandBusinessContextService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 
@@ -46,7 +47,7 @@ orgRouter.put('/brands/:brandId/business-context', async (req: Request, res: Res
 
     const parsed = PutBusinessContextRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);

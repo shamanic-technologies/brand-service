@@ -7,6 +7,7 @@ import {
 } from '../lib/brand-ownership';
 import { brandShareTokenService } from '../services/brandShareTokenService';
 import { getBrandDetail } from '../services/brandService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -160,7 +161,7 @@ internalRouter.post('/share-tokens/resolve', async (req: Request, res: Response)
   try {
     const parsed = ResolveShareTokenRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     const match = await brandShareTokenService.resolve(parsed.data.shareToken);

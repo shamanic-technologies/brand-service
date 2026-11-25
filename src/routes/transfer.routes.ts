@@ -12,6 +12,7 @@ import {
   moveBrandBetweenOrgs,
   OfferNameCollisionError,
 } from '../services/brandOrgMoveService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -57,7 +58,7 @@ orgRouter.post('/brands/:brandId/transfer', async (req: Request, res: Response) 
 
     const parsed = OrchestateTransferRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     const { targetOrgId } = parsed.data;
 

@@ -95,6 +95,16 @@ describe('Suggest ICP Endpoint', () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
   });
 
+  it('an empty offerId is a 400 whose top-level error names offerId and where it comes from (AGENT-SIGNUP-UX-1125)', async () => {
+    const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({ offerId: '' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/^Invalid request: offerId: Invalid UUID/);
+    expect(res.body.error).toContain('offers/confirm');
+    expect(res.body.details.fieldErrors.offerId).toBeDefined();
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
   it('calls chat-service with google/flash-pro at default reasoning, NO sampling params', async () => {
     const res = await request(app).post(suggestPath(brandId)).set(getAuthHeaders(ownerOrgId)).send({});
 

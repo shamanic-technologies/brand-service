@@ -46,6 +46,7 @@ import {
   proposeOffersFromSite,
 } from '../services/offerProposalService';
 import { SiteUnreadableError } from '../services/offerSiteSourceService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 export const internalRouter = Router();
@@ -110,7 +111,7 @@ orgRouter.get('/brands/:brandId/offers', async (req: Request, res: Response) => 
 
     const query = ListOffersQuerySchema.safeParse(req.query);
     if (!query.success) {
-      return res.status(400).json({ error: 'Invalid query', details: query.error.flatten() });
+      return res.status(400).json(invalidRequestBody(query.error));
     }
 
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
@@ -145,7 +146,7 @@ orgRouter.post('/brands/:brandId/offers', async (req: Request, res: Response) =>
 
     const parsed = CreateOfferRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
@@ -163,6 +164,19 @@ orgRouter.post('/brands/:brandId/offers', async (req: Request, res: Response) =>
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
+
+/** What a caller that sent a wrong proposals body must send instead (AGENT-SIGNUP-UX-1125). */
+export const PROPOSE_OFFERS_HINTS: Record<string, string> = {
+  '': 'Send either { "source": "site" } to read the brand\'s own website, or { "description": "<what the brand sells>" }, never both.',
+};
+
+/** Where the confirm body comes from: the proposals answer, as returned (AGENT-SIGNUP-UX-1125). */
+export const CONFIRM_OFFERS_HINTS: Record<string, string> = {
+  offers:
+    'Send `offers` as the array POST /orgs/brands/{brandId}/offers/proposals returned (each { name, description?, icon? }, 1 to 8), ' +
+    'keeping the ones the customer chose.',
+  chosenIndex: '`chosenIndex` is the index in `offers` of the one to start with (required when several are sent).',
+};
 
 /**
  * POST /orgs/brands/:brandId/offers/proposals
@@ -186,7 +200,7 @@ orgRouter.post('/brands/:brandId/offers/proposals', async (req: Request, res: Re
     }
     const parsed = ProposeOffersRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error, PROPOSE_OFFERS_HINTS));
     }
 
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
@@ -235,7 +249,7 @@ orgRouter.post('/brands/:brandId/offers/confirm', async (req: Request, res: Resp
     }
     const parsed = ConfirmOffersRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error, CONFIRM_OFFERS_HINTS));
     }
 
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);
@@ -289,7 +303,7 @@ orgRouter.patch('/brands/:brandId/offers/:offerId', async (req: Request, res: Re
 
     const parsed = RenameOfferRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     try {
@@ -327,7 +341,7 @@ orgRouter.post('/brands/:brandId/offers/:offerId/image', async (req: Request, re
 
     const parsed = GenerateOfferImageRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     const offer = await assertOfferOnBrand(req.orgId!, scope.brandId, scope.offerId);
@@ -487,7 +501,7 @@ orgRouter.put('/brands/:brandId/offers/:offerId/answers', async (req: Request, r
 
     const parsed = PutOfferAnswersRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     let answers;
@@ -544,7 +558,7 @@ orgRouter.put('/brands/:brandId/offers/:offerId/user-fields', async (req: Reques
 
     const parsed = PutUserFieldsRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     try {
