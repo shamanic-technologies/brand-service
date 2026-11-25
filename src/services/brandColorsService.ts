@@ -37,7 +37,7 @@
  * from anything other than the provider.
  */
 
-import { and, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, brandColors, brands, logoDevBrandCalls } from '../db';
 import { getPlatformKey } from '../lib/keys-service';
 import { fetchBrandColorsFromLogoDev, LogoDevBrandOutcome } from '../lib/logo-dev-brand';
@@ -45,6 +45,9 @@ import { nextBrandColorsState } from '../lib/brand-colors-plan';
 
 /** The SECRET key (`sk_...`). `logo-dev` holds the publishable token — wrong key here. */
 const LOGO_DEV_SECRET_PROVIDER = 'logo-dev-secret';
+
+/** `logo_dev_brand_calls.route` of a colours call (rows from before the column read NULL). */
+export const COLOURS_LEDGER_ROUTE = 'brand';
 
 /**
  * Metered calls a single brand may ever cost. A domain logo.dev never indexes
@@ -118,12 +121,21 @@ export async function forgetBrandColors(brandId: string): Promise<void> {
   await db.delete(brandColors).where(eq(brandColors.brandId, brandId));
 }
 
-/** Metered Brand-API calls already spent this calendar month. */
+/**
+ * Metered Brand-API (colours) calls already spent this calendar month. The
+ * ledger also carries the wordmark lookups (`route = 'brandmark'`,
+ * BRANDMARK-WALL-1125): those have their own budget and never eat this one.
+ */
 export async function callsThisMonth(): Promise<number> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(logoDevBrandCalls)
-    .where(gte(logoDevBrandCalls.calledAt, sql`date_trunc('month', NOW())`));
+    .where(
+      and(
+        gte(logoDevBrandCalls.calledAt, sql`date_trunc('month', NOW())`),
+        or(isNull(logoDevBrandCalls.route), eq(logoDevBrandCalls.route, COLOURS_LEDGER_ROUTE)),
+      ),
+    );
   return row?.n ?? 0;
 }
 
@@ -238,6 +250,7 @@ async function recordCall(domain: string, result: LogoDevBrandOutcome): Promise<
     outcome: result.outcome,
     httpStatus: result.httpStatus ?? null,
     detail: result.outcome === 'colors' ? `${result.colors.length} colour(s)` : result.detail,
+    route: COLOURS_LEDGER_ROUTE,
   });
 }
 
