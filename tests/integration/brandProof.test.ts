@@ -15,9 +15,15 @@ vi.mock('../../src/lib/treg-traffic', async () => {
   const actual = await vi.importActual<typeof import('../../src/lib/treg-traffic')>('../../src/lib/treg-traffic');
   return { ...actual, readMonthlyOrganicTraffic: vi.fn() };
 });
+vi.mock('../../src/lib/treg-linkedin-company', async () => {
+  const actual = await vi.importActual<typeof import('../../src/lib/treg-linkedin-company')>('../../src/lib/treg-linkedin-company');
+  return { ...actual, readLinkedinCompanyWebsites: vi.fn() };
+});
 
 import { createTestApp, getAuthHeaders } from '../helpers/test-app';
-import { db, brands, orgBrands, brandProofEmployers, brandProofPressFeatures, companyNotoriety } from '../../src/db';
+import { db, brands, orgBrands, brandProofEmployers, brandProofPressFeatures, companyNotoriety, companyIdentifiers } from '../../src/db';
+import { readLinkedinCompanyWebsites } from '../../src/lib/treg-linkedin-company';
+import { fillProofCompanyDomains } from '../../src/services/brandProofService';
 import { judgeScores } from '../../src/lib/chat-client';
 import { createRun, declareProducedOutcomes, updateRun } from '../../src/lib/runs-client';
 import { readMonthlyOrganicTraffic } from '../../src/lib/treg-traffic';
@@ -48,6 +54,15 @@ describe('Brand proof logos', () => {
   const judge = vi.mocked(judgeScores);
   const traffic = vi.mocked(readMonthlyOrganicTraffic);
   const declare = vi.mocked(declareProducedOutcomes);
+  const linkedin = vi.mocked(readLinkedinCompanyWebsites);
+  /** What each LinkedIn page states as its website (PROOF-LOGOS-MISSING-1125). */
+  const pageSites = new Map<string, string | null>();
+  const liNew = `https://www.linkedin.com/company/newco-${tag}/`;
+  const liHeld = `https://www.linkedin.com/company/heldco-${tag}/`;
+  const liNone = `https://www.linkedin.com/company/nosite-${tag}/`;
+  const liOld = `https://www.linkedin.com/company/oldco-${tag}/`;
+  const newcoDomain = `newco-${tag}.com`;
+  const oldcoDomain = `oldco-${tag}.com`;
   const headers = (org = orgId) => getAuthHeaders(org, userId, scriptRunId);
 
   /** Jev: level 6 for the famous ones, level 1 for the agency. */
@@ -70,7 +85,11 @@ describe('Brand proof logos', () => {
     await db.delete(brandProofEmployers).where(eq(brandProofEmployers.brandId, brandId));
     await db.delete(brandProofPressFeatures).where(eq(brandProofPressFeatures.brandId, brandId));
     await db.delete(orgBrands).where(eq(orgBrands.brandId, brandId));
-    const all = await db.select({ id: brands.id }).from(brands).where(inArray(brands.domain, [famous, agency, famousTiny, outlet]));
+    const all = await db.select({ id: brands.id }).from(brands).where(inArray(brands.domain, [famous, agency, famousTiny, outlet, newcoDomain, oldcoDomain]));
+    const viaLinkedin = await db.select({ id: companyIdentifiers.brandId }).from(companyIdentifiers).where(inArray(companyIdentifiers.value, [liNew, liHeld, liNone, liOld]));
+    companyIds.push(...viaLinkedin.map((r) => r.id));
+    await db.delete(brandProofEmployers).where(inArray(brandProofEmployers.companyBrandId, [...new Set([...companyIds, ...all.map((r) => r.id)])]));
+    if (viaLinkedin.length > 0) await db.delete(companyIdentifiers).where(inArray(companyIdentifiers.value, [liNew, liHeld, liNone, liOld]));
     const ids = [...new Set([...companyIds, ...all.map((r) => r.id)])];
     if (ids.length > 0) {
       await db.delete(companyNotoriety).where(inArray(companyNotoriety.brandId, ids));
@@ -83,6 +102,14 @@ describe('Brand proof logos', () => {
     vi.mocked(createRun).mockReset().mockResolvedValue({ id: randomUUID() } as any);
     vi.mocked(updateRun).mockReset().mockResolvedValue({} as any);
     declare.mockReset().mockResolvedValue({});
+    linkedin.mockReset().mockImplementation(async (urls) => {
+      const m = new Map<string, any>();
+      for (const u of urls) {
+        const site = pageSites.get(u);
+        m.set(u, site === undefined ? { status: 'no_page' } : site === null ? { status: 'no_website' } : { status: 'found', domain: site });
+      }
+      return m;
+    });
     judge.mockReset().mockImplementation(async (state, questions) => answerFor(state, questions));
     traffic.mockReset().mockImplementation(async (domains) => {
       const m = new Map<string, number>();
@@ -248,4 +275,90 @@ describe('Brand proof logos', () => {
     expect(res.body.pressFeatures).toHaveLength(2);
     expect(res.body.pressFeatures.map((p: any) => p.name)).toContain('The Business Navigator (LinkedIn Newsletter)');
   });
+
+  // ─── PROOF-LOGOS-MISSING-1125 ─────────────────────────────────────────────
+
+  it('an employer known only by its LinkedIn page takes the domain that page states, and a logo', async () => {
+    pageSites.set(liNew, `https://www.${newcoDomain}/about`);
+    pageSites.set(liNone, null);
+    const res = await request(app)
+      .put(`/orgs/brands/${brandId}/proof/employers`)
+      .set(headers())
+      .send({
+        outcomeKey: 'client_past_employer_found',
+        employers: [
+          { company: { linkedinUrl: liNew, name: 'NewCo' }, trace: [{ leadId: 'lead-li-1' }] },
+          { company: { linkedinUrl: liNone, name: 'No Site Co' }, trace: [{ leadId: 'lead-li-2' }] },
+        ],
+      });
+    expect(res.status).toBe(200);
+    const [newco, nosite] = res.body.units;
+    expect(newco).toMatchObject({ newUnit: true, notoriety: { status: 'judged' } });
+    const [row] = await db.select().from(brands).where(eq(brands.id, newco.companyId));
+    expect(row).toMatchObject({ domain: newcoDomain, name: 'NewCo' });
+    expect(row.logoUrl).toContain(newcoDomain);
+    const [n] = await db.select().from(companyNotoriety).where(eq(companyNotoriety.brandId, nosite.companyId));
+    expect(n).toMatchObject({ domainLookupOutcome: 'no_website', domainLookupDomain: null });
+    expect(n.domainLookupAt).not.toBeNull();
+    // Jev saw the domain the page gave.
+    const states = judge.mock.calls.map((c) => JSON.stringify(c[0]));
+    expect(states.some((s) => s.includes(newcoDomain))).toBe(true);
+    // The traffic read got the new domain too.
+    expect(traffic.mock.calls.flatMap((c) => c[0])).toContain(newcoDomain);
+
+    // Stored again: no page is read twice.
+    linkedin.mockClear();
+    const again = await request(app)
+      .put(`/orgs/brands/${brandId}/proof/employers`)
+      .set(headers())
+      .send({ outcomeKey: 'client_past_employer_found', employers: [{ company: { linkedinUrl: liNone }, trace: [{ leadId: 'lead-li-2' }] }] });
+    expect(again.status).toBe(200);
+    expect(linkedin).not.toHaveBeenCalled();
+
+    const pub = await request(app).get(`/public/brand-proof?brandId=${brandId}&minScore=0&minMonthlyTraffic=0`);
+    const shown = pub.body.employers.find((e: any) => e.companyId === newco.companyId);
+    expect(shown).toMatchObject({ domain: newcoDomain, name: 'NewCo' });
+    expect(shown.logoUrl).toEqual(expect.any(String));
+  }, 30_000);
+
+  it('a LinkedIn page naming a domain another brand already holds moves the row onto that brand', async () => {
+    pageSites.set(liHeld, `https://${famous}`);
+    const [held] = await db.select({ id: brands.id }).from(brands).where(eq(brands.domain, famous));
+    const res = await request(app)
+      .put(`/orgs/brands/${brandId}/proof/employers`)
+      .set(headers())
+      .send({ outcomeKey: 'client_past_employer_found', employers: [{ company: { linkedinUrl: liHeld, name: 'Famous Inc' }, trace: [{ leadId: 'lead-li-3', role: 'CTO' }] }] });
+    expect(res.status).toBe(200);
+    const unit = res.body.units[0];
+    expect(unit.companyId).toBe(held.id);
+    // The (org, brand) already held a row on the famous brand: one row, traces merged, the older one kept.
+    const rows = await db.select().from(brandProofEmployers).where(eq(brandProofEmployers.brandId, brandId));
+    const onFamous = rows.filter((r) => r.companyBrandId === held.id);
+    expect(onFamous).toHaveLength(1);
+    expect(unit.unitId).toBe(onFamous[0].id);
+    expect((onFamous[0].trace as any[]).map((t) => t.leadId)).toEqual(expect.arrayContaining(['lead-1', 'lead-9', 'lead-li-3']));
+    expect(unit.notoriety).toMatchObject({ status: 'judged', score: 100 });
+  }, 30_000);
+
+  it('backfill: a stored employer with no domain gets it from its LinkedIn page, billed on its first requester run', async () => {
+    const [old] = await db.insert(brands).values({ name: 'OldCo' }).returning({ id: brands.id });
+    companyIds.push(old.id);
+    await db.insert(companyIdentifiers).values({ kind: 'linkedin_company', value: liOld, brandId: old.id });
+    await db.insert(brandProofEmployers).values({ orgId, brandId, companyBrandId: old.id, trace: [{ leadId: 'lead-old' }] });
+    const firstRun = randomUUID();
+    await db.insert(companyNotoriety).values({ brandId: old.id, status: 'judged', score: 70, requesterOrgId: orgId, requesterUserId: userId, requesterRunId: firstRun });
+    pageSites.set(liOld, oldcoDomain);
+
+    await fillProofCompanyDomains();
+    const [row] = await db.select().from(brands).where(eq(brands.id, old.id));
+    expect(row.domain).toBe(oldcoDomain);
+    expect(row.logoUrl).toContain(oldcoDomain);
+    expect(vi.mocked(createRun).mock.calls.some((c) => c[0].parentRunId === firstRun && c[0].orgId === orgId)).toBe(true);
+    const [n] = await db.select().from(companyNotoriety).where(eq(companyNotoriety.brandId, old.id));
+    expect(n).toMatchObject({ status: 'judged', score: 70, domainLookupOutcome: 'found', domainLookupDomain: oldcoDomain });
+
+    linkedin.mockClear();
+    await fillProofCompanyDomains();
+    expect(linkedin).not.toHaveBeenCalled();
+  }, 30_000);
 });
