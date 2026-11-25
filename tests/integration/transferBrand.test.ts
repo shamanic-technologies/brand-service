@@ -41,7 +41,7 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: brandId });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Invalid request');
+    expect(res.body.error).toMatch(/^Invalid request: /);
   });
 
   it('rejects requests with invalid UUIDs', async () => {
@@ -51,7 +51,7 @@ describe('POST /internal/transfer-brand', () => {
       .send({ sourceBrandId: 'not-a-uuid', sourceOrgId, targetOrgId });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe('Invalid request');
+    expect(res.body.error).toMatch(/^Invalid request: /);
   });
 
   it('swaps org_brands membership when brand matches sourceOrgId', async () => {

@@ -7,6 +7,7 @@ import {
 } from '../services/icpSuggestionService';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { rejectOfferProblem } from '../lib/offer-scope';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 
@@ -23,6 +24,13 @@ export const orgRouter = Router();
  * insufficient credit, which propagates here as 402. Generation failure fails
  * loud (502 / 422) — never returns a fabricated ICP.
  */
+/** Where `offerId` comes from (AGENT-SIGNUP-UX-1125). */
+export const ICP_SUGGEST_HINTS: Record<string, string> = {
+  offerId:
+    '`offerId` is an offer `id` from POST /orgs/brands/{brandId}/offers/confirm or GET /orgs/brands/{brandId}/offers; ' +
+    'omit it for a brand with one offer.',
+};
+
 orgRouter.post('/brands/:brandId/icp/suggest', async (req: Request, res: Response) => {
   try {
     const { brandId } = req.params;
@@ -32,7 +40,7 @@ orgRouter.post('/brands/:brandId/icp/suggest', async (req: Request, res: Respons
 
     const parsed = SuggestIcpRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error, ICP_SUGGEST_HINTS));
     }
 
     const ownership = await resolveBrandOwnership(brandId, req.orgId!);

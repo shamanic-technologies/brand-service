@@ -13,6 +13,7 @@ import { SiteMapError } from '../lib/scraping-client';
 import { ExtractFieldsRequestSchema } from '../schemas';
 import { db, brandExtractedFields } from '../db';
 import { traceEvent } from '../lib/trace-event';
+import { invalidRequestBody } from '../lib/validation-error';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -43,7 +44,7 @@ orgRouter.post('/brands/extract-fields', async (req: Request, res: Response) => 
 
     const parsed = ExtractFieldsRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     if (req.runId) {
@@ -156,7 +157,7 @@ internalRouter.post('/brands/extract-fields', async (req: Request, res: Response
 
     const parsed = ExtractFieldsRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     const result = await multiBrandExtractFields({

@@ -21,6 +21,7 @@ import {
   storePressFeatures,
   type ProofCaller,
 } from '../services/brandProofService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 /**
  * Brand proof logos (BRAND-PROOF-LOGOS-1121). The stores are org-scoped and
@@ -77,7 +78,7 @@ function respondStoreError(res: Response, error: unknown, label: string): void {
 
 orgRouter.put('/brands/:brandId/proof/employers', async (req: Request, res: Response) => {
   const parsed = ProofEmployersStoreRequestSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+  if (!parsed.success) return res.status(400).json(invalidRequestBody(parsed.error));
   const caller = callerOf(req, res);
   if (!caller) return;
   const brandId = await brandGuard(req, res);
@@ -92,7 +93,7 @@ orgRouter.put('/brands/:brandId/proof/employers', async (req: Request, res: Resp
 
 orgRouter.put('/brands/:brandId/proof/press-features', async (req: Request, res: Response) => {
   const parsed = ProofPressFeaturesStoreRequestSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+  if (!parsed.success) return res.status(400).json(invalidRequestBody(parsed.error));
   const caller = callerOf(req, res);
   if (!caller) return;
   const brandId = await brandGuard(req, res);
@@ -118,7 +119,7 @@ orgRouter.get('/brands/:brandId/proof', async (req: Request, res: Response) => {
 
 publicRouter.get('/brand-proof', async (req: Request, res: Response) => {
   const parsed = PublicProofQuerySchema.safeParse(req.query);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid query', details: parsed.error.flatten() });
+  if (!parsed.success) return res.status(400).json(invalidRequestBody(parsed.error));
   const q = parsed.data;
   if (!!q.brandId === !!q.domain) return res.status(400).json({ error: 'Send exactly one of brandId or domain' });
   try {

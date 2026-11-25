@@ -10,6 +10,7 @@ import {
 import { getOrganizationIdByExternalId } from '../services/organizationUpsertService';
 import { db, mediaAssets, supabaseStorage } from '../db';
 import { MediaAssetsQuerySchema, UpdateShareableRequestSchema, UpdateMediaByUrlRequestSchema, UpdateMediaCaptionRequestSchema, DeleteMediaAssetRequestSchema } from '../schemas';
+import { invalidRequestBody } from '../lib/validation-error';
 
 const router = Router();
 
@@ -17,7 +18,7 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   const parsed = MediaAssetsQuerySchema.safeParse(req.query);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { external_organization_id: externalOrganizationId } = parsed.data;
 
@@ -36,7 +37,7 @@ router.patch('/:id/shareable', async (req: Request, res: Response) => {
   const { id } = req.params;
   const parsed = UpdateShareableRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { external_organization_id, is_shareable } = parsed.data;
 
@@ -74,7 +75,7 @@ router.patch('/by-url', async (req: Request, res: Response) => {
 
   const parsed = UpdateMediaByUrlRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { url, caption, alt_text } = parsed.data;
 
@@ -117,7 +118,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
   const parsed = UpdateMediaCaptionRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { caption } = parsed.data;
 
@@ -151,7 +152,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const parsed = DeleteMediaAssetRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { external_organization_id } = parsed.data;
 

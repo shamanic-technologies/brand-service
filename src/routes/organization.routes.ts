@@ -1,15 +1,17 @@
 import { Router, Request, Response } from 'express';
+import type { ZodError } from 'zod';
 import { getOrganizationRelationsByUrl } from '../services/organizationService';
 import { getOrganizationIdByOrgId } from '../services/organizationUpsertService';
 import { pool } from '../db/utils';
 import { InvalidUrlError, UrlRequiredError, parseZodIssueCode } from '../lib/url-utils';
 import { SetUrlRequestSchema, UpsertOrganizationRequestSchema, AddIndividualRequestSchema, UpdateIndividualStatusRequestSchema, UpdateRelationStatusRequestSchema, UpdateThesisStatusRequestSchema, UpdateLogoRequestSchema, BulkDeleteOrgsRequestSchema } from '../schemas';
+import { invalidRequestBody, describeValidationError } from '../lib/validation-error';
 
-function respondValidationError(parsed: { error: { issues: any[]; flatten: () => unknown } }, res: Response) {
+function respondValidationError(parsed: { error: ZodError }, res: Response) {
   const issue = parsed.error.issues[0];
   const { code, message } = parseZodIssueCode(issue?.message);
   return res.status(400).json({
-    error: 'Invalid request',
+    error: describeValidationError(parsed.error),
     code,
     field: issue?.path?.join('.') ?? null,
     message,
@@ -507,7 +509,7 @@ router.post('/organizations/:organizationId/individuals', async (req: Request, r
 
   const parsed = AddIndividualRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const {
     first_name,
@@ -590,7 +592,7 @@ router.patch('/organizations/:organizationId/individuals/:individualId/status', 
 
   const parsed = UpdateIndividualStatusRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { status } = parsed.data;
 
@@ -708,7 +710,7 @@ router.patch('/organizations/:sourceOrgId/relations/:targetOrgId/status', async 
 
   const parsed = UpdateRelationStatusRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { status } = parsed.data;
 
@@ -870,7 +872,7 @@ router.patch('/organizations/:organizationId/theses/:thesisId/status', async (re
 
   const parsed = UpdateThesisStatusRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { status, status_reason } = parsed.data;
 
@@ -958,7 +960,7 @@ router.delete('/organizations/:organizationId/theses', async (req: Request, res:
 router.patch('/organizations/logo', async (req: Request, res: Response) => {
   const parsed = UpdateLogoRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { url, logo_url } = parsed.data;
 
@@ -1324,7 +1326,7 @@ router.get('/admin/organization-individuals', async (req: Request, res: Response
 router.delete('/admin/organizations-descriptions/bulk', async (req: Request, res: Response) => {
   const parsed = BulkDeleteOrgsRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { ids } = parsed.data;
 

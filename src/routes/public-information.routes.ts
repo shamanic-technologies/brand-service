@@ -4,6 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 // to extract-fields + the new brands + org_brands model.
 import { db, brandsOld as brands, brandRelations, scrapedUrlFirecrawl, brandLinkedinPosts, individualsLinkedinPosts, brandIndividuals, individuals } from '../db';
 import { PublicInfoContentRequestSchema } from '../schemas';
+import { invalidRequestBody } from '../lib/validation-error';
 
 // ── Org-scoped routes (require x-org-id) ──────────────────────────
 
@@ -87,7 +88,7 @@ export const internalRouter = Router();
 internalRouter.post('/public-information-content', async (req: Request, res: Response) => {
   const parsed = PublicInfoContentRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { selected_urls } = parsed.data;
 

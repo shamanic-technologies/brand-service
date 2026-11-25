@@ -19,6 +19,7 @@ import {
   validateOfferDocumentUpload,
 } from '../services/brandOfferDocumentsService';
 import { JsonOfferDocumentUploadSchema, PatchOfferDocumentRequestSchema } from '../schemas';
+import { invalidRequestBody } from '../lib/validation-error';
 
 /**
  * OFFER DOCUMENTS — files a client owns about one offer, that our emails can
@@ -139,7 +140,7 @@ orgRouter.post(
       } else {
         const parsed = JsonOfferDocumentUploadSchema.safeParse(req.body);
         if (!parsed.success) {
-          return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+          return res.status(400).json(invalidRequestBody(parsed.error));
         }
         const b64 = parsed.data.contentBase64.replace(/\s+/g, '');
         if (!BASE64.test(b64) || b64.length % 4 !== 0) {
@@ -228,7 +229,7 @@ orgRouter.patch('/brands/:brandId/offers/:offerId/documents/:documentId', async 
     if (!scope) return;
     const parsed = PatchOfferDocumentRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     const document = await updateOfferDocument(req.orgId!, scope.offerId, req.params.documentId, parsed.data);
     if (!document) return res.status(404).json(DOCUMENT_NOT_FOUND);

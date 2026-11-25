@@ -20,7 +20,7 @@ describe('Intake Form Endpoints', () => {
         .send({});
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
+      expect(response.body.error).toMatch(/^Invalid request: /);
     });
 
     it('should accept valid request', async () => {
@@ -51,7 +51,7 @@ describe('Intake Form Endpoints', () => {
         .send({ company_name: 'Test Company' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBe('Invalid request');
+      expect(response.body.error).toMatch(/^Invalid request: /);
     });
 
     it('should accept valid upsert request', async () => {

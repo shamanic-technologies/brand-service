@@ -11,6 +11,7 @@ import {
   readBrandLinkedinPage,
   setBrandLinkedinPage,
 } from '../services/brandLinkedinPageService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const internalRouter = Router();
 export const orgRouter = Router();
@@ -53,7 +54,7 @@ internalRouter.post('/brands/:brandId/linkedin-page/discover', async (req: Reque
     if (badBrandId(res, brandId)) return;
     const parsed = DiscoverBrandLinkedinPageRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
     const orgId = header(req, 'x-org-id');
     if (orgId && !UUID_REGEX.test(orgId)) {

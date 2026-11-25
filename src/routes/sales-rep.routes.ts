@@ -20,6 +20,7 @@ import {
   type SalesRep,
   type SalesRepWrite,
 } from '../services/salesRepService';
+import { invalidRequestBody } from '../lib/validation-error';
 
 export const orgRouter = Router();
 
@@ -121,7 +122,7 @@ orgRouter.put('/brands/:brandId/sales-rep', async (req: Request, res: Response) 
 
     const parsed = UpsertSalesRepRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     // `salesRepEmail` is OPTIONAL in the request schema on purpose: a required
@@ -267,7 +268,7 @@ orgRouter.put('/brands/:brandId/sales-rep-phone', async (req: Request, res: Resp
 
     const parsed = UpsertSalesRepPhoneRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     let salesRepPhone: string;

@@ -4,6 +4,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db, brandsOld as brands, intakeForms } from '../db';
 import { intakeFormService } from '../services/intakeFormService';
 import { TriggerWorkflowRequestSchema, IntakeFormUpsertRequestSchema } from '../schemas';
+import { invalidRequestBody } from '../lib/validation-error';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ router.post('/trigger-intake-form-generation', async (req: Request, res: Respons
   console.log(`[${new Date().toISOString()}] Request body for /trigger-intake-form-generation:`, req.body);
   const parsed = TriggerWorkflowRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+    return res.status(400).json(invalidRequestBody(parsed.error));
   }
   const { organization_id } = parsed.data;
 
@@ -107,7 +108,7 @@ router.post('/intake-forms', async (req: Request, res: Response) => {
   try {
     const parsed = IntakeFormUpsertRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+      return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     const intakeForm = await intakeFormService.upsertIntakeFormByOrgId(parsed.data);
