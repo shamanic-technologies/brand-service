@@ -651,9 +651,20 @@ export interface PublicProofCompany {
   name: string | null;
   domain: string | null;
   logoUrl: string | null;
+  /** Wide wordmark WE host, light theme (BRANDMARK-WALL-1125). null = none known. */
+  wordmarkUrl: string | null;
+  /** Its dark-theme variant. */
+  wordmarkDarkUrl: string | null;
   notorietyScore: number;
   monthlyTraffic: number | null;
 }
+
+/**
+ * The company's hosted wordmark: only a FOUND row, and only while it was
+ * looked up for the domain the company holds now (a moved domain is another
+ * company's mark). `b` = the company's brand row.
+ */
+const WORDMARK_JOIN = sql`LEFT JOIN company_wordmarks w ON w.brand_id = b.id AND w.status = 'found' AND w.domain = b.domain`;
 
 /**
  * The public "trusted by / featured in" read: Units of every org that CLAIMS
@@ -674,31 +685,36 @@ export async function getPublicProof(q: PublicProofQuery) {
 
   const employerRows = (await db.execute(sql`
     SELECT DISTINCT e.company_brand_id AS company_id, b.name, b.domain, b.logo_url,
-           n.score, n.monthly_traffic
+           n.score, n.monthly_traffic, w.light_url AS wordmark_url, w.dark_url AS wordmark_dark_url
       FROM brand_proof_employers e
       JOIN org_brands ob ON ob.org_id = e.org_id AND ob.brand_id = e.brand_id
       JOIN brands b ON b.id = e.company_brand_id
       JOIN company_notoriety n ON n.brand_id = e.company_brand_id AND n.status = 'judged'
+      ${WORDMARK_JOIN}
      WHERE e.brand_id = ${brandId} AND e.company_brand_id <> ${brandId}
-  `)) as unknown as { company_id: string; name: string | null; domain: string | null; logo_url: string | null; score: number | null; monthly_traffic: number | string | null }[];
+  `)) as unknown as { company_id: string; name: string | null; domain: string | null; logo_url: string | null; wordmark_url: string | null; wordmark_dark_url: string | null; score: number | null; monthly_traffic: number | string | null }[];
 
   const pressRows = (await db.execute(sql`
     SELECT DISTINCT ON (p.outlet_brand_id)
            p.outlet_brand_id AS company_id, b.name, b.domain, b.logo_url, n.score, n.monthly_traffic,
+           w.light_url AS wordmark_url, w.dark_url AS wordmark_dark_url,
            p.article_url, p.title, p.published_at
       FROM brand_proof_press_features p
       JOIN org_brands ob ON ob.org_id = p.org_id AND ob.brand_id = p.brand_id
       JOIN brands b ON b.id = p.outlet_brand_id
       JOIN company_notoriety n ON n.brand_id = p.outlet_brand_id AND n.status = 'judged'
+      ${WORDMARK_JOIN}
      WHERE p.brand_id = ${brandId} AND p.outlet_brand_id <> ${brandId}
      ORDER BY p.outlet_brand_id, p.published_at DESC NULLS LAST, p.created_at DESC
-  `)) as unknown as { company_id: string; name: string | null; domain: string | null; logo_url: string | null; score: number | null; monthly_traffic: number | string | null; article_url: string; title: string | null; published_at: string | null }[];
+  `)) as unknown as { company_id: string; name: string | null; domain: string | null; logo_url: string | null; wordmark_url: string | null; wordmark_dark_url: string | null; score: number | null; monthly_traffic: number | string | null; article_url: string; title: string | null; published_at: string | null }[];
 
-  const toCompany = (r: { company_id: string; name: string | null; domain: string | null; logo_url: string | null; score: number | null; monthly_traffic: number | string | null }) => ({
+  const toCompany = (r: { company_id: string; name: string | null; domain: string | null; logo_url: string | null; wordmark_url: string | null; wordmark_dark_url: string | null; score: number | null; monthly_traffic: number | string | null }) => ({
     companyId: r.company_id,
     name: r.name,
     domain: r.domain,
     logoUrl: r.logo_url,
+    wordmarkUrl: r.wordmark_url ?? null,
+    wordmarkDarkUrl: r.wordmark_url ? r.wordmark_dark_url ?? null : null,
     notorietyScore: r.score as number,
     monthlyTraffic: r.monthly_traffic === null ? null : Number(r.monthly_traffic),
   });

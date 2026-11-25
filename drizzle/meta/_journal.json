@@ -708,6 +708,13 @@
       "when": 1793100000000,
       "tag": "0102_proof_company_domain_lookup",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0103_company_wordmarks",
+      "breakpoints": true
     }
   ]
 }

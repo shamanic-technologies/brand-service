@@ -4678,6 +4678,13 @@ const PublicProofCompanySchema = z.object({
   name: z.string().nullable(),
   domain: z.string().nullable(),
   logoUrl: z.string().nullable(),
+  wordmarkUrl: z.string().nullable().openapi({
+    description:
+      'Wide wordmark image of the company for a LIGHT background (PNG, about 800 px wide, hosted by us). null = no wordmark known, yet or ever: draw `logoUrl`.',
+  }),
+  wordmarkDarkUrl: z.string().nullable().openapi({
+    description: 'The same wordmark for a DARK background. null = none: use `wordmarkUrl`, else `logoUrl`.',
+  }),
   notorietyScore: z.number().int(),
   monthlyTraffic: z.number().int().nullable(),
 });
@@ -4781,7 +4788,8 @@ registry.registerPath({
     PROOF_DESCRIPTION +
     ' No auth. Only judged companies with notorietyScore >= minScore (default 80) and not a measured tiny site ' +
     '(monthlyTraffic < minMonthlyTraffic, default 10000; unknown traffic passes), best first (score, then traffic), ' +
-    'at most `limit` (default 24) per list, one entry per company / outlet. Units of orgs that claim the brand only.',
+    'at most `limit` (default 24) per list, one entry per company / outlet. Units of orgs that claim the brand only. ' +
+    'Each entry carries `wordmarkUrl` / `wordmarkDarkUrl`: the company\'s wide wordmark when one is known, else null.',
   request: { query: PublicProofQuerySchema },
   responses: {
     200: { description: 'Ranked logos', content: { 'application/json': { schema: PublicProofResponseSchema } } },

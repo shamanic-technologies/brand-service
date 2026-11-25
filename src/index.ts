@@ -55,6 +55,7 @@ import { refreshPendingBrandColors } from './services/brandColorsService';
 import { cleanSeparatorBrandNames, fillNamelessCompanies } from './services/companyService';
 import { assessUnstatedOfferSteps } from './services/offerStepsService';
 import { fillProofCompanyDomains } from './services/brandProofService';
+import { refreshCompanyWordmarks } from './services/companyWordmarkService';
 import { verifyUncheckedCompetitorWebsites } from './services/brandCompetitorsService';
 
 const app = express();
@@ -285,6 +286,19 @@ function startProofCompanyDomainsFill(): void {
   setInterval(() => void run('interval'), EXPIRED_FIELDS_CLEANUP_INTERVAL_MS);
 }
 
+// The proof wall's wide wordmarks (BRANDMARK-WALL-1125): each company the
+// public wall can serve is looked up ONCE at logo.dev (3 credits) and its image
+// hosted by us. Bounded per pass and per month, a 402 stops the pass. ~60s
+// after boot, then every 6 hours (a 202 "still indexing" is asked again).
+function startCompanyWordmarksRefresh(): void {
+  const run = (when: string) =>
+    refreshCompanyWordmarks().catch((err) =>
+      console.error(`[brand-service] Company wordmarks refresh (${when}) failed:`, err),
+    );
+  setTimeout(() => void run('boot'), EXPIRED_FIELDS_CLEANUP_BOOT_DELAY_MS);
+  setInterval(() => void run('interval'), BRAND_COLORS_REFRESH_INTERVAL_MS);
+}
+
 // ── Boot ─────────────────────────────────────────────────────────
 // The port binds FIRST, then migrations run behind it.
 //
@@ -332,6 +346,7 @@ if (process.env.NODE_ENV === "test") {
       startOfferStepsAssessment();
       startCompetitorWebsiteCheck();
       startProofCompanyDomainsFill();
+      startCompanyWordmarksRefresh();
       startBrandColorsRefresh();
     })
     .catch((err) => {

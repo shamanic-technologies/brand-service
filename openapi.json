@@ -4028,6 +4028,16 @@
                   "type": "string",
                   "nullable": true
                 },
+                "wordmarkUrl": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "Wide wordmark image of the company for a LIGHT background (PNG, about 800 px wide, hosted by us). null = no wordmark known, yet or ever: draw `logoUrl`."
+                },
+                "wordmarkDarkUrl": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "The same wordmark for a DARK background. null = none: use `wordmarkUrl`, else `logoUrl`."
+                },
                 "notorietyScore": {
                   "type": "integer"
                 },
@@ -4041,6 +4051,8 @@
                 "name",
                 "domain",
                 "logoUrl",
+                "wordmarkUrl",
+                "wordmarkDarkUrl",
                 "notorietyScore",
                 "monthlyTraffic"
               ]
@@ -4066,6 +4078,16 @@
                 "logoUrl": {
                   "type": "string",
                   "nullable": true
+                },
+                "wordmarkUrl": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "Wide wordmark image of the company for a LIGHT background (PNG, about 800 px wide, hosted by us). null = no wordmark known, yet or ever: draw `logoUrl`."
+                },
+                "wordmarkDarkUrl": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "The same wordmark for a DARK background. null = none: use `wordmarkUrl`, else `logoUrl`."
                 },
                 "notorietyScore": {
                   "type": "integer"
@@ -4101,6 +4123,8 @@
                 "name",
                 "domain",
                 "logoUrl",
+                "wordmarkUrl",
+                "wordmarkDarkUrl",
                 "notorietyScore",
                 "monthlyTraffic",
                 "article"
@@ -10151,7 +10175,7 @@
     "/public/brand-proof": {
       "get": {
         "summary": "Public \"trusted by / featured in\" logos of a brand, ranked by notoriety",
-        "description": "Brand proof logos: the companies where a paying client of the brand worked (past or current) and the outlets that published an article quoting the brand, each with its NOTORIETY (0..100, \"would a B2B founder recognise this logo in one second?\", judged once per company by Jev and persisted, cross-org) and its worldwide monthly organic website visits (DataForSEO through treg). No auth. Only judged companies with notorietyScore >= minScore (default 80) and not a measured tiny site (monthlyTraffic < minMonthlyTraffic, default 10000; unknown traffic passes), best first (score, then traffic), at most `limit` (default 24) per list, one entry per company / outlet. Units of orgs that claim the brand only.",
+        "description": "Brand proof logos: the companies where a paying client of the brand worked (past or current) and the outlets that published an article quoting the brand, each with its NOTORIETY (0..100, \"would a B2B founder recognise this logo in one second?\", judged once per company by Jev and persisted, cross-org) and its worldwide monthly organic website visits (DataForSEO through treg). No auth. Only judged companies with notorietyScore >= minScore (default 80) and not a measured tiny site (monthlyTraffic < minMonthlyTraffic, default 10000; unknown traffic passes), best first (score, then traffic), at most `limit` (default 24) per list, one entry per company / outlet. Units of orgs that claim the brand only. Each entry carries `wordmarkUrl` / `wordmarkDarkUrl`: the company's wide wordmark when one is known, else null.",
         "parameters": [
           {
             "schema": {

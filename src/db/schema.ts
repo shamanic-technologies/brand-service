@@ -1530,9 +1530,50 @@ export const logoDevBrandCalls = pgTable("logo_dev_brand_calls", {
 	outcome: text().notNull(),
 	httpStatus: integer("http_status"),
 	detail: text(),
+	/**
+	 * Which logo.dev endpoint the call hit: NULL / 'brand' = the colours lookup
+	 * (v1 /brand), 'brandmark' = the wordmark lookup (v2, BRANDMARK-WALL-1125).
+	 * Each cadence counts ONLY its own route against its own monthly budget.
+	 */
+	route: text(),
 	calledAt: timestamp("called_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
 	index("logo_dev_brand_calls_called_at_idx").on(table.calledAt),
+]);
+
+/**
+ * A company's wide WORDMARK (BRANDMARK-WALL-1125), looked up ONCE per company
+ * at logo.dev (v2 brandmark, 3 credits) and hosted by us (R2).
+ *
+ * Keyed on `brand_id` alone: identity, like `brand_colors`, never per org.
+ * `domain` is the domain the lookup asked: a wordmark is served only while it
+ * equals the brand's current domain (a moved domain is another company).
+ * `found` / `none` / `unavailable` are ANSWERS: never looked up again.
+ * `light_url` / `dark_url` are OUR hosted URLs, never the vendor's signed one.
+ */
+export const companyWordmarks = pgTable("company_wordmarks", {
+	brandId: uuid("brand_id").primaryKey().notNull(),
+	domain: text().notNull(),
+	/** pending | found | none | unavailable */
+	status: text().default('pending').notNull(),
+	attempts: integer().default(0).notNull(),
+	etag: text(),
+	lightUrl: text("light_url"),
+	darkUrl: text("dark_url"),
+	/** The vendor's image metadata (width, height, format, ...), signed URL stripped. */
+	source: jsonb(),
+	lastError: text("last_error"),
+	lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true, mode: 'string' }),
+	resolvedAt: timestamp("resolved_at", { withTimezone: true, mode: 'string' }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+	foreignKey({
+		columns: [table.brandId],
+		foreignColumns: [brands.id],
+		name: "company_wordmarks_brand_id_fkey"
+	}).onDelete("cascade"),
+	check("company_wordmarks_status_check", sql`${table.status} IN ('pending','found','none','unavailable')`),
 ]);
 
 /**
