@@ -2274,15 +2274,11 @@ registry.registerPath({
   summary: 'Suggest one natural-language ICP for a brand (no persistence)',
   description:
     "Uses an LLM to write ONE natural-language line describing the brand's " +
-    'PRINCIPAL ideal customer profile (ICP) as a precise PROSPECTING FILTER, in ' +
-    'the style of an Apollo search query: WHO to contact (job titles / seniority) ' +
-    'AND which companies (industry, headcount range, revenue range, plus sharper ' +
-    'signals like tech stack / funding / hiring / buying-intent angle when ' +
-    'relevant). The model walks an Apollo-aligned dimension checklist and includes ' +
-    'only the dimensions that genuinely sharpen the segment. Seeded from the ' +
+    'buyers (ICP): the roles that decide AND the kind of company or person they ' +
+    'are, in the customer\'s own words when given. No constraint the customer did ' +
+    'not state (size, revenue, tools, funding...). Seeded from the offer, the ' +
     "brand's brand-profile fields and target-audience signals. " +
-    'The result is a single dense one-line string ' +
-    '(everyday language, ranges with scale abbreviations like "M"/"$"/"<", no ' +
+    'The result is a single one-line string (everyday language, no ' +
     'jargon acronyms). Optional body `existingIcps` lists ICPs already found; when ' +
     'present the returned ICP is DISTINCT from and complementary to all of them ("given ' +
     'these, find another"). PURE GENERATION — nothing is persisted. Cost + affordability ' +

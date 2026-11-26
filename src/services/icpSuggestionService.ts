@@ -9,12 +9,13 @@
  * brand's usual customers (an angel round came back as SaaS founders).
  *
  * Original framing: ONE natural-language line
- * describing the brand's PRINCIPAL ideal customer profile (ICP) as a precise
- * PROSPECTING FILTER — who to contact (job titles / seniority) AND which
- * companies (industry, headcount range, revenue range, and sharper signals like
- * tech stack / funding / hiring / buying-intent when relevant), in the style of
- * an Apollo search query. The model walks an Apollo-aligned dimension checklist
- * and includes only the dimensions that genuinely sharpen the segment. Seeded
+ * describing who buys: the roles that decide AND the kind of company or person
+ * they are. ICP-NO-INVENTED-NARROWING-1126 DELETED the Apollo-style example
+ * ("50–500 employees, $5M–$50M revenue, using AWS") and the dimension checklist
+ * (headcount, revenue, tools, funding, hiring, intent): the model added them to
+ * look sharp, and writebros.ai's offer came back as "agencies with 5 to 50
+ * employees, $500K-$10M revenue, using Zapier or n8n", audiences of 340 and 22
+ * people. Never re-add a dimension list or a ranged example. Seeded
  * from the brand's current brand-profile fields plus target-audience signals. The result is a single one-line
  * string returned to the caller; NOTHING is persisted.
  *
@@ -142,62 +143,19 @@ export const ICP_SYSTEM_PROMPT = [
   'customer\'s own words about who buys: build the filter from it.',
   '',
   'When the buyers are individuals rather than employees of a company (business',
-  'angels, candidates, independent professionals), describe the people with the',
-  'filters that fit them (role, sector focus, typical ticket or budget, location,',
-  'track record) instead of forcing company firmographics.',
+  'angels, candidates, independent professionals), describe the people',
+  'instead of forcing a company.',
   '',
-  'Your output reads like a PROSPECTING FILTER written as one natural sentence —',
-  'the kind of precise targeting query a sales rep would build in Apollo: WHO to',
-  'contact inside the company, AND which companies they work at. Vague audience',
-  'descriptions ("companies that struggle with reporting") are a failure; a',
-  'pinpointed filter ("VP Eng / CTOs at Series A–B B2B SaaS, 50–500 employees,',
-  '$5M–$50M revenue, using AWS") is the goal.',
-  '',
-  'Walk the dimensions below and, FOR EACH ONE, ask yourself: "does specifying',
-  'this actually sharpen THIS brand\'s best-fit segment?" Include only the',
-  'dimensions that genuinely narrow the segment; SKIP the ones that are',
-  'irrelevant or that you cannot infer with confidence. Do NOT force every',
-  'dimension in — a short, sharp filter beats a long, padded one.',
-  '',
-  'WHO to contact (the person — always specify at least one of these):',
-  '- Job titles: the roles that actually decide/champion (e.g. "Head of RevOps",',
-  '  "VP Engineering", "Founder"). This is the single most important dimension.',
-  '- Seniority level: founder / C-suite / VP / head / director / manager — when',
-  '  the decision sits at a specific reporting level.',
-  '- Person location: only when you target by where the person lives, not the HQ.',
-  '',
-  'WHICH companies (firmographics — specify the ones that predict fit):',
-  '- Industry / vertical: almost always worth it (e.g. "B2B SaaS", "e-commerce").',
-  '- Employee headcount, as a RANGE: e.g. "50–500 employees", when company size',
-  '  predicts fit.',
-  '- Annual revenue, as a RANGE: e.g. "$5M–$50M/yr", when budget/maturity matters.',
-  '- Geography (company HQ): only when the brand sells to a bounded region.',
-  '',
-  'SHARPER SIGNALS (add ONLY when clearly relevant — these are what make an ICP',
-  'feel hand-built rather than generic):',
-  '- Technologies used: when the product integrates with or replaces a specific',
-  '  tool (e.g. "running Salesforce", "on Shopify").',
-  '- Funding / growth stage: recent raise, total funding, or stage (e.g.',
-  '  "recently raised Series A") when fresh capital is a buying trigger.',
-  '- Hiring signals: actively hiring for certain roles, or growing headcount —',
-  '  when that growth is the trigger to buy.',
-  '- Buying-intent angle (soft): what the ideal customer is actively researching',
-  '  right now — the brand\'s category, the pain, or a competitor name (e.g.',
-  '  "evaluating cold-email tools"). A timing/messaging signal, phrased in plain',
-  '  words — do NOT invent a precise score.',
-  '',
-  'Also fold in WHAT pain or trigger makes them buy now (the specific problem',
-  'this brand solves) and WHY they are best-fit, when it sharpens the segment.',
+  'Your output names WHO buys: the roles that decide inside the buyer, AND the',
+  'kind of company or person they are, in the customer\'s own words when given.',
+  'Vague audience descriptions ("companies that struggle with reporting") are',
+  'a failure. Never add a constraint the customer did not state.',
   '',
   'Rules for the description:',
-  '- ONE sentence of AT MOST 40 WORDS. Pack in the chosen dimensions densely,',
-  '  like a search query — no preamble, no "the ideal customer is", no',
-  '  explanation of why they fit, just the filter itself. Never a paragraph or',
-  '  multiple sentences: drop the weakest dimensions to stay under the cap.',
+  '- ONE sentence of AT MOST 40 WORDS — no preamble, no "the ideal customer',
+  '  is", no explanation of why they fit. Never a paragraph or multiple',
+  '  sentences.',
   '- Plain, everyday language a non-expert understands.',
-  '- Express firmographics as RANGES with short scale abbreviations: "M" for',
-  '  million, "$", "<", ">", en dashes for ranges (e.g. "$5M–$50M/yr revenue",',
-  '  "50–500 employees").',
   '- NO jargon acronyms — never write ACV, LTV, TAM, SAM, MQL, ICP, etc. Say it',
   '  in plain words instead. (Common job-title abbreviations like CTO/CEO/VP are',
   '  fine — those name the person.)',
