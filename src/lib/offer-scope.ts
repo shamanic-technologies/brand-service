@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { OfferNameError } from './offer-name';
+import { OfferDescriptionError } from './offer-description';
 import {
   OfferNameTakenError,
   OfferNameUnavailableError,
@@ -40,7 +41,11 @@ export function rejectOfferProblem(res: Response, error: unknown): boolean {
     res.status(404).json({ error: error.message, code: 'OFFER_NOT_FOUND' });
     return true;
   }
-  if (error instanceof OfferNameError || error instanceof OfferNameUnavailableError) {
+  if (
+    error instanceof OfferNameError ||
+    error instanceof OfferNameUnavailableError ||
+    error instanceof OfferDescriptionError
+  ) {
     res.status(400).json({ error: error.message });
     return true;
   }

@@ -4,6 +4,7 @@ import { chat, judgeChoice, type OrgCaller } from '../lib/chat-client';
 import { withOwnRun } from '../lib/own-run';
 import { defaultOfferSiteReader, readOfferSiteSource, type OfferSiteReader } from './offerSiteSourceService';
 import { OFFER_ICONS, isOfferIcon, type OfferIcon } from '../lib/offer-icons';
+import { MAX_OFFER_DESCRIPTION_CHARS } from '../lib/offer-description';
 import {
   DEFAULT_OFFER_NAME,
   OfferNameError,
@@ -59,8 +60,8 @@ export const MAX_CONFIRMED_OFFERS = 8;
 /** The longest description text accepted. A website-prefilled box, not a document. */
 export const MAX_OFFER_DESCRIPTION_INPUT_CHARS = 20_000;
 
-/** The longest one-sentence description an offer may carry. */
-export const MAX_OFFER_DESCRIPTION_CHARS = 500;
+/** The longest one-sentence description an offer may carry (shared with the offer edit). */
+export { MAX_OFFER_DESCRIPTION_CHARS };
 
 export interface ProposedOffer {
   name: string;

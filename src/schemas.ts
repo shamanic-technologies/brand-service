@@ -11,6 +11,7 @@ import {
   SUPPLIED_OFFER_NAME_MAX_CHARS,
   offerNameProblem,
 } from './lib/offer-name';
+import { MAX_OFFER_DESCRIPTION_CHARS } from './lib/offer-description';
 
 /**
  * Appended to every 402: a refusal is not always the balance. When billing
@@ -2749,9 +2750,25 @@ export const CreateOfferRequestSchema = z
   .object({ name: OfferNameSchema })
   .openapi('CreateOfferRequest');
 
-export const RenameOfferRequestSchema = z
-  .object({ name: OfferNameSchema })
-  .openapi('RenameOfferRequest');
+// Partial: send only what changes. `description: null` or blank = no description
+// (OFFER-DESCRIPTION-1127). At least one field.
+export const UpdateOfferRequestSchema = z
+  .object({
+    name: OfferNameSchema.optional(),
+    description: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          `One plain sentence on what the buyer gets and who it is for, at most ${MAX_OFFER_DESCRIPTION_CHARS} characters ` +
+          'after whitespace is collapsed. `null` or blank clears it (no description).',
+      }),
+  })
+  .refine((body) => body.name !== undefined || body.description !== undefined, {
+    message: 'Send a name, a description, or both.',
+  })
+  .openapi('UpdateOfferRequest');
 
 export const GenerateOfferImageRequestSchema = z
   .object({
@@ -3017,18 +3034,19 @@ registry.registerPath({
 registry.registerPath({
   method: 'patch',
   path: '/orgs/brands/{brandId}/offers/{offerId}',
-  summary: 'Rename an offer',
+  summary: 'Rename an offer or edit its description',
   description:
-    'Rename it. The character limit applies exactly as it does on create, and the name stays unique within ' +
-    'the brand. Nothing else about the offer changes — its economics and its value ' +
-    'proposition are untouched.',
+    'Rename an offer, change its description (who it is for, what the buyer gets), or both. Partial: a field ' +
+    'you omit is left as stored. The name keeps its create rules (character limit, unique within the brand). ' +
+    'The description is one sentence of at most 500 characters; `null` or blank clears it. Nothing else about ' +
+    'the offer changes: its economics and its value proposition are untouched.',
   request: {
     params: z.object({ brandId: z.string().uuid(), offerId: z.string().uuid() }),
-    body: { content: { 'application/json': { schema: RenameOfferRequestSchema } } },
+    body: { content: { 'application/json': { schema: UpdateOfferRequestSchema } } },
   },
   responses: {
-    200: { description: 'The renamed offer', content: { 'application/json': { schema: OfferResponseSchema } } },
-    400: { description: 'Invalid ID, or a name over the character limit' },
+    200: { description: 'The updated offer', content: { 'application/json': { schema: OfferResponseSchema } } },
+    400: { description: 'Invalid ID, an empty patch, a name over the character limit, or a description over 500 characters' },
     403: { description: "Brand does not belong to the caller's org" },
     404: { description: 'No such brand, or no such offer on it' },
     409: { description: 'This brand already has another offer with that name' },

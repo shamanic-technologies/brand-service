@@ -7,6 +7,7 @@ import {
   offerNameForBrand,
   offerNameProblem,
 } from '../lib/offer-name';
+import { OfferDescriptionError, normalizeOfferDescription } from '../lib/offer-description';
 
 /**
  * OFFERS — the things a brand sells, and the level every value proposition and
@@ -277,33 +278,62 @@ export async function createOffer(
 }
 
 /** Rename an offer. The two limits apply exactly as they do on create. */
-export async function renameOffer(
+/**
+ * What a caller may change on an offer: its name, its description, or both.
+ * An omitted field is left exactly as stored; `description: null` (or blank)
+ * clears it to "no description" (OFFER-DESCRIPTION-1127).
+ */
+export interface OfferPatch {
+  name?: string;
+  description?: string | null;
+}
+
+/**
+ * Rename an offer and/or rewrite its description. The name keeps its create
+ * rules (limit, unique within the brand); the description its confirm rules
+ * (`normalizeOfferDescription`). A patch naming nothing is refused.
+ */
+export async function updateOffer(
   orgId: string,
   brandId: string,
   offerId: string,
-  name: string
+  patch: OfferPatch
 ): Promise<BrandOffer> {
+  if (patch.name === undefined && patch.description === undefined) {
+    throw new OfferDescriptionError('Send a name, a description, or both.');
+  }
   await assertOfferOnBrand(orgId, brandId, offerId);
-  const canonical = requireValidOfferName(name);
 
-  const clash = await db
-    .select({ id: brandOffers.id })
-    .from(brandOffers)
-    .where(
-      and(
-        eq(brandOffers.orgId, orgId),
-        eq(brandOffers.brandId, brandId),
-        eq(brandOffers.name, canonical)
+  const set: { name?: string; description?: string | null; updatedAt: string } = {
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (patch.name !== undefined) {
+    const canonical = requireValidOfferName(patch.name);
+    const clash = await db
+      .select({ id: brandOffers.id })
+      .from(brandOffers)
+      .where(
+        and(
+          eq(brandOffers.orgId, orgId),
+          eq(brandOffers.brandId, brandId),
+          eq(brandOffers.name, canonical)
+        )
       )
-    )
-    .limit(1);
-  if (clash.length > 0 && clash[0].id !== offerId) {
-    throw new OfferNameTakenError(canonical);
+      .limit(1);
+    if (clash.length > 0 && clash[0].id !== offerId) {
+      throw new OfferNameTakenError(canonical);
+    }
+    set.name = canonical;
+  }
+
+  if (patch.description !== undefined) {
+    set.description = normalizeOfferDescription(patch.description);
   }
 
   const [row] = await db
     .update(brandOffers)
-    .set({ name: canonical, updatedAt: new Date().toISOString() })
+    .set(set)
     .where(
       and(
         eq(brandOffers.orgId, orgId),
