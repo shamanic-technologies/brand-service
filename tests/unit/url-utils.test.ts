@@ -139,6 +139,21 @@ describe('extractDomain', () => {
 });
 
 describe('BrandUrlSchema', () => {
+  // SSRF-1127: the 2026-11-20 probes stored these as brand URLs.
+  it.each(['http://127.0.0.1.nip.io:2019/config/', 'http://172.17.0.1.nip.io:2019/config/', 'https://acme.com:8080/'])(
+    'refuses a non-default port: %s',
+    (url) => {
+      const r = BrandUrlSchema.safeParse(url);
+      expect(r.success).toBe(false);
+      expect(r.error?.issues[0].message).toMatch(/^INVALID_URL: Port \d+ not allowed/);
+      expect(OptionalBrandUrlSchema.safeParse(url).success).toBe(false);
+    },
+  );
+
+  it('keeps an explicit default port (the parser drops it)', () => {
+    expect(BrandUrlSchema.parse('https://acme.com:443/')).toBe('https://acme.com');
+  });
+
   it('parses and normalizes a bare domain', () => {
     expect(BrandUrlSchema.parse('acme.com')).toBe('https://acme.com');
   });

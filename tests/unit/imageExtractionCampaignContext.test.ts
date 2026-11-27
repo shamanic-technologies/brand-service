@@ -79,13 +79,12 @@ vi.mock('../../src/lib/image-utils', () => ({
   getExtensionFromUrl: () => 'jpg',
 }));
 
-vi.mock('axios', () => ({
-  default: {
-    head: vi.fn().mockResolvedValue({
-      headers: { 'content-type': 'image/jpeg', 'content-length': '50000' },
-    }),
-    get: vi.fn(),
-  },
+vi.mock('../../src/lib/safe-fetch', async (importActual) => ({
+  ...(await importActual<typeof import('../../src/lib/safe-fetch')>()),
+  safePublicFetch: vi.fn(
+    async () =>
+      new Response(null, { status: 200, headers: { 'content-type': 'image/jpeg', 'content-length': '50000' } }),
+  ),
 }));
 
 // ─── Imports (after mocks) ───────────────────────────────────────────────────

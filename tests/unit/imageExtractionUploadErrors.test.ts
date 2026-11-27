@@ -80,14 +80,14 @@ vi.mock('../../src/lib/image-utils', () => ({
   getExtensionFromUrl: () => 'jpg',
 }));
 
-vi.mock('axios', () => ({
-  default: {
-    head: vi.fn().mockResolvedValue({
-      headers: { 'content-type': 'image/jpeg', 'content-length': '50000' },
-    }),
-    get: vi.fn(),
-  },
+const imageHead = (length: string) =>
+  new Response(null, { status: 200, headers: { 'content-type': 'image/jpeg', 'content-length': length } });
+const safeFetchMock = vi.hoisted(() => ({ safePublicFetch: vi.fn() }));
+vi.mock('../../src/lib/safe-fetch', async (importActual) => ({
+  ...(await importActual<typeof import('../../src/lib/safe-fetch')>()),
+  safePublicFetch: (...a: unknown[]) => safeFetchMock.safePublicFetch(...a),
 }));
+safeFetchMock.safePublicFetch.mockImplementation(async () => imageHead('50000'));
 
 vi.mock('../../src/lib/scraping-client', () => ({
   SiteMapError: class SiteMapError extends Error {},
@@ -213,10 +213,9 @@ describe('image extraction — upload error handling', () => {
       } as any);
 
     // HEAD probes pass for both
-    const axios = await import('axios');
-    vi.mocked(axios.default.head)
-      .mockResolvedValueOnce({ headers: { 'content-type': 'image/jpeg', 'content-length': '50000' } } as any)
-      .mockResolvedValueOnce({ headers: { 'content-type': 'image/jpeg', 'content-length': '40000' } } as any);
+    safeFetchMock.safePublicFetch
+      .mockResolvedValueOnce(imageHead('50000'))
+      .mockResolvedValueOnce(imageHead('40000'));
 
     // First upload succeeds, second fails
     mockUploadToCloudflare

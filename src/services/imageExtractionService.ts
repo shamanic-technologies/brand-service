@@ -11,7 +11,7 @@
 import { eq, and, gt, inArray, sql, isNull } from 'drizzle-orm';
 import { PAGE_CACHE_TTL_DAYS } from '../lib/page-cache-ttl';
 import crypto from 'crypto';
-import axios from 'axios';
+import { safePublicFetch, UnsafeFetchTargetError } from '../lib/safe-fetch';
 import { db, brands, brandExtractedImages } from '../db';
 import { chat, OrgCaller } from '../lib/chat-client';
 import { ScrapingTrackingContext } from '../lib/scraping-client';
@@ -80,14 +80,17 @@ interface VisionAnalysis {
  * Returns null if the image should be filtered out.
  */
 export async function probeImage(url: string): Promise<{ contentType: string; sizeBytes: number } | null> {
+  // The URL was found on a customer's website: every hop goes through the
+  // SSRF guard (SSRF-1127), redirects re-checked, never a blind follow.
   try {
-    const response = await axios.head(url, {
-      timeout: 5_000,
+    const response = await safePublicFetch(url, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5_000),
       maxRedirects: 3,
-      validateStatus: (s) => s < 400,
     });
+    if (response.status >= 400) throw new Error(`HEAD ${response.status}`);
 
-    const contentType = String(response.headers['content-type'] || '').toLowerCase();
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
     if (!contentType.startsWith('image/')) return null;
 
     // Skip SVGs unless they're likely logos (larger ones)
@@ -96,20 +99,26 @@ export async function probeImage(url: string): Promise<{ contentType: string; si
       return { contentType, sizeBytes: 0 };
     }
 
-    const sizeBytes = parseInt(String(response.headers['content-length'] || '0'), 10);
+    const sizeBytes = parseInt(String(response.headers.get('content-length') || '0'), 10);
     if (sizeBytes > 0 && sizeBytes < MIN_IMAGE_SIZE_BYTES) return null;
 
     return { contentType, sizeBytes };
-  } catch {
+  } catch (err) {
+    if (err instanceof UnsafeFetchTargetError) {
+      console.warn(`[brand-service] image probe refused: ${err.message}`);
+      return null;
+    }
     // If HEAD fails, try a small GET range request as fallback
     try {
-      const response = await axios.get(url, {
-        timeout: 5_000,
+      const response = await safePublicFetch(url, {
+        signal: AbortSignal.timeout(5_000),
         maxRedirects: 3,
         headers: { Range: 'bytes=0-0' },
-        validateStatus: (s) => s < 400,
+        maxBytes: 1024,
       });
-      const contentType = String(response.headers['content-type'] || '').toLowerCase();
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status >= 400) return null;
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
       if (!contentType.startsWith('image/')) return null;
       return { contentType, sizeBytes: 0 };
     } catch {
