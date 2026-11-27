@@ -104,11 +104,27 @@ export function extractDomain(input: unknown, field = 'url'): string {
 
 const URL_ISSUE_PREFIX = 'INVALID_URL: ';
 
+/**
+ * A brand's website is served on the default port. SSRF-1127: the 2026-11-20
+ * probes stored `http://127.0.0.1.nip.io:2019/config/` (Caddy admin) as a
+ * brand URL; refused here at the write, and again by `safePublicFetch` before
+ * any read. Only the brand-URL schemas call it, never `normalizeUrl` (stored
+ * rows are re-read through it).
+ */
+export function normalizeBrandUrl(input: unknown, field = 'url'): string {
+  const normalized = normalizeUrl(input, field);
+  const port = new URL(normalized).port;
+  if (port !== '') {
+    throw new InvalidUrlError(`Port ${port} not allowed: a website is served on the default port`, field);
+  }
+  return normalized;
+}
+
 export const BrandUrlSchema = z
   .string({ error: 'url must be a string' })
   .transform((val, ctx) => {
     try {
-      return normalizeUrl(val);
+      return normalizeBrandUrl(val);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Invalid URL';
       ctx.addIssue({ code: 'custom', message: `${URL_ISSUE_PREFIX}${message}` });
@@ -122,7 +138,7 @@ export const OptionalBrandUrlSchema = z
   .transform((val, ctx) => {
     if (val === undefined || val === null || val === '') return undefined;
     try {
-      return normalizeUrl(val);
+      return normalizeBrandUrl(val);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Invalid URL';
       ctx.addIssue({ code: 'custom', message: `${URL_ISSUE_PREFIX}${message}` });
