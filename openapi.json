@@ -2516,16 +2516,18 @@
           "name"
         ]
       },
-      "RenameOfferRequest": {
+      "UpdateOfferRequest": {
         "type": "object",
         "properties": {
           "name": {
             "$ref": "#/components/schemas/OfferName"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "description": "One plain sentence on what the buyer gets and who it is for, at most 500 characters after whitespace is collapsed. `null` or blank clears it (no description)."
           }
-        },
-        "required": [
-          "name"
-        ]
+        }
       },
       "GenerateOfferImageRequest": {
         "type": "object",
@@ -7785,8 +7787,8 @@
         }
       },
       "patch": {
-        "summary": "Rename an offer",
-        "description": "Rename it. The character limit applies exactly as it does on create, and the name stays unique within the brand. Nothing else about the offer changes — its economics and its value proposition are untouched.",
+        "summary": "Rename an offer or edit its description",
+        "description": "Rename an offer, change its description (who it is for, what the buyer gets), or both. Partial: a field you omit is left as stored. The name keeps its create rules (character limit, unique within the brand). The description is one sentence of at most 500 characters; `null` or blank clears it. Nothing else about the offer changes: its economics and its value proposition are untouched.",
         "parameters": [
           {
             "schema": {
@@ -7811,14 +7813,14 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RenameOfferRequest"
+                "$ref": "#/components/schemas/UpdateOfferRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "The renamed offer",
+            "description": "The updated offer",
             "content": {
               "application/json": {
                 "schema": {
@@ -7828,7 +7830,7 @@
             }
           },
           "400": {
-            "description": "Invalid ID, or a name over the character limit"
+            "description": "Invalid ID, an empty patch, a name over the character limit, or a description over 500 characters"
           },
           "403": {
             "description": "Brand does not belong to the caller's org"

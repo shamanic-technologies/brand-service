@@ -303,6 +303,10 @@ icon vocabulary `src/lib/offer-icons.ts`, guards
   into the chosen offer, keeping its id and its user-fields. Nothing is ever
   deleted: an offer id may already be referenced in other services.
 
+## An offer's name AND description are editable (`updateOffer`, OFFER-DESCRIPTION-1127)
+
+`PATCH /orgs/brands/:brandId/offers/:offerId` takes `{ name?, description? }`, partial, at least one (empty patch = 400). A client widening who an offer is for (2026-11-27 "Chiropractic Vendors" -> "Healthcare Practice Vendors") could rename it but its description stayed frozen at creation. One description rule for every writer (`lib/offer-description.ts`, shared with confirm): whitespace collapsed, at most 500 chars, over = 400 (never cut), `null` or blank = no description (NULL). Guards `tests/unit/offerDescription.test.ts`, `tests/integration/offerDescriptionEdit.test.ts`.
+
 ## Offer answers — what a customer states so a responder does not have to guess
 
 A cold-email prospect replied "I've been to them before. How much are they?" and
