@@ -8,7 +8,7 @@ import {
   ListOffersQuerySchema,
   PutOfferAnswersRequestSchema,
   PutUserFieldsRequestSchema,
-  RenameOfferRequestSchema,
+  UpdateOfferRequestSchema,
 } from '../schemas';
 import { UUID_REGEX, resolveBrandOwnership, rejectOwnership } from '../lib/brand-ownership';
 import { rejectOfferProblem } from '../lib/offer-scope';
@@ -18,7 +18,7 @@ import {
   createOffer,
   getOfferById,
   listOffers,
-  renameOffer,
+  updateOffer,
   setOfferArchived,
 } from '../services/brandOffersService';
 import { CampaignServiceUnavailableError, listOngoingCampaignIdsForOffer } from '../lib/campaign-client';
@@ -292,29 +292,29 @@ orgRouter.get('/brands/:brandId/offers/:offerId', async (req: Request, res: Resp
 });
 
 /**
- * PATCH /orgs/brands/:brandId/offers/:offerId — rename it.
- * The two name limits apply exactly as they do on create, and the name stays
- * unique within the brand.
+ * PATCH /orgs/brands/:brandId/offers/:offerId — rename it and/or edit its
+ * description (partial). The name keeps its create rules and stays unique
+ * within the brand; a blank or null description clears it.
  */
 orgRouter.patch('/brands/:brandId/offers/:offerId', async (req: Request, res: Response) => {
   try {
     const scope = await resolveOfferParam(req, res);
     if (!scope) return;
 
-    const parsed = RenameOfferRequestSchema.safeParse(req.body);
+    const parsed = UpdateOfferRequestSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json(invalidRequestBody(parsed.error));
     }
 
     try {
-      const offer = await renameOffer(req.orgId!, scope.brandId, scope.offerId, parsed.data.name);
+      const offer = await updateOffer(req.orgId!, scope.brandId, scope.offerId, parsed.data);
       return res.status(200).json({ offer });
     } catch (error) {
       if (rejectOfferProblem(res, error)) return;
       throw error;
     }
   } catch (error: any) {
-    console.error('[brand-service] Rename offer error:', error);
+    console.error('[brand-service] Update offer error:', error);
     return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
